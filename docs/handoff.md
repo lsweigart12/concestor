@@ -73,6 +73,22 @@ obliged to render. Resolution: provenance gets dash pattern and desaturation, an
 `structural` nodes get **no numeric age at all** — which was always the hard
 requirement. Luminance stays with selection.
 
+That channel shipped undocumented on screen for a while, which made it a code
+nobody could read: the only place "dashed means nobody has estimated this" was
+written down was these docs. `web/src/canvas/Legend.tsx` now says it on the
+canvas, deriving its rows from the edges actually drawn so it can never caption
+a pattern that is not there — and rendering its swatches with the real
+`.trace-core` classes so the legend and the traces cannot drift apart.
+
+**Where it went is the part worth keeping.** It took two wrong answers first, a
+titled card and then a bordered pill, and both were the same mistake: adding a
+third floating object to a bottom edge that already had the axis and the hint
+bar. The fix was not a smaller panel. The key, the units and the scale mode all
+answer one question — how do I read a position here? — so they share one flat
+line in the axis footer, and the hint bar, which answers a different question,
+moved to the top edge. If something else earns standing chrome later, the test
+is which of those two questions it answers, not where there is room.
+
 **The ICS geologic palette is warm; the design language forbids warm.** Keep the
 official hue *relationships*, drop the official saturation and luminance, and let
 the band recede. The original argument for exact CGMW colour was that it reads as

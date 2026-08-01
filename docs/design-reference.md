@@ -62,7 +62,11 @@ filter tween on the same element.
   palette scoped to that node or branch.
 - The search field carries a breadcrumb of current scope. Backspace at
   position zero pops the scope.
-- Inline keybind hints on every row. Persistent hint bar pinned bottom-right.
+- Inline keybind hints on every row. Persistent hint bar on the **top edge**,
+  flat text under the same fade-to-void the axis uses, not a pill. It was
+  pinned bottom-right until the axis footer had something to say; the two
+  questions now split by edge — the top says what you can *do*, the bottom says
+  how to *read* what you see.
 - Confirmations are brief HUD toasts. No modals, no dialogs.
 
 ---
@@ -75,6 +79,15 @@ filter tween on the same element.
 - Selected path burns bright; unselected lineages recede to dim and
   desaturated. Contrast does the wayfinding, not labels.
 - Nodes are small luminous points that bloom on hover and focus.
+- Dash pattern is the one thing on the canvas a reader cannot infer, and it
+  carries the provenance claim, so it is stated as a **key on the axis footer**
+  — one line, key left, units right, flat text at the same size. A key, never
+  an explanation: the sentences belong in the node card, one click from the
+  node being asked about. It names only the patterns actually drawn, so a fully
+  dated tree shows no key at all. It is the narrow exception to "no onboarding
+  overlays", not a licence for more chrome — and it is **not** a panel. Two
+  drafts made it one, a card and then a pill, and both were a third floating
+  object on an edge that already had two. The line it belongs on existed.
 
 ## Layout
 

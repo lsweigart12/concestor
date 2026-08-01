@@ -17,7 +17,12 @@
 
 import { useEffect, useRef } from "react";
 import type { EdgeProps } from "@xyflow/react";
-import { TIER_INTERPOLATED, TIER_STRUCTURAL, type Tier } from "../api";
+import {
+  TIER_INTERPOLATED,
+  TIER_MEASURED,
+  TIER_STRUCTURAL,
+  type Tier,
+} from "../api";
 
 export interface TraceEdgeData extends Record<string, unknown> {
   d: string;
@@ -33,10 +38,32 @@ export interface TraceEdgeData extends Record<string, unknown> {
   reduced: boolean;
 }
 
-const TIER_CLASS: Record<number, string> = {
+/**
+ * The class that carries a tier's dash pattern. Exported because the legend
+ * draws real traces rather than pictures of them — see `Legend.tsx`.
+ */
+export const TIER_CLASS: Record<number, string> = {
+  [TIER_MEASURED]: "tier-measured",
   [TIER_INTERPOLATED]: "tier-interpolated",
   [TIER_STRUCTURAL]: "tier-structural",
 };
+
+/**
+ * The stroke for a trace, given its lane hue and its provenance tier.
+ *
+ * Saturation and lightness are the *second* provenance channel — dash is the
+ * first — because luminance is reserved for recency and selection and may not
+ * be spent on a data value. Inference reads as desaturated, not as dim.
+ *
+ * `hue` takes a CSS expression as well as a number so the legend can pass
+ * `var(--accent-h)`: its swatches belong to no lane, and borrowing one lane's
+ * hue would imply the row was about that lineage.
+ */
+export function traceStroke(hue: number | string, tier: Tier): string {
+  const sat = tier === TIER_STRUCTURAL ? 22 : tier === TIER_INTERPOLATED ? 42 : 68;
+  const light = tier === TIER_STRUCTURAL ? 52 : 62;
+  return `hsl(${hue} ${sat}% ${light}%)`;
+}
 
 export function TraceEdge({ id, data }: EdgeProps) {
   const d = data as unknown as TraceEdgeData;
@@ -90,7 +117,7 @@ export function TraceEdge({ id, data }: EdgeProps) {
     };
   }, [d.drawToken, d.delay, d.reduced, d.d]);
 
-  const stroke = `hsl(${d.hue} ${d.tier === TIER_STRUCTURAL ? 22 : d.tier === TIER_INTERPOLATED ? 42 : 68}% ${d.tier === TIER_STRUCTURAL ? 52 : 62}%)`;
+  const stroke = traceStroke(d.hue, d.tier);
 
   return (
     <g

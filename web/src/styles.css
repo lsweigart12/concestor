@@ -387,15 +387,55 @@ body {
 
 /* ------------------------------------------------------------- time axis -- */
 
+/*
+ * One band of chrome along the bottom, not three objects floating near it.
+ *
+ * The strip is: geologic band, rule and ticks, then a footer line carrying the
+ * provenance key on the left and the units in the middle. Everything there
+ * answers the same question — how to read a position — so it reads as one
+ * statement on one baseline, in flat text at the same size and weight. The
+ * hint bar, which answers a different question, has moved to the top edge.
+ */
 .axis {
   position: absolute;
   left: 0;
   right: 0;
   bottom: 0;
-  height: 84px;
+  /* Grows upward rather than clipping. Below roughly 560px the key wraps to a
+     second row, and `AXIS_RESERVE` in Graph.tsx leaves enough slack that a
+     wrapped footer still does not reach the lowest lineage. */
+  min-height: 84px;
+  display: flex;
+  flex-direction: column;
   pointer-events: none;
   z-index: 4;
   background: linear-gradient(to top, var(--void) 46%, transparent);
+}
+
+/*
+ * Key left, units right, sharing one line.
+ *
+ * The caption is not centred. Centring it means reserving a mirrored column
+ * for nothing, and at the widths this is used at that column is the difference
+ * between one row and two. Ending at the right — under the present, which is
+ * where the eye finishes reading a lineage — costs nothing and lets both
+ * halves have the room they need.
+ */
+.axis-foot {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 2px var(--s4);
+  padding: 3px var(--s4) 9px;
+  font-size: 10.5px;
+  color: var(--ink-4);
+}
+
+.axis-caption {
+  letter-spacing: 0.08em;
+  white-space: nowrap;
 }
 
 .axis-line {
@@ -651,24 +691,35 @@ body {
   padding-top: 1px;
 }
 
-/* Persistent hint bar pinned bottom-right. */
-/* Above the axis strip, not on it — the axis is 84px of fixed chrome at the
-   bottom and the hint bar was printing over its caption. */
+/*
+ * The hint bar, on the top edge.
+ *
+ * design-reference.md pins it bottom-right, and that held while the bottom was
+ * an axis and one pill. It stopped holding once the axis footer had something
+ * to say: at the widths this is actually used at, the key, the units and four
+ * keybinds do not fit on one line, and stacking them turned the bottom into a
+ * pile. So the two questions split by edge — the top says what you can *do*,
+ * the bottom says how to *read* what you see.
+ *
+ * It takes the axis's treatment rather than a pill of its own: a fade to void
+ * that guarantees legibility over a trace, and nothing that reads as an object.
+ */
 .hintbar {
   position: fixed;
-  right: var(--s4);
-  bottom: 92px;
-  z-index: 30;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  height: 38px;
   display: flex;
   gap: var(--s3);
   align-items: center;
+  padding: 0 var(--s4);
   font-size: 11px;
   color: var(--ink-4);
-  background: rgba(10, 10, 12, 0.72);
-  padding: 5px 10px;
-  border-radius: var(--radius);
-  border: 1px solid var(--hairline);
-  backdrop-filter: blur(6px);
+  background: linear-gradient(to bottom, var(--void) 40%, transparent);
+  /* Advertising, not a control. Never take a click meant for a lineage. */
+  pointer-events: none;
 }
 
 /* Chrome auto-hides. The canvas is the page. */
@@ -692,6 +743,45 @@ body {
 }
 .hintbar {
   transition: opacity 400ms ease;
+}
+
+/* ----------------------------------------------------------------- legend -- */
+
+/*
+ * The dash channel is the only part of the visual language a reader cannot
+ * infer, and it carries the app's central claim: a dashed trace means nobody
+ * has estimated that date. So it is stated on screen — as a *key*, in the axis
+ * footer, in the same flat 10.5px as the units beside it.
+ *
+ * No box, no border, no backdrop. Two earlier cuts had both: a titled card of
+ * four sentences, then a bordered pill. Each was defensible on its own and
+ * each was a third floating object on an edge that already had the axis and
+ * the hint bar. The fix was not a smaller panel, it was no panel — the line it
+ * belongs on already existed and was empty.
+ *
+ * `Legend.tsx` renders an empty cell when every trace is solid. It appears
+ * when there is something to admit and is absent otherwise.
+ */
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px var(--s3);
+  min-width: 0;
+}
+
+.legend-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+/* A real trace at real stroke width, so it is only 1.6px tall and needs the
+   flex centring above to sit on the label's midline. */
+.legend-swatch {
+  flex: none;
+  overflow: visible;
 }
 
 /* ----------------------------------------------------------------- toasts -- */

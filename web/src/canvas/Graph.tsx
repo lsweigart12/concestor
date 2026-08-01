@@ -50,6 +50,7 @@ import type { AddDelta } from "../tree/induced";
 import { ageLabel, metaLine, NodeMark, type MarkData, type ZoomTier } from "./NodeMark";
 import { TraceEdge, type TraceEdgeData } from "./TraceEdge";
 import { TimeAxis } from "./TimeAxis";
+import { Legend, type TracePattern } from "./Legend";
 
 const nodeTypes = { mark: NodeMark };
 const edgeTypes = { trace: TraceEdge };
@@ -337,6 +338,18 @@ function Inner(props: GraphProps) {
     return out;
   }, [ind, lay, focusedIdx, focusLineage, isolate, drawDelay, delta, reduced, nodeMap]);
 
+  // The legend reads the edges that were actually built rather than
+  // recomputing which tiers are on screen. Anything else is a second copy of
+  // the `unbounded` rule waiting to disagree with this one.
+  const patterns: TracePattern[] = useMemo(
+    () =>
+      rfEdges.map((e) => {
+        const d = e.data as unknown as TraceEdgeData;
+        return { tier: d.tier, unbounded: d.unbounded };
+      }),
+    [rfEdges],
+  );
+
   /**
    * Fit the *content*, not the nodes.
    *
@@ -454,6 +467,7 @@ function Inner(props: GraphProps) {
         toScreenX={toScreenX}
         intervals={intervals}
         axisMode={axisMode}
+        legend={<Legend edges={patterns} />}
       />
     </div>
   );

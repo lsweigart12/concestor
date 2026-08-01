@@ -12,6 +12,11 @@
  * data. Nothing in it glows. Level of detail is driven by pixels-per-Ma: show
  * Epochs only when they would exceed a legibility threshold, then Periods,
  * then Eras.
+ *
+ * The strip ends in a footer line that carries everything the reader needs in
+ * order to *read a position*: what the units are, whether the scale is bent,
+ * and what a dashed trace means. Those are one statement, so they get one
+ * line — flat text on the axis, not a floating panel beside it.
  */
 
 import { useMemo } from "react";
@@ -25,13 +30,26 @@ interface Props {
   toScreenX: (age: number) => number;
   intervals: TimescaleInterval[] | null;
   axisMode: "log" | "linear";
+  /**
+   * The provenance key, if this canvas has anything to admit. It rides on the
+   * footer line rather than floating over the canvas, because it answers the
+   * same question the units do: how to read a position.
+   */
+  legend: React.ReactNode;
 }
 
 const RANK_ORDER = ["Eon", "Era", "Period", "Sub-Period", "Epoch", "Age"];
 const MIN_BAND_PX = 46;
 const MIN_TICK_GAP_PX = 38;
 
-export function TimeAxis({ maxAge, width, toScreenX, intervals, axisMode }: Props) {
+export function TimeAxis({
+  maxAge,
+  width,
+  toScreenX,
+  intervals,
+  axisMode,
+  legend,
+}: Props) {
   const bandRank = useMemo(() => {
     if (!intervals) return null;
     // Pick the finest rank whose narrowest visible interval still clears the
@@ -83,7 +101,7 @@ export function TimeAxis({ maxAge, width, toScreenX, intervals, axisMode }: Prop
 
   return (
     <div className="axis">
-      <svg width="100%" height="84" role="img" aria-label="time axis">
+      <svg width="100%" height="58" role="img" aria-label="time axis">
         {/* Geologic band, recessive, drawn first so traces are never behind it. */}
         {bands.length > 0 && (
           <g className="ics-band">
@@ -148,16 +166,18 @@ export function TimeAxis({ maxAge, width, toScreenX, intervals, axisMode }: Prop
           </>
         )}
 
-        <text
-          x={width / 2}
-          y={72}
-          textAnchor="middle"
-          style={{ fill: "var(--ink-4)", fontSize: 10.5, letterSpacing: "0.08em" }}
-        >
-          MILLIONS OF YEARS BEFORE PRESENT
-          {axisMode === "log" ? " · SYMLOG" : " · LINEAR"}
-        </text>
       </svg>
+
+      {/* The footer is DOM rather than more SVG: it holds running text of two
+          different kinds, and one of them is a set of live trace swatches that
+          have to inherit the same stylesheet the canvas uses. */}
+      <div className="axis-foot">
+        {legend}
+        <span className="axis-caption">
+          millions of years before present
+          {axisMode === "log" ? " · symlog" : " · linear"}
+        </span>
+      </div>
     </div>
   );
 }
