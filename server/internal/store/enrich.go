@@ -85,32 +85,63 @@ func (s *Store) Images(ctx context.Context, idxs []int) (map[int]ImageRef, error
 	return out, nil
 }
 
-// WitnessRef is the second silhouette an internal node may carry: a drawn taxon
-// from inside the clade whose fossil record puts it at that node's divergence.
-// SourceIdx is always strictly inside the node, so unlike ImageRef there is no
-// clade to report — the node itself is the whole of the claim. GapMa is the
-// distance from the split to the taxon's observed range, and 0 means the range
-// spans it outright.
+// WitnessRef is the second silhouette a divergence may carry: a fossil taxon
+// from below the fork whose stratigraphic bracket puts it at that divergence.
+//
+// It is **not a node**, which is the difference from ImageRef and from what
+// this type used to be. A witness names a `fossil.pbdb_taxon_no`, and the
+// claim it makes is correspondingly weaker: not *this taxon is inside the
+// group* but *this taxon belongs somewhere below this fork* (architecture
+// §3.4). AttachIdx is the deepest node it is known to sit below and AttachWalk
+// is how many PBDB `parent_no` hops it took to get there — zero means PBDB's
+// own taxon is in the synthesis tree, eleven means the placement is a statement
+// about a family. A caller must not present the two alike.
+//
+// Name, Oldest and Youngest travel with the row rather than being joined for.
+// The dates are the entire difference between a witness and an unlabelled
+// shape, so there is no way to read the picture without them.
+//
+// SourceIdx is set only by a build predating the rename, where the witness was
+// a node index and the fossil fields are empty.
 type WitnessRef struct {
-	PhylopicID string
-	SourceIdx  int
-	GapMa      *float64
+	PhylopicID  string
+	PbdbTaxonNo int
+	Name        string
+	Rank        *string
+	AttachIdx   int
+	AttachWalk  int
+	Oldest      *float64 // fea
+	Youngest    *float64 // lla
+	GapMa       *float64
+
+	SourceIdx *int
 }
 
 // Witnesses resolves divergence silhouettes for a batch of node indices.
-// Returns an empty map against a build with no node_divergence_image table,
-// which is the normal state for anything built before phase 5a grew one.
+// Returns an empty map against a build with no witness table, which is the
+// normal state for anything built before phase 5a grew one.
 func (s *Store) Witnesses(ctx context.Context, idxs []int) (map[int]WitnessRef, error) {
 	out := map[int]WitnessRef{}
 	w := s.Schema.Witness
 	if w == nil || len(idxs) == 0 {
 		return out, nil
 	}
+	// Two shapes, one query. The fossil form names a PBDB taxon and carries its
+	// own name and bracket; the pre-rename form names a node and carries
+	// neither, and the caller looks those up as it always did.
+	var sel string
+	if w.Fossil() {
+		sel = fmt.Sprintf("%q, %s, %q, %q, %q, %q, %q",
+			w.PbdbTaxonNo, colOrNull(w.TaxonRank), w.TaxonName,
+			w.AttachIdx, w.AttachWalk, w.Fea, w.Lla)
+	} else {
+		sel = fmt.Sprintf("%q, NULL, NULL, NULL, NULL, NULL, NULL", w.SourceIdx)
+	}
 	for start := 0; start < len(idxs); start += metaChunk {
 		end := min(start+metaChunk, len(idxs))
 		chunk := idxs[start:end]
-		q := fmt.Sprintf("SELECT %q, %q, %q, %s FROM %q WHERE %q IN (%s)",
-			w.Idx, w.ID, w.SourceIdx, colOrNull(w.GapMa), w.Table, w.Idx,
+		q := fmt.Sprintf("SELECT %q, %q, %s, %s FROM %q WHERE %q IN (%s)",
+			w.Idx, w.ID, sel, colOrNull(w.GapMa), w.Table, w.Idx,
 			placeholders(len(chunk)))
 		args := make([]any, len(chunk))
 		for i, v := range chunk {
@@ -122,24 +153,42 @@ func (s *Store) Witnesses(ctx context.Context, idxs []int) (map[int]WitnessRef, 
 		}
 		for rows.Next() {
 			var idx int
-			var id sql.NullString
-			var src sql.NullInt64
-			var gap sql.NullFloat64
-			if err := rows.Scan(&idx, &id, &src, &gap); err != nil {
+			var id, name, rank sql.NullString
+			var key, attach, walk sql.NullInt64
+			var fea, lla, gap sql.NullFloat64
+			if err := rows.Scan(&idx, &id, &key, &rank, &name, &attach, &walk,
+				&fea, &lla, &gap); err != nil {
 				_ = rows.Close()
 				return out, err
 			}
 			// Both are load-bearing: the picture is meaningless without the
 			// taxon it is of, since naming that taxon and its dates is the
 			// only thing distinguishing a witness from an ordinary borrow.
-			if !id.Valid || id.String == "" || !src.Valid || src.Int64 < 0 {
+			if !id.Valid || id.String == "" || !key.Valid || key.Int64 < 0 {
 				continue
 			}
-			ref := WitnessRef{PhylopicID: id.String, SourceIdx: int(src.Int64)}
+			ref := WitnessRef{PhylopicID: id.String, Rank: nullStr(rank)}
 			if gap.Valid {
 				v := gap.Float64
 				ref.GapMa = &v
 			}
+			if !w.Fossil() {
+				v := int(key.Int64)
+				ref.SourceIdx = &v
+				out[idx] = ref
+				continue
+			}
+			// A fossil witness with no name or no bracket is refused outright
+			// rather than sent on for the client to refuse: an unlabelled
+			// silhouette at a fork is the thing this whole layer replaced.
+			if !name.Valid || name.String == "" || !fea.Valid || !lla.Valid {
+				continue
+			}
+			ref.PbdbTaxonNo = int(key.Int64)
+			ref.Name = name.String
+			ref.AttachIdx = int(attach.Int64)
+			ref.AttachWalk = int(walk.Int64)
+			ref.Oldest, ref.Youngest = nullF(fea), nullF(lla)
 			out[idx] = ref
 		}
 		err = rows.Err()

@@ -23,6 +23,7 @@ wrong and these docs record the corrections.
 | [docs/phase2-decision.md](docs/phase2-decision.md) | The dating decision — accepted, with the evidence |
 | [docs/phase3-pbdb-path.md](docs/phase3-pbdb-path.md) | How fossils resolve to the tree, measured |
 | [docs/phase5c-decision.md](docs/phase5c-decision.md) | Generated outlines from Wikimedia photos — planned. Four rejected approaches, with numbers |
+| [docs/witness-ceiling.md](docs/witness-ceiling.md) | Raising the divergence witness off nodes and onto fossil attachment points. **Shipped**; §9 is what it actually cost |
 | [docs/worktrees.md](docs/worktrees.md) | Why the preview works in a parallel session's worktree |
 
 **This product is for curious people interested in evolution, not for evolutionary
@@ -62,7 +63,7 @@ our own; **no dagre, no ELK, no d3-hierarchy**, because a graph-layout engine
 assigns `x` by depth and here `x` is time.
 
 ```bash
-cd web && npm install && npm run build && npm test   # 135 tests
+cd web && npm install && npm run build && npm test   # 140 tests
 cd server && go test ./... && go run . -build ../build
 ```
 
@@ -170,7 +171,7 @@ All detailed in `docs/data-sources.md`:
 
 **All six phases are implemented, the server is built, and the UI works end to
 end.** Every phase is green and `concestor-build package` succeeds; the current
-build is `a2b513305e2ddb95`. `docs/handoff.md` §2 has the table and §7 the honest list of what is
+build is `b48553b2b8a4a2ed`. `docs/handoff.md` §2 has the table and §7 the honest list of what is
 thin. `test_vernaculars.py` asserts the words a person actually types and is
 **green** — `dog`, `cat`, `whale`, `human`, `shark`, `T. rex` all resolve, and
 so now do `frog`, `animal` and `bird`. The P9157 crawl is complete.
@@ -237,10 +238,17 @@ cost you if you touch this:
 - **A fossil bound is refused where the node has a dated descendant**, because a
   last appearance is evidence about a lineage that *ended*. That removed 1,617
   bogus bounds.
-- **Phase 3's `xref` resolves PBDB to OTT by name and OTT carries homonyms
+- **Phase 3's `xref` resolved PBDB to OTT by name and OTT carries homonyms
   across kingdoms.** PBDB's *Ivesia* is an Ediacaran rangeomorph and OTT's is a
-  rose-family plant. `images.py` refuses an ambiguous name outright and phase 3
-  does not. **Unfixed**, and it affects every `xref` consumer.
+  rose-family plant. **Fixed** — `refuse_disagreements` withdraws a resolution
+  where PBDB calls a taxon extinct, OTT's taxon of that name carries no extinct
+  flag, and the node still has a chronogram-dated descendant. 16,833 rows over
+  *every* method, not just `name_exact`, plus 235 where a name is still claimed
+  by two accepted PBDB taxa. Phase 4's independent check went from 1,019 of
+  1,048 to 31 of 60. Three things are load-bearing: the extancy sweep runs
+  before the ambiguity one (so `Scopus` keeps the hamerkop instead of losing
+  both), it needs phase 2's `age_ma` as a living-lineage guard (without it 1,162
+  correct fossil attachments go), and `manual` overrides are exempt.
 
 **architecture §7's double bracket is wrong in one place.** It reads as a chain
 `fea ≥ fla ≥ lea ≥ lla`; the middle link holds for only **39.6%** of PBDB taxa,
@@ -258,17 +266,51 @@ resolution.
 **A divergence carries a second silhouette, and the two tables must stay
 apart.** `node_image` answers "what does something in this clade look like" and
 so prefers the most inclusive drawing beneath a node — which at a *split* is
-always a crown group that did not exist yet. `node_divergence_image` answers
-"what was alive when these lineages parted": a **witness**, a drawn taxon inside
-the clade whose PBDB bracket sits at the split. *Sahelanthropus* at the
-human–chimp divergence, *Basilosaurus* at whale–hippo, *Hallucigenia* at
-Bilateria. 66 nodes, because a candidate needs both a PhyloPic drawing and a
-fossil bracket and only 398 nodes have both. Which of the two to draw depends on
-how the reader reached the node, so **only the client can decide it** — a leaf of
-the induced subtree is a species they chose and keeps its exemplar. It is
-refused where `age_ma` is NaN, where the node has its own image, and beyond
-`NEAR_FRACTION` of the split's age. A witness never renders without its fossil
-range beside it.
+always a crown group that did not exist yet. `node_divergence_witness` answers
+"what was alive when these lineages parted": a **witness**, a fossil taxon from
+*somewhere below* the fork whose PBDB bracket sits at the split. *Acanthostega
+gunnari* at the fish/tetrapod divergence, *Eohippus* at horse/rhino, *Pakicetus*
+at whale–hippo, *Sahelanthropus* at human–chimp. **885 forks.**
+
+**A witness is a fossil, not a node**, and that is the whole of the layer's
+reach — it used to have to be in the synthesis tree, where only 0.5% of extinct
+OTT taxa are, so the design capped at 2,552 forks whatever the image budget. It
+now hangs off phase 4's `attach_idx`. The claim weakens with the reach: *somewhere
+below this fork*, not *inside this group*, and `attach_walk` is the number that
+says how loose the placement is. `witness-ceiling.md` §9 is the before/after and
+is the first thing to read before touching this.
+
+Four refusals, and two of them will look like they cost too much: the fork must
+be dated (falling back to `age_layout`), the taxon must carry a bracket, the
+fork must not have its own image — and **the taxon must be extinct *and* have
+ended before the Holocene**. `is_extant` alone is not enough: PBDB flags
+*Thalassia testudinum*, the living turtle grass, extinct at 48.07–0.0117 Ma, and
+it won a fork of 378,328 tips. A range running to the present cannot fail to
+contain a recent split, which is the crown-group failure this feature exists to
+fix, arriving through a wrong flag. `NEAR_FRACTION` caps how far a fossil may
+sit from the split and **currently caps nothing**, because refusing a witness
+falls back to no picture rather than to a worse one. Where `age_ma` is NaN the
+match is made against `age_layout` — 326 of the 885, Carnivora → *Vulpavus*
+among them — which holds only because the layout age is used to *choose* and
+never to display. A witness never renders without its own fossil range beside it.
+
+**Gate on the share of forks whose witness spans the split, never on coverage** —
+and know that spanning is not clean either. Old rule against new on the same
+corpus: 548 forks → 885, spanning 207 → **192**. It went *down* because 14 of the
+old 207 spanned only by running to the present, *Moho braccatus* — a bird that
+died in 1987 — across Passeriformes at a 52 Ma gap among them. `MIN_SPANNING_WITNESSES`
+carries the comparison.
+
+Which of the two to draw depends on how the reader reached the node, so **only
+the client can decide it**, and `web/src/canvas/witness.ts` is where that
+happens. A leaf of the induced subtree is a clade they *chose* and keeps its
+exemplar; **a divergence draws its witness, or its own picture, or nothing.**
+What it may never draw is a *borrow* — `node_image`'s closest drawn relative,
+which is nearly always a living group younger than the fork. Caniformia's 57 Ma
+split drew Procyonidae, raccoons, with nothing on screen saying they postdate it
+by 25 million years. A node's own drawing is exempt because it was never a
+borrow: Cetacea at Cetacea is what a silhouette is for. Select Caniformia
+itself and the raccoon comes back, correctly.
 
 `concestor-build package` gates the artifact set as a whole and writes
 `build/manifest.json`, which `/v1/about` serves. It refuses to package while any

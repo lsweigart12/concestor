@@ -13,18 +13,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   api,
   ping,
-  silhouetteIsInformative,
-  witnessFor,
   TIER_OCCURRENCE,
   TIER_STRUCTURAL,
   type About,
+  type FossilTaxon,
   type NodeDetail,
   type SearchHit,
   type TimescaleInterval,
 } from "./api";
-import { bracketGeom, bracketTitle, endedSpanLabel } from "./canvas/Bracket";
+import { bracketGeom, bracketTitle, endedSpanLabel, gapLabel } from "./canvas/Bracket";
 import { Graph } from "./canvas/Graph";
 import { Silhouette } from "./canvas/Silhouette";
+import { mayDrawExemplar, witnessOn } from "./canvas/witness";
 import { ageLabel, DerivedName, isScientificItalic } from "./canvas/NodeMark";
 import { Palette, type Command, type Scope } from "./palette/Palette";
 import { resetUsage } from "./palette/fuzzy";
@@ -60,6 +60,15 @@ export default function App() {
     kind: "all" | "selection";
     token: number;
   } | null>(null);
+  /**
+   * A fossil row the reader clicked in the drill-down lane.
+   *
+   * Kept apart from `focusedIdx` because a fossil is not a node: it has no
+   * ancestor path, so it cannot be selected, added, isolated or linked to, and
+   * pretending otherwise would offer four commands that do nothing. What it
+   * has is an attachment point, and the actions are about that.
+   */
+  const [pickedFossil, setPickedFossil] = useState<FossilTaxon | null>(null);
   const [reachable, setReachable] = useState<boolean | null>(null);
   const [idle, setIdle] = useState(false);
   const toastId = useRef(0);
@@ -342,18 +351,79 @@ export default function App() {
     return base;
   }, [tree, about, focusedNode, toast, share]);
 
+  /**
+   * What a fossil offers, which is short and deliberately so.
+   *
+   * It has no ancestor path, so there is no lineage to draw and nothing to
+   * select. Every honest action is about the node it attaches to — architecture
+   * §3.4's claim is "this taxon belongs somewhere below X", and X is the only
+   * thing on the canvas the reader can act on.
+   */
+  const fossilCommands: Command[] = useMemo(() => {
+    const f = pickedFossil;
+    if (!f) return [];
+    const host = tree.nodes.get(f.attach_idx);
+    const hostName = host?.name ?? "the clade it attaches to";
+    const out: Command[] = [
+      {
+        id: "fossil-host",
+        title: `Show ${hostName}`,
+        subtitle: `${f.name} is known from somewhere below it`,
+        icon: "◎",
+        section: "This fossil",
+        contextual: true,
+        run: () => {
+          if (host) tree.select(host.key);
+          setPaletteOpen(false);
+          setScoped(false);
+        },
+      },
+    ];
+    if (host && !tree.induced.leaves.includes(f.attach_idx)) {
+      out.push({
+        id: "fossil-add-host",
+        title: `Add ${hostName} to the canvas`,
+        subtitle: "Draw the branch this fossil sits on",
+        icon: "+",
+        section: "This fossil",
+        contextual: true,
+        run: () => {
+          tree.add(host.key);
+          setPaletteOpen(false);
+          setScoped(false);
+          toast(<>Added <strong>{hostName}</strong></>);
+        },
+      });
+    }
+    return out;
+  }, [pickedFossil, tree, toast]);
+
   const visibleCommands = useMemo(
-    () => (scoped ? commands.filter((c) => c.contextual) : commands),
-    [commands, scoped],
+    () =>
+      scoped
+        ? pickedFossil
+          ? fossilCommands
+          : commands.filter((c) => c.contextual)
+        : commands,
+    [commands, fossilCommands, pickedFossil, scoped],
   );
 
-  const scope: Scope | null =
-    scoped && focusedNode
+  const scope: Scope | null = !scoped
+    ? null
+    : pickedFossil
       ? {
-          label: focusedNode.name ?? focusedNode.key,
-          onPop: () => setScoped(false),
+          label: pickedFossil.name,
+          onPop: () => {
+            setScoped(false);
+            setPickedFossil(null);
+          },
         }
-      : null;
+      : focusedNode
+        ? {
+            label: focusedNode.name ?? focusedNode.key,
+            onPop: () => setScoped(false),
+          }
+        : null;
 
   // Full keyboard operation: search, add, remove, clear, fit, isolate and step
   // through selection are all bound.
@@ -366,7 +436,10 @@ export default function App() {
 
       if (meta && e.key.toLowerCase() === "k") {
         e.preventDefault();
-        // ⌘K with a node selected opens a contextual actions menu scoped to it.
+        // ⌘K with a node selected opens a contextual actions menu scoped to
+        // it. A fossil scope is per-click and never survives into the next
+        // ⌘K, or the palette answers about a row nobody is looking at.
+        setPickedFossil(null);
         setScoped(e.shiftKey ? false : focusedIdx !== null);
         if (e.shiftKey) {
           tree.clear();
@@ -479,6 +552,11 @@ export default function App() {
         fitSignal={fitSignal}
         drill={tree.view.drill}
         onDrill={tree.setDrill}
+        onPickFossil={(f) => {
+          setPickedFossil(f);
+          setScoped(true);
+          setPaletteOpen(true);
+        }}
       />
 
       {tree.induced.rendered.length === 0 && !paletteOpen && (
@@ -498,7 +576,6 @@ export default function App() {
         <Detail
           detail={detail}
           hue={laneHue(focusedNode.idx)}
-          cladeTips={detail.silhouette_clade_tips}
           divergence={divergenceFor(focusedNode.idx, tree.induced, tree.nodes)}
           nested={nestedSelections(focusedNode.idx, tree.induced, tree.nodes)}
           isLeaf={tree.induced.leaves.includes(focusedNode.idx)}
@@ -510,6 +587,7 @@ export default function App() {
         onClose={() => {
           setPaletteOpen(false);
           setScoped(false);
+          setPickedFossil(null);
         }}
         commands={visibleCommands}
         scope={scope}
@@ -547,14 +625,12 @@ export default function App() {
 function Detail({
   detail,
   hue,
-  cladeTips,
   divergence,
   nested,
   isLeaf,
 }: {
   detail: NodeDetail;
   hue: number;
-  cladeTips: number | null | undefined;
   /** Set only where the taxonomy has no name and one was derived. */
   divergence: Divergence | null;
   /** Chosen species classified inside this one. Almost always empty. */
@@ -571,15 +647,15 @@ function Detail({
     detail.tier === TIER_OCCURRENCE && detail.occurrence
       ? bracketGeom(detail.occurrence, () => 0)
       : null;
-  // The card must show what the canvas shows, so it makes the same call by the
-  // same rule: a divergence with a witness draws the witness, and the ordinary
-  // silhouette is not shown *or credited*, because it is not on screen.
-  const witness = isLeaf ? null : witnessFor(detail);
+  // The card must show what the canvas shows, and by the same rule, or the two
+  // disagree about what a node looks like. A divergence draws its witness or
+  // nothing; only a clade the reader chose draws its group's exemplar. The
+  // ordinary silhouette is therefore not shown *or credited* on a fork, since
+  // it is not on screen and crediting an image nobody can see is noise.
+  const place = { node: detail, isLeaf };
+  const witness = witnessOn(place);
   const witnessCredit = witness ? (detail.divergence_silhouette ?? null) : null;
-  const sil =
-    witness || !silhouetteIsInformative(detail, cladeTips)
-      ? null
-      : detail.silhouette;
+  const sil = mayDrawExemplar(place) ? detail.silhouette : null;
   // A picture that is not of this node is a picture of something inside the
   // clade, and the card is where that gets said in full rather than in a
   // tooltip. `clade_name` is null for the unnamed `mrcaott…` nodes, and there
@@ -607,7 +683,7 @@ function Detail({
             // stamps its clade: the fact the picture adds is what it is *of*.
             <span
               className="detail-watermark"
-              title={`What this drawing is of. Not ${detail.name ?? "this node"} itself — a taxon inside it, dated to about this split.`}
+              title={`What this drawing is of. Not ${detail.name ?? "this node"} itself — a fossil taxon from somewhere below it, dated to about this split.`}
             >
               {witness.name}
             </span>
@@ -736,15 +812,61 @@ function Detail({
         <p className="note">
           The picture is{" "}
           <em className={isScientificItalic(witness.rank) ? "sci-italic" : undefined}>
-            {witness.name ?? "a taxon inside this group"}
+            {witness.name ?? "a taxon from below this fork"}
           </em>
-          , not this whole group — one lineage from inside it that the rock
-          places{" "}
-          {witness.spans ? "across this divergence" : "close to this divergence"}
-          . The most familiar thing below a split is nearly always a living
-          group that did not exist when the split happened, so this shows
-          something that did instead. Its dates are observations, not an
-          estimate of when these lineages parted.
+          , not this whole group — a fossil taxon from somewhere below this
+          fork, and the nearest in time that anyone has drawn. The most
+          familiar thing below a split is nearly always a living group that did
+          not exist when the split happened, so this shows something that did
+          instead. Its dates are observations of where it turns up in the rock,
+          never an estimate of when these lineages parted.
+          {witness.attachWalk !== null && witness.attachWalk > 0 && (
+            // Where the fossil hangs is a separate uncertainty from when it
+            // lived, and the card is where both get stated rather than one
+            // standing in for the other. It is not in the tree at all — it was
+            // placed by walking its own classification upward until something
+            // was — so "below this fork" is the strongest true statement.
+            <>
+              {" "}
+              It is not itself in the tree:{" "}
+              {witness.attachWalk <= 2
+                ? "it is known to sit just below this point"
+                : "all that is known is that it belongs somewhere below this point"}
+              , not where on the branch.
+            </>
+          )}
+          {age === null ? (
+            <>
+              {" "}
+              This fork has no estimated age, so the match was made against
+              where it is <em>drawn</em> on the axis rather than against a date.
+              Read the pairing loosely: the picture is the closest available,
+              not a claim that the two coincide.
+            </>
+          ) : witness.spans ? (
+            <> Its range does contain this split.</>
+          ) : (
+            // The gap is spelled out rather than left for the reader to
+            // subtract, because at these scales rounding hides it: the
+            // horse–rhino fork is dated 56.26 Ma and Eohippus tops out at 56.0,
+            // so both figures above read "56" and the sentence looks like a
+            // contradiction. Saying "by 0.3 Ma" is the only thing that resolves
+            // it, and it is worth saying at every size.
+            <>
+              {" "}
+              Its range does not reach this split
+              {witness.gapMa !== null && witness.gapMa > 0 ? (
+                <>
+                  {" "}
+                  — it stops <span className="num">
+                    {gapLabel(witness.gapMa)}
+                  </span>{" "}
+                  short
+                </>
+              ) : null}
+              . Read the picture as the nearest available, not a contemporary.
+            </>
+          )}
         </p>
       )}
       {detail.vernaculars.length > 0 && (
@@ -755,7 +877,7 @@ function Detail({
         // Credited on its own terms: a different drawing by a different artist
         // from the one `sil` would have carried, and it is the one on screen.
         <div className="credit">
-          Silhouette of <em>{witnessCredit.source_name ?? "a taxon inside this group"}</em>
+          Silhouette of <em>{witnessCredit.source_name ?? "a taxon from below this fork"}</em>
           {" — "}
           {witnessCredit.attribution
             ? `by ${witnessCredit.attribution}`

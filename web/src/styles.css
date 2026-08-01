@@ -728,6 +728,43 @@ body {
   fill: var(--ink-2);
 }
 
+/* A row is a target now. The hit area is transparent and wider than the ink —
+   a bracket can be one pixel across, which is unclickable. */
+.drill-row-hit {
+  fill: transparent;
+}
+
+.drill-row.is-actionable {
+  cursor: pointer;
+  outline: none;
+}
+
+.drill-row.is-actionable:hover .drill-row-hit,
+.drill-row.is-actionable:focus-visible .drill-row-hit {
+  fill: rgba(150, 220, 230, 0.06);
+}
+
+.drill-row.is-actionable:hover .drill-row-name,
+.drill-row.is-actionable:focus-visible .drill-row-name {
+  fill: var(--ink);
+}
+
+.drill-row.is-actionable:focus-visible .drill-row-hit {
+  stroke: rgba(150, 220, 230, 0.45);
+  stroke-width: 1;
+}
+
+/* The drawing takes the lane's ink rather than the file's baked black; see
+   Silhouette.tsx on why that needs the markup inlined. */
+.drill-row .silhouette {
+  color: var(--ink-3);
+}
+
+.drill-row.is-actionable:hover .silhouette,
+.drill-row.is-actionable:focus-visible .silhouette {
+  color: var(--ink-2);
+}
+
 .drill-row-span,
 .drill-row-occs {
   font-family: var(--mono);

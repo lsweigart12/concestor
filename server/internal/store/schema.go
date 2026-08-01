@@ -302,51 +302,96 @@ func (s *Schema) resolveNodeImage() {
 	}
 }
 
-// WitnessSchema maps an internal node to a *second* silhouette: a drawn taxon
-// inside the clade whose fossil record puts it at that node's divergence.
+// WitnessSchema maps a divergence to a *second* silhouette: a fossil taxon
+// from below the fork whose stratigraphic bracket puts it at that divergence.
 //
 // It is a separate table from node_image because it answers a separate
 // question. node_image says what something in this clade looks like and prefers
 // the most inclusive drawing beneath a node, which at a split is always a crown
 // group — the human–chimp split drew Homo, the whale–hippo split drew a
 // dolphin. This says what was there when the lineages parted, and it exists for
-// 66 nodes rather than 2.7M because it is refused wherever the split is undated
-// or no drawn taxon in the clade has a fossil bracket near it.
+// a few hundred forks rather than 2.7M nodes because it is refused wherever the
+// node has no position in time, carries its own drawing, or has nothing drawn,
+// dated and extinct hanging below it.
 //
-// There is no clade column: a witness is always strictly inside the node's own
-// clade, so the node is what the picture speaks for. GapMa is the distance from
-// the split to that taxon's observed range, and 0 means the range spans it.
+// **A witness is a fossil, not a node**, and PbdbTaxonNo is the key that says
+// so. It used to be a node index called `source_idx` in a table called
+// `node_divergence_image`; both were renamed rather than redefined, because a
+// column that keeps its name and changes what it addresses is the
+// `node_fts.rowid` trap — it joins cleanly against `node` and returns confident
+// nonsense. The old table is still recognised so an older build keeps serving,
+// and there SourceIdx is a node index and the fossil columns are empty.
+//
+// AttachIdx is the deepest node the fossil is known to sit below and AttachWalk
+// is how many PBDB `parent_no` hops it took to find it. Zero hops is a
+// different quality of claim from eight, and the caption has to say which.
+// GapMa is the distance from the split to the taxon's range, 0 meaning the
+// range spans it.
 type WitnessSchema struct {
-	Table     string `json:"table"`
-	Idx       string `json:"idx"`
-	ID        string `json:"phylopic_id"`
-	SourceIdx string `json:"source_idx"`
-	GapMa     string `json:"gap_ma,omitempty"`
+	Table string `json:"table"`
+	Idx   string `json:"idx"`
+	ID    string `json:"phylopic_id"`
+	GapMa string `json:"gap_ma,omitempty"`
+
+	// The fossil form. Empty on a pre-rename build.
+	PbdbTaxonNo string `json:"pbdb_taxon_no,omitempty"`
+	TaxonName   string `json:"taxon_name,omitempty"`
+	TaxonRank   string `json:"taxon_rank,omitempty"`
+	AttachIdx   string `json:"attach_idx,omitempty"`
+	AttachWalk  string `json:"attach_walk,omitempty"`
+	Fea         string `json:"fea,omitempty"`
+	Lla         string `json:"lla,omitempty"`
+
+	// The node form, from `node_divergence_image`. Empty on a current build.
+	SourceIdx string `json:"source_idx,omitempty"`
 }
 
+// Fossil reports whether this build's witness is a PBDB taxon rather than a
+// node. Everything downstream branches on it once, here, rather than on the
+// presence of individual columns.
+func (w *WitnessSchema) Fossil() bool { return w.PbdbTaxonNo != "" }
+
 func (s *Schema) resolveWitness() {
-	t := s.firstTable("node_divergence_image", "node_witness_image")
+	t := s.firstTable("node_divergence_witness", "node_divergence_image", "node_witness_image")
 	if t == "" {
 		return
 	}
 	idx := s.col(t, "idx", "node_idx")
 	id := s.col(t, "phylopic_id", "image_id", "uuid")
-	src := s.col(t, "source_idx", "witness_idx")
-	// The source is required, not optional as it is on node_image. A witness
-	// with no named taxon is a picture with no caption, and the caption is the
-	// entire reason this table exists: "Sahelanthropus, 7.2–5.3 Ma" is the
-	// claim, and the drawing alone would just be another unexplained silhouette.
-	if idx == "" || id == "" || src == "" {
-		s.Skipped[t] = "no idx/phylopic_id/source_idx columns could be resolved"
+	if idx == "" || id == "" {
+		s.Skipped[t] = "no idx/phylopic_id columns could be resolved"
 		return
 	}
-	s.Witness = &WitnessSchema{
-		Table:     t,
-		Idx:       idx,
-		ID:        id,
-		SourceIdx: src,
-		GapMa:     s.col(t, "gap_ma", "gap"),
+	w := &WitnessSchema{
+		Table:       t,
+		Idx:         idx,
+		ID:          id,
+		GapMa:       s.col(t, "gap_ma", "gap"),
+		PbdbTaxonNo: s.col(t, "pbdb_taxon_no"),
+		TaxonName:   s.col(t, "taxon_name"),
+		TaxonRank:   s.col(t, "taxon_rank"),
+		AttachIdx:   s.col(t, "attach_idx"),
+		AttachWalk:  s.col(t, "attach_walk"),
+		Fea:         s.col(t, "fea"),
+		Lla:         s.col(t, "lla"),
 	}
+	// The taxon and its dates are required, not optional as node_image's source
+	// is. A witness with no named taxon is a picture with no caption, and with
+	// no dates it is the unexplained silhouette this replaced — "Sahelanthropus,
+	// 7.2–5.3 Ma" beside a split dated 6.7 is the whole claim.
+	if w.Fossil() {
+		if w.TaxonName == "" || w.Fea == "" || w.Lla == "" || w.AttachIdx == "" {
+			s.Skipped[t] = "a fossil witness carries no taxon name or no bracket"
+			return
+		}
+	} else {
+		w.SourceIdx = s.col(t, "source_idx", "witness_idx")
+		if w.SourceIdx == "" {
+			s.Skipped[t] = "no source_idx/pbdb_taxon_no column could be resolved"
+			return
+		}
+	}
+	s.Witness = w
 }
 
 // OccurrenceSchema names the fossil range shown for a node in the fourth age

@@ -36,12 +36,10 @@ import {
 import "@xyflow/react/dist/style.css";
 
 import {
-  silhouetteIsInformative,
-  witnessFor,
   TIER_STRUCTURAL,
+  type FossilTaxon,
   type PathNode,
   type TimescaleInterval,
-  type Witness,
 } from "../api";
 import {
   ageFrac,
@@ -70,6 +68,7 @@ import { TimeAxis } from "./TimeAxis";
 import { Legend, type TracePattern } from "./Legend";
 import { DrillLane, useSegment, type Drill, type LaneEndpoint } from "./DrillLane";
 import { laneHeight, laneRows } from "./lane";
+import { mayDrawExemplar, witnessOn } from "./witness";
 
 const nodeTypes = { mark: NodeMark };
 const edgeTypes = { trace: TraceEdge };
@@ -134,26 +133,12 @@ export interface GraphProps {
   /** The segment whose drill-down lane is open. Lives in the URL. */
   drill: Drill | null;
   onDrill: (d: Drill | null) => void;
+  /** A fossil row was clicked; the app opens its action menu. */
+  onPickFossil: (f: FossilTaxon) => void;
 }
 
 const prefersReduced = () =>
   window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
-
-/**
- * The witness for a placed node, or null — and null on every leaf.
- *
- * The leaf test is the whole of the client's half of this decision. The server
- * sends both silhouettes and says outright that which one applies depends on
- * how the reader reached the node, because only the client knows that. Here it
- * is exactly the induced subtree's own distinction: a leaf is a species the
- * reader picked and wants to see, an internal node is a divergence they
- * arrived at and did not name. Drawing *Sahelanthropus* on a node someone
- * searched for as "human" would be the same category of wrong this fixes, in
- * the other direction.
- */
-function witnessOn(p: { node: PathNode; isLeaf: boolean }): Witness | null {
-  return p.isLeaf ? null : witnessFor(p.node);
-}
 
 function Inner(props: GraphProps) {
   const {
@@ -169,6 +154,7 @@ function Inner(props: GraphProps) {
     fitSignal,
     drill,
     onDrill,
+    onPickFossil,
   } = props;
 
   const rf = useReactFlow();
@@ -211,9 +197,8 @@ function Inner(props: GraphProps) {
    */
   const describeLabel: LabelText = useCallback(
     (p) => {
-      const showSil = silhouetteIsInformative(p.node, p.node.silhouette_clade_tips);
       const withSil =
-        witnessOn(p) !== null || (showSil && Boolean(p.node.phylopic_id));
+        witnessOn(p) !== null || (mayDrawExemplar(p) && Boolean(p.node.phylopic_id));
       const div = divergenceFor(p.idx, ind, nodeMap);
       // The same parts NodeMark renders, or the collision pass reserves a box
       // the label does not fit. A fossil range with its glyph is materially
@@ -353,10 +338,7 @@ function Inner(props: GraphProps) {
         // own node is usually a *cousin* and so is not in the induced subtree
         // at all — looking it up in `nodeMap` returned undefined and silently
         // dropped the caption in exactly the cases that most need one.
-        const showSilhouette = silhouetteIsInformative(
-          p.node,
-          p.node.silhouette_clade_tips,
-        );
+        const showSilhouette = mayDrawExemplar(p);
         const data: MarkData = {
           node: p.node,
           hue: p.hue,
@@ -649,6 +631,7 @@ function Inner(props: GraphProps) {
           toScreenX={toScreenX}
           width={vw || window.innerWidth}
           onClose={() => onDrill(null)}
+          onPick={onPickFossil}
         />
       )}
       <TimeAxis

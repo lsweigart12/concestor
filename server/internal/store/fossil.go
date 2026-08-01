@@ -30,8 +30,15 @@ type FossilSchema struct {
 	Rank       string `json:"rank,omitempty"`
 	Difference string `json:"difference,omitempty"`
 	IsExtant   string `json:"is_extant,omitempty"`
+	IsPrimary  string `json:"is_primary,omitempty"`
+	AcceptedNo string `json:"accepted_no,omitempty"`
 	Brackets   bool   `json:"brackets"`
 	MethodName string `json:"attach_method_table,omitempty"`
+	// ImageTable maps a PBDB taxon to a drawing. A fossil is not a node, so
+	// node_image cannot reach it and this is the only join that can.
+	ImageTable string `json:"image_table,omitempty"`
+	ImageKey   string `json:"image_key,omitempty"`
+	ImageID    string `json:"image_id,omitempty"`
 }
 
 func (s *Schema) resolveFossil() {
@@ -51,9 +58,19 @@ func (s *Schema) resolveFossil() {
 		Rank:       s.col(t, "rank", "accepted_rank"),
 		Difference: s.col(t, "difference"),
 		IsExtant:   s.col(t, "is_extant"),
+		IsPrimary:  s.col(t, "is_primary"),
+		AcceptedNo: s.col(t, "accepted_no"),
 	}
 	f.Brackets = s.col(t, "fea") != "" && s.col(t, "fla") != "" &&
 		s.col(t, "lea") != "" && s.col(t, "lla") != ""
+	if it := s.firstTable("fossil_image"); it != "" && f.AcceptedNo != "" {
+		key, id := s.col(it, "accepted_no"), s.col(it, "phylopic_id")
+		if key == "" || id == "" {
+			s.Skipped[it] = "no accepted_no/phylopic_id column pair could be resolved"
+		} else {
+			f.ImageTable, f.ImageKey, f.ImageID = it, key, id
+		}
+	}
 	s.Fossil = f
 }
 
@@ -65,6 +82,10 @@ type Fossil struct {
 	NOccs      int64   `json:"n_occs"`
 	IsExtant   *bool   `json:"is_extant"`
 	Difference *string `json:"difference,omitempty"`
+	// The drawing of this taxon, when PhyloPic has one under the same name.
+	// Never a borrow: a fossil has no clade to inherit a picture from, and
+	// something else's portrait beside it would say nothing at all.
+	PhylopicID *string `json:"phylopic_id,omitempty"`
 	// The two appearance brackets, uncollapsed and in Ma. Null when PBDB
 	// records no interval at all, which is ~21% of taxa.
 	FEA *float64 `json:"fea"`
@@ -78,9 +99,59 @@ type Fossil struct {
 // explicit "showing N of M".
 const maxSegmentFossils = 200
 
+// notability orders a lane. It is a sum of penalties, smallest first, and it
+// exists because ordering on `n_occs` alone put five living wastebasket clades
+// at the top of every deep segment.
+//
+// Measured on Tetrapoda, which has 623 taxa attached: by occurrence count the
+// first eight were Tetrapoda itself (211,065 occurrences, `is_extant` true),
+// Anthracosauria, Reptiliomorpha, Amphibiosauria, Cotylosauria and three more
+// like them, and *Acanthostega gunnari* sat at rank 147. A clade accumulates
+// every occurrence of everything inside it, so the *least* specific row always
+// wins a count — the ranking was guaranteed to surface the least informative
+// thing present. With these penalties the same lane opens on Diplocaulus,
+// Diadectes, Diploceraspis and Seymouria.
+//
+// The three penalties, and why each:
+//
+//   extant (8)   a living group is not a fossil taxon. PBDB lists Tetrapoda
+//                below Tetrapoda; that is true and useless. Unknown extancy
+//                is 4 — suspected rather than convicted.
+//   undrawn (2)  a drawing is the strongest notability signal in the corpus,
+//                because somebody chose to illustrate it, and it is also what
+//                makes the row worth looking at. It outranks specificity so a
+//                drawn family beats an undrawn genus.
+//   broad (1)    species and genera are animals a reader can picture; orders
+//                and unranked clades are filing.
+//
+// `n_occs` still breaks ties and is still a real signal *within* a tier: a
+// genus with 400 occurrences is one people have heard of, one with a single
+// occurrence is a single paper.
+func (s *Store) notability(f *FossilSchema) string {
+	terms := []string{}
+	if f.IsExtant != "" {
+		terms = append(terms, fmt.Sprintf(
+			`CASE WHEN t.%q = 1 THEN 8 WHEN t.%q IS NULL THEN 4 ELSE 0 END`,
+			f.IsExtant, f.IsExtant))
+	}
+	if f.ImageTable != "" {
+		terms = append(terms, `CASE WHEN img.`+quote(f.ImageID)+` IS NULL THEN 2 ELSE 0 END`)
+	}
+	if f.Rank != "" {
+		terms = append(terms, fmt.Sprintf(
+			`CASE WHEN t.%q IN ('species','subspecies','genus','subgenus') THEN 0 ELSE 1 END`,
+			f.Rank))
+	}
+	if len(terms) == 0 {
+		return "0"
+	}
+	return strings.Join(terms, " + ")
+}
+
+func quote(s string) string { return fmt.Sprintf("%q", s) }
+
 // Fossils returns the fossil taxa attached anywhere on a segment, most
-// notable first. n_occs is a real signal: a genus with 400 occurrences is one
-// people have heard of; a genus with 1 is a single paper.
+// notable first — see `notability`, which is where the ordering is decided.
 func (s *Store) Fossils(ctx context.Context, attach []int, limit int) (list []Fossil, total int, err error) {
 	f := s.Schema.Fossil
 	if f == nil || len(attach) == 0 {
@@ -95,25 +166,41 @@ func (s *Store) Fossils(ctx context.Context, attach []int, limit int) (list []Fo
 	}
 	in := placeholders(len(attach))
 
-	// Distinct names, because the rows are de-duplicated below: PBDB carries a
-	// row per taxon_no and synonyms collapse onto one accepted name. Counting
-	// raw rows would make "showing 75 of 10,421" compare two different things.
-	countQ := fmt.Sprintf("SELECT count(DISTINCT %q) FROM %q WHERE %q IN (%s)",
-		f.Name, f.Table, f.AttachIdx, in)
+	// Accepted taxa only where the column exists. PBDB carries a row per
+	// taxon_no and synonyms collapse onto one accepted name, so without this
+	// the same animal arrives several times and the dedup below silently
+	// spends lane rows on it.
+	where := fmt.Sprintf("t.%q IN (%s)", f.AttachIdx, in)
+	if f.IsPrimary != "" {
+		where += fmt.Sprintf(" AND t.%q = 1", f.IsPrimary)
+	}
+
+	// Distinct names, because the rows are de-duplicated below. Counting raw
+	// rows would make "showing 8 of 10,421" compare two different things.
+	countQ := fmt.Sprintf("SELECT count(DISTINCT t.%q) FROM %q t WHERE %s",
+		f.Name, f.Table, where)
 	if err := s.DB.QueryRowContext(ctx, countQ, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 
 	brackets := "NULL, NULL, NULL, NULL"
 	if f.Brackets {
-		brackets = `"fea", "fla", "lea", "lla"`
+		brackets = `t."fea", t."fla", t."lea", t."lla"`
+	}
+	join, image := "", "NULL"
+	if f.ImageTable != "" {
+		join = fmt.Sprintf(" LEFT JOIN %q img ON img.%q = t.%q",
+			f.ImageTable, f.ImageKey, f.AcceptedNo)
+		image = "img." + quote(f.ImageID)
 	}
 	sel := []string{
-		fmt.Sprintf("%q", f.AttachIdx), fmt.Sprintf("%q", f.Name), fmt.Sprintf("%q", f.NOccs),
-		colOrNull(f.Rank), colOrNull(f.IsExtant), colOrNull(f.Difference), brackets,
+		"t." + quote(f.AttachIdx), "t." + quote(f.Name), "t." + quote(f.NOccs),
+		colOrNullT(f.Rank), colOrNullT(f.IsExtant), colOrNullT(f.Difference),
+		brackets, image,
 	}
-	q := fmt.Sprintf("SELECT %s FROM %q WHERE %q IN (%s) ORDER BY %q DESC, %q LIMIT %d",
-		strings.Join(sel, ", "), f.Table, f.AttachIdx, in, f.NOccs, f.Name, limit)
+	q := fmt.Sprintf("SELECT %s FROM %q t%s WHERE %s ORDER BY %s, t.%q DESC, t.%q LIMIT %d",
+		strings.Join(sel, ", "), f.Table, join, where, s.notability(f),
+		f.NOccs, f.Name, limit)
 
 	rows, err := s.DB.QueryContext(ctx, q, args...)
 	if err != nil {
@@ -128,8 +215,9 @@ func (s *Store) Fossils(ctx context.Context, attach []int, limit int) (list []Fo
 		var rank, diff sql.NullString
 		var extant sql.NullInt64
 		var fea, fla, lea, lla sql.NullFloat64
+		var image sql.NullString
 		if err := rows.Scan(&fo.AttachIdx, &fo.Name, &fo.NOccs, &rank, &extant, &diff,
-			&fea, &fla, &lea, &lla); err != nil {
+			&fea, &fla, &lea, &lla, &image); err != nil {
 			return nil, 0, err
 		}
 		// PBDB carries a row per taxon_no, and synonyms collapse onto the same
@@ -146,9 +234,18 @@ func (s *Store) Fossils(ctx context.Context, attach []int, limit int) (list []Fo
 			fo.IsExtant = &b
 		}
 		fo.FEA, fo.FLA, fo.LEA, fo.LLA = nullF(fea), nullF(fla), nullF(lea), nullF(lla)
+		fo.PhylopicID = nullStr(image)
 		list = append(list, fo)
 	}
 	return list, total, rows.Err()
+}
+
+// colOrNullT is colOrNull for a column on the aliased fossil table.
+func colOrNullT(c string) string {
+	if c == "" {
+		return "NULL"
+	}
+	return "t." + quote(c)
 }
 
 func nullF(v sql.NullFloat64) *float64 {

@@ -303,128 +303,257 @@ def ages(**kw: float):
     return a
 
 
-def brackets(*pairs: tuple[int, float, float]):
-    """(idx, oldest, youngest) triples -> the two arrays load_occurrence returns."""
-    oldest = np.full(PARENT.size, np.nan, dtype=np.float64)
-    youngest = np.full(PARENT.size, np.nan, dtype=np.float64)
-    for idx, hi, lo in pairs:
-        oldest[idx], youngest[idx] = hi, lo
-    return oldest, youngest
+def fossil(
+    attach_idx,
+    oldest,
+    youngest,
+    *,
+    taxon_no=None,
+    image=10,
+    walk=0,
+    n_occs=1,
+    name=None,
+):
+    """A candidate hanging below `attach_idx`. It is not a node, deliberately."""
+    no = taxon_no if taxon_no is not None else 1000 + attach_idx
+    return images.FossilCandidate(
+        pbdb_taxon_no=no,
+        name=name or f"Taxon{no}",
+        rank="genus",
+        attach_idx=attach_idx,
+        attach_walk=walk,
+        oldest=oldest,
+        youngest=youngest,
+        n_occs=n_occs,
+        image=image,
+    )
 
 
-def witness_for(topo, seed, age, occ, near_fraction=images.NEAR_FRACTION):
+def witness_for(seed, age, candidates, near_fraction=images.NEAR_FRACTION, layout=None):
     return images.divergence_witnesses(
-        PARENT, topo.depth, TIP_COUNT, age, seed, *occ, near_fraction=near_fraction
+        PARENT,
+        TIP_COUNT,
+        age,
+        seed,
+        candidates,
+        near_fraction=near_fraction,
+        age_layout=layout,
     )
 
 
 def test_the_witness_is_not_the_exemplar(topo):
     """The headline case: the two rules disagree, and both answers are kept.
 
-    A1x is dated to the split at A; A2 is the shallower tip, so `propagate`
-    hands A its picture. That is the whale–hippo failure in miniature — the
-    crown group is what gets drawn at the fork it did not exist at.
+    A2 is the shallower tip, so `propagate` hands A its picture. That is the
+    whale–hippo failure in miniature — the crown group is what gets drawn at the
+    fork it did not exist at. The witness is a fossil hanging under A1x instead.
     """
     seed = make_seed([(3, 10), (4, 11)])
-    occ = brackets((3, 12.0, 8.0))
-    w = witness_for(topo, seed, ages(n1=10.0), occ)
+    w = witness_for(seed, ages(n1=10.0), [fossil(3, 12.0, 8.0, taxon_no=77)])
 
     assert (
         propagate(PARENT, topo.depth, topo.subtree_out, seed, TIP_COUNT).source[1] == 4
     )
-    assert w.source[1] == 3
+    assert w.source[1] == 77, "a pbdb_taxon_no, not a node index"
     assert w.image[1] == 10
     assert w.gap[1] == 0.0  # the bracket spans the split outright
+    assert w.taxa[1].attach_idx == 3
 
 
-def test_a_split_nobody_has_dated_gets_no_witness(topo):
-    """`structural` nodes carry no age, so there is nothing to be near."""
-    w = witness_for(topo, make_seed([(3, 10)]), ages(), brackets((3, 12.0, 8.0)))
-    assert w.source.tolist() == [NO_IMAGE] * PARENT.size
+def test_a_fossil_reaches_forks_no_node_could():
+    """The reason the layer moved off nodes.
+
+    Node 3 is a tip and carries no image of its own, so under the old rule it
+    could never be a candidate for anything. A fossil *attached* there witnesses
+    every fork above it — which is how Tetrapoda reaches Acanthostega.
+    """
+    w = witness_for(make_seed([]), ages(n0=10.0, n1=10.0), [fossil(3, 12.0, 8.0)])
+    assert w.source[0] != NO_IMAGE
+    assert w.source[1] != NO_IMAGE
+    assert w.source[5] == NO_IMAGE, "B is not above the attachment point"
 
 
-def test_a_node_with_its_own_image_keeps_it(topo):
+def test_a_fossil_may_witness_its_own_attachment_point():
+    """`attach_idx` is where the fossil hangs, so the fork it hangs from is
+    exactly the one it has most to say about."""
+    w = witness_for(make_seed([]), ages(n1=10.0), [fossil(1, 12.0, 8.0)])
+    assert w.source[1] != NO_IMAGE
+
+
+def test_a_split_nobody_has_dated_falls_back_to_where_it_is_drawn():
+    """A `structural` fork has no estimated age, but it still has a position.
+
+    Without this, Carnivora, Canidae, Primates and Rodentia have no witness at
+    all — every one of them is undated, and they are exactly the forks a reader
+    goes looking for. The layout age is used to *choose* and never to display;
+    no number reaches the screen for these, and the card says the fork is
+    undated. See the note in `divergence_witnesses`.
+    """
+    cands = [fossil(3, 12.0, 8.0)]
+    assert witness_for(make_seed([]), ages(), cands).source[1] == NO_IMAGE
+    assert witness_for(make_seed([]), ages(), cands, layout=ages(n1=10.0)).source[
+        1
+    ] != (NO_IMAGE)
+
+
+def test_an_estimated_age_always_beats_the_drawn_position():
+    """The fallback only ever reaches nodes that would have had nothing."""
+    near = fossil(3, 12.0, 8.0, taxon_no=1)
+    far = fossil(4, 40.0, 36.0, taxon_no=2)
+    # age_ma says 10 and the layout says 38. If the layout won, A would take
+    # the far fossil; the real age must decide.
+    w = witness_for(make_seed([]), ages(n1=10.0), [near, far], layout=ages(n1=38.0))
+    assert w.source[1] == 1
+
+
+def test_a_node_with_its_own_image_keeps_it():
     """Exactness wins here as it does everywhere else in this phase."""
-    seed = make_seed([(1, 99), (3, 10)])
-    w = witness_for(topo, seed, ages(n1=10.0), brackets((3, 12.0, 8.0)))
+    w = witness_for(make_seed([(1, 99)]), ages(n1=10.0), [fossil(3, 12.0, 8.0)])
     assert w.source[1] == NO_IMAGE
 
 
-def test_a_fossil_too_far_from_the_split_is_refused(topo):
-    """The cap is a fraction of the split's own age, not a fixed span."""
-    seed, occ = make_seed([(3, 10)]), brackets((3, 12.0, 8.0))
-    assert witness_for(topo, seed, ages(n1=20.0), occ).source[1] == NO_IMAGE
-    assert witness_for(topo, seed, ages(n1=20.0), occ, 0.5).source[1] == 3
+def test_the_cap_is_a_fraction_of_the_split_age_not_a_fixed_span():
+    """The mechanism, exercised explicitly because the shipped cap is off.
+
+    At 0.25 a fossil 8 Ma from a 20 Ma fork is refused and the same fossil is
+    admitted at 0.5. Nothing in the ranking changes when the cap moves, so
+    dialling `NEAR_FRACTION` back is a one-line change with no other edits.
+    """
+    cands = [fossil(3, 12.0, 8.0)]
+    assert witness_for(make_seed([]), ages(n1=20.0), cands, 0.25).source[1] == NO_IMAGE
+    assert witness_for(make_seed([]), ages(n1=20.0), cands, 0.5).source[1] != NO_IMAGE
 
 
-def test_the_narrower_bracket_wins_the_tie(topo):
+def test_the_shipped_rule_refuses_nothing_on_distance():
+    """Uncapped by default: a fork takes the nearest fossil however far it is.
+
+    A refused witness does not fall back to anything — the fork simply draws
+    no picture — so the cap traded coverage for nothing a reader could see.
+    The dates render beside the drawing either way, which is what lets the
+    reader judge a poor match instead of being protected from it.
+    """
+    w = witness_for(make_seed([]), ages(n1=500.0), [fossil(3, 2.0, 1.0)])
+    assert w.source[1] != NO_IMAGE
+    assert w.gap[1] == 498.0
+
+
+def test_the_narrower_bracket_wins_the_tie():
     """Sahelanthropus (7.2–5.3) over Ardipithecus (11.6–2.6), in miniature.
 
     Both contain the split, so the gap cannot separate them and the tie-break
     is which one claims less. Without it the wider bracket wins more often,
-    because PBDB's `fea` is junk-wide and widening it can only help.
+    because PBDB's `fea` is junk-wide and widening it can only help — which is
+    also what keeps Ammonitina (249.9–56 Ma) from taking every fork it spans.
     """
-    seed = make_seed([(3, 10), (4, 11)])
-    occ = brackets((3, 30.0, 2.0), (4, 12.0, 8.0))
-    assert witness_for(topo, seed, ages(n1=10.0), occ).source[1] == 4
+    wide = fossil(3, 30.0, 2.0, taxon_no=1, n_occs=43884)
+    narrow = fossil(4, 12.0, 8.0, taxon_no=2, n_occs=1)
+    assert witness_for(make_seed([]), ages(n1=10.0), [wide, narrow]).source[1] == 2
 
 
-def test_spanning_the_split_beats_merely_being_near_it(topo):
-    seed = make_seed([(3, 10), (4, 11)])
-    occ = brackets((3, 19.0, 17.0), (4, 24.0, 20.0))
-    w = witness_for(topo, seed, ages(n1=18.0), occ)
-    assert w.source[1] == 3
+def test_a_firmer_attachment_breaks_a_tie_the_bracket_cannot():
+    """Zero hops is a different quality of claim from eight: PBDB's own taxon
+    is in the tree, rather than something eight ranks up from it."""
+    loose = fossil(3, 12.0, 8.0, taxon_no=1, walk=8)
+    firm = fossil(4, 12.0, 8.0, taxon_no=2, walk=0)
+    assert witness_for(make_seed([]), ages(n1=10.0), [loose, firm]).source[1] == 2
+
+
+def test_spanning_the_split_beats_merely_being_near_it():
+    spans = fossil(3, 19.0, 17.0, taxon_no=1)
+    near = fossil(4, 24.0, 20.0, taxon_no=2)
+    w = witness_for(make_seed([]), ages(n1=18.0), [spans, near])
+    assert w.source[1] == 1
     assert w.gap[1] == 0.0
 
 
-def test_a_witness_must_be_inside_the_clade_it_witnesses(topo):
-    """B2's fossil says nothing about A's split, however well it is dated."""
+def test_a_witness_must_hang_below_the_fork_it_witnesses():
+    """A fossil under B2 says nothing about A's split, however well it is dated."""
     w = witness_for(
-        topo,
-        make_seed([(7, 12)]),
-        ages(n0=10.0, n1=10.0, n5=10.0),
-        brackets((7, 12.0, 8.0)),
+        make_seed([]), ages(n0=10.0, n1=10.0, n5=10.0), [fossil(7, 12.0, 8.0)]
     )
-    assert w.source.tolist() == [7, NO_IMAGE, NO_IMAGE, NO_IMAGE, NO_IMAGE, 7, -1, -1]
+    assert w.source[0] != NO_IMAGE
+    assert w.source[5] != NO_IMAGE
+    assert w.source[1] == NO_IMAGE, "A is not an ancestor of the attachment point"
 
 
-def test_a_drawn_taxon_with_no_fossil_record_is_not_a_candidate(topo):
-    w = witness_for(topo, make_seed([(3, 10)]), ages(n1=10.0), brackets())
+def test_a_candidate_attached_outside_the_tree_is_ignored():
+    """`attach_idx` comes from a table this function does not own."""
+    w = witness_for(make_seed([]), ages(n1=10.0), [fossil(999, 12.0, 8.0)])
     assert w.source.tolist() == [NO_IMAGE] * PARENT.size
 
 
-def test_witnesses_reject_mismatched_arrays(topo):
+def test_witnesses_reject_mismatched_arrays():
     with pytest.raises(ValueError, match="lengths disagree"):
         images.divergence_witnesses(
-            PARENT,
-            topo.depth,
-            TIP_COUNT,
-            ages(),
-            np.zeros(3, dtype=np.int64),
-            *brackets(),
+            PARENT, TIP_COUNT, ages(), np.zeros(3, dtype=np.int64), []
         )
 
 
-def test_load_occurrence_without_a_fossil_table():
-    """Phase 5a must run against a build where phase 4 has not."""
-    con = sqlite3.connect(":memory:")
-    oldest, youngest = images.load_occurrence(con, 8)
-    assert np.isnan(oldest).all() and np.isnan(youngest).all()
-
-
-def test_load_occurrence_reads_the_outer_bracket():
+def _fossil_db() -> sqlite3.Connection:
     con = sqlite3.connect(":memory:")
     con.executescript(
-        "CREATE TABLE occurrence (idx INTEGER PRIMARY KEY,"
-        " fea REAL, fla REAL, lea REAL, lla REAL);"
-        "INSERT INTO occurrence VALUES (3, 7.246, 5.333, 7.246, 5.333);"
+        "CREATE TABLE fossil (pbdb_taxon_no INTEGER PRIMARY KEY, accepted_no INTEGER,"
+        " name TEXT, rank TEXT, attach_idx INTEGER, attach_walk INTEGER,"
+        " fea REAL, lla REAL, n_occs INTEGER, is_extant INTEGER, is_primary INTEGER);"
     )
-    oldest, youngest = images.load_occurrence(con, 8)
-    # fea and lla — the whole of when the taxon might have been alive. The
-    # inner pair is phase 4's business and is not read here.
-    assert oldest[3] == pytest.approx(7.246)
-    assert youngest[3] == pytest.approx(5.333)
-    assert np.isnan(oldest[4])
+    return con
+
+
+def _record(uuid: str = "u") -> ImageRecord:
+    return ImageRecord(
+        uuid=uuid,
+        license_url="https://creativecommons.org/publicdomain/zero/1.0/",
+        attribution=None,
+        contributor=None,
+        modified="2026-07-31",
+        node_uuid=None,
+        node_title="Acanthostega gunnari",
+        node_primary_image=None,
+    )
+
+
+def test_load_fossil_candidates_without_a_fossil_table():
+    """Phase 5a must run against a build where phase 4 has not."""
+    got, stats = images.load_fossil_candidates(sqlite3.connect(":memory:"), [], {1: 0})
+    assert got == [] and stats["rows"] == 0
+
+
+def test_an_extant_taxon_is_never_a_candidate():
+    """The one that would quietly undo the feature. PBDB carries Mammalia at
+    239.5–0 Ma, and a range running to the present spans every split inside it,
+    so the biggest forks would take the crown group with a fossil's label on.
+    Unknown extancy goes too: a wrong include is a silent regression and a wrong
+    exclude is one missing picture."""
+    con = _fossil_db()
+    con.executemany(
+        "INSERT INTO fossil VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        [
+            (1, 1, "Mammalia", "class", 5, 0, 239.5, 0.0, 900, 1, 1),
+            (2, 2, "Unknown", "genus", 5, 0, 60.0, 50.0, 3, None, 1),
+            (3, 3, "Acanthostega", "genus", 5, 2, 372.0, 359.0, 40, 0, 1),
+        ],
+    )
+    got, stats = images.load_fossil_candidates(con, [_record()], {1: 0, 2: 0, 3: 0})
+    assert [c.pbdb_taxon_no for c in got] == [3]
+    assert stats["extant_excluded"] == 2
+    assert got[0].attach_walk == 2 and got[0].oldest == 372.0
+
+
+def test_a_synonym_and_an_undrawn_taxon_are_not_candidates():
+    con = _fossil_db()
+    con.executemany(
+        "INSERT INTO fossil VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        [
+            (1, 9, "Synonym", "genus", 5, 0, 60.0, 50.0, 3, 0, 0),
+            (2, 2, "Undrawn", "genus", 5, 0, 60.0, 50.0, 3, 0, 1),
+            (3, 3, "Undated", "genus", 5, 0, None, None, 3, 0, 1),
+            (4, 4, "Good", "genus", 5, 0, 60.0, 50.0, 3, 0, 1),
+        ],
+    )
+    got, stats = images.load_fossil_candidates(con, [_record()], {4: 0, 9: 0})
+    assert [c.name for c in got] == ["Good"]
+    assert stats["rows"] == 2, "primary, extinct and dated; drawn is counted apart"
+    assert stats["drawn"] == 1
 
 
 # --------------------------------------------------------------------------

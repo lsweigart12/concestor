@@ -202,35 +202,71 @@ export function borrowedTitle(
 }
 
 /**
+ * How firmly the fossil is placed, in words, or "" when there is nothing to say.
+ *
+ * `attachWalk` counts PBDB `parent_no` hops from the taxon to the deepest node
+ * anyone can put it below. Zero is a different quality of claim from eight and
+ * the caption may not flatten them: at zero the taxon is itself in the tree, so
+ * the picture sits where the data says it sits; at eight the only honest
+ * statement is that it belongs somewhere inside a much larger group.
+ *
+ * Three bands rather than a number, because the number means nothing to a
+ * reader and the distinction does. Kept short — this runs inside a tooltip that
+ * already carries two dates and a taxon name.
+ */
+export function placementNote(attachWalk: number | null): string {
+  if (attachWalk === null) return "";
+  if (attachWalk === 0) return " It is placed exactly here in the tree.";
+  if (attachWalk <= 2) return " It is placed just below this point.";
+  return " Its exact position is not known — only that it belongs below here.";
+}
+
+/**
  * What the picture beside a *divergence* is, which is a different sentence.
  *
  * `borrowedTitle` above says "not this node itself — something from within the
  * group", because that is the honest description of a borrowed exemplar. A
- * witness makes a stronger and more interesting claim, and the caption has to
- * carry it: this taxon is inside the clade *and* the rock has it at about the
- * time the clade split. The dates are the whole of it. Without them the shape
- * is just another unlabelled silhouette, and with them a reader can see that
- * *Sahelanthropus* at 7.2–5.3 Ma sits across a split dated 6.7 — which is the
- * thing worth showing them.
+ * witness makes a different claim, and the caption has to carry it exactly: the
+ * rock has this taxon at about the time the fork happened, and the taxon sits
+ * *somewhere below* the fork. The dates are the whole of it. Without them the
+ * shape is just another unlabelled silhouette, and with them a reader can see
+ * that *Sahelanthropus* at 7.2–5.3 Ma sits across a split dated 6.7 — which is
+ * the thing worth showing them.
  *
- * Two forms, because spanning the split and merely nearing it are different
- * strengths of claim and the wording should not flatten them.
+ * **"Below this fork", not "inside this group", and that is a real weakening.**
+ * A witness used to be a node in the synthesis tree, so "one lineage from
+ * inside it" was literally true. It is now a PBDB taxon that is not in the tree
+ * at all, placed by walking PBDB's own classification up until something
+ * resolves — architecture §3.4's *this taxon belongs somewhere below node X,
+ * and existed between these dates*, and no more than that. `placementNote`
+ * carries how far the walk went.
+ *
+ * Three forms for the time claim. Spanning the split and merely nearing it are
+ * different strengths and the wording must not flatten them — but the third
+ * matters more: **many witnesses sit on a fork nobody has dated.** The rule
+ * falls back to where the fork is *drawn* when there is no estimate, which is
+ * what makes Carnivora draw something instead of nothing. Saying "the closest
+ * to when these lineages parted" there would imply we know when that was. We do
+ * not, and the sentence says so instead.
  */
 export function witnessTitle(
   w: Witness,
   splitAge: number | null,
   tier: Tier,
 ): string {
-  const who = w.name ?? "A taxon inside this group";
+  const who = w.name ?? "A taxon from below this fork";
   const when =
     w.oldest !== null && w.youngest !== null
       ? ` known from ${endedSpanLabel(w.oldest, w.youngest)}`
       : "";
+  const where = placementNote(w.attachWalk);
   const dated = ageLabel(splitAge, tier);
-  const at = dated ? `, and this split is dated ${dated}` : "";
+  if (!dated) {
+    return `${who} —${when}. Nobody has dated this split, so this is the nearest fossil to where it sits on the axis, not to a known date.${where}`;
+  }
   return w.spans
-    ? `${who} —${when}, so it was around when these lineages parted${at}.`
-    : `${who} —${when}, the closest anyone has drawn to when these lineages parted${at}.`;
+    ? `${who} —${when}, so it was around when these lineages parted, and this split is dated ${dated}.${where}`
+    : `${who} —${when}, the closest fossil anyone has drawn to when these lineages parted, and this split is dated ${dated}.${where}`;
 }
 
 /**
@@ -292,20 +328,19 @@ export const NodeMark = memo(function NodeMark({ data }: NodeProps) {
   const showDetail = d.zoom === "detail";
   const div = d.divergence;
   const name = n.name ?? div?.text ?? UNNAMED;
-  // Clades get an image too, not just selections. architecture §7: a
-  // silhouette legitimately represents a *clade*, where a photograph can only
-  // represent one member — so a mammal beside Mammalia is the case it is best
-  // at, and `silhouetteIsInformative` is what keeps a kingdom-sized borrow out.
-  // Not gated on zoom: see the note at the top of this file.
+  // Two pictures, one slot, and which is allowed depends on how the reader got
+  // here — `Graph.mayDrawExemplar` makes that call and this only renders it.
+  // A clade a reader *chose* draws its exemplar, which is architecture §7's
+  // case and the one a silhouette is best at: a mammal beside Mammalia says
+  // something a photograph could not. The same picture beside a *fork* says
+  // something false, because a borrow is nearly always a living group and the
+  // fork predates it, so a divergence draws its witness or nothing at all.
   //
-  // A divergence with a witness draws that instead. Not as well as — the label
-  // is already the widest thing on the canvas and two pictures on one mark
-  // would double it — and the witness is strictly the better answer where it
-  // exists, because it is inside this clade rather than borrowed from a
-  // relative, and it is contemporary with the fork rather than a crown group
-  // that came later. It draws even where `showSilhouette` would suppress the
-  // ordinary one: the suppression rule judges the size of a borrow, and a
-  // witness borrows nothing.
+  // Never both. The label is already the widest thing on the canvas and two
+  // images on one mark would double it — and there is nothing to combine
+  // anyway, since the two are answers to different questions.
+  //
+  // Not gated on zoom: see the note at the top of this file.
   const witness = d.witness;
   const withSilhouette = witness !== null || (d.showSilhouette && Boolean(n.phylopic_id));
   const meta = div && showDetail ? DIVERGENCE_META : metaLine(n.rank, showDetail);

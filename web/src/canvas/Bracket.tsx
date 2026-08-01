@@ -320,3 +320,19 @@ export function Bracket({ geom, y, height, coreRatio = 0.52, title, className }:
     </g>
   );
 }
+
+/**
+ * A distance in Ma, for the gap between a fork and a witness's range.
+ *
+ * `maLabel` is for *positions* on the axis and renders anything under 0.05 Ma
+ * as "present", which is right there and wrong here: a gap of 0.03 Ma is a
+ * quantity, not a place, and "the range stops present short" is nonsense. It
+ * also rounds to whole numbers above 10, which is what made the horse–rhino
+ * fork show 56 Ma beside a 56–51 Ma range and then deny they meet. So this
+ * keeps a digit wherever one is load-bearing and never collapses to a word.
+ */
+export function gapLabel(ma: number): string {
+  if (ma < 0.1) return "under 0.1 Ma";
+  if (ma < 10) return `${ma.toFixed(1)} Ma`;
+  return `${Math.round(ma)} Ma`;
+}

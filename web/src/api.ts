@@ -75,30 +75,51 @@ export interface PathNode {
   silhouette_clade_tips?: number | null;
   silhouette_clade_name?: string | null;
   /**
-   * The divergence witness: a second silhouette, of a taxon *inside* this
-   * clade whose fossil record puts it at this node's split.
+   * The divergence witness: a second silhouette, of a **fossil taxon from
+   * somewhere below this fork** whose stratigraphic bracket puts it at the
+   * split.
    *
    * It answers a different question from `phylopic_id`, which is why both
    * exist. `phylopic_id` prefers the most inclusive drawing beneath a node, so
    * at a split it is always a crown group — the human–chimp split drew *Homo*,
    * the whale–hippo split drew a dolphin. Neither existed when the lineages
-   * parted. This is what did: *Sahelanthropus*, *Basilosaurus*, *Hallucigenia*.
+   * parted. This is what did: *Acanthostega gunnari*, *Eohippus*, *Pakicetus*.
+   *
+   * **The claim is weaker than a silhouette's and the wording must be too.** A
+   * witness used to be a node inside the clade, so the picture could say "a
+   * member of this group". It is now a PBDB taxon that is not in the tree at
+   * all, and the honest phrasing is architecture §3.4's: *this taxon belongs
+   * somewhere below this node, and existed between these dates.* Not *this
+   * taxon is the sister of that one.* `divergence_attach_walk` is how loose
+   * the placement is.
    *
    * Which one to draw is the client's call and depends on how the reader
    * reached the node: a species they chose wants its group's exemplar, a
-   * divergence they arrived at wants the witness. Present on 66 nodes, and
-   * absent wherever the split is undated or nothing drawn inside it is dated.
+   * divergence they arrived at wants the witness. Absent wherever the fork
+   * carries its own drawing, or nothing drawn, dated and extinct hangs below it.
    */
   divergence_phylopic_id?: string | null;
-  divergence_source_idx?: number | null;
+  /** A `fossil.pbdb_taxon_no`. **Not** a node index — nothing may address the tree with it. */
+  divergence_pbdb_taxon_no?: number | null;
   divergence_source_name?: string | null;
   divergence_source_rank?: string | null;
+  /** The deepest node the fossil is known to sit below. */
+  divergence_attach_idx?: number | null;
+  /**
+   * How many PBDB `parent_no` hops it took to find that node, and therefore how
+   * loose the placement is. Zero means PBDB's own taxon is in the synthesis
+   * tree and the fossil sits exactly there; eleven means the claim is about a
+   * family rather than a lineage. The caption has to say which.
+   */
+  divergence_attach_walk?: number | null;
   /** Ma from the split to that taxon's range. 0 means the range spans it. */
   divergence_gap_ma?: number | null;
   /**
    * The witness taxon's own fossil bracket, and not optional in practice: it
    * is what makes the picture legible. A range, never a point, exactly like
-   * `occurrence` — no midpoint may be computed from it.
+   * `occurrence` — no midpoint may be computed from it. Only `fea` and `lla`
+   * arrive: the witness is chosen by a containment test on the outer bracket,
+   * so the inner pair never entered the decision.
    */
   divergence_range?: {
     fea: number | null;
@@ -119,6 +140,25 @@ export interface Witness {
   youngest: number | null;
   /** True when that range contains the split rather than merely nearing it. */
   spans: boolean;
+  /**
+   * Ma from the split to the nearer end of the range, 0 when it spans.
+   *
+   * Carried rather than left implicit because rounding makes a true statement
+   * read as a false one: Perissodactyla is dated 56.26 Ma and *Eohippus* tops
+   * out at 56.0, so the card shows "56 Ma" and "56–51 Ma" and then says the
+   * range does not reach the split. Both figures are right and the reader can
+   * see only a contradiction. The gap is what resolves it.
+   */
+  gapMa: number | null;
+  /**
+   * PBDB `parent_no` hops from the taxon to the deepest node it is known to sit
+   * below. Zero means the taxon is itself in the synthesis tree, so the fossil
+   * hangs exactly where the picture says; higher means the placement is
+   * progressively vaguer, and eight is a statement about a family. Null on a
+   * build that predates the move onto attachment points, where the witness was
+   * a node and the question did not arise.
+   */
+  attachWalk: number | null;
 }
 
 /**
@@ -145,6 +185,8 @@ export function witnessFor(node: PathNode): Witness | null {
     oldest: Math.max(...bounds),
     youngest: Math.min(...bounds),
     spans: node.divergence_gap_ma === 0,
+    gapMa: node.divergence_gap_ma ?? null,
+    attachWalk: node.divergence_attach_walk ?? null,
   };
 }
 
@@ -279,6 +321,12 @@ export interface SilhouettePolicy {
 /**
  * **Draw everything.** Every node with a resolved image draws it.
  *
+ * Superseded in one place, and the exception is not about clade size at all: a
+ * *divergence* draws its witness or nothing, never a borrow. See
+ * `Graph.mayDrawExemplar`. This policy governs only the nodes still eligible
+ * for a borrow — the clades a reader chose — and the threshold below is what
+ * would catch a misinforming one among those.
+ *
  * This was an uneasy experiment when the alternative was a `cellular
  * organisms` blob on two thirds of the tree; it is now simply what the data
  * supports. Measured on the built corpus after the resolution change: the
@@ -349,6 +397,13 @@ export interface FossilTaxon {
   attach_idx: number;
   n_occs: number;
   is_extant: boolean | null;
+  /**
+   * A drawing of *this taxon*, when PhyloPic has one under the same name.
+   * Never inherited: a fossil is not a node, so it has no clade to borrow a
+   * picture from, and somebody else's portrait beside it would say nothing.
+   * Present on 4,656 of the 275,082 dated PBDB taxa.
+   */
+  phylopic_id?: string | null;
   fea: number | null;
   fla: number | null;
   lea: number | null;

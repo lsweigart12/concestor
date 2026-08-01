@@ -794,12 +794,13 @@ def layout_bounds(
     # the Ediacaran is not a conflict to resolve — it is a bad attachment.
     #
     # Measured, and worth recording because it is a phase 3 defect this pass
-    # only happened to surface: `xref` resolves PBDB to OTT by name, and OTT
+    # only happened to surface: `xref` resolved PBDB to OTT by name, and OTT
     # carries **homonyms across kingdoms**. PBDB's *Ivesia* is a rangeomorph
     # and OTT's is a rose-family plant, so a 538.8 Ma bound landed on a living
     # genus. PBDB's *Heraultia* is the Cambrian mollusc *Watsonella*; OTT's is
-    # not. `images.py` refuses an ambiguous name outright for exactly this
-    # reason and phase 3 does not.
+    # not. Phase 3's `refuse_disagreements` withdraws these now, and this guard
+    # stayed: the sweep took 17,068 rows and the statement below is true of the
+    # rest regardless of how they resolved.
     #
     # So this is not a plausibility threshold — there is no defensible one —
     # but the statement that makes the bound meaningful at all. It also happens
@@ -941,24 +942,27 @@ def layout_gates(
             "landing on a node with living descendants is almost certainly the "
             "wrong taxon: *Sadleria* is a Hawaiian fern carrying a Devonian "
             "fossil, *Streptosolen* a South American shrub carrying an "
-            "Ordovician one. It is not confined to `name_exact` — "
-            "`gbif_backbone_provenance` and `gbif_pbdb_chain` produce them too, "
-            "so trusting the backbone alone is not the fix. An `observe` "
-            "deliberately: this phase cannot repair it, and the baseline needs "
-            "to be on the record before phase 3 tries. handoff §4 has the "
-            "shape of the fix."
+            "Ordovician one. **Phase 3 now refuses these** — see "
+            "`refuse_disagreements` — and this number is how that is checked "
+            "from the outside, on the one axis phase 3 does not have. It read "
+            "1,019 of 1,048 before the sweep existed and 31 of 60 after: the "
+            "population itself collapsed, which is the shape a real fix makes. "
+            "It stays an `observe` because the residue is not repairable here "
+            "and a hard threshold on it would be a number nobody measured."
         ),
     )
     g.observe(
         "fossil bounds refused because the node has a living descendant",
         f"{refused:,}",
         note=(
-            "A last appearance is evidence about a lineage that ended. Most of "
-            "these are cross-kingdom homonyms out of phase 3's name-based "
-            "`xref`: PBDB's *Ivesia* is an Ediacaran rangeomorph and OTT's is a "
-            "rose-family plant, so a 538.8 Ma bound reached a living genus. "
-            "`images.py` refuses an ambiguous name outright; phase 3 does not, "
-            "and that is worth fixing there rather than guarding against here."
+            "A last appearance is evidence about a lineage that ended. This "
+            "used to read 27,018 and be mostly cross-kingdom homonyms out of "
+            "phase 3's name-based `xref` — PBDB's *Ivesia* is an Ediacaran "
+            "rangeomorph and OTT's a rose-family plant, so a 538.8 Ma bound "
+            "reached a living genus. Phase 3's sweep withdrew those and it now "
+            "reads 15,547. What is left is the statement itself doing its "
+            "work: a bracket on a clade that is still alive is not evidence "
+            "about where that clade's origin sits."
         ),
     )
     g.observe("undated nodes pushed back to their fossil bound", f"{moved:,}")

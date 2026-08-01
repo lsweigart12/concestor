@@ -54,22 +54,35 @@ drew the generic *Homo*; Whippomorpha, the whale–hippo split, drew the Cetacea
 dolphin. Both are pictures of the wrong end of the branch.
 
 So internal nodes get a second, independent resolution — the **witness** — in
-`node_divergence_image`, and `node_image` is left exactly as it was. A witness
-is a drawn taxon inside the clade whose *fossil record* places it at the split:
-*Sahelanthropus* for human–chimp, *Basilosaurus* for whale–hippo,
-*Icaronycteris* for the bat radiation, *Hallucigenia* for Bilateria. Keeping
-them apart is the same discipline as `age_ma` / `age_layout`: a node that the
-reader *chose* should still show what its group looks like, and only a node the
-reader arrived at by splitting should show what stood at the fork.
+`node_divergence_witness`, and `node_image` is left exactly as it was. A witness
+is a drawn, dated, extinct taxon from *below* the fork whose fossil record puts
+it at the split: *Acanthostega gunnari* for the fish/tetrapod split, *Eohippus*
+for horse/rhino, *Sahelanthropus* for human–chimp, *Pakicetus* for whale–hippo.
+Keeping the two tables apart is the same discipline as `age_ma` / `age_layout`:
+a node the reader *chose* should still show what its group looks like, and only
+a node they arrived at by splitting should show what stood at the fork.
 
-Three restrictions do the honest work, all of them refusals:
+**A witness is a fossil, not a node**, and that distinction is the whole of the
+layer's reach. It used to have to be a node — in the synthesis tree, drawn, and
+dated — and only 0.5% of OTT taxa flagged extinct are in synthesis at all
+(architecture §3.4), so the design capped out around 2,552 forks however many
+images anyone sourced. The taxa most worth drawing at a fork are the stem forms
+that actually sat near it, and those are overwhelmingly not nodes. Phase 4's
+`attach_idx` reaches them: the deepest node that is an ancestor-or-self of a
+PBDB taxon, so a fossil attached at `a` may witness `a` and every ancestor of
+`a`. The claim weakens with the reach — *somewhere below this fork*, not *inside
+this group* — and `attach_walk` is the number that says how loose it is.
 
-- **A witness needs a dated split.** `age_ma` must be finite, so `structural`
-  nodes get none. Claiming a fossil sits near a divergence nobody has dated is
-  the exact dishonesty phase 2 exists to prevent.
-- **A witness needs a fossil record**, an `occurrence` bracket from phase 4.
-  That is 398 of the 7,470 drawn nodes, which is why this fires on 66 nodes and
-  not 66,000. Small and right beats large and invented.
+Four restrictions do the honest work, all of them refusals:
+
+- **A witness needs a dated split.** `age_ma` first, falling back to
+  `age_layout` where nobody has dated the fork — used to *choose* a picture and
+  never rendered as an age.
+- **A witness needs a bracket**, both `fea` and `lla`, read only as the two
+  ends of a containment test.
+- **A witness must be extinct.** PBDB carries *Mammalia* at 239.5–0 Ma, and a
+  range running to the present spans every split inside it, so without this the
+  biggest forks take the crown group again wearing a fossil's label.
 - **Exactness still wins.** A node with its own image keeps it and gets no
   witness, so Mammalia is Mammalia and never a Cretaceous monotreme.
 
@@ -180,21 +193,47 @@ MIN_INFORMATIVE_INTERNAL = 0.75
 # against the depth of the thing: 2 Ma is nothing at the whale–hippo split and
 # most of the story at the human–chimp one.
 #
-# Like INFORMATIVE_CLADE_TIPS above this is a product judgement, not a number
-# the data hands over — the gap distribution is smooth, with a median of 0.502.
-# It is set where the picks stop being about the split. Measured on the built
+# **Currently uncapped, deliberately.** The knob shipped at 0.25 and the tree
+# was too bare to be worth looking at, because refusing a witness does not fall
+# back to anything — a fork draws the witness or nothing. Measured on the built
 # corpus, witnesses admitted at each cap:
 #
-#   0.20 -> 53   0.25 -> 66   0.33 -> 87   0.50 -> 114
+#   0.20 -> 53   0.25 -> 66   0.33 -> 87   0.50 -> 114   1.00 -> 225   inf -> 229
 #
-# and what the last two admit is the argument. At 0.33 Tetrapoda (360 Ma) takes
-# Ctenosauriscidae, a Triassic archosaur 110 Ma too late, and a 777 Ma node
-# takes Cambrian Hallucigenia. At 0.50 Metazoa (785 Ma) takes Hallucigenia too
-# and Aves (96 Ma) takes a Paleocene penguin. Those are not witnesses to
-# anything; they are the nearest fossil, which is a different claim. Dropping
-# to 0.20 costs Bilateria, Amniota, Boreoeutheria and Haplorrhini, all of which
-# read correctly, so 0.25 is where the rule discriminates.
-NEAR_FRACTION = 0.25
+# and with the layout fallback below, 548. The distribution is smooth — median
+# gap is 50% of the split's age, p90 is 100% — so no threshold sits at a
+# natural break, which is what makes this a preference rather than a finding.
+#
+# Uncapped, the ranking still does the work: every fork takes the *nearest*
+# drawn fossil inside it, and the two facts a reader needs to judge it — the
+# taxon's own range and the fork's age — render together wherever the picture
+# does. What is lost is the refusal, so a fork can now take something far too
+# young: Feliformia (47 Ma) draws a mongoose known only from the last 5 Ma.
+# That is visible on the card rather than hidden, which is the trade.
+#
+# To dial back, set this to a fraction. Nothing else has to change.
+NEAR_FRACTION = float("inf")
+
+# The base of the Holocene, PBDB's youngest interval, and the floor a witness's
+# last appearance must sit above.
+#
+# `is_extant` is the flag that is *supposed* to keep a living taxon out — a
+# range running to the present contains every split younger than its start, so
+# it cannot fail to look like a match — and measured on this corpus the flag is
+# wrong often enough to undo the feature on its own. *Thalassia testudinum* is
+# the living turtle grass, flagged extinct, bracketed 48.07–0.0117 Ma, and it
+# won a fork of 378,328 tips. *Hippotragus equinus* is the roan antelope,
+# *Pugettia producta* the northern kelp crab, *Globigerinoides ruber* a living
+# foram at 85.7–0 Ma; all three are flagged extinct and all three won forks.
+#
+# So the same rule is applied to the evidence rather than to the label: a taxon
+# whose last appearance is in the Holocene has no recorded end, and a range with
+# no end is not evidence about when anything parted. That costs 233 forks and
+# some genuine recent extinctions with them — *Aenocyon dirus*, the dire wolf,
+# and *Moho braccatus*, the Kauai ʻōʻō, which died in 1987 — and it is worth it
+# on §5's own terms: a wrong include is a silent regression and a wrong exclude
+# is one missing picture.
+HOLOCENE_MA = 0.0117
 
 NO_IMAGE = -1
 
@@ -922,55 +961,142 @@ def propagate(
 # --------------------------------------------------------------------------
 
 
+@dataclass(slots=True, frozen=True)
+class FossilCandidate:
+    """A drawn, dated, extinct PBDB taxon, offering itself as a witness.
+
+    It is **not a node**, and that is the whole point of this design. A witness
+    used to have to be one, which capped the layer at 2,552 forks however many
+    images anyone sourced, because only 0.5% of OTT taxa flagged extinct are in
+    the synthesis tree at all (architecture §3.4). *Acanthostega*, *Eohippus*
+    and *Odontochelys* are drawn, dated, correctly placed, and were ineligible.
+    """
+
+    pbdb_taxon_no: int
+    name: str
+    rank: str | None
+    attach_idx: int  # deepest node that is an ancestor-or-self of it
+    attach_walk: int  # `parent_no` hops PBDB took to find that node
+    oldest: float  # `fea` — read only as one end of a containment test
+    youngest: float  # `lla`
+    n_occs: int
+    image: int  # position in `records`
+
+
 @dataclass(slots=True)
 class Witness:
-    """Per node: a drawn taxon whose fossil record sits at that node's split."""
+    """Per node: the fossil taxon whose bracket sits at that node's split."""
 
     image: I64Array  # position in `records`; NO_IMAGE where there is no witness
-    source: I64Array  # the node drawn, always strictly inside idx's clade
+    source: I64Array  # `fossil.pbdb_taxon_no`, NOT a node index. NO_IMAGE = none
     gap: F64Array  # Ma from the split to that taxon's observed range; 0 = spans
+    taxa: dict[int, FossilCandidate]  # idx -> the candidate that won it
 
 
-def load_occurrence(con: sqlite3.Connection, n: int) -> tuple[F64Array, F64Array]:
-    """Phase 4's fossil brackets, as the widest range each taxon may have lived.
+def load_fossil_candidates(
+    con: sqlite3.Connection, records: list[ImageRecord], links: dict[int, int]
+) -> tuple[list[FossilCandidate], JsonDict]:
+    """Every PBDB taxon that could witness anything, from phase 4's `fossil`.
 
-    `fea` is the oldest the first appearance could be and `lla` the youngest the
-    last appearance could be, so `[lla, fea]` is the whole of when the taxon
-    might have been alive. Phase 4's warning that `fea` is junk-wide is about
-    *placing* a taxon at it — architecture §7 measured the bracket widening with
-    occurrence count — and does not carry here, because this reads the pair as a
-    range to test containment against and never as a position. What a wide
-    bracket costs a candidate is the tie-break: narrower evidence wins, which is
-    what puts *Sahelanthropus* (7.2–5.3) ahead of *Ardipithecus* (11.6–2.6) at
-    the human–chimp split when both contain it.
+    Four conditions, and three of them are refusals that cost real coverage:
 
-    Returns NaN-filled arrays when phase 4 has not run.
+    **Drawn.** Through `fossil_image`, which is keyed on `accepted_no` and
+    matched by name with `_seed_by_name`'s refusal rule. 4,656 PBDB taxa have a
+    picture; a candidate needs one because a witness with no drawing is nothing
+    to put on a canvas.
+
+    **Dated.** Both `fea` and `lla`, so `[lla, fea]` is the whole of when the
+    taxon might have been alive. Phase 4's finding that `fea` is junk-wide is
+    about *placing* a taxon at it and does not carry here: this is a containment
+    test and `fea` is never read as a position. What a wide bracket costs a
+    candidate is the tie-break, which prefers the narrower one.
+
+    **Extinct**, and this one will quietly undo the feature if it is dropped.
+    PBDB carries *Mammalia* at 239.5–0 Ma, *Viverridae* at 56–0 and *Panthera*
+    at 23.04–0. A range running to the present contains every split inside it,
+    so unfiltered the biggest forks all take the crown group at gap zero — the
+    exact failure the witness exists to correct, arriving with a fossil's label
+    on. `is_extant = 0` in SQL excludes the 4,538 rows where it is NULL as well,
+    which is intended: those are genuinely unknown, a wrong include is a silent
+    regression and a wrong exclude is one missing picture.
+
+    **Ended.** The same statement, checked against the bracket rather than
+    trusted to the flag — see `HOLOCENE_MA`, and read it against the first
+    version of this function, which trusted the flag and handed a 378,328-tip
+    fork to a living seagrass.
+
+    **Primary.** PBDB carries a row per `taxon_no` and synonyms collapse onto
+    one accepted name, so without this the same animal offers itself several
+    times over and the tie-break spends its ordering on duplicates.
+
+    Keyed on `pbdb_taxon_no` and never on the name, because PBDB has homonyms
+    internally as well as against OTT: `Scopus` is both the extant hamerkop and
+    an extinct Permian genus, and 1,338 names are like it. Aggregating by name
+    merges those two into a 254–0 Ma envelope that spans most of the tree.
     """
-    oldest = np.full(n, np.nan, dtype=np.float64)
-    youngest = np.full(n, np.nan, dtype=np.float64)
+    stats: JsonDict = {"rows": 0, "drawn": 0, "extant_excluded": 0, "unended": 0}
+    out: list[FossilCandidate] = []
+    if not links:
+        return out, stats
     have = con.execute(
-        "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='occurrence'"
+        "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='fossil'"
     ).fetchone()[0]
     if not have:
-        return oldest, youngest
-    for idx, fea, lla in con.execute("SELECT idx, fea, lla FROM occurrence"):
-        if idx < 0 or idx >= n or fea is None or lla is None:
+        return out, stats
+
+    stats["extant_excluded"] = int(
+        con.execute(
+            "SELECT count(*) FROM fossil WHERE is_primary = 1 AND fea IS NOT NULL "
+            "AND lla IS NOT NULL AND (is_extant IS NULL OR is_extant = 1)"
+        ).fetchone()[0]
+    )
+    stats["unended"] = int(
+        con.execute(
+            "SELECT count(*) FROM fossil WHERE is_primary = 1 AND is_extant = 0 "
+            "AND fea IS NOT NULL AND lla IS NOT NULL AND lla <= ?",
+            (HOLOCENE_MA,),
+        ).fetchone()[0]
+    )
+    for row in con.execute(
+        "SELECT pbdb_taxon_no, accepted_no, name, rank, attach_idx, attach_walk, "
+        "       fea, lla, n_occs "
+        "  FROM fossil "
+        " WHERE is_primary = 1 AND is_extant = 0 AND attach_idx >= 0 "
+        "   AND fea IS NOT NULL AND lla > ?",
+        (HOLOCENE_MA,),
+    ):
+        taxon_no, accepted_no, name, rank, attach, walk, fea, lla, n_occs = row
+        stats["rows"] += 1
+        image = links.get(int(accepted_no))
+        if image is None or not records[image].license_url:
             continue
-        oldest[idx], youngest[idx] = fea, lla
-    return oldest, youngest
+        stats["drawn"] += 1
+        out.append(
+            FossilCandidate(
+                pbdb_taxon_no=int(taxon_no),
+                name=name,
+                rank=rank,
+                attach_idx=int(attach),
+                attach_walk=int(walk),
+                oldest=float(fea),
+                youngest=float(lla),
+                n_occs=int(n_occs),
+                image=image,
+            )
+        )
+    return out, stats
 
 
 def divergence_witnesses(
     parent: U32Array,
-    depth: DepthArray,
     tip_count: U32Array,
     age_ma: F32Array,
     seed: I64Array,
-    oldest: F64Array,
-    youngest: F64Array,
+    candidates: Sequence[FossilCandidate],
     near_fraction: float = NEAR_FRACTION,
+    age_layout: F32Array | None = None,
 ) -> Witness:
-    """For each internal node, the drawn taxon that was there when it split.
+    """For each fork, the fossil taxon that was around when it split.
 
     `propagate` answers "what does something in this clade look like" and gets
     that right by preferring the most inclusive drawing beneath a node. At a
@@ -980,46 +1106,77 @@ def divergence_witnesses(
     that did not exist yet. This answers the other question, on its own terms,
     into its own table.
 
-    A candidate is a node carrying **its own** PhyloPic image and a phase 4
-    fossil bracket — 398 nodes, against 7,470 drawn and 2,133 with a bracket.
-    It offers itself to every ancestor and the ancestor keeps the best offer:
+    **A candidate is a fossil, not a node**, and that is the change this
+    function exists for. Phase 4 gives every PBDB taxon an `attach_idx`: the
+    deepest node in the synthesis tree that is an ancestor-or-self of it, found
+    by walking PBDB's own `parent_no` hierarchy up until something resolves. A
+    fossil attached at `a` may witness `a` and every ancestor of `a`, and
+    nothing else about the rule changes. Requiring a *node* capped the layer at
+    2,552 forks; this reaches ten times that, and *Acanthostega gunnari* becomes
+    reachable at the fish/tetrapod split for the first time.
 
-    - Reject unless the ancestor's `age_ma` is finite. A `structural` node has
-      no dated split, so there is nothing for a fossil to be near.
-    - Reject if the ancestor carries its own image. Exactness wins everywhere
-      else in this phase and there is no reason for it to stop here; Mammalia
-      stays Mammalia rather than becoming a Cretaceous monotreme.
+    Each candidate offers itself upward and each fork keeps the best offer:
+
+    - Reject unless the fork has a position in time. `age_ma` first; where it is
+      NaN — a `structural` node, which nobody has dated — fall back to
+      `age_layout`, which is finite everywhere. **That fallback is a departure
+      and is worth understanding.** `age_ma` is what may be *shown* and
+      `age_layout` is only where to *draw*, and the project's standing rule is
+      that a structural node never carries a number. It still does not: the
+      layout age is used to choose a picture and is never rendered as an age.
+      Since the fork is already drawn at that position, picking the fossil
+      nearest to where the reader sees it is the consistent choice rather than
+      a new claim — and the card says outright that the fork is undated.
+    - Reject if the fork carries its own image. Exactness wins everywhere else
+      in this phase and there is no reason for it to stop here; Mammalia stays
+      Mammalia rather than becoming a Cretaceous monotreme.
     - Reject if the gap between the split and `[lla, fea]` exceeds
       `near_fraction` of the split's age.
-    - Otherwise rank by that gap, then by the *narrowest* bracket, then by the
-      most inclusive taxon and the shallowest — the same "the contributor meant
-      this as an exemplar" ordering `exemplars` uses, applied to the tie.
+    - Otherwise rank: **nearest first, then tightest evidence, then firmest
+      placement.** Gap, then the narrower bracket — which is what puts
+      *Sahelanthropus* (7.2–5.3) ahead of *Ardipithecus* (11.6–2.6) at the
+      human–chimp split when both contain it, and what demotes *Ammonitina*
+      (249.9–56 Ma, 43,884 occurrences) wherever anything better exists — then
+      `attach_walk`, then `n_occs`, then the taxon number so the result does not
+      depend on row order.
 
-    Cost is bounded by the candidates, not the tree: 398 chains of at most 111
-    ancestors. Everything else keeps `NO_IMAGE` and draws what it drew before.
+    `attach_walk` earns its place in the middle of that ordering rather than at
+    the end. It is how many `parent_no` hops PBDB took to find an in-synthesis
+    ancestor, distributed 29,074 at 0 hops and 48,764 at 1, tailing to 698 at
+    11 — and **zero hops is a different quality of claim from eight.** A witness
+    that walked eleven is a statement about a family, not a lineage, and it is
+    the number the caption has to carry.
+
+    Cost is bounded by the candidates, not the tree: each walks at most 111
+    ancestors.
     """
     n = parent.size
-    if not depth.size == tip_count.size == seed.size == n:
+    if not tip_count.size == seed.size == age_ma.size == n:
         raise ValueError("divergence_witnesses: array lengths disagree")
-    if not age_ma.size == oldest.size == youngest.size == n:
-        raise ValueError("divergence_witnesses: age arrays disagree with the topology")
 
     image = np.full(n, NO_IMAGE, dtype=np.int64)
     source = np.full(n, NO_IMAGE, dtype=np.int64)
     gap = np.full(n, np.nan, dtype=np.float64)
+    taxa: dict[int, FossilCandidate] = {}
 
     par = parent.astype(np.int64)
     age = age_ma.astype(np.float64)
+    if age_layout is not None:
+        # Where nobody has estimated a split, use where it is drawn. Never the
+        # other way round: a finite `age_ma` always wins, so this only ever
+        # reaches nodes that would otherwise have had no witness at all.
+        age = np.where(np.isfinite(age), age, age_layout.astype(np.float64))
     seeded: BoolArray = seed != NO_IMAGE
-    candidates = np.flatnonzero(seeded & np.isfinite(oldest) & np.isfinite(youngest))
 
-    # (gap, bracket width, -tip_count, depth, idx) — smallest wins. Ranked per
-    # ancestor because `gap` depends on whose split is being asked about.
+    # (gap, bracket width, attach_walk, -n_occs, taxon_no) — smallest wins.
+    # Ranked per fork, because `gap` depends on whose split is being asked about.
     best: dict[int, tuple[float, float, int, int, int]] = {}
-    for c in candidates.tolist():
-        hi, lo = float(oldest[c]), float(youngest[c])
-        tail = (hi - lo, -int(tip_count[c]), int(depth[c]), c)
-        v = int(par[c]) if c != 0 else NO_IMAGE
+    for c in candidates:
+        if not 0 <= c.attach_idx < n:
+            continue
+        hi, lo = c.oldest, c.youngest
+        tail = (hi - lo, c.attach_walk, -c.n_occs, c.pbdb_taxon_no)
+        v = c.attach_idx
         while 0 <= v < n:
             a = age[v]
             if np.isfinite(a) and a > 0.0 and tip_count[v] > 1 and not seeded[v]:
@@ -1028,15 +1185,101 @@ def divergence_witnesses(
                     key = (d, *tail)
                     if v not in best or key < best[v]:
                         best[v] = key
-                        source[v] = c
+                        source[v] = c.pbdb_taxon_no
+                        image[v] = c.image
                         gap[v] = d
+                        taxa[v] = c
             if v == 0:  # the root's parent is a sentinel, not an index
                 break
             v = int(par[v])
 
-    found = source != NO_IMAGE
-    image[found] = seed[source[found]]
-    return Witness(image=image, source=source, gap=gap)
+    return Witness(image=image, source=source, gap=gap, taxa=taxa)
+
+
+# --------------------------------------------------------------------------
+# Drawings for fossils, which are not nodes
+# --------------------------------------------------------------------------
+
+
+def link_fossil_images(
+    con: sqlite3.Connection, records: list[ImageRecord]
+) -> tuple[dict[int, int], JsonDict]:
+    """`pbdb accepted_no -> position in records`, by name, refusing ambiguity.
+
+    Everything above resolves images onto *nodes*. The fossil corpus is not
+    nodes — architecture §3.4, only 0.5% of extinct OTT taxa are in synthesis —
+    so *Acanthostega*, *Pakicetus*, *Eohippus* and *Odontochelys* have drawings
+    on PhyloPic, brackets in PBDB, attachment points in the tree, and no way to
+    reach any of it. This is the join that gives them one.
+
+    Matching is by name, which is the only key the two corpora share, so the
+    refusal rule from `_seed_by_name` applies unchanged and matters more here:
+    **PBDB carries homonyms internally**, not merely against OTT. `Scopus` is
+    two accepted taxa in this table, the extant hamerkop at 5.3–0 Ma and an
+    extinct Permian genus at 254–252 Ma, and 1,338 names are like it. A name
+    resolving to more than one `accepted_no` is refused outright rather than
+    resolved to whichever row the query returned first.
+
+    Keyed on `accepted_no` and not on the name, so a consumer joins on the
+    taxon rather than on a string that may mean two things.
+    """
+    by_title: dict[str, int] = {}
+    for i, r in enumerate(records):
+        if not r.node_title or not r.license_url:
+            continue
+        cur = by_title.get(r.node_title)
+        if cur is None or _rank(r) > _rank(records[cur]):
+            by_title[r.node_title] = i
+
+    accepted: dict[str, set[int]] = {}
+    for name, acc in con.execute(
+        "SELECT name, accepted_no FROM fossil WHERE is_primary = 1"
+    ):
+        if name in by_title:
+            accepted.setdefault(name, set()).add(int(acc))
+
+    out: dict[int, int] = {}
+    ambiguous = 0
+    for name, accs in accepted.items():
+        if len(accs) != 1:
+            ambiguous += 1
+            continue
+        out[next(iter(accs))] = by_title[name]
+    return out, {
+        "titles_offered": len(by_title),
+        "fossil_taxa_matched": len(out),
+        "names_ambiguous": ambiguous,
+    }
+
+
+def write_fossil_image(
+    con: sqlite3.Connection, records: list[ImageRecord], links: dict[int, int]
+) -> int:
+    """One row per PBDB taxon that has a drawing.
+
+    Keyed on `accepted_no` because that is the taxon; `fossil.accepted_no` is
+    the join. Deliberately not keyed on `pbdb_taxon_no`, which is one row per
+    *name* including synonyms, so a taxon would appear several times over.
+    """
+    con.executescript(
+        """
+        DROP TABLE IF EXISTS fossil_image;
+        CREATE TABLE fossil_image (
+          accepted_no  INTEGER PRIMARY KEY,  -- PBDB taxon; join fossil.accepted_no
+          phylopic_id  TEXT NOT NULL,
+          matched_name TEXT NOT NULL         -- the name both corpora agreed on
+        );
+        """
+    )
+    con.executemany(
+        "INSERT INTO fossil_image VALUES (?,?,?)",
+        (
+            (acc, records[i].uuid, records[i].node_title or "")
+            for acc, i in sorted(links.items())
+        ),
+    )
+    con.commit()
+    return int(con.execute("SELECT count(*) FROM fossil_image").fetchone()[0])
 
 
 # --------------------------------------------------------------------------
@@ -1268,10 +1511,10 @@ def write_node_image(
     return int(con.execute("SELECT count(*) FROM node_image").fetchone()[0])
 
 
-def write_node_divergence_image(
+def write_node_divergence_witness(
     con: sqlite3.Connection, records: list[ImageRecord], witness: Witness
 ) -> int:
-    """One row per node that has a witness — 66 of them, not 2.7M.
+    """One row per fork that has a witness.
 
     Deliberately a second table rather than more columns on `node_image`. The
     two resolutions answer different questions and a consumer must be able to
@@ -1280,41 +1523,66 @@ def write_node_divergence_image(
     witness. Merging them would force that choice at build time, where the
     information needed to make it does not exist.
 
-    There is no `clade_idx` because there is nothing to compute: a witness is
-    always strictly inside the node's own clade, so the clade the picture speaks
-    for is the node itself. `gap_ma` is the distance from the split to the
-    taxon's observed range, and 0 means the range spans it.
+    **Renamed from `node_divergence_image`, and not out of tidiness.** That
+    table's `source_idx` was a node index and this one's key is a
+    `fossil.pbdb_taxon_no`; the columns share a shape and mean different
+    things, and a consumer joining the old column name against `node` would get
+    a clean join to an unrelated taxon. That is the `node_fts.rowid` failure
+    (handoff §5) waiting to happen again, so the table gets a new name and the
+    old one is dropped.
+
+    The taxon's name, rank and bracket are denormalised here rather than left
+    to a join. A witness may not render without its dates — that is the whole
+    difference between it and an unlabelled shape — so the dates travel with
+    the row that decides to draw it, and there is no way to read one without
+    the other.
     """
     con.executescript(
         """
         DROP TABLE IF EXISTS node_divergence_image;
-        CREATE TABLE node_divergence_image (
-          idx          INTEGER PRIMARY KEY,
-          phylopic_id  TEXT NOT NULL,
-          source_idx   INTEGER NOT NULL,  -- the taxon drawn; always inside idx
-          gap_ma       REAL NOT NULL      -- split to its range; 0 = range spans it
+        DROP TABLE IF EXISTS node_divergence_witness;
+        CREATE TABLE node_divergence_witness (
+          idx           INTEGER PRIMARY KEY,
+          phylopic_id   TEXT NOT NULL,
+          pbdb_taxon_no INTEGER NOT NULL,  -- fossil.pbdb_taxon_no, NOT a node idx
+          taxon_name    TEXT NOT NULL,
+          taxon_rank    TEXT,
+          attach_idx    INTEGER NOT NULL,  -- deepest node it hangs below
+          attach_walk   INTEGER NOT NULL,  -- parent_no hops PBDB took to find it
+          fea           REAL NOT NULL,     -- the bracket, uncollapsed. No midpoint
+          lla           REAL NOT NULL,
+          gap_ma        REAL NOT NULL      -- split to its range; 0 = range spans it
         );
         """
     )
     uuids = [r.uuid for r in records]
-    img = witness.image.tolist()
-    src = witness.source.tolist()
     gap = witness.gap.tolist()
+    img = witness.image.tolist()
     con.executemany(
-        "INSERT INTO node_divergence_image VALUES (?,?,?,?)",
+        "INSERT INTO node_divergence_witness VALUES (?,?,?,?,?,?,?,?,?,?)",
         (
-            (i, uuids[img[i]], src[i], gap[i])
-            for i in range(len(img))
-            if src[i] != NO_IMAGE
+            (
+                idx,
+                uuids[img[idx]],
+                c.pbdb_taxon_no,
+                c.name,
+                c.rank,
+                c.attach_idx,
+                c.attach_walk,
+                c.oldest,
+                c.youngest,
+                gap[idx],
+            )
+            for idx, c in sorted(witness.taxa.items())
         ),
     )
     con.commit()
-    return int(con.execute("SELECT count(*) FROM node_divergence_image").fetchone()[0])
+    return int(
+        con.execute("SELECT count(*) FROM node_divergence_witness").fetchone()[0]
+    )
 
 
-def write_arrays(
-    records: list[ImageRecord], assign: Assignment, witness: Witness | None = None
-) -> None:
+def write_arrays(records: list[ImageRecord], assign: Assignment) -> None:
     """The same resolution as flat arrays, for the packaging step.
 
     `node_image` is the queryable form; these are the mmap-able one, and they
@@ -1326,10 +1594,19 @@ def write_arrays(
     np.save(OUT / "node_image_clade.npy", assign.clade.astype(np.int64))
     np.save(OUT / "node_image_climb.npy", assign.climb)
     np.save(OUT / "node_image_method.npy", assign.method)
-    if witness is not None:
-        np.save(OUT / "node_divergence_image.npy", witness.image.astype(np.int32))
-        np.save(OUT / "node_divergence_source.npy", witness.source.astype(np.int64))
-        np.save(OUT / "node_divergence_gap.npy", witness.gap.astype(np.float32))
+    # The witness deliberately gets no arrays. It used to have three, and they
+    # were dead: nothing in `package.py` or the server ever opened them —
+    # `Witnesses` reads the table, because a witness needs a name and a bracket
+    # beside its picture and those are not numbers in a parallel array. Leaving
+    # `node_divergence_source.npy` on disk would be worse than useless now that
+    # the column it mirrored holds a PBDB taxon number rather than a node index,
+    # so the stale files are removed rather than left to be misread.
+    for stale in (
+        "node_divergence_image.npy",
+        "node_divergence_source.npy",
+        "node_divergence_gap.npy",
+    ):
+        (OUT / stale).unlink(missing_ok=True)
     (OUT / "silhouette_ids.json").write_text(
         json.dumps([r.uuid for r in records], separators=(",", ":")) + "\n"
     )
@@ -1570,15 +1847,23 @@ def _licence_label(url: str) -> str:
     return "/".join(parts[-2:]) if len(parts) >= 2 else url
 
 
-# The two cases the witness rule was built for, pinned by OTT id because names
-# are ambiguous in this taxonomy and ids are not — looking `Vertebrata` up by
-# name in this database reaches a red alga. Neither anchor is the whole test;
-# they are the two a reader is most likely to try, and a rule that draws Homo at
-# the human–chimp split or a dolphin at the whale–hippo one has regressed
-# whatever the aggregate counts say.
+# The cases the witness rule was built for, pinned by OTT id because names are
+# ambiguous in this taxonomy and ids are not — looking `Vertebrata` up by name
+# in this database reaches a red alga. These are not the whole test; they are
+# the forks a reader is most likely to try, and a rule that draws Homo at the
+# human–chimp split or a dolphin at the whale–hippo one has regressed whatever
+# the aggregate counts say.
+#
+# The first two are the reason the layer moved off nodes. *Acanthostega
+# gunnari* and *Eohippus* are the textbook animals for their divergences, both
+# were already drawn and mirrored, and both were unreachable purely because
+# they are not in the synthesis tree. Tetrapoda used to draw a Triassic
+# archosaur 110 Ma adrift; Perissodactyla drew nothing at all.
 WITNESS_ANCHORS: tuple[tuple[str, tuple[int, ...], str], ...] = (
-    ("the human–chimp split", (770309, 417957), "Sahelanthropus"),
-    ("the whale–hippo split", (7655791,), "Basilosaurus"),
+    ("the fish–tetrapod split", (229562,), "Acanthostega gunnari"),
+    ("the horse–rhino split", (541948,), "Eohippus angustidens"),
+    ("the human–chimp split", (770309, 417957), "Sahelanthropus tchadensis"),
+    ("the whale–hippo split", (7655791,), "Pakicetus"),
 )
 
 
@@ -1600,51 +1885,116 @@ def _mrca(parent: U32Array, nodes: Sequence[int]) -> int:
     return common[-1]
 
 
+# The number of witnessed forks whose taxon's range actually contains the split.
+# **This, and not coverage, is the measure.** The silhouette layer already
+# learned that lesson once at full price: 100% node coverage was true and
+# meaningless, because with 7,470 seeds over 2.7M nodes two thirds of the tree
+# was drawing a superphylum. A witness table is the same trap in a worse place —
+# every row is a claim about time made from two independent estimates, so filling
+# it is easy and filling it with anything defensible is not.
+#
+# **And spanning is not a clean measure either, which is worth knowing before
+# trusting it.** Measured old rule against new on the same corrected corpus:
+#
+#     node-only          548 forks, 207 spanning, median gap 14%, p90 100%
+#     fossil attachment  885 forks, 192 spanning, median gap 17%, p90  81%
+#
+# Spanning went *down*. It is not a regression, and the reason is the same
+# hazard `HOLOCENE_MA` exists for: a range that runs to the present cannot fail
+# to contain a recent split, so a living taxon spans by construction. Of the 107
+# forks the old rule reached and this one does not, 14 were "spanning" and the
+# list is *Moho braccatus* — a bird that died in 1987 — on Passeriformes at a
+# 52 Ma gap, *Styliola* on Opisthobranchia, and *Pseudamia*, the living
+# cardinalfish, on Gobiaria. Meanwhile 444 forks are reached that the old rule
+# could not touch at all, and where both fire the new witness is closer on 177
+# and further on 108.
+#
+# So the floor sits under the measured 192 rather than over the old 207. What it
+# is for is catching a rule that has stopped working, not ratifying a number.
+MIN_SPANNING_WITNESSES = 175
+
+
 def witness_gates(
     g: GateSet,
     witness: Witness,
     con: sqlite3.Connection,
     parent: U32Array,
     tip_count: U32Array,
-    seed: I64Array,
-    oldest: F64Array,
+    candidates: Sequence[FossilCandidate],
+    candidate_stats: JsonDict,
+    age_ma: F32Array,
 ) -> None:
-    """Count the witnesses, then check the two everyone will look at.
+    """Check the forks everyone will look at, then the failure modes.
 
     Counting rows is not the same as checking them — the standing lesson of this
-    repo — and a witness table is unusually easy to fill with confident nonsense,
-    because every row in it is a claim about time made from two independent
-    estimates. So the counts are observations and the blocking gates are the
-    named cases.
+    repo — so the blocking gates are the named forks and the count of witnesses
+    that *span* their split. Everything else observes.
     """
     found = witness.source != NO_IMAGE
     n = int(found.sum())
-    candidates = int(((seed != NO_IMAGE) & np.isfinite(oldest)).sum())
     spans = int((witness.gap[found] == 0.0).sum())
+    undated = int((found & ~np.isfinite(age_ma.astype(np.float64))).sum())
+    cap = "uncapped" if not np.isfinite(NEAR_FRACTION) else f"{NEAR_FRACTION:.0%}"
 
     g.observe(
-        "drawn taxa with a fossil bracket to witness with",
-        f"{candidates:,}",
+        "fossil taxa eligible to witness",
+        f"{candidate_stats['drawn']:,} drawn, of "
+        f"{candidate_stats['rows']:,} extinct and dated",
         note=(
-            f"Of {int((seed != NO_IMAGE).sum()):,} nodes carrying their own "
-            "image. The ceiling on this whole mechanism is how few drawn taxa "
-            "PhyloPic has that PBDB also dates, not the resolution rule."
+            "Drawn through `fossil_image`, dated by both `fea` and `lla`, "
+            "extinct, ended before the Holocene, and accepted rather than a "
+            f"synonym. {candidate_stats['extant_excluded']:,} otherwise-eligible "
+            "taxa are excluded for being extant or of unknown extancy — PBDB "
+            "carries Mammalia at 239.5–0 Ma and a range running to the present "
+            "spans every split inside it — and a further "
+            f"{candidate_stats['unended']:,} for being flagged extinct while "
+            "their bracket runs to the present anyway, which is the same hazard "
+            "arriving through a wrong flag. See HOLOCENE_MA."
+        ),
+    )
+    g.observe(
+        "forks given a divergence witness",
+        f"{n:,}",
+        note=(
+            f"Coverage, and deliberately not a blocking gate — see "
+            f"MIN_SPANNING_WITNESSES. Gap {cap}. A witness must be a fossil "
+            "attached below the fork, not a node, which is what raises this "
+            "past the 2,552 the node-only design could ever reach."
         ),
     )
     g.require(
-        "nodes given a divergence witness",
-        f"{n:,}",
-        "> 0",
-        ok=n > 0,
+        "forks whose witness spans the split",
+        f"{spans:,} of {n:,} ({spans / max(n, 1):.0%})",
+        f">= {MIN_SPANNING_WITNESSES:,}",
+        ok=spans >= MIN_SPANNING_WITNESSES,
         note=(
-            f"{spans:,} where the taxon's observed range spans the split "
-            f"outright; the rest sit within {NEAR_FRACTION:.0%} of its age. "
-            "Zero means phase 4 has not run, or that no drawn taxon is dated."
+            "The taxon was demonstrably alive across the divergence, so the "
+            "picture needs no hedging. The gate is here rather than on coverage "
+            "because coverage rises when the rule gets looser. Read it against "
+            "207 under the node-only design on the same data, and read that "
+            "against the 14 of those 207 that spanned only because a living "
+            "taxon's range runs to the present — Moho braccatus, a bird that "
+            "died in 1987, spanned Passeriformes at a 52 Ma gap. See "
+            "MIN_SPANNING_WITNESSES for the whole comparison."
         ),
     )
+    # Not a failure — it is the fallback working — but it is the number that
+    # says how much of this layer rests on a position rather than an estimate,
+    # and the UI is obliged to caption every one of them as undated.
+    g.observe(
+        "witnesses chosen against a fork nobody has dated",
+        f"{undated:,} of {n:,} ({undated / max(n, 1):.0%})",
+        note=(
+            "`age_ma` is NaN on these, so the split was matched against "
+            "`age_layout` — where the fork is drawn, not an estimate of when "
+            "it happened. No number is shown for them anywhere; the card says "
+            "the fork is undated. Without this fallback Carnivora, Canidae, "
+            "Primates and Rodentia have no witness at all."
+        ),
+    )
+    _witness_shape_gates(g, witness, candidates)
 
     ott = {o: i for i, o in con.execute("SELECT idx, ott_id FROM node WHERE ott_id")}
-    names = dict(con.execute("SELECT idx, name FROM node WHERE name IS NOT NULL"))
     for label, ids, expected in WITNESS_ANCHORS:
         nodes = [ott[o] for o in ids if o in ott]
         if len(nodes) != len(ids):
@@ -1657,19 +2007,70 @@ def witness_gates(
             )
             continue
         node = _mrca(parent, nodes) if len(nodes) > 1 else nodes[0]
-        src = int(witness.source[node])
-        actual = names.get(src) if src != NO_IMAGE else None
+        c = witness.taxa.get(node)
         g.require(
             f"{label} is witnessed by {expected}",
-            actual or "no witness",
+            f"{c.name} {c.oldest:g}–{c.youngest:g} Ma, walk {c.attach_walk}"
+            if c
+            else "no witness",
             expected,
-            ok=actual == expected,
+            ok=c is not None and c.name == expected,
             note=(
                 f"node {node}, {int(tip_count[node]):,} tips. Before this rule "
                 "existed it drew the most inclusive picture beneath it, which "
                 "is a crown group that did not exist when the split happened."
             ),
         )
+
+
+def _witness_shape_gates(
+    g: GateSet, witness: Witness, candidates: Sequence[FossilCandidate]
+) -> None:
+    """The two failure modes that look exactly like success.
+
+    **A wide bracket wins everything it contains.** *Ammonitina* spans
+    249.9–56 Ma with 43,884 occurrences and is a candidate for a great many
+    forks. The narrow-bracket tie-break is supposed to demote it wherever
+    anything better exists, and "supposed to" is not a measurement, so the most
+    prolific witnesses are reported by name. A single taxon holding a large
+    share of the table is the shape of that failure, and it would otherwise read
+    as coverage.
+
+    **A loose attachment reads like a placement.** `attach_walk` is how many
+    `parent_no` hops PBDB took to find an in-synthesis ancestor, and eleven hops
+    is a statement about a family rather than a lineage. The distribution is
+    what tells a reader whether the caption's hedging is doing real work.
+    """
+    by_taxon: dict[int, int] = {}
+    walks: dict[int, int] = {}
+    for c in witness.taxa.values():
+        by_taxon[c.pbdb_taxon_no] = by_taxon.get(c.pbdb_taxon_no, 0) + 1
+        walks[c.attach_walk] = walks.get(c.attach_walk, 0) + 1
+    total = max(len(witness.taxa), 1)
+
+    names = {c.pbdb_taxon_no: c.name for c in candidates}
+    top = sorted(by_taxon.items(), key=lambda kv: (-kv[1], kv[0]))[:8]
+    biggest = top[0][1] if top else 0
+    g.observe(
+        "the most prolific witnesses",
+        ", ".join(f"{names.get(t, t)} {k:,}" for t, k in top),
+        note=(
+            f"The widest single share is {biggest / total:.1%} of the table. "
+            "Ammonitina (249.9–56 Ma, 43,884 occurrences) is the taxon to watch "
+            "here: it contains a great many forks and the narrow-bracket "
+            "tie-break is the only thing demoting it."
+        ),
+    )
+    g.observe(
+        "how far witnesses hang below their fork",
+        ", ".join(f"{w} hops {k:,}" for w, k in sorted(walks.items())),
+        note=(
+            "`attach_walk` = 0 means PBDB's own taxon is in the synthesis tree "
+            "and the fossil sits exactly there. Every hop above that widens the "
+            "claim from a lineage to a group, which is what the caption's "
+            "'somewhere below this fork' has to carry."
+        ),
+    )
 
 
 def licence_gates(
@@ -1799,6 +2200,10 @@ def run(budget: int = 0, mirror_only: bool = False, log: Log = _log) -> int:
     subtree_out = np.load(TOPO_OUT / "subtree_out.npy")
     assign: Assignment | None = None
     witness: Witness | None = None
+    links: dict[int, int] = {}
+    link_stats: JsonDict = {"fossil_taxa_matched": 0, "names_ambiguous": 0}
+    fossil_candidates: list[FossilCandidate] = []
+    candidate_stats: JsonDict = {"rows": 0, "drawn": 0, "extant_excluded": 0}
 
     if mirror_only:
         g.observe("node resolution", "skipped (--mirror-only)")
@@ -1810,7 +2215,6 @@ def run(budget: int = 0, mirror_only: bool = False, log: Log = _log) -> int:
 
         con = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
         forwards = load_forwards(con)
-        oldest, youngest = load_occurrence(con, tip_count.size)
         con.close()
 
         t0 = time.monotonic()
@@ -1825,13 +2229,26 @@ def run(budget: int = 0, mirror_only: bool = False, log: Log = _log) -> int:
             name_uids=name_uids,
         )
         assign = propagate(parent, depth, subtree_out, seed, tip_count)
+        # The join that makes a fossil drawable has to happen before the witness
+        # can use it, and it is the same join the drill-down lane consumes, so
+        # it is computed once here and written once below.
+        con = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
+        links, link_stats = link_fossil_images(con, records)
+        fossil_candidates, candidate_stats = load_fossil_candidates(con, records, links)
+        con.close()
         # Phase 2's output is optional here the way phase 4's is: without a
         # dated split there is nothing for a fossil to be near, so the witness
         # table is simply absent and every consumer falls back to `node_image`.
         ages = TOPO_OUT / "age_ma.npy"
+        layout = TOPO_OUT / "age_layout.npy"
         if ages.exists():
             witness = divergence_witnesses(
-                parent, depth, tip_count, np.load(ages), seed, oldest, youngest
+                parent,
+                tip_count,
+                np.load(ages),
+                seed,
+                fossil_candidates,
+                age_layout=np.load(layout) if layout.exists() else None,
             )
         log(f"  propagated in {time.monotonic() - t0:,.1f}s")
 
@@ -1892,9 +2309,18 @@ def run(budget: int = 0, mirror_only: bool = False, log: Log = _log) -> int:
             )
         else:
             con = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
-            witness_gates(g, witness, con, parent, tip_count, seed, oldest)
+            witness_gates(
+                g,
+                witness,
+                con,
+                parent,
+                tip_count,
+                fossil_candidates,
+                candidate_stats,
+                np.load(ages),
+            )
             con.close()
-        write_arrays(records, assign, witness)
+        write_arrays(records, assign)
 
     # --- mirror ----------------------------------------------------------
     log("\n--- SVG mirror ---")
@@ -1919,9 +2345,27 @@ def run(budget: int = 0, mirror_only: bool = False, log: Log = _log) -> int:
     if assign is not None:
         log(f"  node_image: {write_node_image(con, records, assign):,} rows")
     if witness is not None:
-        rows = write_node_divergence_image(con, records, witness)
-        log(f"  node_divergence_image: {rows:,} rows")
+        rows = write_node_divergence_witness(con, records, witness)
+        log(f"  node_divergence_witness: {rows:,} rows")
+    if not mirror_only:
+        log(f"  fossil_image: {write_fossil_image(con, records, links):,} rows")
     con.close()
+
+    g.require(
+        "PBDB fossil taxa given a drawing",
+        f"{link_stats['fossil_taxa_matched']:,}",
+        "> 0",
+        ok=mirror_only or link_stats["fossil_taxa_matched"] > 0,
+        note=(
+            "Matched by name — the only key PhyloPic and PBDB share — and keyed "
+            "on `accepted_no`, which is the taxon. This is what makes a fossil "
+            "drawable at all: it is not a node, so nothing above reaches it. "
+            f"{link_stats['names_ambiguous']:,} names refused for resolving to "
+            "more than one accepted taxon; PBDB carries homonyms internally, "
+            "not only against OTT, and `Scopus` is both an extant hamerkop and "
+            "an extinct Permian genus."
+        ),
+    )
     record_mirror(records, have)
 
     licence_gates(g, records, have)

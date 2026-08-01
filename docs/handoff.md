@@ -1,6 +1,6 @@
 # Handoff — current state
 
-Last updated 2026-07-31. This is the living state document: it should read as
+Last updated 2026-08-01. This is the living state document: it should read as
 *where things stand*, not as a log of how they got here. Keep it current as part
 of the work — if it drifts, whoever comes next re-derives things already settled.
 
@@ -112,9 +112,9 @@ product is broken at its front door, not merely incomplete.
 | 0 — snapshot | done, 7/7 gates |
 | 1 — topology | done, **25/25 gates**, incl. 200/200 live-oracle agreement |
 | 2 — dates | **ACCEPTED and implemented**, 32/32 gates. Tiers are baked (§3) |
-| 3 — resolution | built — `resolve.py`, `xref` populated |
-| 4 — fossils | built — `fossils.py`, `fossil` table populated |
-| 5a — images | built — `images.py`, **32/32 gates**. Coverage is 100% and says nothing; the gate is the size of the clade a picture speaks for. Divergences carry a second silhouette, the fossil witness (§5) |
+| 3 — resolution | built — `resolve.py`, `xref` populated, **56/56 gates**. A disagreement sweep withdraws 17,068 cross-kingdom homonyms (§5) |
+| 4 — fossils | built — `fossils.py`, **39/39 gates**, `fossil` table populated |
+| 5a — images | built — `images.py`, **39/39 gates**. Coverage is 100% and says nothing; the gate is the size of the clade a picture speaks for. Divergences carry a second silhouette, the fossil witness, now on 885 forks (§5) |
 | 5b — timescale | built — `timescale.py`, 26/26 gates, `build/timescale.json` |
 | 6 — vernaculars | built — `vernaculars.py` + `search.py`, `node_fts` live |
 | walking-skeleton renderer | done, throwaway, superseded |
@@ -170,7 +170,7 @@ symptom is quietly stale answers.
 
 ```bash
 cd web && npm install && npm run build   # the server picks up web/dist
-npm test                                 # 135 tests
+npm test                                 # 140 tests
 ```
 
 The client owns the topology after first paint (architecture §4): it fetches
@@ -698,47 +698,172 @@ it cannot deliver.
   drew the Cetacea dolphin. Both are crown groups that did not exist when the
   lineages parted.
 
-  `node_divergence_image` is the second answer — a **witness**, a drawn taxon
-  *inside* the clade whose fossil record puts it at that split. The human path
-  now reads Bilateria → *Hallucigenia*, Gnathostomata → *Miguashaia*,
-  Sarcopterygii → *Miguashaia*, Amniota → Ctenosauriscidae, Boreoeutheria →
-  *Protungulatum*, Haplorrhini → Parapithecidae, Homininae → *Ardipithecus*,
-  Homo/Pan → ***Sahelanthropus***. Whippomorpha draws *Basilosaurus*.
+  `node_divergence_witness` is the second answer — a **witness**, a fossil
+  taxon from *somewhere below* the fork whose stratigraphic bracket puts it at
+  that split. The human path now reads Bilateria → *Dickinsonia*, Chordata →
+  *Yuyuanozoon*, Gnathostomata → *Guiyu oneiros*, Sarcopterygii →
+  *Ligulalepis*, Tetrapoda → ***Acanthostega gunnari***, Amniota →
+  *Leiocephalikon*, Euarchontoglires → *Purgatorius*, Haplorrhini →
+  *Teilhardina*, Simiiformes → *Aegyptopithecus*, Homininae → *Ardipithecus
+  kadabba*, Homo/Pan → ***Sahelanthropus tchadensis***. Whippomorpha draws
+  *Pakicetus*; Perissodactyla, which drew nothing at all, draws *Eohippus*.
+
+  **A witness is a fossil, not a node, and that is the whole of the layer's
+  reach.** It used to have to be in the synthesis tree, and only 0.5% of OTT
+  taxa flagged extinct are, so the design capped out around 2,552 forks however
+  many images anyone sourced. It now hangs off phase 4's `attach_idx`: a fossil
+  attached at `a` may witness `a` and every ancestor of `a`. The full before and
+  after, and the four steps it took, are in
+  [witness-ceiling.md](witness-ceiling.md), **now shipped end to end** — read §9
+  first, because two of the corrections it required cost more coverage than the
+  change bought, and were right anyway.
+
+  **The claim weakened and the wording weakened with it.** A witness inside the
+  clade could say "a member of this group". A PBDB taxon is not in the tree at
+  all, so architecture §3.4's phrasing is the strongest true one: *this taxon
+  belongs somewhere below this node, and existed between these dates.*
+  `attach_walk` — PBDB `parent_no` hops to an in-synthesis ancestor — is how
+  loose that is, and the card renders it as three bands, not a number: *placed
+  exactly here in the tree* (243 forks), *just below this point* (325), and
+  *its exact position is not known* (317).
 
   **Two tables, not more columns, and the reason is not tidiness.** Which
   answer applies depends on how the reader reached the node — a species they
   picked wants its group's exemplar, a divergence they arrived at wants the
   witness — and the pipeline cannot know that. The client decides on the
-  induced subtree's own leaf/internal distinction. Merging them would force the
-  choice at build time with the information missing, which is the same mistake
-  as merging `age_ma` with `age_layout`.
+  induced subtree's own leaf/internal distinction, in
+  `web/src/canvas/witness.ts`. Merging them would force the choice at build
+  time with the information missing, which is the same mistake as merging
+  `age_ma` with `age_layout`.
 
-  Three refusals do the work, and they are why this fires on **66** nodes:
+  **The table was renamed rather than redefined**, and that is the same
+  discipline as `node_fts.rowid` above. `node_divergence_image.source_idx` held
+  a node index; `node_divergence_witness.pbdb_taxon_no` holds a PBDB taxon
+  number. Identical shape, different universe, and a consumer joining the old
+  column name against `node` joins cleanly and returns confident nonsense. The
+  server reads either shape and says which through `WitnessSchema.Fossil()`.
 
-  - **No dated split, no witness.** `age_ma` must be finite, so `structural`
-    nodes get none. A fossil "near" a divergence nobody has dated is a claim
-    about nothing.
-  - **A candidate needs a fossil bracket.** 398 of the 7,470 drawn nodes have
-    one. That is the ceiling on the whole mechanism, and it is PhyloPic ∩ PBDB,
-    not the resolution rule.
+  **A divergence draws its witness, its own picture, or nothing.** What it may
+  never draw is a *borrow*. This reverses `SILHOUETTE_POLICY`'s "draw
+  everything" for internal nodes, for a reason that policy does not cover: it
+  judges a borrow by the *size* of the clade shared with the drawing, and what
+  is wrong with a borrow at a fork is not size but **time**. Caniformia's split
+  is dated 57 Ma and it drew Procyonidae — 469 species, well inside the
+  threshold, and a family of living raccoons standing beside a fork that
+  predates them by 25 Ma. The caption said "the closest relative anyone has
+  drawn", which is true and warns nobody. A node's *own* drawing is exempt,
+  because it was never a borrow; without that exemption Cetacea, Felidae and
+  Homo went blank as forks, which is the rule failing rather than withholding.
+
+  **`is_extant` is the hazard, and the flag does not carry it.** PBDB has
+  *Mammalia* at 239.5–0 Ma, and a range running to the present contains every
+  split inside it, so an unfiltered rule hands the biggest forks the crown group
+  again wearing a fossil's label. Filtering on the flag is not enough: PBDB
+  flags *Thalassia testudinum* — the living turtle grass — extinct, and it won a
+  fork of 378,328 tips, alongside the roan antelope and a living foram at
+  85.7–0 Ma. The rule is now checked against the bracket, which is the evidence:
+  a witness's last appearance must predate the Holocene. That is what
+  `HOLOCENE_MA` is, and it cost 222 forks including the dire wolf.
+
+  **Coverage is not the measure, and spanning is not a clean one either.**
+  Measured old rule against new on the same corrected corpus: 548 forks → 885,
+  and spanning 207 → **192**. Spanning went down because 14 of the old 207
+  spanned only by running to the present — *Moho braccatus*, a bird that died in
+  1987, spanning Passeriformes at a 52 Ma gap. It is still the gate, because it
+  does not rise when the rule loosens, and `MIN_SPANNING_WITNESSES` carries the
+  whole comparison so nobody re-derives it.
+
+  **`xref`'s cross-kingdom homonyms are fixed**, which had to happen first
+  because this made the witness layer an `xref` consumer. Phase 3's
+  `refuse_disagreements` withdraws a resolution where PBDB calls a taxon extinct,
+  OTT's taxon of that name carries no extinct flag, and the node still has a
+  chronogram-dated descendant — 16,833 rows, over every method rather than
+  `name_exact` alone, since `gbif_backbone_provenance` supplies 7,191 of them. A
+  second refusal takes 235 more where a name is still claimed by two accepted
+  PBDB taxa, which is `_seed_by_name`'s rule ported. Phase 4's independent
+  check went from **1,019 of 1,048** to **31 of 60**. Three details are
+  load-bearing and all three are in `resolve.py`: the extancy sweep runs
+  *before* the ambiguity one, so `Scopus` keeps the hamerkop and loses the
+  Permian genus rather than losing both; it needs phase 2's `age_ma` as a
+  living-lineage guard, without which 1,162 correct attachments go
+  (*Neochelys*, *Baptemys*, *Roxochelys*); and `manual` overrides are exempt,
+  because a reviewed judgement silently overruled is the failure the override
+  gate exists to catch.
+
+  Caniformia is the case that shows the coverage limit honestly, and it is why
+  both knobs came off. It is dated 57 Ma and its oldest drawn *and* dated
+  candidate is *Hesperocyon gregarius* at 39.7–18.5 Ma, 17 Ma adrift — better
+  than the *Archaeocyon* it drew before the move onto attachment points, and
+  still visibly a stretch. The stem carnivorans that would have fitted,
+  *Vulpavus* at 56–45.9 Ma, sit inside Carnivora but **outside** Caniformia, so
+  they are not candidates for it; Carnivora itself is `structural` and reaches
+  *Vulpavus* only through the layout fallback below. Both render with their
+  ranges on screen so the stretch is visible rather than hidden.
+
+  Four refusals do the work, and they are why this fires on **885** forks
+  rather than 28,831:
+
+  - **No dated split, no witness.** `age_ma` must be finite, falling back to
+    `age_layout` below. A fossil "near" a divergence nobody has dated at all is
+    a claim about nothing.
+  - **A candidate needs a bracket**, both `fea` and `lla`, read only as the two
+    ends of a containment test and never as a position.
+  - **A candidate must be extinct, and must have ended.** See `HOLOCENE_MA`
+    above: the flag alone lets a living seagrass through.
   - **Exactness still wins.** A node with its own image keeps it and gets no
-    witness, so Mammalia is Mammalia and not a Cretaceous monotreme.
+    witness, so Mammalia is Mammalia and not a Cretaceous monotreme — which is
+    also why *Panthera* draws nothing as a fork.
 
-  `NEAR_FRACTION = 0.25` is the one judgement, stated in `images.py` with the
-  measurements: 0.20 → 53 nodes, 0.25 → 66, 0.33 → 87, 0.50 → 114. It is set
-  where the picks stop being about the split — at 0.33 Tetrapoda (360 Ma) takes
-  a Triassic archosaur 110 Ma too late, at 0.50 Metazoa (785 Ma) takes Cambrian
-  *Hallucigenia*. **Reading `fea` is safe here** where phase 4 forbids it for
+  The ceiling is now the drawn corpus rather than the data model: **2,114**
+  fossil taxa are drawn, extinct, dated and attached, out of 231,241 that are
+  extinct and dated. Sourcing images finally moves this number, which it could
+  not before.
+
+  **`NEAR_FRACTION` is uncapped, and that is the second decision.** It shipped
+  at 0.25 and gave 66 witnesses, which left the canvas too bare to be worth
+  looking at — and the cap bought nothing, because a refused witness falls back
+  to *no picture*, not to a worse one. The gap distribution is smooth — median
+  17% of the split's age, p90 81% — so no threshold sits at a natural break,
+  which is what makes this a preference rather than a finding. Uncapped, the
+  ranking still does the work (nearest first, then the narrower bracket, then
+  the firmer attachment) and both figures render together, so a poor match is
+  visible rather than hidden. Dial it back by setting the constant; nothing
+  else changes.
+
+  **The layout fallback is the third, and the one to think hardest about.**
+  Where `age_ma` is NaN — a `structural` fork, which nobody has dated — the
+  match is made against `age_layout` instead. That unlocks 326 of the 885,
+  including Carnivora → *Vulpavus*, all of which had nothing before. It
+  does not breach the standing rule that a structural node never carries a
+  number: the layout age is used to **choose** a picture and is never rendered
+  as an age. The fork is already drawn at that position, so picking the fossil
+  nearest to where the reader sees it is the consistent choice rather than a
+  new claim — and both the tooltip and the card say outright that the split is
+  undated and the pairing is by position. A gate reports the 326 so the share
+  resting on a position rather than an estimate stays visible.
+
+  **Reading `fea` is safe here** where phase 4 forbids it for
   layout: this is a containment test on `[lla, fea]`, never a position. What a
   junk-wide bracket costs is the tie-break, which prefers the narrower one —
   that is what puts *Sahelanthropus* (7.2–5.3) ahead of *Ardipithecus*
   (11.6–2.6) when both contain the 6.7 Ma split.
 
-  **The dates are half of it.** A witness with no fossil range is refused by
-  the client, because the picture without them is the unlabelled shape this
-  replaced. The canvas tooltip and the card both read "*Sahelanthropus*, known
+  **The dates are half of it.** A witness with no fossil range is refused —
+  by the server now as well as the client, since the row carries its own
+  bracket and a row without one is dropped rather than served half-resolved.
+  The canvas tooltip and the card both read "*Sahelanthropus tchadensis*, known
   from 7.2–5.3 Ma, so it was around when these lineages parted, and this split
-  is dated ≤ 6.7 Ma" — a sentence the reader can check.
+  is dated ≤ 6.7 Ma. It is placed exactly here in the tree." — a sentence the
+  reader can check, with the placement's own uncertainty on the end of it.
+
+  **Rounding can make a true sentence read as a false one**, and at these
+  scales it does. Perissodactyla is dated 56.26 Ma and *Eohippus* tops out at
+  56.0, so the card showed "56 Ma" beside "56–51 Ma" and then said the range
+  does not reach the split. Every figure was right and the reader could see
+  only a contradiction. The gap is now stated — *it stops 0.3 Ma short* —
+  through `gapLabel`, which is deliberately **not** `maLabel`: a gap is a
+  quantity rather than a position, and `maLabel` renders anything under
+  0.05 Ma as "present", which would produce "it stops present short".
 - **The node card's silhouette credit was reading fields that are not on the
   wire.** The server sends `creator`/`uploader`; `NodeDetail.silhouette`
   declares `attribution`/`contributor`, and `api.ts` translates between them at
@@ -904,7 +1029,7 @@ heuristics could not:
 
 Note what that costs: nothing. "Human" survives on *Homo sapiens* and
 "archaeans" survives on Archaea, which is the pair no cheaper rule could keep
-at once. Build `a2b513305e2ddb95`; the pre-P225 checkpoint is kept at
+at once. Build `a2b513305e2ddb95` when measured; the pre-P225 checkpoint is kept at
 `build/vernaculars/wikidata_pre_p225/`.
 
 *Still wrong, and not this defect.* `butterfly` returns *Chaetodon capistratus*

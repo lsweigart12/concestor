@@ -713,13 +713,30 @@ Rendering a mole for "Mammalia" is worse than rendering nothing.
 > beneath a node. At a *split* that is the wrong end of the branch every time: the
 > human–chimp divergence drew the generic *Homo*, the whale–hippo divergence drew the
 > Cetacea dolphin, and neither existed when the lineages parted. So internal nodes also
-> carry a **witness** in `node_divergence_image` — a drawn taxon inside the clade whose
-> fossil record puts it at the split. *Sahelanthropus*, *Basilosaurus*, *Icaronycteris*,
-> *Hallucigenia*. The two tables stay separate because which one applies depends on how
-> the reader reached the node, which only the client knows: a species they chose wants
-> its group's exemplar, a divergence they arrived at wants the witness. It is refused
-> where the split is undated, where the node draws its own image, and where nothing
-> drawn inside the clade is dated near enough — 66 nodes, not 2.7M. See handoff.md §5.
+> carry a **witness** in `node_divergence_witness` — a *fossil taxon from somewhere
+> below the fork* whose stratigraphic bracket puts it at the split. *Acanthostega
+> gunnari*, *Eohippus*, *Pakicetus*, *Sahelanthropus*. The two tables stay separate
+> because which one applies depends on how the reader reached the node, which only the
+> client knows: a species they chose wants its group's exemplar, a divergence they
+> arrived at wants the witness. It is refused where the split is undated, where the node
+> draws its own image, and where nothing drawn, dated and extinct hangs below it — 885
+> forks, not 2.7M nodes. See handoff.md §5 and witness-ceiling.md.
+>
+> **A witness is not a node, so it makes §3.4's weaker claim and must be worded as
+> one.** It hangs off `fossil.attach_idx`, so the honest sentence is *this taxon belongs
+> somewhere below this node, and existed between these dates* — not *this taxon is
+> inside this group*, which is what the earlier node-only version could say. Requiring a
+> node capped the layer at 2,552 forks whatever the image budget, because only 0.5% of
+> OTT taxa flagged extinct are in synthesis; `attach_walk` is what replaces that
+> certainty, and the caption renders it as three bands rather than a number.
+>
+> **And a fork draws its witness or nothing** — never a borrow. That reverses "draw
+> everything" above for internal nodes, on a ground that rule does not address: it
+> judges a borrowed picture by the size of the clade shared with the drawing, and what
+> is wrong with a borrow beside a fork is not size but *time*. Caniformia's 57 Ma split
+> drew Procyonidae, 469 species and comfortably inside the threshold, and raccoons
+> postdate that fork by 25 Ma. Most forks therefore now carry no picture, which is the
+> honest answer rather than a gap.
 
 They belong at the upper tiers of semantic zoom — a silhouette *is* the "full detail
 card" tier for a clade, and arguably earns a place at the label tier for well-known ones.
