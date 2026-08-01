@@ -14,6 +14,7 @@ function node(over: Partial<LabelInput> & { idx: number; x: number; y: number })
     isLeaf: false,
     name: "Clade",
     trailing: "",
+    trailingGlyph: false,
     meta: "",
     hasSilhouette: false,
     priority: 0,

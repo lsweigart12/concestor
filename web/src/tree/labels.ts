@@ -36,6 +36,12 @@ export interface LabelInput {
   name: string;
   /** Short trailing figure kept on the name's line — "≤ 96 Ma". */
   trailing: string;
+  /**
+   * Whether a glyph precedes that figure — the ammonite before a fossil range,
+   * the clock that stands alone for the present. Measured rather than drawn
+   * here, so it is a width and not a string.
+   */
+  trailingGlyph: boolean;
   /** Secondary row: rank, and what an inherited silhouette actually depicts. */
   meta: string;
   hasSilhouette: boolean;
@@ -77,6 +83,10 @@ const TRACE_HALF = 5; // traces are 1.6px cores with a 7px halo; keep clear of b
 const DOT_HALF = 8;
 const MIN_TEXT_W = 88;
 const WRAP_LEVELS = 3;
+// `.age-glyph` and its right margin. A glyph that stands in for a word has to
+// be reserved like one, or a label measured without it is drawn through
+// whatever sits to its right.
+const GLYPH_W = 16;
 
 // CSS `letter-spacing`, in em, for the two rows. See `textWidth`.
 const NAME_TRACKING = 0.005;
@@ -139,7 +149,11 @@ interface Metrics {
 
 function metricsFor(n: LabelInput, wrap: number, cap: number): Metrics {
   const nameW = textWidth(n.name, NAME_FONT, NAME_TRACKING) * SLACK;
-  const trailW = n.trailing ? textWidth(n.trailing, META_FONT) * SLACK + 8 : 0;
+  const trailFigureW = n.trailing ? textWidth(n.trailing, META_FONT) * SLACK : 0;
+  const trailW =
+    n.trailing || n.trailingGlyph
+      ? trailFigureW + (n.trailingGlyph ? GLYPH_W : 0) + 8
+      : 0;
   const metaW = textWidth(n.meta, META_FONT, META_TRACKING) * SLACK;
   const naturalText = Math.max(nameW + trailW, metaW);
 
