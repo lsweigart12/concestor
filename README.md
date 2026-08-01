@@ -29,6 +29,10 @@ method.
 
 - **[handoff.md](docs/handoff.md)** — current state, priorities, decisions taken,
   and what the design docs got wrong. Start here.
+- **[design-reference.md](docs/design-reference.md)** — the product's visual and
+  interaction language. Authoritative for anything the user sees.
+- **[management.md](docs/management.md)** — the standing brief for whoever owns and
+  runs the project.
 - **[phase2-decision.md](docs/phase2-decision.md)** — the dating decision and its evidence.
 - **[phase3-pbdb-path.md](docs/phase3-pbdb-path.md)** — how fossils resolve to the tree, measured.
 - **[architecture.md](docs/architecture.md)** — data model, storage, backend, rendering,
@@ -37,6 +41,14 @@ method.
 - **[data-sources.md](docs/data-sources.md)** — verified facts and corrections for every
   upstream dataset. Read this first; several widely-repeated figures are wrong.
 - **[pipeline/README.md](pipeline/README.md)** — running and working on the build.
+
+## What it looks like
+
+A dark instrument where the graph is the only light source, operated from a `⌘K`
+command palette. Phosphor persistence — a trace flares as it is drawn, then decays
+to a dim persistent line. The signature interaction is adding a species: the draw
+originates at the **MRCA** and extends outward, because the point is to show where
+the new lineage joins. See [design-reference.md](docs/design-reference.md).
 
 ## Verified in the build
 

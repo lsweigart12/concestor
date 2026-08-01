@@ -427,54 +427,113 @@ parsed once at build into ~40 KB of JSON. Rendered as nested bands — Eon / Era
 / Epoch — with level of detail driven by pixels-per-Ma: show Epochs only when they'd
 exceed a legibility threshold, fall back to Periods, then Eras.
 
-Official colors matter here. The geologic column has a century of established visual
-convention, and matching it is the difference between a chart that reads as
-authoritative to someone who knows the field and one that reads as decorative.
+**This is the one genuine collision with [design-reference.md](design-reference.md).**
+The official CGMW palette is warm and highly saturated — Permian orange, Triassic purple,
+Jurassic blue, Devonian brown — and the design language is emphatic: cool throughout, low
+saturation, no warm-orange palette, and "the glow comes from the data, nowhere else."
+
+The design language wins, with the convention preserved where it still pays. The original
+argument for exact CGMW colour was that it "reads as authoritative to someone who knows
+the field" — which is precisely the audience this product is *not* for. So:
+
+- **Keep the official hue *relationships*, drop the official saturation and luminance.**
+  Periods stay distinguishable and stay in their familiar relative order, but the band is
+  dim, desaturated and recessive.
+- **The band never glows.** It is a reference scale at the edge of the canvas, not data.
+  Nothing in it should compete with a trace for attention.
+- Wayfinding comes from labels and hairline dividers first, hue second.
+
+A geologist will still recognise the column. Nobody will mistake it for the subject.
 
 ---
 
 ## 7. Rendering
 
-### SVG, not WebGL
+**[design-reference.md](design-reference.md) is authoritative on the visual language,
+the command surface, motion, and the stack.** This section records only what is specific
+to *this* data — the parts a general design language cannot know — and the three places
+where the two documents had to be reconciled.
+
+### The rendered set is tiny, which is what makes the whole approach affordable
 
 The dataset is 2.4M leaves. **The rendered set is not.** `|L|` selections produce at most
-`2|L| − 1` nodes after suppression: ten species is nineteen nodes. A drill-down lane adds
-tens more. We are drawing dozens to low hundreds of elements.
+`2|L| − 1` nodes after suppression: ten species is nineteen nodes, verified exactly by
+the walking-skeleton renderer. A drill-down lane adds tens more. We are drawing dozens to
+low hundreds of elements.
 
-That is comfortably SVG territory, and SVG buys everything the visual-quality
-requirement needs: real text rendering with proper font features, CSS transitions and
-theming, `<image>` and inline SVG for silhouettes, native hit-testing, and accessibility
-that works without reimplementation. Reaching for WebGL because the *source* dataset is
-large would be optimizing the wrong number and would cost all of the above.
+That is what makes React Flow / xyflow v12 viable, and it is the number to watch. React
+Flow renders edges as SVG paths, which keeps everything the visual-quality requirement
+needs: real text with proper font features, `getTotalLength()` draw-on animation, inline
+SVG silhouettes, native hit-testing, and accessibility that works without
+reimplementation. Reaching for WebGL because the *source* dataset is large would be
+optimizing the wrong number. WebGL becomes relevant only if the whole-tree context ribbon
+gets built, which is a separate view with a separate renderer.
 
-WebGL becomes relevant only if the whole-tree context ribbon gets built. That is a
-separate view with a separate renderer.
+### Layout — the one place the design reference must not be taken literally
 
-### Layout
+design-reference.md calls for a deterministic hierarchical layout, no force-direction,
+positions computed and never simulated, nodes not draggable. **All of that holds.** But
+it also suggests `d3-hierarchy / ELK / dagre`, and a graph-layout engine would assign `x`
+by *depth*. Here `x` is *time*:
 
-A chronogram: `x = f(age_ma)`, `y = tip slot`.
+```
+x = f(age_ma)      symlog, linear below t₀ = 1 Ma, logarithmic above   (§6)
+y = tip lane       assigned by preorder idx                            (§3.1)
+```
 
-- Selected leaves sort by `idx` (preorder) → stable canonical order (§3.1)
-- Internal node `y` = midpoint of its children's extent
-- `x` from the axis function; `structural`-tier nodes are positioned ordinally between
-  their nearest dated ancestor and descendant, and drawn dashed to signal it
+Running dagre or ELK over this would silently destroy the time axis, which is the one
+thing the layout is for. Use them for nothing, or at most for `y`-packing. The layout is
+already deterministic and already computed — it does not need a solver, and it must not
+get one.
 
-### Reflow
+Two properties fall out of preorder numbering and are worth naming, because the design
+language depends on both:
 
-The requirement is that adding an Nth node animates rather than jump-cuts. Three things
-make that work, in order of importance:
+- **Lane assignment is stable by construction.** Sorting selected leaves by `idx` gives a
+  canonical vertical order; adding a leaf inserts it in place and never permutes the
+  others. That is exactly the "motion preserves object identity" requirement, obtained
+  from the numbering scheme rather than maintained in layout code.
+- **Internal node `y` is the midpoint of its children's extent**, so a lane keeps its
+  position — and therefore its hue — across renders.
 
-1. **Stable identity.** A data join keyed on `node_key` gives correct enter/update/exit
-   sets. Without it, the diff is meaningless and everything looks new.
-2. **Stable ordering.** Preorder tip sort means the existing nodes' relative positions
-   don't permute. The diff between two layouts is small and legible — rows open, they
-   don't shuffle.
-3. **Physical motion.** Springs on `(x, y)`, not linear easing. Enter: fade and scale up
-   from the parent's current position, so a new lineage visibly *grows out of* the tree.
-   Exit: collapse toward parent, fade. Stagger by depth so reflow propagates root-outward
-   rather than everything moving at once.
+Edges are orthogonal with a small consistent corner radius, per the design reference. The
+skeleton renderer already draws them this way (`M x1 y1 L x1 y2 L x2 y2`); convergent
+branches are genuinely ambiguous under bezier.
 
-Honor `prefers-reduced-motion` with an instant crossfade.
+### Provenance needs a channel that luminance has already taken
+
+design-reference.md reserves brightness for **recency and selection, never data value**.
+But age provenance (§3.5) *is* a data value, and one the app is obliged to render, since
+the whole premise is putting dates on an axis.
+
+So provenance does not get luminance. It gets:
+
+- **`structural` tier — no numeric age at all.** This is the hard requirement and the
+  only one that really matters. A dashed edge and an absent number, never a confident
+  figure where nobody has estimated one.
+- **Dash pattern for the edge.** Dash is not stroke *width*, so it does not violate
+  "uniform stroke weight, encode meaning in luminance and hue", and it reads
+  conventionally as inferred rather than measured.
+- **Desaturation for `interpolated`**, sitting between measured and structural.
+
+`structural`-tier nodes are positioned ordinally between their nearest dated ancestor and
+descendant. In those regions the horizontal axis stops meaning time and starts meaning
+nesting depth, and the rendering has to say so.
+
+### The signature interaction
+
+design-reference.md specifies it in full and it is the product; that spec governs. Two
+notes from the data side:
+
+**The MRCA is free.** It is the last common element of the two ancestor paths (§2), which
+are already in memory from the layout pass. There is no separate query and no server
+round trip, so the `t=80` flare can fire in the same frame as the click.
+
+**Draw order is root-ward → leaf-ward, lightly staggered**, and the segment list for that
+is already computed: a rendered edge carries the ordered list of suppressed intermediate
+nodes between its endpoints (§2). Stagger over those.
+
+Honor `prefers-reduced-motion` by cutting to the final state and keeping the glow static.
 
 ### Drill-down (interaction 3)
 
@@ -496,30 +555,63 @@ axis so everything stays comparable:
 
 ### Silhouettes
 
+Priority-one work. For a curious non-specialist an image is what makes a clade mean
+anything, and it is the third of the three things this product is for.
+
 PhyloPic SVGs from the local mirror (~136 MB for the full corpus — mirroring removes a
 runtime dependency and the build-number churn described in data-sources).
 
-Silhouettes are monochrome, so `fill: currentColor` makes one asset work in light and
-dark themes. That is a real advantage over photographs, alongside the one that matters
-more: a silhouette legitimately represents a *clade*, where a photograph can only
-represent one member. Rendering a mole for "Mammalia" is worse than rendering nothing.
+Silhouettes are monochrome, so `fill: currentColor` drops them straight into a dark
+instrument and lets them take the trace colour, including the selection bloom. That is a
+real advantage over photographs, alongside the one that matters more: a silhouette
+legitimately represents a *clade*, where a photograph can only represent one member.
+Rendering a mole for "Mammalia" is worse than rendering nothing.
 
-Resolution is baked (`node.phylopic_id`), so there is no client-side climb. Where the
-build used the license-filtered path rather than `primaryImage`, coverage is 93.7%.
+They belong at the upper tiers of semantic zoom — a silhouette *is* the "full detail
+card" tier for a clade, and arguably earns a place at the label tier for well-known ones.
 
-**Attribution renders in the UI**, not in a licence file: creator and license in the node
-detail panel, plus a credits view enumerating everything currently displayed. 47.2% of
-default-resolved images require attribution — this is an obligation, not a nicety.
+Resolution is baked (`node.phylopic_id`), so there is no client-side climb. Since this is
+not a commercial project, use `primaryImage`, which resolves by clade fallback
+server-side and gives effective **~100% coverage** — the licence-filtered path and its
+93.7% are no longer needed.
+
+**Attribution renders in the UI**, not in a licence file: creator and licence in the node
+detail card, plus a credits view enumerating everything currently displayed. CC-BY
+requires it regardless of commercial use. Per design-reference.md the credits view is a
+**command**, not a settings panel. It is a two-field problem — `attribution` is the
+original creator, `_links.contributor.title` the uploader, and they differ 31% of the
+time.
 
 ### Typography
 
-Scientific naming convention is not decoration. Species and genus names are italic;
-higher taxa are roman; authority strings are smaller and lighter. Getting this right is
-the difference between something a biologist trusts and something they don't, and it
-costs one CSS rule keyed on rank.
+design-reference.md governs: one geometric or grotesque sans for UI, one mono for
+identifiers and all numerics, two weights maximum, hierarchy from size and opacity and
+glow rather than weight. **Numerics are tabular-figure mono** — this supersedes the
+old-style figures this document originally called for, which belong to a print-adjacent
+aesthetic rather than an instrument.
 
-Use a real text face with proper italics and old-style figures for the date axis, not
-`system-ui`.
+One requirement survives from the data side and is not negotiable: **scientific naming
+convention is not decoration.** Species and genus names are italic, higher taxa roman,
+authority strings smaller and dimmer. It costs one rule keyed on `rank`, and getting it
+wrong is visible to exactly the audience most likely to share the thing. So the UI sans
+needs a genuine italic, not a synthesised oblique — worth checking when the face is
+chosen.
+
+### Search and the command surface
+
+The palette *is* the interface (design-reference.md), which puts real weight on ranking
+and makes one gap load-bearing.
+
+**Ranking blends two signals that live in different places.** Corpus signals are baked:
+exact match, then `tip_count` descending, then has-silhouette, then has-measured-age —
+which is what makes "can" surface Canidae before *Cania*. Session signals — recency and
+frequency, per the Raycast model — are client-side and layered on top. Neither alone is
+right.
+
+**Vernacular names are the front door.** A command palette that returns nothing for
+"dog", "T. rex" or "shark" is broken at first contact, and OTT carries no common names at
+all. This is why they moved from deferred to priority-one; see
+[handoff.md](handoff.md) §1.
 
 ### URL state
 
@@ -527,7 +619,8 @@ Use a real text face with proper italics and old-style figures for the date axis
 
 The selected set is the application state. Encoding it in the URL makes every view
 shareable and back-button-correct, which for something visual is most of its
-distribution.
+distribution — and design-reference.md extends this to *all* view state, so zoom, scope
+and isolation belong here too.
 
 ---
 

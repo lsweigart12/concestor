@@ -13,10 +13,19 @@ wrong and these docs record the corrections.
 
 | Doc | Contents |
 |---|---|
+| [docs/handoff.md](docs/handoff.md) | Current state, priorities, decisions taken. Start here |
+| [docs/design-reference.md](docs/design-reference.md) | Visual and interaction language. Authoritative for anything the user sees |
+| [docs/management.md](docs/management.md) | The standing brief for whoever owns the project |
 | [docs/data-sources.md](docs/data-sources.md) | Verified facts and corrections. Read this before the architecture doc |
 | [docs/architecture.md](docs/architecture.md) | Data model, storage, backend, rendering |
 | [docs/ingest.md](docs/ingest.md) | The six build phases and their validation gates |
-| [docs/phase2-decision.md](docs/phase2-decision.md) | Why the dated tree failed its gate, and what to do about it |
+| [docs/phase2-decision.md](docs/phase2-decision.md) | The dating decision — accepted, with the evidence |
+| [docs/phase3-pbdb-path.md](docs/phase3-pbdb-path.md) | How fossils resolve to the tree, measured |
+
+**This product is for curious people interested in evolution, not for evolutionary
+biologists.** Identifying an MRCA, drawing the tree well, and showing useful
+silhouettes are the priorities; the time axis and the fossil layer are secondary.
+That makes `ingest.md`'s numbering a *dependency* order, not a priority order.
 
 ## Where things are
 

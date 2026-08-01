@@ -43,6 +43,49 @@ excluded; its redistribution ban is unconditional.
 
 ---
 
+## 1a. The design language, and where it collided with the architecture
+
+**[design-reference.md](design-reference.md) is authoritative** on visual
+language, command surface, motion and stack. A dark instrument where the graph is
+the only light source, operated from a `⌘K` command palette, phosphor-persistence
+metaphor, React Flow / xyflow v12. Read it before writing any frontend code.
+
+It sharpens the priorities rather than changing them. Its **signature interaction
+is the add** — draw originates at the *MRCA* and extends outward to the new leaf,
+with the MRCA flaring at `t=80` — and it says outright that this is the product
+and everything else is plumbing. That is priority 1 and 2 restated as one motion,
+and the data side already supports it: the MRCA is the last common element of two
+ancestor paths, already in memory, no query and no round trip.
+
+Four collisions with `architecture.md`, all now resolved there:
+
+**Layout must not use dagre or ELK.** The design reference suggests
+`d3-hierarchy / ELK / dagre`. A graph-layout engine assigns `x` by *depth*; here
+`x` is *time*. Running one would silently destroy the axis it exists for. Every
+other layout principle holds — deterministic, computed, never simulated, not
+draggable — and our layout already is all of those. See architecture §7.
+
+**Luminance is spoken for.** The design reserves brightness for recency and
+selection, "never data value". But age provenance *is* a data value we are
+obliged to render. Resolution: provenance gets dash pattern and desaturation, and
+`structural` nodes get **no numeric age at all** — which was always the hard
+requirement. Luminance stays with selection.
+
+**The ICS geologic palette is warm; the design language forbids warm.** Keep the
+official hue *relationships*, drop the official saturation and luminance, and let
+the band recede. The original argument for exact CGMW colour was that it reads as
+authoritative to specialists — not our audience.
+
+**Tabular mono numerics supersede old-style figures.** Scientific italics for
+species and genus names survive unchanged, so the UI sans needs a real italic
+rather than a synthesised oblique.
+
+One knock-on worth stating plainly: **a command palette makes vernacular names
+load-bearing at first contact.** If typing "dog" or "T. rex" returns nothing, the
+product is broken at its front door, not merely incomplete.
+
+---
+
 ## 2. State
 
 | Phase | Status |
@@ -56,7 +99,7 @@ excluded; its redistribution ban is unconditional.
 | 6 — vernaculars | not started — **priority one** |
 | walking-skeleton renderer | done, throwaway |
 | serving binary | not started; Go or Rust still open |
-| real UI | not started — the largest remaining piece |
+| real UI | not started — the largest remaining piece. Design language settled: [design-reference.md](design-reference.md) |
 
 **The MRCA and tree-drawing primitive already works and is proven.** Everything
 rests on `path(node) → [root, …, node]`; induced subtrees are the union of
