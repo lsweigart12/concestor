@@ -116,7 +116,7 @@ Everything settled in the previous brief still holds, and is now implemented rat
 - Do not optimise the artifact set yet. It is 2,048 MB against architecture §11's 700 MB estimate, which means §11's cost paragraph needs re-deriving before anyone sizes a machine — but nothing is broken by it, and trimming `xref` before the product is finished is optimising the wrong thing.
 - Do not reintroduce a fixed layout width in the frontend. It follows the viewport so the fit stays near 1:1; at a fixed 1240px a narrow panel fits at ~0.45 zoom and semantic zoom correctly drops every label.
 
-### 6. The vernacular join is producing false statements — do this first
+### 6. The vernacular join was producing false statements — **fixed**
 
 An outside design review of the running app (see below; it happened, and the report is worth reading in full) found the product **lying**, which is the one thing this codebase's culture exists to refuse. *Homo sapiens* is "also known as Homo floresiensis". Typing `frog` returns Archaea, captioned "Giant Bullfrog", above the actual frogs. 4,262 nodes have vernaculars claimed by two or more Wikidata items, and one taxon has one item.
 

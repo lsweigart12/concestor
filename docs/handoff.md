@@ -799,18 +799,31 @@ defect in the product. Measured:
 catch the first of these and cannot: it only refuses a name that is *in the
 tree*, and *Homo floresiensis* is extinct and so is not a node.
 
-*The fix is implemented and the crawl that activates it is running.* The P9157
-pass now fetches each item's own `wdt:P225`, and `load` refuses any contribution
-whose taxon name disagrees with OTT's — no arbitration, no heuristic, one
-OPTIONAL triple on a query that was already being made. A row with no P225 is
-kept rather than refused: not every item has one, and absent evidence of a bad
-claim is not evidence of one.
+*Fixed, crawled and verified.* The P9157 pass fetches each item's own
+`wdt:P225` and `load` refuses any contribution whose taxon name disagrees with
+OTT's — no arbitration, no heuristic, one OPTIONAL triple on a query that was
+already being made. A row with no P225 is kept rather than refused: not every
+item has one, and absent evidence of a bad claim is not evidence of one.
 
-**It is inert against the pages crawled before it existed**, which carry no `s`
-field, so it drops 0 until the re-crawl lands. The pre-P225 pages are kept at
-`build/vernaculars/wikidata_pre_p225/` and the phase only rewrites the database
-on a *completed* crawl, so an interruption leaves the current names in place
-rather than a partial harvest.
+**63,872 names dropped** on the re-crawl, and it does exactly what the three
+heuristics could not:
+
+| | before | after |
+|---|---|---|
+| *Homo sapiens* | Human, **Homo floresiensis**, man, men, humans, **Flores Man** | Human, man, men, humans, human being, human beings |
+| Archaea | **Giant Bullfrog**, African Bullfrog, Highveld Bullfrog, … | Archaeon, Archaeans, Archaebacteria, Archaeobacteria |
+| `frog` | Anura, then **Archaea "Giant Bullfrog"** | Anura, then Hylidae |
+
+Note what that costs: nothing. "Human" survives on *Homo sapiens* and
+"archaeans" survives on Archaea, which is the pair no cheaper rule could keep
+at once. Build `a2b513305e2ddb95`; the pre-P225 checkpoint is kept at
+`build/vernaculars/wikidata_pre_p225/`.
+
+*Still wrong, and not this defect.* `butterfly` returns *Chaetodon capistratus*
+("Kete") above Papilionidae and `eagle` returns a one-tip *Miraquila* above
+*Haliaeetus* — both are legitimate single-item vernaculars that simply outrank
+the taxon a person means, so they are a ranking problem rather than a
+provenance one.
 
 **Three cheaper rules were tried first and all three fail.** Recorded so nobody
 re-derives them:

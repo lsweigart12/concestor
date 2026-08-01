@@ -167,11 +167,24 @@ All detailed in `docs/data-sources.md`:
 ## Current state
 
 **All six phases are implemented, the server is built, and the UI works end to
-end.** `docs/handoff.md` §2 has the table and §7 the honest list of what is
+end.** Every phase is green and `concestor-build package` succeeds; the current
+build is `a2b513305e2ddb95`. `docs/handoff.md` §2 has the table and §7 the honest list of what is
 thin. `test_vernaculars.py` asserts the words a person actually types and is
-**green** — `dog`, `cat`, `whale`, `human`, `shark`, `T. rex` all resolve. The
-tail is still missing (`oak` returns "Oak moss") and the Wikidata P9157 crawl is
-checkpointed and resumable, but the front door works.
+**green** — `dog`, `cat`, `whale`, `human`, `shark`, `T. rex` all resolve, and
+so now do `frog`, `animal` and `bird`. The P9157 crawl is complete.
+
+**A Wikidata item can carry another taxon's OTT id**, and until it was fixed the
+app said *Homo sapiens* is "also known as Homo floresiensis" and returned a
+domain of 2,080 archaea for `frog`, captioned "Giant Bullfrog". The query now
+fetches each item's own `wdt:P225` and refuses any contribution whose taxon name
+disagrees with OTT's. Three cheaper rules were tried first and all three fail —
+`vernaculars.py` records why, and one of them fails by taking "Dog" off *Canis
+lupus familiaris*. Do not re-derive them.
+
+What is still wrong at the front door is *ranking*, not provenance: `butterfly`
+reaches a butterflyfish before Papilionidae, `eagle` a one-tip genus before
+*Haliaeetus*. `oak` is a third thing again — a genuine coverage gap, since no
+node carries the word.
 
 **Decisions in this codebase are made by whoever holds it.** These docs escalate
 nothing and hold nothing open pending approval; where a question was once
