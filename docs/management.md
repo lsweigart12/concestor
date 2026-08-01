@@ -118,19 +118,15 @@ Everything settled in the previous brief still holds, and is now implemented rat
 
 ### 6. The vernacular join was producing false statements — **fixed**
 
-An outside design review of the running app (see below; it happened, and the report is worth reading in full) found the product **lying**, which is the one thing this codebase's culture exists to refuse. *Homo sapiens* is "also known as Homo floresiensis". Typing `frog` returns Archaea, captioned "Giant Bullfrog", above the actual frogs. 4,262 nodes have vernaculars claimed by two or more Wikidata items, and one taxon has one item.
+An outside design review of the running app found the product **lying**, which is the one thing this codebase's culture exists to refuse. *Homo sapiens* was "also known as Homo floresiensis". Typing `frog` returned Archaea, captioned "Giant Bullfrog", above the actual frogs. 4,262 nodes had vernaculars claimed by two or more Wikidata items, and one taxon has one item.
 
-Full measurements in handoff §7. **The fix is implemented and the crawl that activates it was running when this was written** — the P9157 query now fetches each item's own `wdt:P225` and refuses any contribution whose taxon name disagrees with OTT's. Three cheaper rules were tried against the real data first and all three fail; handoff §7 has the table, and one of them fails by taking "Dog" off *Canis lupus familiaris*, which the `dog` spot check caught.
+The cause: P9157 is a free-text external identifier and nothing stops an item carrying somebody else's OTT id. The fix: the query now fetches each item's own `wdt:P225` and refuses any contribution whose taxon name disagrees with OTT's — no arbitration, no heuristic, no extra requests, one OPTIONAL triple on a query already being made.
 
-**What is left is to confirm it landed.** `search` and `package` are chained to run automatically when the crawl finishes, so in the ordinary case there is nothing to run. Confirm it by checking that `build/vernaculars/wikidata/page_00001.jsonl` carries an `"s"` field and that phase 6 reports names dropped for a P225 mismatch; if the chain did not fire:
+**Crawled and verified.** 63,872 names dropped. `frog` returns Anura then Hylidae; *Homo sapiens* keeps "Human" without gaining "Homo floresiensis"; Archaea keeps "archaeans" without gaining a bullfrog. That last pair is what makes it right — **no cheaper rule could keep both**, and three were tried: dropping every contested claimant loses "Dog" off *Canis lupus familiaris* and fails the spot check, and preferring the largest claim hands Archaea to the frog. handoff §7 has the table; do not re-derive them.
 
-```bash
-cd pipeline && uv run concestor-build vernaculars && uv run concestor-build search
-```
+**What the search still gets wrong is ranking, not provenance.** `butterfly` returns *Chaetodon capistratus* ("Kete") above Papilionidae; `eagle` returns a one-tip *Miraquila* above *Haliaeetus*; `oak` still returns "Oak moss" because no node carries the word. Three different problems, and only the last is a coverage gap.
 
-`search` must follow, because it indexes the vernacular table and would otherwise keep serving the old names from a stale index. Then verify the two cases by hand — the *Homo sapiens* card must not say "Homo floresiensis", and `frog` must not return Archaea — and re-run `concestor-build package` so `/v1/about` reports the new build. If the crawl was interrupted, the old names are still in place (the phase rewrites the database only on a completed crawl) and the pre-P225 checkpoint is at `build/vernaculars/wikidata_pre_p225/`.
-
-**Everything else on this list is depth. This one is correctness, and it is at the front door.**
+It was found only because someone who had not built the UI actually used it. That is the argument for the risk below, made concrete.
 
 ## The risk nobody has touched
 
