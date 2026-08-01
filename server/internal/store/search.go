@@ -165,8 +165,9 @@ func (s *Store) Search(ctx context.Context, q string, limit int) ([]SearchResult
 	for _, r := range byIdx {
 		results = append(results, *r)
 	}
-	// Broken taxa must be searchable. There are 9,839 and they live in memory,
-	// so this is a linear scan over a small slice.
+	// Broken taxa must be answerable, but only when the query *is* one. There
+	// are 9,839 and they live in memory, so this is a linear scan over a small
+	// slice.
 	results = append(results, s.searchBroken(qFold)...)
 
 	if err := s.decorate(ctx, results, qFold, exactVern); err != nil {
@@ -174,7 +175,9 @@ func (s *Store) Search(ctx context.Context, q string, limit int) ([]SearchResult
 	}
 
 	sort.SliceStable(results, func(i, j int) bool { return lessResult(&results[i], &results[j]) })
-	results = truncateKeepingBroken(results, limit)
+	if len(results) > limit {
+		results = results[:limit]
+	}
 	if err := s.fillVernaculars(ctx, results); err != nil {
 		return nil, err
 	}
@@ -182,47 +185,6 @@ func (s *Store) Search(ctx context.Context, q string, limit int) ([]SearchResult
 		results = []SearchResult{}
 	}
 	return results, nil
-}
-
-// reservedBrokenSlots is how many tail positions a matching broken taxon may
-// claim when the node results would otherwise fill the page. Nodes deserve to
-// win the ranking, but a user who typed a prefix of a non-monophyletic taxon
-// has to be able to *see* the explanation — silently answering a different
-// question is exactly the failure mode this product exists to avoid.
-const reservedBrokenSlots = 2
-
-func truncateKeepingBroken(results []SearchResult, limit int) []SearchResult {
-	if len(results) <= limit {
-		return results
-	}
-	head := results[:limit]
-	for _, r := range head {
-		if r.Kind == "broken" {
-			return head
-		}
-	}
-	// Scale the reserve to the page. Two slots out of twenty is a footnote;
-	// two out of four is the palette handing half its answer to taxa the user
-	// probably did not mean.
-	reserve := min(reservedBrokenSlots, limit/8)
-	if reserve == 0 {
-		return head
-	}
-	var rescued []SearchResult
-	for _, r := range results[limit:] {
-		if r.Kind == "broken" {
-			rescued = append(rescued, r)
-			if len(rescued) == reserve {
-				break
-			}
-		}
-	}
-	if len(rescued) == 0 {
-		return head
-	}
-	out := make([]SearchResult, 0, limit)
-	out = append(out, head[:limit-len(rescued)]...)
-	return append(out, rescued...)
 }
 
 func matchStrength(m string) int {
@@ -764,18 +726,33 @@ func scanNodeResults(rows *sql.Rows, matchedOn string) ([]*SearchResult, error) 
 	return out, rows.Err()
 }
 
+// searchBroken answers the question "is the thing I typed a broken taxon?" —
+// and only that question.
+//
+// It used to match on prefix, which was wrong in a way that made the palette
+// worse the more of a name you typed. A broken taxon is not a candidate answer
+// competing with real nodes: it is an explanation for a specific name, useful
+// only to someone who meant that name. On a prefix, 9,839 of them chase every
+// keystroke — typing "nean" put *Neanastatinae* and *Neanuridae* on the page
+// alongside 22 real genera, and neither is what anyone reaching for
+// *Neanderthal* wanted. Matching the whole name keeps the promise that matters
+// (ask for Dinosauria and we say why it is not there, rather than silently
+// answering about Archosauria) and drops the noise, which was all of it.
 func (s *Store) searchBroken(qFold string) []SearchResult {
+	if qFold == "" {
+		return nil
+	}
 	var out []SearchResult
 	for i := range s.broken {
 		b := &s.broken[i]
-		if b.fold == "" || !strings.HasPrefix(b.fold, qFold) {
+		if b.fold != qFold {
 			continue
 		}
 		ott := b.OttID
 		r := SearchResult{
 			Kind: "broken", Key: b.NodeKey, OttID: &ott,
 			MatchedOn: "name", MRCAIdx: b.MRCAIdx,
-			exact: b.fold == qFold, band: matchBand(b.Name, qFold), sortName: b.Name,
+			exact: true, band: bandExact, sortName: b.Name,
 		}
 		if b.Name != "" {
 			n := b.Name
@@ -791,12 +768,18 @@ func (s *Store) searchBroken(qFold string) []SearchResult {
 			r.rankTip = int64(s.Arrays.TipCount[*b.MRCAIdx])
 		}
 		out = append(out, r)
-		if len(out) >= 200 {
+		// A handful of names are borne by more than one broken taxon —
+		// "FamilyI" by four. Explaining the same name four times is not four
+		// times the explanation.
+		if len(out) >= maxBrokenExplanations {
 			break
 		}
 	}
 	return out
 }
+
+// maxBrokenExplanations caps how many same-named broken taxa are explained.
+const maxBrokenExplanations = 2
 
 // decorate fills the ranking signals that live in the arrays and the optional
 // tables: exact match, has-image, has-measured-age, baked score.

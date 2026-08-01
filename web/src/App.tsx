@@ -105,23 +105,25 @@ export default function App() {
     };
   }, [focusedIdx, tree.nodes]);
 
-  // Surface broken taxa rather than silently answering a different question.
+  // A broken taxon reaching the canvas means a link made before the palette
+  // stopped offering them. Say what happened in the reader's language — the
+  // audience is curious people, not systematists — and say that the lineage
+  // was dropped, because the store has just removed it from the selection.
   useEffect(() => {
     for (const b of tree.broken) {
       toast(
         <>
-          <strong>{b.name ?? b.key}</strong> is not monophyletic, so it has no
-          single position in the tree — it is rejected from the synthesis
-          outright, not merely uncertain. It has {b.attachmentPoints}{" "}
-          attachment {b.attachmentPoints === 1 ? "point" : "points"}. The Open
-          Tree API silently substitutes <span className="mono">{b.mrcaKey}</span>{" "}
-          here; we would rather say so.
+          <strong>{b.name ?? b.key}</strong> is not monophyletic — its members
+          sit in {b.attachmentPoints} separate{" "}
+          {b.attachmentPoints === 1 ? "place" : "places"} on the tree rather
+          than one, so there is no single branch to draw for it. It has been
+          left out of this view; everything else in the link is unaffected.
         </>,
         true,
       );
       tree.dismissBroken(b.key);
     }
-  }, [tree.broken, toast, tree]);
+  }, [tree.broken, toast, tree.dismissBroken]);
 
   // A key in the URL that resolves to nothing — a mistyped id, or one from a
   // link made against a different build. Say which, and carry on drawing the

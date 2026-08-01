@@ -305,6 +305,32 @@ make the case — the top 25,000 genera hold 93.3% of genus occurrences and the 
 secondary feature before silhouettes and vernaculars exist. Revisit only if the
 tail turns out to matter.
 
+### Broken taxa: an answer to a whole name, never a candidate in the list
+
+"Broken taxa must be searchable" was read as "must be *results*", and it made
+the palette worse the more of a name you typed. `searchBroken` matched on
+prefix, so 9,839 taxa chased every keystroke: typing towards *Homo sapiens
+neanderthalensis* put *Neanastatinae* and *Neanuridae* on the page, and two
+things then compounded it. They carry `idx: null` by construction — they are
+not nodes — so every one of them hashed to the same session-ranking key
+`n:null` and to the same React key; one accidental click taught the ranking to
+pin all of them, and duplicate keys left rows stranded on screen through every
+later query. Picking one put a key in the URL that resolved to nothing, and
+since nothing was drawn there was no node to select and remove, so the warning
+returned on every subsequent add with no way to clear it.
+
+Settled as: **the query has to be the whole name.** A broken taxon is an
+explanation for a name, not a candidate answer competing with real nodes — it
+is only ever useful to someone who meant that name, and *only* they type it in
+full. `data-sources.md`'s requirement is met exactly where it bites (ask for
+*Dinosauria* and we say why it is not there, rather than silently answering
+about *Sauria* the way the live API does) and the noise is gone, which was all
+of it. In the UI it renders as `BrokenNote` below the results — not a row,
+because everything in that list is something Enter will act on. The union in
+`api.ts` makes `idx: null` unrepresentable on a hit that can be added, which is
+what stops the two identity bugs coming back. A broken key arriving from an
+older shared link is reported once and dropped from the selection.
+
 ---
 
 ## 4. Corrections to the design docs

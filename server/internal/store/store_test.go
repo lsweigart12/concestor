@@ -347,6 +347,62 @@ func TestSearchReturnsBrokenTaxa(t *testing.T) {
 	}
 }
 
+// …but only when the query *is* one. A broken taxon is an explanation for a
+// name, not a candidate answer, and on a prefix 9,839 of them chase every
+// keystroke: typing towards "Homo sapiens neanderthalensis" used to surface
+// Neanastatinae and Neanuridae, which is noise on the way to a real species.
+func TestSearchDoesNotOfferBrokenTaxaOnAPrefix(t *testing.T) {
+	st := open(t)
+	for _, q := range []string{"nean", "neand", "homo neand", "dinosaur", "dinosauri"} {
+		res, err := st.Search(t.Context(), q, 24)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i := range res {
+			if res[i].Kind == "broken" {
+				t.Errorf("%q returned broken taxon %q — only the whole name should",
+					q, deref(res[i].Name))
+			}
+		}
+	}
+}
+
+// The explanation is worth exactly one row. Four "FamilyI" rows is the same
+// failure the prefix match had, at a smaller scale.
+func TestSearchCapsSameNamedBrokenTaxa(t *testing.T) {
+	st := open(t)
+	var name string
+	err := st.DB.QueryRowContext(t.Context(), `
+		SELECT name FROM broken_taxon WHERE name <> ''
+		GROUP BY name HAVING count(*) > 2 LIMIT 1`).Scan(&name)
+	if err != nil {
+		t.Skipf("no name is shared by three broken taxa in this build: %v", err)
+	}
+	res, err := st.Search(t.Context(), name, 24)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for i := range res {
+		if res[i].Kind == "broken" {
+			n++
+		}
+	}
+	if n > maxBrokenExplanations {
+		t.Errorf("%q returned %d broken rows, want at most %d", name, n, maxBrokenExplanations)
+	}
+	if n == 0 {
+		t.Errorf("%q returned no explanation at all", name)
+	}
+}
+
+func deref(s *string) string {
+	if s == nil {
+		return "<nil>"
+	}
+	return *s
+}
+
 func TestSearchLimits(t *testing.T) {
 	st := open(t)
 	res, err := st.Search(t.Context(), "A", 50)

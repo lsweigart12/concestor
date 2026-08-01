@@ -123,6 +123,14 @@ export function useTree() {
               },
             ],
       );
+      // Drop it from the selection once it has been reported. A broken taxon
+      // never enters `paths` or `idxOf`, so a key that stays in the view stays
+      // *unresolved* — it is re-fetched and re-announced on every subsequent
+      // add, and since nothing is ever drawn for it there is no node to select
+      // and remove. The explanation is worth saying once; the key is not worth
+      // keeping. The palette no longer offers these at all, so this only fires
+      // for a link made before that was true.
+      setView((v) => ({ ...v, keys: v.keys.filter((x) => x !== key) }));
       return null;
     }
     // A key that resolved to nothing. `/v1/paths` reports these per-key rather

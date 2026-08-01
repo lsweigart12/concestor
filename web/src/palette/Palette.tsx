@@ -16,11 +16,12 @@
  *
  * 2. **Broken taxa.** 9,839 taxa are non-monophyletic and are rejected from
  *    synthesis outright. Searching one must explain that, not silently answer
- *    about a substituted MRCA the way the live Open Tree API does.
+ *    about a substituted MRCA the way the live Open Tree API does. It must not
+ *    do it *as a result*, though — see {@link BrokenNote}.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, type SearchHit } from "../api";
+import { api, type AnyHit, type BrokenHit, type SearchHit } from "../api";
 import { fuzzy, highlight, litRanges, recordUse, sessionBoost } from "./fuzzy";
 
 export interface Command {
@@ -67,7 +68,7 @@ const DEBOUNCE_MS = 110;
 
 export function Palette({ open, onClose, commands, scope, onPick, present }: Props) {
   const [q, setQ] = useState("");
-  const [hits, setHits] = useState<SearchHit[]>([]);
+  const [hits, setHits] = useState<AnyHit[]>([]);
   const [searching, setSearching] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
   const [active, setActive] = useState(0);
@@ -133,7 +134,12 @@ export function Palette({ open, onClose, commands, scope, onPick, present }: Pro
     // cannot — subtree size, silhouette coverage, age quality. Preserve that
     // order and layer the session signal on top rather than re-sorting from
     // scratch, which would throw away the better signal of the two.
+    //
+    // Broken taxa are excluded here rather than styled differently: they are
+    // not answers, they cannot be added, and anything in this list is
+    // something Enter will act on. They render as a note below the list.
     const hitRows: Row[] = hits.map((hit, i) => {
+      if (hit.kind === "broken") return null;
       const hay = hit.name ?? hit.key;
       const m = fuzzy(needle, hay) ?? fuzzy(needle, hit.vernacular ?? "");
       return {
@@ -146,10 +152,15 @@ export function Palette({ open, onClose, commands, scope, onPick, present }: Pro
         ranges: litRanges(needle, hay),
         vernRanges: hit.vernacular ? litRanges(needle, hit.vernacular) : [],
       };
-    });
+    }).filter((r): r is Extract<Row, { kind: "hit" }> => r !== null);
 
     return [...hitRows, ...cmdRows].sort((a, b) => b.score - a.score);
   }, [q, commands, hits]);
+
+  const notes: BrokenHit[] = useMemo(
+    () => hits.filter((h): h is BrokenHit => h.kind === "broken"),
+    [hits],
+  );
 
   useEffect(() => setActive(0), [q]);
 
@@ -238,7 +249,7 @@ export function Palette({ open, onClose, commands, scope, onPick, present }: Pro
             </div>
           )}
 
-          {!failed && rows.length === 0 && (
+          {!failed && rows.length === 0 && notes.length === 0 && (
             <div className="palette-empty">
               {q.trim().length >= 2 ? (
                 <>
@@ -255,13 +266,19 @@ export function Palette({ open, onClose, commands, scope, onPick, present }: Pro
 
           {rows.map((row, i) => (
             <RowView
-              key={row.kind === "cmd" ? row.cmd.id : `h${row.hit.idx}`}
+              // `key` is the node key, not the idx: it is the only field that
+              // is both present and unique on every hit the server can send.
+              key={row.kind === "cmd" ? `c${row.cmd.id}` : `h${row.hit.key}`}
               row={row}
               active={i === active}
               present={present}
               onHover={() => setActive(i)}
               onClick={() => commit(row)}
             />
+          ))}
+
+          {notes.map((n) => (
+            <BrokenNote key={`b${n.key}`} hit={n} />
           ))}
         </div>
       </div>
@@ -305,7 +322,6 @@ function RowView({
   const h = row.hit;
   const already = present.has(h.idx);
   const italic = h.rank === "species" || h.rank === "genus";
-  const broken = h.kind === "broken";
 
   return (
     <div
@@ -313,28 +329,51 @@ function RowView({
       onMouseMove={onHover}
       onClick={onClick}
     >
-      <span className="row-icon">
-        {broken ? "!" : "◦"}
-      </span>
+      <span className="row-icon">◦</span>
       <span className="row-body">
         <span className={`row-title${italic ? " sci-italic" : ""}`}>
           {parts(h.name ?? h.key, row.ranges)}
         </span>
         <span className="row-sub">
-          {broken ? (
-            "not monophyletic — has no single position in the tree"
-          ) : (
-            <>
-              {h.vernacular && <>{parts(h.vernacular, row.vernRanges)} · </>}
-              {h.rank && <>{h.rank} · </>}
-              {h.tip_count.toLocaleString()} species
-            </>
-          )}
+          {h.vernacular && <>{parts(h.vernacular, row.vernRanges)} · </>}
+          {h.rank && <>{h.rank} · </>}
+          {h.tip_count.toLocaleString()} species
         </span>
       </span>
       <span className="row-accessory">
         {already && <span className="kbd">on canvas</span>}
         {active && !already && <span className="kbd">↵ add</span>}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * The answer to "you typed the name of something that is not in the tree".
+ *
+ * Deliberately not a row. A broken taxon cannot be selected, cannot be added
+ * and has no position to draw, so offering it in the ranked list was offering
+ * a dead end: picking one put a key in the URL that resolved to nothing, and
+ * because nothing was ever drawn there was no node to select and remove — the
+ * warning came back on every subsequent add with no way to clear it. A note
+ * says the same true thing and cannot be picked.
+ */
+function BrokenNote({ hit }: { hit: BrokenHit }) {
+  const n = hit.n_attachment_points;
+  return (
+    <div className="palette-note" role="note">
+      <span className="row-icon">!</span>
+      <span className="row-body">
+        <span className="row-title">
+          <strong className="sci-italic">{hit.name ?? hit.key}</strong> is not
+          monophyletic
+        </span>
+        <span className="row-sub">
+          Its members are scattered across the tree
+          {n ? ` — ${n.toLocaleString()} separate places` : ""}, so it has no
+          single position and is left out of the synthesis. Search for one of
+          the groups inside it instead.
+        </span>
       </span>
     </div>
   );

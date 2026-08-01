@@ -60,19 +60,44 @@ export interface BrokenResponse {
 
 export type Resolved = PathResponse | BrokenResponse;
 
-export interface SearchHit {
-  kind: "node" | "broken";
+interface HitBase {
   key: string;
-  idx: number;
   ott_id: number | null;
   name: string | null;
   vernacular: string | null;
   rank: string | null;
-  tip_count: number;
   has_age: boolean;
   has_image: boolean;
   matched_on: string;
 }
+
+/**
+ * A hit that is a node — something that can actually go on the canvas.
+ *
+ * The union below is not decoration. `idx` and `tip_count` are null for a
+ * broken taxon because it is *not in the tree*, and typing them as `number`
+ * let `n:${hit.idx}` become the string `"n:null"` for all 9,839 of them: one
+ * shared identity, so the session ranking learnt from one click applied to
+ * every broken taxon at once, and one React key, so a list containing two of
+ * them reconciled wrongly and left rows stranded on screen through every
+ * subsequent query. Narrowing on `kind` is what makes both unrepresentable.
+ */
+export interface SearchHit extends HitBase {
+  kind: "node";
+  idx: number;
+  tip_count: number;
+}
+
+/** A hit that is a non-monophyletic taxon — an explanation, not a candidate. */
+export interface BrokenHit extends HitBase {
+  kind: "broken";
+  idx: null;
+  tip_count: null;
+  mrca_idx: number | null;
+  n_attachment_points: number | null;
+}
+
+export type AnyHit = SearchHit | BrokenHit;
 
 export interface NodeDetail extends PathNode {
   flags: string | null;
@@ -271,7 +296,7 @@ export const api = {
   about: () => get<About>("/v1/about"),
 
   search: (q: string, limit = 20) =>
-    get<{ query: string; results: SearchHit[] }>(
+    get<{ query: string; results: AnyHit[] }>(
       `/v1/search?q=${encodeURIComponent(q)}&limit=${limit}`,
     ),
 

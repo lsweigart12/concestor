@@ -620,6 +620,37 @@ body {
   line-height: 1.55;
 }
 
+/* A non-monophyletic taxon: an answer to what you typed, but not a row you
+   can pick. Borrows the row's anatomy and drops everything that implies it is
+   selectable — no hover, no cursor, no keybind hint. */
+.palette-note {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s3);
+  padding: 9px var(--s4);
+  border-left: 2px solid transparent;
+  cursor: default;
+}
+/* When results precede it, a hairline says "this is a footnote, not row 25". */
+.row + .palette-note {
+  border-top: 1px solid var(--hairline);
+  margin-top: var(--s2);
+  padding-top: var(--s3);
+}
+.palette-note .row-icon {
+  margin-top: 1px;
+}
+.palette-note .row-title {
+  color: var(--ink-2);
+}
+/* The subtitle is prose here, not metadata — it has to wrap. */
+.palette-note .row-sub {
+  white-space: normal;
+  overflow: visible;
+  line-height: 1.45;
+  padding-top: 1px;
+}
+
 /* Persistent hint bar pinned bottom-right. */
 /* Above the axis strip, not on it — the axis is 84px of fixed chrome at the
    bottom and the hint bar was printing over its caption. */
