@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { bracketGeom, bracketKey, spanLabel, MIN_MARK_PX, type Appearance } from "./Bracket";
+import {
+  bracketGeom,
+  bracketKey,
+  gapLabel,
+  maLabel,
+  spanLabel,
+  MIN_MARK_PX,
+  type Appearance,
+} from "./Bracket";
 
 /**
  * A linear stand-in for the symlog axis: present at x=1000, one Ma per px
@@ -137,5 +145,32 @@ describe("bracketKey", () => {
       "absent",
     ]);
     expect(bracketKey([])).toEqual([]);
+  });
+});
+
+/**
+ * The gap between a fork and its witness's range, which is a *quantity* and not
+ * a position — which is exactly why `maLabel` cannot be reused for it.
+ *
+ * The case that forced this: Perissodactyla is dated 56.26 Ma and *Eohippus*
+ * tops out at 56.0. `maLabel` rounds both to "56", so the card showed two
+ * identical figures and then said the range does not reach the split. Every
+ * number was right and the reader could see only a contradiction.
+ */
+describe("gapLabel", () => {
+  it("keeps the digit that makes a near miss legible", () => {
+    expect(gapLabel(0.26)).toBe("0.3 Ma");
+    expect(gapLabel(4.48)).toBe("4.5 Ma");
+  });
+
+  it("never renders a distance as a place", () => {
+    // maLabel(0.03) is "present", which is right for a position on the axis
+    // and nonsense for a gap: "it stops present short".
+    expect(maLabel(0.03)).toBe("present");
+    expect(gapLabel(0.03)).toBe("under 0.1 Ma");
+  });
+
+  it("drops to whole numbers only where the digit stops mattering", () => {
+    expect(gapLabel(110.4)).toBe("110 Ma");
   });
 });

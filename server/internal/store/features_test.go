@@ -107,11 +107,17 @@ func futureBuild(t *testing.T) string {
 		INSERT INTO node_image VALUES (594485, 'abc-123', 588427, 588427, 26, 'ancestor'),
 			(594475, 'abc-123', 588427, 588427, 22, 'ancestor');
 
-		-- The second resolution: the human–chimp split witnessed by the taxon
-		-- whose fossil record sits at it, not by the crown genus below it.
-		CREATE TABLE node_divergence_image (idx INTEGER PRIMARY KEY,
-			phylopic_id TEXT NOT NULL, source_idx INTEGER NOT NULL, gap_ma REAL NOT NULL);
-		INSERT INTO node_divergence_image VALUES (594475, 'def-456', 594502, 0.0);
+		-- The second resolution: the human–chimp split witnessed by the fossil
+		-- whose bracket sits at it, not by the crown genus below it. The taxon
+		-- is a PBDB taxon_no and NOT a node index, and it brings its own name
+		-- and dates because the dates are what make the picture legible.
+		CREATE TABLE node_divergence_witness (idx INTEGER PRIMARY KEY,
+			phylopic_id TEXT NOT NULL, pbdb_taxon_no INTEGER NOT NULL,
+			taxon_name TEXT NOT NULL, taxon_rank TEXT, attach_idx INTEGER NOT NULL,
+			attach_walk INTEGER NOT NULL, fea REAL NOT NULL, lla REAL NOT NULL,
+			gap_ma REAL NOT NULL);
+		INSERT INTO node_divergence_witness VALUES (594475, 'def-456', 83043,
+			'Sahelanthropus tchadensis', 'species', 594502, 0, 7.246, 5.333, 0.0);
 
 		CREATE TABLE occurrence (idx INTEGER PRIMARY KEY,
 			fea REAL, fla REAL, lea REAL, lla REAL);
@@ -334,7 +340,7 @@ func TestSearchUsesFTSAndImageSignalWhenPresent(t *testing.T) {
 
 // The witness is a *second* answer, not a replacement, so the test is that both
 // survive on the same node: node_image still says what the clade looks like and
-// node_divergence_image says what stood at its split. Collapsing them is the
+// node_divergence_witness says what stood at its split. Collapsing them is the
 // failure this table exists to avoid.
 func TestTheDivergenceWitnessDoesNotDisplaceTheOrdinaryImage(t *testing.T) {
 	dir := futureBuild(t)
@@ -345,9 +351,9 @@ func TestTheDivergenceWitnessDoesNotDisplaceTheOrdinaryImage(t *testing.T) {
 	defer st.Close() //nolint:errcheck
 
 	if st.Schema.Witness == nil {
-		t.Fatal("node_divergence_image was not detected")
+		t.Fatal("node_divergence_witness was not detected")
 	}
-	if st.Schema.Witness.SourceIdx != "source_idx" || st.Schema.Witness.GapMa != "gap_ma" {
+	if !st.Schema.Witness.Fossil() || st.Schema.Witness.GapMa != "gap_ma" {
 		t.Errorf("witness columns resolved to %+v", st.Schema.Witness)
 	}
 
@@ -357,8 +363,17 @@ func TestTheDivergenceWitnessDoesNotDisplaceTheOrdinaryImage(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, ok := ws[594475]
-	if !ok || got.PhylopicID != "def-456" || got.SourceIdx != 594502 {
+	if !ok || got.PhylopicID != "def-456" || got.PbdbTaxonNo != 83043 {
 		t.Fatalf("witness = %+v", got)
+	}
+	if got.SourceIdx != nil {
+		t.Error("a fossil witness is not a node and must not claim a node index")
+	}
+	if got.Name != "Sahelanthropus tchadensis" || got.AttachIdx != 594502 {
+		t.Errorf("witness taxon = %+v", got)
+	}
+	if got.Oldest == nil || *got.Oldest != 7.246 || got.Youngest == nil || *got.Youngest != 5.333 {
+		t.Errorf("the bracket must travel with the row: %+v", got)
 	}
 	if got.GapMa == nil || *got.GapMa != 0 {
 		t.Errorf("gap_ma = %v, want 0 — the taxon's range spans this split", got.GapMa)
@@ -380,7 +395,7 @@ func TestTheDivergenceWitnessDoesNotDisplaceTheOrdinaryImage(t *testing.T) {
 // A witness with no taxon is a picture with no caption, and the caption is the
 // whole point — without it the drawing is just another unexplained silhouette,
 // which is the thing this replaced. So the row is dropped rather than served
-// half-resolved.
+// half-resolved, and the same goes for one with no dates.
 func TestAWitnessWithoutItsTaxonIsRefused(t *testing.T) {
 	real := testenv.RequireBuild(t)
 	dir := t.TempDir()
@@ -395,9 +410,14 @@ func TestAWitnessWithoutItsTaxonIsRefused(t *testing.T) {
 		CREATE TABLE node (idx INTEGER PRIMARY KEY, ott_id INTEGER, node_key TEXT NOT NULL,
 			name TEXT, rank TEXT, flags TEXT, tip_count INTEGER NOT NULL, depth INTEGER NOT NULL);
 		INSERT INTO node VALUES (594475, NULL, 'mrcaott786ott6182', NULL, NULL, '', 4, 55);
-		CREATE TABLE node_divergence_image (idx INTEGER PRIMARY KEY,
-			phylopic_id TEXT NOT NULL, source_idx INTEGER NOT NULL, gap_ma REAL NOT NULL);
-		INSERT INTO node_divergence_image VALUES (594475, 'def-456', -1, 0.0);
+		CREATE TABLE node_divergence_witness (idx INTEGER PRIMARY KEY,
+			phylopic_id TEXT NOT NULL, pbdb_taxon_no INTEGER NOT NULL,
+			taxon_name TEXT, taxon_rank TEXT, attach_idx INTEGER NOT NULL,
+			attach_walk INTEGER NOT NULL, fea REAL, lla REAL, gap_ma REAL NOT NULL);
+		INSERT INTO node_divergence_witness VALUES
+			(594475, 'def-456', -1, 'Nobody', NULL, 594475, 0, 7.0, 5.0, 0.0),
+			(594476, 'def-456', 83043, NULL, NULL, 594475, 0, 7.0, 5.0, 0.0),
+			(594477, 'def-456', 83043, 'Undated', NULL, 594475, 0, NULL, NULL, 0.0);
 	`)
 	if err != nil {
 		t.Fatal(err)
@@ -410,12 +430,18 @@ func TestAWitnessWithoutItsTaxonIsRefused(t *testing.T) {
 	}
 	defer st.Close() //nolint:errcheck
 
-	ws, err := st.Witnesses(t.Context(), []int{594475})
+	ws, err := st.Witnesses(t.Context(), []int{594475, 594476, 594477})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := ws[594475]; ok {
-		t.Error("a witness whose source_idx addresses nothing must be dropped")
+		t.Error("a witness whose taxon number addresses nothing must be dropped")
+	}
+	if _, ok := ws[594476]; ok {
+		t.Error("a witness with no taxon name must be dropped")
+	}
+	if _, ok := ws[594477]; ok {
+		t.Error("a witness with no bracket must be dropped: the dates are the claim")
 	}
 }
 
@@ -599,5 +625,57 @@ func TestLaneOrdersByNotabilityNotOccurrenceCount(t *testing.T) {
 	}
 	if got[2].PhylopicID != nil {
 		t.Errorf("Undrawnodon has no drawing; got %v", got[2].PhylopicID)
+	}
+}
+
+// A build made before the witness moved off nodes must keep working, and must
+// keep meaning what it meant. `node_divergence_image.source_idx` was a node
+// index; `node_divergence_witness.pbdb_taxon_no` is a PBDB taxon number. The
+// two columns have the same shape and address different universes, which is
+// why the table was renamed rather than redefined — reading a taxon number as
+// a node index joins cleanly to an unrelated taxon and says nothing at all,
+// exactly as node_fts.rowid once did.
+func TestAPreRenameWitnessTableIsReadAsNodes(t *testing.T) {
+	real := testenv.RequireBuild(t)
+	dir := t.TempDir()
+	if err := os.Symlink(filepath.Join(real, "topology"), filepath.Join(dir, "topology")); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", "file:"+filepath.Join(dir, "concestor.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`
+		CREATE TABLE node (idx INTEGER PRIMARY KEY, ott_id INTEGER, node_key TEXT NOT NULL,
+			name TEXT, rank TEXT, flags TEXT, tip_count INTEGER NOT NULL, depth INTEGER NOT NULL);
+		INSERT INTO node VALUES (594475, NULL, 'mrcaott786ott6182', NULL, NULL, '', 4, 55);
+		CREATE TABLE node_divergence_image (idx INTEGER PRIMARY KEY,
+			phylopic_id TEXT NOT NULL, source_idx INTEGER NOT NULL, gap_ma REAL NOT NULL);
+		INSERT INTO node_divergence_image VALUES (594475, 'def-456', 594502, 0.0);
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+
+	st, err := Open(t.Context(), Options{BuildDir: dir, Log: slog.New(slog.DiscardHandler)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close() //nolint:errcheck
+
+	if st.Schema.Witness == nil || st.Schema.Witness.Fossil() {
+		t.Fatalf("the old table must resolve, and not as a fossil: %+v", st.Schema.Witness)
+	}
+	ws, err := st.Witnesses(t.Context(), []int{594475})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := ws[594475]
+	if got.SourceIdx == nil || *got.SourceIdx != 594502 {
+		t.Fatalf("source_idx = %v, want the node index 594502", got.SourceIdx)
+	}
+	if got.PbdbTaxonNo != 0 || got.Name != "" {
+		t.Error("a node witness must not arrive claiming to be a PBDB taxon")
 	}
 }

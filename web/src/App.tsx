@@ -21,7 +21,7 @@ import {
   type SearchHit,
   type TimescaleInterval,
 } from "./api";
-import { bracketGeom, bracketTitle, endedSpanLabel } from "./canvas/Bracket";
+import { bracketGeom, bracketTitle, endedSpanLabel, gapLabel } from "./canvas/Bracket";
 import { Graph } from "./canvas/Graph";
 import { Silhouette } from "./canvas/Silhouette";
 import { mayDrawExemplar, witnessOn } from "./canvas/witness";
@@ -683,7 +683,7 @@ function Detail({
             // stamps its clade: the fact the picture adds is what it is *of*.
             <span
               className="detail-watermark"
-              title={`What this drawing is of. Not ${detail.name ?? "this node"} itself — a taxon inside it, dated to about this split.`}
+              title={`What this drawing is of. Not ${detail.name ?? "this node"} itself — a fossil taxon from somewhere below it, dated to about this split.`}
             >
               {witness.name}
             </span>
@@ -812,14 +812,29 @@ function Detail({
         <p className="note">
           The picture is{" "}
           <em className={isScientificItalic(witness.rank) ? "sci-italic" : undefined}>
-            {witness.name ?? "a taxon inside this group"}
+            {witness.name ?? "a taxon from below this fork"}
           </em>
-          , not this whole group — one lineage from inside it, and the nearest
-          in time that anyone has drawn. The most familiar thing below a split
-          is nearly always a living group that did not exist when the split
-          happened, so this shows something that did instead. Its dates are
-          observations of where it turns up in the rock, never an estimate of
-          when these lineages parted.
+          , not this whole group — a fossil taxon from somewhere below this
+          fork, and the nearest in time that anyone has drawn. The most
+          familiar thing below a split is nearly always a living group that did
+          not exist when the split happened, so this shows something that did
+          instead. Its dates are observations of where it turns up in the rock,
+          never an estimate of when these lineages parted.
+          {witness.attachWalk !== null && witness.attachWalk > 0 && (
+            // Where the fossil hangs is a separate uncertainty from when it
+            // lived, and the card is where both get stated rather than one
+            // standing in for the other. It is not in the tree at all — it was
+            // placed by walking its own classification upward until something
+            // was — so "below this fork" is the strongest true statement.
+            <>
+              {" "}
+              It is not itself in the tree:{" "}
+              {witness.attachWalk <= 2
+                ? "it is known to sit just below this point"
+                : "all that is known is that it belongs somewhere below this point"}
+              , not where on the branch.
+            </>
+          )}
           {age === null ? (
             <>
               {" "}
@@ -831,11 +846,25 @@ function Detail({
           ) : witness.spans ? (
             <> Its range does contain this split.</>
           ) : (
+            // The gap is spelled out rather than left for the reader to
+            // subtract, because at these scales rounding hides it: the
+            // horse–rhino fork is dated 56.26 Ma and Eohippus tops out at 56.0,
+            // so both figures above read "56" and the sentence looks like a
+            // contradiction. Saying "by 0.3 Ma" is the only thing that resolves
+            // it, and it is worth saying at every size.
             <>
               {" "}
-              Its range does not reach this split — compare the two figures
-              above and read the picture as the nearest available, not a
-              contemporary.
+              Its range does not reach this split
+              {witness.gapMa !== null && witness.gapMa > 0 ? (
+                <>
+                  {" "}
+                  — it stops <span className="num">
+                    {gapLabel(witness.gapMa)}
+                  </span>{" "}
+                  short
+                </>
+              ) : null}
+              . Read the picture as the nearest available, not a contemporary.
             </>
           )}
         </p>
@@ -848,7 +877,7 @@ function Detail({
         // Credited on its own terms: a different drawing by a different artist
         // from the one `sil` would have carried, and it is the one on screen.
         <div className="credit">
-          Silhouette of <em>{witnessCredit.source_name ?? "a taxon inside this group"}</em>
+          Silhouette of <em>{witnessCredit.source_name ?? "a taxon from below this fork"}</em>
           {" — "}
           {witnessCredit.attribution
             ? `by ${witnessCredit.attribution}`

@@ -1,13 +1,22 @@
 # Raising the divergence witness to its real ceiling
 
-**Status: phase 1 shipped (§3), the rest proposed and measured.** Figures were
-measured against build `7621312b5760ec1a` on 2026-08-01. Read
+**Status: shipped, all five steps.** Read
 [handoff.md](handoff.md) §5 on the witness first; this assumes it.
 
-The witness layer shipped drawing 548 forks. The design caps out at about
-2,552 however many images anyone sources, and the cap is not the corpus — it is
-one line in the data model. Changing that line reaches **22,808**, and reaches
-**1,416 with no new images at all**, on the forks readers actually visit.
+The witness layer shipped drawing 548 forks. The design capped out at about
+2,552 however many images anyone sourced, and the cap was not the corpus — it
+was one line in the data model. Witnesses now come from phase 4's fossil
+attachment points instead, and *Acanthostega gunnari* stands at the fish/tetrapod
+split where a Triassic archosaur 110 Ma adrift used to.
+
+**What it cost to do honestly is most of the headline number**, and §9 is the
+part to read if you are here to check the plan against what happened. The
+figures below were measured against build `7621312b5760ec1a` on the corpus *as
+it then was* — before step 1 withdrew 17,068 wrong resolutions and before the
+extancy filter was checked against the bracket rather than the flag. Both were
+required by §4 and §5 of this document, and together they take the projection
+of 1,416 forks down to a measured **885**. The forks that went are the ones
+that should never have been there.
 
 ---
 
@@ -129,7 +138,7 @@ silently wrong in two places at once.
 
 ---
 
-## 4. Work, in order
+## 4. Work, in order — all five done, see §9 for what each actually cost
 
 1. **Fix `xref`'s homonyms first, before anything depends on this.** Phase 3
    resolves PBDB to OTT **by name**, and OTT carries homonyms across kingdoms:
@@ -278,3 +287,88 @@ worth anything.
   questions and only the client knows which applies. That holds unchanged.
 - **Do not raise `age_layout` to an age.** It picks a picture. It is never
   shown, and `structural` forks still say "not estimated".
+
+---
+
+## 9. What shipped, and where it differs from the plan above
+
+Measured on the rebuilt corpus. Everything in §1–§8 stands except the totals,
+and the totals moved for reasons §4 and §5 predicted.
+
+| | projected here | shipped |
+|---|---:|---:|
+| eligible fossil taxa | 2,267 | **2,114** |
+| forks with a witness | 1,416 | **885** |
+| forks whose witness spans the split | 242 | **192** |
+
+**Step 1 was most of the difference, and it was worth more than the coverage.**
+`refuse_disagreements` in `resolve.py` withdraws a resolution where PBDB calls
+a taxon extinct, OTT's taxon of that name carries no extinct flag, and the node
+still has a chronogram-dated descendant — 16,833 of them, over *every* method
+rather than `name_exact` alone, because `gbif_backbone_provenance` supplies
+7,191 and the backbone merges a fossil name onto the living genus exactly as a
+bare string does. A second refusal takes 235 more where a name is still claimed
+by two accepted PBDB taxa after that, which is §4's port of `_seed_by_name`.
+
+Two things about it are worth carrying forward. The **order matters**: the
+extancy sweep runs first, so `Scopus` loses its Permian claimant on evidence
+and the hamerkop keeps the resolution, where refusing on ambiguity first would
+have thrown away both. And the sweep needs a **living-lineage guard** — refusing
+on OTT's flag alone costs 1,162 correct attachments, *Neochelys*, *Baptemys* and
+*Roxochelys* among them, because OTT simply has not flagged every fossil genus.
+Phase 4's independent check moved from **1,019 of 1,048** exact attachments
+older than 250 Ma landing on a living lineage to **31 of 60**: the population
+collapsed, which is the shape a real fix makes rather than a threshold moving.
+
+**§5's `is_extant` hazard is real and the flag does not carry it.** Filtering on
+`is_extant = 0` as written let *Thalassia testudinum* — the living turtle grass,
+flagged extinct, bracketed 48.07–0.0117 Ma — win a fork of 378,328 tips, along
+with the roan antelope, the northern kelp crab and a living foram at 85.7–0 Ma.
+The rule is now applied to the evidence: a witness's last appearance must
+predate the Holocene (`HOLOCENE_MA`). That costs 3,505 candidates and 222 forks,
+including genuine recent extinctions — the dire wolf, and *Moho braccatus*,
+which died in 1987 — and it is the trade §5 already specified.
+
+**Spanning went down, and that is the finding.** §5 says to gate on the share
+of forks whose witness spans the split rather than on coverage. Measured old
+rule against new on the *same* corrected corpus:
+
+| | node-only | fossil attachment |
+|---|---:|---:|
+| forks | 548 | **885** |
+| spanning | 207 | **192** |
+| median gap, as a share of the fork's age | 14% | 17% |
+| p90 gap | 100% | **81%** |
+
+Of the 107 forks the old rule reached and this one does not, **14 were
+"spanning"** — and the list is *Moho braccatus* across Passeriformes at a 52 Ma
+gap, *Styliola* across Opisthobranchia, and *Pseudamia*, the living cardinalfish
+§6 names, across Gobiaria. A range that runs to the present cannot fail to
+contain a recent split, so spanning is inflatable by exactly the taxa that must
+not be witnesses. It is still the right gate — it does not rise when the rule
+loosens — but it is not a clean one, and `MIN_SPANNING_WITNESSES` carries the
+comparison so the next reader does not re-derive it. 444 forks are reached that
+the old rule could not touch at all, and where both fire the new witness is
+closer on 177 and further on 108.
+
+**The table was renamed, not redefined.** `node_divergence_image.source_idx` was
+a node index; `node_divergence_witness.pbdb_taxon_no` is a PBDB taxon number.
+Same shape, different universe, and a consumer joining the old name against
+`node` would join cleanly and return nonsense — the `node_fts.rowid` failure in
+handoff §5, waiting to happen again. The server reads either and reports which
+through `WitnessSchema.Fossil()`.
+
+**What the caption gained.** `attach_walk` reaches the client and is rendered as
+three bands rather than a number: *placed exactly here in the tree* at 0 hops
+(243 forks), *just below this point* at 1–2 (325), and *its exact position is not
+known — only that it belongs below here* above that (317). The card's opening
+line went from "one lineage from inside it" to "a fossil taxon from somewhere
+below this fork", which is architecture §3.4's wording and the strongest true
+statement available.
+
+**One thing the plan did not anticipate.** At these scales rounding turns a true
+sentence into an apparent contradiction: Perissodactyla is dated 56.26 Ma and
+*Eohippus* tops out at 56.0, so the card showed "56 Ma" beside "56–51 Ma" and
+then said the range does not reach the split. The gap is now stated — *it stops
+0.3 Ma short* — through `gapLabel`, which is deliberately not `maLabel`: a gap
+is a quantity, and `maLabel` renders anything under 0.05 Ma as "present".

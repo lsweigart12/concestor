@@ -672,13 +672,16 @@ func TestSilhouetteCladeReachesTheClient(t *testing.T) {
 // carrying Sahelanthropus and the dates that make it legible.
 //
 // The dates are half the test. A silhouette with no range beside it is the
-// unexplained shape this replaced; the claim is "Sahelanthropus, known from
-// 7.2–5.3 Ma, was around when these lineages parted", and every part of that
-// sentence has to survive the wire.
+// unexplained shape this replaced; the claim is "Sahelanthropus tchadensis,
+// known from 7.2–5.3 Ma, was around when these lineages parted", and every
+// part of that sentence has to survive the wire.
 func TestDivergenceWitnessReachesTheClient(t *testing.T) {
 	ts, st := serve(t)
 	if st.Schema.Witness == nil {
-		t.Skip("this build has no node_divergence_image table")
+		t.Skip("this build has no witness table")
+	}
+	if !st.Schema.Witness.Fossil() {
+		t.Skip("this build predates the move onto fossil attachment points")
 	}
 
 	var path struct {
@@ -692,19 +695,23 @@ func TestDivergenceWitnessReachesTheClient(t *testing.T) {
 			continue
 		}
 		found++
-		if e.DivergenceSourceIdx == nil {
+		if e.DivergenceSourceName == nil || *e.DivergenceSourceName == "" {
 			t.Fatalf("idx %d draws a witness but names no taxon", e.Idx)
 		}
-		src := *e.DivergenceSourceIdx
-		// A witness is always strictly inside the clade it witnesses. That is
-		// the whole of the claim the picture makes, so it is what to check.
-		if src <= e.Idx || int64(src) >= int64(st.Arrays.SubtreeOut[e.Idx]) {
-			t.Errorf("idx %d: witness %d is outside its own clade", e.Idx, src)
+		if e.DivergenceAttachIdx == nil || e.DivergenceAttachWalk == nil {
+			t.Fatalf("idx %d: no attachment, so nothing says how loose the placement is", e.Idx)
+		}
+		// A witness hangs *below* the fork it witnesses — the whole of the
+		// claim the picture makes, and weaker than the old "inside this clade"
+		// because the taxon is not in the tree at all. What must hold is that
+		// its attachment point is at or under the fork.
+		a := *e.DivergenceAttachIdx
+		if a < e.Idx || int64(a) >= int64(st.Arrays.SubtreeOut[e.Idx]) {
+			t.Errorf("idx %d: witness attached at %d, which is not below it", e.Idx, a)
 		}
 		if e.DivergenceRange == nil || e.DivergenceRange.Fea == nil ||
 			e.DivergenceRange.Lla == nil {
-			t.Errorf("idx %d: witness %d arrives with no fossil range to caption it",
-				e.Idx, src)
+			t.Errorf("idx %d: the witness arrives with no fossil range to caption it", e.Idx)
 		}
 		if e.DivergenceGapMa == nil {
 			t.Errorf("idx %d: no gap, so the client cannot say how near the split it sits", e.Idx)
@@ -738,7 +745,7 @@ func TestDivergenceWitnessReachesTheClient(t *testing.T) {
 		t.Fatal("Homo and Pan share no ancestor; the paths are wrong")
 	}
 	if split.DivergenceSourceName == nil ||
-		*split.DivergenceSourceName != "Sahelanthropus" {
+		*split.DivergenceSourceName != "Sahelanthropus tchadensis" {
 		t.Errorf("the human–chimp split (idx %d) is witnessed by %v, want Sahelanthropus",
 			split.Idx, split.DivergenceSourceName)
 	}
