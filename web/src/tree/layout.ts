@@ -245,6 +245,7 @@ export function layout(
 export type LabelText = (p: Placed) => {
   name: string;
   trailing: string;
+  trailingGlyph: boolean;
   meta: string;
   hasSilhouette: boolean;
 };
@@ -252,6 +253,7 @@ export type LabelText = (p: Placed) => {
 const defaultLabelText: LabelText = (p) => ({
   name: p.node.name ?? "unnamed divergence",
   trailing: "",
+  trailingGlyph: false,
   meta: "",
   hasSilhouette: false,
 });

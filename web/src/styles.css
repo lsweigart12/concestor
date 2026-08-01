@@ -315,6 +315,33 @@ body {
 }
 
 /*
+ * The two marks that stand where "fossils" and "present" were spelled out.
+ *
+ * Inline rather than a flex child, so the age still wraps with the name as one
+ * unit and still sits on its baseline — `vertical-align` is doing that, and the
+ * offset is in `em` so it tracks the font size across the leaf and clade
+ * variants. The width is reserved as `GLYPH_W` in labels.ts; changing one
+ * without the other measures a label that is not the one drawn.
+ */
+.age-glyph {
+  width: 13px;
+  height: 13px;
+  margin-right: 3px;
+  vertical-align: -0.17em;
+  /* A shade under the figures beside it. The glyph says which register the
+     number is in; the number is still the thing being read. */
+  opacity: 0.82;
+  /*
+   * The one thing in a label that takes the pointer. `.mark-label` is
+   * transparent to it so a label never steals a click from the trace beneath —
+   * right for text, which explains itself, and wrong for a mark that replaced a
+   * word. 13px is a small enough hole in that rule to be worth the tooltip, and
+   * a click here lands on the node and opens the card that says it in full.
+   */
+  pointer-events: auto;
+}
+
+/*
  * Sometimes there is genuinely nowhere clear to put a label — enough lineages
  * converging on one divergence point will always beat any placement search.
  * When that happens the pass says so and the label takes a faint scrim, so the

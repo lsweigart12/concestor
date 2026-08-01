@@ -49,8 +49,7 @@ import type { Induced } from "../tree/induced";
 import type { AddDelta } from "../tree/induced";
 import { divergenceFor, UNNAMED } from "../tree/naming";
 import {
-  ageLabel,
-  occurrenceLabel,
+  markAge,
   DIVERGENCE_META,
   isScientificItalic,
   metaLine,
@@ -185,15 +184,14 @@ function Inner(props: GraphProps) {
       const showSil = silhouetteIsInformative(p.node, p.node.silhouette_clade_tips);
       const withSil = showSil && Boolean(p.node.phylopic_id);
       const div = divergenceFor(p.idx, ind, nodeMap);
+      // The same parts NodeMark renders, or the collision pass reserves a box
+      // the label does not fit. A fossil range with its glyph is materially
+      // wider than the age it stands in for.
+      const age = markAge(p.node.age_ma, p.node.tier, p.node.occurrence);
       return {
         name: p.node.name ?? div?.text ?? UNNAMED,
-        // The same string NodeMark renders, or the collision pass reserves a
-        // box the label does not fit. "fossils 84–66 Ma" is materially wider
-        // than the age it stands in for.
-        trailing:
-          ageLabel(p.node.age_ma, p.node.tier) ??
-          occurrenceLabel(p.node.tier, p.node.occurrence) ??
-          "",
+        trailing: age?.text ?? "",
+        trailingGlyph: age?.glyph != null,
         // A derived name says so where a rank would otherwise go. Without it
         // "Homo / Pan" sits in the same position as every real taxon name and
         // reads as one.

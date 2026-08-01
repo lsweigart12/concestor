@@ -34,6 +34,7 @@ import {
   type PathNode,
   type Tier,
 } from "../api";
+import { AgeGlyph, type AgeGlyphKind } from "./AgeGlyph";
 import { endedSpanLabel } from "./Bracket";
 import type { LabelBox } from "../tree/labels";
 import { branchProse, UNNAMED, type Divergence } from "../tree/naming";
@@ -84,11 +85,13 @@ export function isScientificItalic(rank: string | null): boolean {
  *                               has estimated one.
  *   occurrence    null        — also no age. It has a fossil *range*, which is
  *                               a different kind of claim and is written by
- *                               `occurrenceLabel` below, never here.
+ *                               `occurrenceSpan` below, never here.
  */
+export const PRESENT = "present";
+
 export function ageLabel(age: number | null, tier: Tier): string | null {
   if (!tierHasAge(tier) || age === null || !Number.isFinite(age)) return null;
-  if (age < 0.05) return "present";
+  if (age < 0.05) return PRESENT;
   const n = age >= 100 ? Math.round(age) : age >= 10 ? age.toFixed(0) : age.toFixed(1);
   return `${tier === TIER_INTERPOLATED ? "≤ " : ""}${n} Ma`;
 }
@@ -101,13 +104,15 @@ export function ageLabel(age: number | null, tier: Tier): string | null {
  * about dinosaurs. This is the weaker claim: not when lineages parted, but
  * when the taxon is observed in the rock.
  *
- * **It is prefixed, and that is not decoration.** In the slot an age occupies,
- * a bare "84–66 Ma" beside a node drawn at 66 Ma reads as that node's age,
- * which is the exact thing the tier is built not to imply. One word costs a
- * little width and removes the ambiguity entirely. It is a range and never a
- * point; no midpoint is computed anywhere, here or in the pipeline.
+ * **It is never shown bare, and that is not decoration.** In the slot an age
+ * occupies, "84–66 Ma" beside a node drawn at 66 Ma reads as that node's age,
+ * which is the exact thing the tier is built not to imply. Saying so first
+ * costs a little width and removes the ambiguity entirely; `markAge` is what
+ * guarantees this range never reaches the canvas without the fossil glyph in
+ * front of it. It is a range and never a point; no midpoint is computed
+ * anywhere, here or in the pipeline.
  */
-export function occurrenceLabel(
+export function occurrenceSpan(
   tier: Tier,
   occ: PathNode["occurrence"],
 ): string | null {
@@ -116,7 +121,47 @@ export function occurrenceLabel(
     (v): v is number => typeof v === "number" && Number.isFinite(v),
   );
   if (bounds.length === 0) return null;
-  return `fossils ${endedSpanLabel(Math.max(...bounds), Math.min(...bounds))}`;
+  return endedSpanLabel(Math.max(...bounds), Math.min(...bounds));
+}
+
+/**
+ * The whole of what a node's label says about time, glyph and figure apart.
+ *
+ * One function because the canvas has one slot: a node shows an age, or a
+ * fossil range, or nothing, and the three are mutually exclusive by
+ * construction. It returns the parts rather than a sentence so the renderer
+ * can set a mark where the words were — and so the placement pass can measure
+ * a mark it cannot draw. Those two reading the same source is what keeps a
+ * label from being measured at one width and drawn at another.
+ */
+export interface MarkAge {
+  /** Stands in for a word. `null` where the figure speaks for itself. */
+  glyph: AgeGlyphKind | null;
+  /** Empty only for the present, which is a position and not a quantity. */
+  text: string;
+  /** The glyph in words, on hover. Empty where there is no glyph to explain. */
+  title: string;
+}
+
+export function markAge(
+  age: number | null,
+  tier: Tier,
+  occ: PathNode["occurrence"],
+): MarkAge | null {
+  const span = occurrenceSpan(tier, occ);
+  if (span !== null) {
+    return {
+      glyph: "fossil",
+      text: span,
+      title: `Fossils of this taxon are found through ${span} — where it appears in the rock, not an estimate of when its lineage parted from anything.`,
+    };
+  }
+  const label = ageLabel(age, tier);
+  if (label === null) return null;
+  if (label === PRESENT) {
+    return { glyph: "present", text: "", title: "Reaches the present day." };
+  }
+  return { glyph: null, text: label, title: "" };
 }
 
 /**
@@ -203,7 +248,7 @@ export const NodeMark = memo(function NodeMark({ data }: NodeProps) {
   const d = data as unknown as MarkData;
   const n = d.node;
   const color = `hsl(${d.hue} ${n.tier === TIER_STRUCTURAL ? 24 : 70}% ${d.focused || d.isMRCA ? 74 : 60}%)`;
-  const age = ageLabel(n.age_ma, n.tier) ?? occurrenceLabel(n.tier, n.occurrence);
+  const age = markAge(n.age_ma, n.tier, n.occurrence);
   const showText = d.zoom !== "point";
   const showDetail = d.zoom === "detail";
   const div = d.divergence;
@@ -291,7 +336,12 @@ export const NodeMark = memo(function NodeMark({ data }: NodeProps) {
                     {name}
                   </span>
                 )}
-                {age && <span className="mark-age num">{age}</span>}
+                {age && (
+                  <span className="mark-age num" title={age.title || undefined}>
+                    {age.glyph && <AgeGlyph kind={age.glyph} />}
+                    {age.text}
+                  </span>
+                )}
               </span>
               {meta && <span className="mark-meta">{meta}</span>}
             </span>

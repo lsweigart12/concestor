@@ -134,6 +134,24 @@ filter tween on the same element.
 - Two weights maximum. Hierarchy from size, opacity, and glow — not weight.
 - Labels never rotate. Truncate with ellipsis before you tilt text.
 - Numerics are tabular-figure mono. Confident, unapologetic.
+- **The age slot holds figures. Its two non-figures are marks, not words.** A
+  node label says "96 Ma", "≤ 96 Ma", a fossil range, or nothing; the two cases
+  that were spelled out — `fossils` before a range and `present` where there is
+  no number — set a word in the widest slot of a label whose whole placement
+  problem is width, and read as part of the quantity rather than as a change of
+  register. They are an ammonite and a clock, stroked at 13px, defined in
+  `web/src/canvas/AgeGlyph.tsx`.
+  - Stroked, never filled: a *filled* shape beside a node is a silhouette on
+    this canvas, and a silhouette is a claim about what a taxon looks like.
+  - The fossil mark is load-bearing, not decoration. Beside a node drawn at
+    66 Ma a bare "84–66 Ma" reads as that node's age, which is the one thing the
+    `occurrence` tier exists not to imply, so the range never renders without
+    it. `markAge` is the single place that guarantees this.
+  - The words survive as each mark's accessible name and its tooltip, and the
+    node card still spells both out in full. A distinction available only to
+    someone who can see it is not a distinction the product has made.
+  - Running prose is unaffected: the drill-down lane still writes "382 Ma –
+    present", where the word is one end of a range rather than a label.
 
 ## Color
 
