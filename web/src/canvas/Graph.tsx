@@ -47,7 +47,15 @@ import {
 } from "../tree/layout";
 import type { Induced } from "../tree/induced";
 import type { AddDelta } from "../tree/induced";
-import { ageLabel, metaLine, NodeMark, type MarkData, type ZoomTier } from "./NodeMark";
+import { divergenceFor, UNNAMED } from "../tree/naming";
+import {
+  ageLabel,
+  DIVERGENCE_META,
+  metaLine,
+  NodeMark,
+  type MarkData,
+  type ZoomTier,
+} from "./NodeMark";
 import { TraceEdge, type TraceEdgeData } from "./TraceEdge";
 import { TimeAxis } from "./TimeAxis";
 import { Legend, type TracePattern } from "./Legend";
@@ -170,14 +178,18 @@ function Inner(props: GraphProps) {
         srcIdx === null || srcIdx === undefined ? undefined : nodeMap.get(srcIdx);
       const showSil = silhouetteIsInformative(p.node, src?.tip_count);
       const withSil = showSil && Boolean(p.node.phylopic_id);
+      const div = divergenceFor(p.idx, ind, nodeMap);
       return {
-        name: p.node.name ?? "unnamed divergence",
+        name: p.node.name ?? div?.text ?? UNNAMED,
         trailing: ageLabel(p.node.age_ma, p.node.tier) ?? "",
-        meta: metaLine(p.node.rank, true),
+        // A derived name says so where a rank would otherwise go. Without it
+        // "Homo / Pan" sits in the same position as every real taxon name and
+        // reads as one.
+        meta: div ? DIVERGENCE_META : metaLine(p.node.rank, true),
         hasSilhouette: withSil,
       };
     },
-    [nodeMap],
+    [nodeMap, ind],
   );
 
   const lay = useMemo(
@@ -269,6 +281,7 @@ function Inner(props: GraphProps) {
           flaring: flaring === p.idx,
           zoom: zoomTier,
           label: lay.labels.get(p.idx),
+          divergence: divergenceFor(p.idx, ind, nodeMap),
           showSilhouette,
           // Only worth naming when the image is of something else. Saying
           // "silhouette: Homo sapiens" on Homo sapiens is noise.
@@ -295,7 +308,7 @@ function Inner(props: GraphProps) {
           height: NODE_BOX,
         };
       }),
-    [lay, focusedIdx, focusLineage, isolate, flaring, zoomTier, nodeMap],
+    [lay, focusedIdx, focusLineage, isolate, flaring, zoomTier, nodeMap, ind],
   );
 
   const rfEdges: Edge[] = useMemo(() => {

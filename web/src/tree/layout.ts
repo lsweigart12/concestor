@@ -144,7 +144,27 @@ export function layout(
       else kids.set(seg.anc, [v]);
     }
   }
-  const rows = ind.rendered.filter((v) => !kids.has(v));
+  const leafSet = new Set(ind.leaves);
+  /**
+   * Rows are the selections and the childless nodes — *both*, and the overlap
+   * is the point.
+   *
+   * A selection is normally childless, so "no rendered children" almost always
+   * picks out exactly the chosen species. It stops doing that the moment one
+   * selection is an ancestor of another, which OTT makes ordinary rather than
+   * exotic: *Homo sapiens neanderthalensis* is a child of *Homo sapiens*, so
+   * choosing both makes the human node internal. It then took its y from the
+   * midpoint of its one child — the Neanderthal's own row — and since both sit
+   * at `age_layout` 0 they shared an x as well. Two chosen species drawn on the
+   * same pixel, connected by a zero-length trace: the divergence was rendered,
+   * correctly, and was invisible.
+   *
+   * The fix is a row, not an offset in x. x is time and must not be nudged to
+   * make a picture work; y carries no meaning beyond keeping lineages apart,
+   * which is precisely what is needed here. The trace becomes a vertical drop
+   * at the true shared age, and the nesting is visible as nesting.
+   */
+  const rows = ind.rendered.filter((v) => !kids.has(v) || leafSet.has(v));
   const yOf = new Map<number, number>();
   rows.forEach((v, i) => yOf.set(v, i * rowH));
 
@@ -163,7 +183,6 @@ export function layout(
   };
   for (const v of ind.rendered) resolveY(v);
 
-  const leafSet = new Set(ind.leaves);
   for (const v of ind.rendered) {
     const node = nodes.get(v);
     if (!node) continue;

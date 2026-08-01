@@ -701,6 +701,37 @@ range (`fea=83.6, lla=66`), and phase 4 now has it too. Feeding fossil
 appearance intervals into the layout for the 1,129 extinct taxa that survive
 into the synthesis tree is a small, high-value piece of work.
 
+**Unnamed divergences are described rather than blank, and the description has
+limits.** Most synthesis internal nodes carry no name — `mrcaott83926ott84217`
+is the human/chimp split — and every one of them used to render as the literal
+string "unnamed divergence", so the four-species hominin view
+(`/?n=770315,83926,417950,3607671`) showed two identical grey labels over its
+two most interesting events. `web/src/tree/naming.ts` now derives a name from
+what the node separates: the nearest named clade down each branch, which for
+that node is **Homo / Pan**. The names are usually already in memory and were
+being discarded — `Homo` and `Pan` are both degree-2 nodes on the *suppressed*
+runs either side of it.
+
+The label declares itself as derived (`DIVERGENCE` in the rank row, an explicit
+note on the card) because it is a description, not a name. What is still thin:
+a divergence whose branches have no named clade nearby pairs two names a reader
+may not recognise, and nothing tries to pick the *recognisable* name over the
+*nearest* one — "Homo / Pan" is lucky, and a deep node in an unnamed region
+will read worse. Vernaculars are not used at all here; "human / chimpanzee"
+would serve this audience better and the data is present.
+
+**A selection nested inside another selection gets its own row.** OTT files
+*Homo sapiens neanderthalensis* as a child of *Homo sapiens*, so choosing both
+makes the human node the divergence between them — and since both sit at
+`age_layout` 0 they shared an x as well as a y, drawing two chosen species on
+one pixel joined by a zero-length trace. The layout now gives every selection a
+row of its own, so the nesting is visible as a vertical drop at the true shared
+age. It is a fix in y and deliberately not in x: nudging x would buy the
+picture with the axis. The underlying honesty problem is untouched and is the
+same one as the extinct tips above — the Neanderthal branch leaves at 0 Ma
+because that is where the ordinal fill puts it, and the fading unbounded trace
+is all that says so.
+
 **The silhouette mirror is partial.** ~4,500 of 12,863 SVGs are on disk,
 fetched in `tip_count` order so the clades people actually see came first.
 Resumable by checksum: `uv run concestor-build images`.

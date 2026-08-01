@@ -22,11 +22,18 @@ import {
 } from "./api";
 import { Graph } from "./canvas/Graph";
 import { Silhouette } from "./canvas/Silhouette";
-import { ageLabel, isScientificItalic } from "./canvas/NodeMark";
+import { ageLabel, DerivedName, isScientificItalic } from "./canvas/NodeMark";
 import { Palette, type Command, type Scope } from "./palette/Palette";
 import { resetUsage } from "./palette/fuzzy";
 import { useTree } from "./state/store";
 import { laneHue } from "./tree/layout";
+import {
+  branchProse,
+  divergenceFor,
+  nestedSelections,
+  UNNAMED,
+  type Divergence,
+} from "./tree/naming";
 
 interface Toast {
   id: number;
@@ -458,6 +465,8 @@ export default function App() {
               ? tree.nodes.get(detail.silhouette.source_idx)?.tip_count
               : undefined
           }
+          divergence={divergenceFor(focusedNode.idx, tree.induced, tree.nodes)}
+          nested={nestedSelections(focusedNode.idx, tree.induced, tree.nodes)}
         />
       )}
 
@@ -504,10 +513,16 @@ function Detail({
   detail,
   hue,
   sourceTipCount,
+  divergence,
+  nested,
 }: {
   detail: NodeDetail;
   hue: number;
   sourceTipCount: number | undefined;
+  /** Set only where the taxonomy has no name and one was derived. */
+  divergence: Divergence | null;
+  /** Chosen species classified inside this one. Almost always empty. */
+  nested: string[];
 }) {
   const age = ageLabel(detail.age_ma, detail.tier);
   // An image borrowed from a kingdom-sized ancestor tells the reader nothing
@@ -531,12 +546,22 @@ function Detail({
         </div>
       )}
       <h2
-        className={isScientificItalic(detail.rank) ? "sci-italic" : undefined}
+        className={
+          !divergence && isScientificItalic(detail.rank) ? "sci-italic" : undefined
+        }
         style={{ color: "var(--ink)" }}
       >
-        {detail.name ?? "unnamed divergence"}
+        {divergence ? (
+          <DerivedName divergence={divergence} />
+        ) : (
+          (detail.name ?? UNNAMED)
+        )}
       </h2>
-      {detail.rank && <div className="rank">{detail.rank}</div>}
+      {divergence ? (
+        <div className="rank">divergence</div>
+      ) : (
+        detail.rank && <div className="rank">{detail.rank}</div>
+      )}
 
       <dl>
         <dt>age</dt>
@@ -553,6 +578,23 @@ function Detail({
         )}
       </dl>
 
+      {divergence && (
+        <p className="note">
+          The Open Tree taxonomy has no name for this node, so it is described
+          by what it separates: it is the last common ancestor of{" "}
+          {branchProse(divergence.branches)}. That is a statement about the
+          tree, not a name anyone has given it.
+        </p>
+      )}
+      {nested.length > 0 && (
+        <p className="note">
+          {branchProse(nested)}{" "}
+          {nested.length === 1 ? "is classified" : "are classified"} inside this
+          taxon rather than beside it, so the branch to{" "}
+          {nested.length === 1 ? "it" : "them"} leaves from here. This node is
+          both a species you chose and the divergence you are looking for.
+        </p>
+      )}
       {detail.tier === TIER_STRUCTURAL && (
         <p className="note">
           No age is shown because none has been estimated for this node. Its

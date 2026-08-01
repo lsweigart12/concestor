@@ -28,6 +28,7 @@ import { memo } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { TIER_INTERPOLATED, TIER_STRUCTURAL, type PathNode, type Tier } from "../api";
 import type { LabelBox } from "../tree/labels";
+import { branchProse, UNNAMED, type Divergence } from "../tree/naming";
 import { Silhouette } from "./Silhouette";
 
 export type ZoomTier = "point" | "label" | "detail";
@@ -47,6 +48,8 @@ export interface MarkData extends Record<string, unknown> {
   silhouetteOf: string | null;
   /** Resolved position, from the collision pass. Absent before it runs. */
   label: LabelBox | undefined;
+  /** Set only where the taxonomy has no name and we derived one. See naming.ts. */
+  divergence: Divergence | null;
 }
 
 /**
@@ -91,6 +94,41 @@ export function metaLine(rank: string | null, detail: boolean): string {
   return rank.toUpperCase();
 }
 
+/**
+ * What stands in the rank row on a node whose name we derived.
+ *
+ * Unnamed divergences have no rank, so the row was empty anyway — and a derived
+ * name in the position every real taxon name occupies needs to declare itself.
+ * `Homo / Pan` is a true description of what the node separates; it is not the
+ * node's name, and nothing in the layout would otherwise say so.
+ */
+export const DIVERGENCE_META = "DIVERGENCE";
+
+/** The hover tooltip that spells the derived name out. */
+export function derivedTitle(divergence: Divergence): string {
+  return `The last common ancestor of ${branchProse(divergence.branches)}. The Open Tree taxonomy has no name for this node.`;
+}
+
+/**
+ * A derived name, rendered as its runs.
+ *
+ * Each taxon run is italicised on its own rank, so "Homo / Pan" gets two
+ * italic genus names around a roman separator and "Homininae / Pongo" gets one
+ * of each. Shared with the detail card, because the two disagreeing about
+ * typography is exactly the sort of thing this audience notices.
+ */
+export function DerivedName({ divergence }: { divergence: Divergence }) {
+  return (
+    <>
+      {divergence.parts.map((p, i) => (
+        <span key={i} className={isScientificItalic(p.rank) ? "sci-italic" : undefined}>
+          {p.text}
+        </span>
+      ))}
+    </>
+  );
+}
+
 export const NodeMark = memo(function NodeMark({ data }: NodeProps) {
   const d = data as unknown as MarkData;
   const n = d.node;
@@ -98,14 +136,15 @@ export const NodeMark = memo(function NodeMark({ data }: NodeProps) {
   const age = ageLabel(n.age_ma, n.tier);
   const showText = d.zoom !== "point";
   const showDetail = d.zoom === "detail";
-  const name = n.name ?? "unnamed divergence";
+  const div = d.divergence;
+  const name = n.name ?? div?.text ?? UNNAMED;
   // Clades get an image too, not just selections. architecture §7: a
   // silhouette legitimately represents a *clade*, where a photograph can only
   // represent one member — so a mammal beside Mammalia is the case it is best
   // at, and `silhouetteIsInformative` is what keeps a kingdom-sized borrow out.
   // Not gated on zoom: see the note at the top of this file.
   const withSilhouette = d.showSilhouette && Boolean(n.phylopic_id);
-  const meta = metaLine(n.rank, showDetail);
+  const meta = div && showDetail ? DIVERGENCE_META : metaLine(n.rank, showDetail);
 
   const box = d.label;
   const right = box ? box.side === "right" : d.isLeaf;
@@ -170,10 +209,14 @@ export const NodeMark = memo(function NodeMark({ data }: NodeProps) {
           )}
           {showText && (
             <span className="mark-text" style={{ maxWidth: box?.textMaxWidth }}>
-              <span className="mark-name">
-                <span className={isScientificItalic(n.rank) ? "sci-italic" : undefined}>
-                  {name}
-                </span>
+              <span className="mark-name" title={div ? derivedTitle(div) : undefined}>
+                {div ? (
+                  <DerivedName divergence={div} />
+                ) : (
+                  <span className={isScientificItalic(n.rank) ? "sci-italic" : undefined}>
+                    {name}
+                  </span>
+                )}
                 {age && <span className="mark-age num">{age}</span>}
               </span>
               {meta && <span className="mark-meta">{meta}</span>}
