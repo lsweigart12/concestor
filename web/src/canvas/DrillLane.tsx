@@ -28,8 +28,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { api, type PathNode, type SegmentResponse } from "../api";
-import { Bracket } from "./Bracket";
-import { bracketGeom, bracketKey, bracketTitle, maLabel } from "./bracket";
+import { Bracket, bracketGeom, bracketKey, bracketTitle, maLabel } from "./Bracket";
 import {
   capNote,
   rankIntermediates,

@@ -138,6 +138,12 @@ export function TraceEdge({ id, data }: EdgeProps) {
         .join(" ")}
       data-id={id}
     >
+      {/* An invisible target, because a 1.6px core is not something a person
+          can click and the drill-down is a first-class interaction rather than
+          a power-user affordance. This is what xyflow's `interactionWidth`
+          does for its own edge types; ours draws its own paths and so has to
+          carry it. */}
+      <path className="trace-hit" d={d.d} />
       <path className="trace-halo" d={d.d} stroke={stroke} />
       <path ref={coreRef} className="trace-core" d={d.d} stroke={stroke} />
     </g>

@@ -91,7 +91,7 @@ Fossils are still secondary to silhouettes and the palette, so this stays behind
 
 ### 5. Fix phase 3's cross-kingdom homonyms
 
-Found while doing item 3 and previously unrecorded. `xref` resolves PBDB to OTT **by name**, and OTT carries the same genus name in unrelated kingdoms, so a Cambrian fossil lands on a living plant. Measured with a test that needs no new data — a taxon last seen before the Permian cannot be a living genus: **1,380 of the 1,416** exact-attach fossils with `lla > 250 Ma` land on an OTT node with living descendants. *Sadleria* is a Hawaiian fern with a Devonian fossil on it; *Streptosolen* is a South American shrub with an Ordovician one.
+Found while doing item 3 and previously unrecorded. `xref` resolves PBDB to OTT **by name**, and OTT carries the same genus name in unrelated kingdoms, so a Cambrian fossil lands on a living plant. Measured with a test that needs no new data — a taxon last seen before the Permian cannot be a living genus: **1,019 of the 1,048** nodes carrying an exact attachment with `lla > 250 Ma` have living descendants. Phase 4 already reports it every build as an `observe`, so the baseline is recorded. *Sadleria* is a Hawaiian fern with a Devonian fossil on it; *Streptosolen* is a South American shrub with an Ordovician one.
 
 It is not confined to the naive path — `name_exact` 991, `gbif_backbone_provenance` 221, `gbif_pbdb_chain` 168 — so 389 survived a route meant to be evidence-based.
 

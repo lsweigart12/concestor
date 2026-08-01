@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bracketGeom, bracketKey, MIN_MARK_PX, type Appearance } from "./bracket";
+import { bracketGeom, bracketKey, MIN_MARK_PX, type Appearance } from "./Bracket";
 
 /**
  * A linear stand-in for the symlog axis: present at x=1000, one Ma per px

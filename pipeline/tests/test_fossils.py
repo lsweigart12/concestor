@@ -269,20 +269,56 @@ NAN = float("nan")
 
 
 def _bound_db(rows) -> sqlite3.Connection:
-    """An in-memory `fossil` table carrying just what the bound pass reads."""
+    """An in-memory `fossil` table carrying just what the bound pass reads.
+
+    `is_extant` is here because the pass also counts probable cross-kingdom
+    homonyms while it has the data in hand, and defaults to 0 so the existing
+    cases read as three-tuples.
+    """
     con = sqlite3.connect(":memory:")
     con.execute(
-        "CREATE TABLE fossil (attach_idx INTEGER, attach_walk INTEGER, lla REAL)"
+        "CREATE TABLE fossil (attach_idx INTEGER, attach_walk INTEGER, "
+        "lla REAL, is_extant INTEGER)"
     )
-    con.executemany("INSERT INTO fossil VALUES (?,?,?)", rows)
+    con.executemany(
+        "INSERT INTO fossil VALUES (?,?,?,?)",
+        [(*r, 0) if len(r) == 3 else r for r in rows],
+    )
     return con
+
+
+def test_the_homonym_count_is_taken_before_the_bounds_are_cleared():
+    """Clearing a bound on a living lineage is what hides the defect.
+
+    Phase 3 resolves PBDB to OTT by name and OTT carries the same genus name
+    in unrelated kingdoms, so a Cambrian fossil lands on a living plant. Node 3
+    is dated, so its bound is refused — and the refusal is exactly the evidence
+    worth counting.
+    """
+    age = np.array([100.0, NAN, NAN, 0.0, NAN, NAN, NAN, NAN], dtype=np.float32)
+    con = _bound_db([(3, 0, 538.8)])
+    _bound, _direct, refused, ancient, homonyms = fossils.layout_bounds(
+        con, LAYOUT_PARENT, age
+    )
+    assert (refused, ancient, homonyms) == (1, 1, 1)
+
+
+def test_an_ancient_fossil_on_a_dead_lineage_is_not_a_homonym():
+    age = np.array([600.0, NAN, NAN, NAN, NAN, NAN, NAN, NAN], dtype=np.float32)
+    con = _bound_db([(3, 0, 538.8)])
+    _bound, _direct, _refused, ancient, homonyms = fossils.layout_bounds(
+        con, LAYOUT_PARENT, age
+    )
+    assert (ancient, homonyms) == (1, 0)
 
 
 def test_a_bound_reaches_every_ancestor_of_the_fossil():
     """A lineage's origin precedes its occurrences, so ancestors inherit it."""
     age = np.array([100.0, NAN, NAN, NAN, NAN, NAN, NAN, NAN], dtype=np.float32)
     con = _bound_db([(3, 0, 66.0)])
-    bound, direct, refused = fossils.layout_bounds(con, LAYOUT_PARENT, age)
+    bound, direct, refused, _ancient, _homonyms = fossils.layout_bounds(
+        con, LAYOUT_PARENT, age
+    )
     assert direct == 1
     assert refused == 0
     # 3 -> 2 -> 1 -> 0 all carry 66; the other branch carries nothing.
@@ -294,7 +330,7 @@ def test_only_exact_attachments_count():
     no child, so it constrains none of them — handoff §7's Neanderthal case."""
     age = np.full(8, NAN, dtype=np.float32)
     con = _bound_db([(3, 1, 66.0)])
-    bound, direct, _ = fossils.layout_bounds(con, LAYOUT_PARENT, age)
+    bound, direct, *_ = fossils.layout_bounds(con, LAYOUT_PARENT, age)
     assert direct == 0
     assert not bound.any()
 
@@ -309,7 +345,9 @@ def test_a_bound_is_refused_where_the_lineage_is_still_alive():
     """
     age = np.array([100.0, NAN, NAN, 0.0, NAN, NAN, NAN, NAN], dtype=np.float32)
     con = _bound_db([(3, 0, 538.8)])
-    bound, direct, refused = fossils.layout_bounds(con, LAYOUT_PARENT, age)
+    bound, direct, refused, _ancient, _homonyms = fossils.layout_bounds(
+        con, LAYOUT_PARENT, age
+    )
     assert (direct, refused) == (0, 1)
     assert not bound.any()
 
@@ -318,7 +356,7 @@ def test_the_tyrannosaurus_case_end_to_end():
     """25.9 Ma against a last occurrence at 66, which is the whole bug."""
     age = np.array([250.0, NAN, NAN, NAN, NAN, NAN, NAN, NAN], dtype=np.float32)
     layout = np.array([250.0, 100.0, 60.0, 25.9, 0, 0, 0, 0], dtype=np.float32)
-    bound, _, _ = fossils.layout_bounds(_bound_db([(3, 0, 66.0)]), LAYOUT_PARENT, age)
+    bound, *_ = fossils.layout_bounds(_bound_db([(3, 0, 66.0)]), LAYOUT_PARENT, age)
     after, moved, _ = fossils.bound_layout(layout, age, LAYOUT_PARENT, bound)
     assert after[3] == pytest.approx(66.0)
     assert moved >= 1
@@ -333,7 +371,7 @@ def test_no_node_gains_a_number():
     age = np.full(8, NAN, dtype=np.float32)
     age[0] = 250.0
     layout = np.array([250.0, 100.0, 60.0, 25.9, 0, 0, 0, 0], dtype=np.float32)
-    bound, _, _ = fossils.layout_bounds(_bound_db([(3, 0, 66.0)]), LAYOUT_PARENT, age)
+    bound, *_ = fossils.layout_bounds(_bound_db([(3, 0, 66.0)]), LAYOUT_PARENT, age)
     after, _, _ = fossils.bound_layout(layout, age, LAYOUT_PARENT, bound)
     assert np.isnan(age[3])
     assert after.dtype == np.float32
@@ -344,7 +382,7 @@ def test_a_dated_node_never_moves():
     make the number and the picture disagree — a different, worse failure."""
     age = np.array([250.0, 90.0, NAN, NAN, NAN, NAN, NAN, NAN], dtype=np.float32)
     layout = np.array([250.0, 90.0, 60.0, 25.9, 0, 0, 0, 0], dtype=np.float32)
-    bound, _, _ = fossils.layout_bounds(_bound_db([(3, 0, 200.0)]), LAYOUT_PARENT, age)
+    bound, *_ = fossils.layout_bounds(_bound_db([(3, 0, 200.0)]), LAYOUT_PARENT, age)
     after, _, conflicts = fossils.bound_layout(layout, age, LAYOUT_PARENT, bound)
     assert after[1] == pytest.approx(90.0)
     # The descendant is pulled back to it rather than inverting the tree, and
@@ -359,7 +397,7 @@ def test_the_result_is_monotone_root_to_tip():
     layout = np.array(
         [250.0, 100.0, 60.0, 25.9, 10.0, 80.0, 5.0, 3.0], dtype=np.float32
     )
-    bound, _, _ = fossils.layout_bounds(
+    bound, *_ = fossils.layout_bounds(
         _bound_db([(3, 0, 66.0), (7, 0, 40.0)]), LAYOUT_PARENT, age
     )
     after, _, _ = fossils.bound_layout(layout, age, LAYOUT_PARENT, bound)

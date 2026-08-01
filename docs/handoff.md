@@ -535,8 +535,12 @@ while bounding the layout by the fossil record, which is the only reason it
 surfaced at all — nothing else was comparing a resolution against time.
 
 A cheap decisive test, because a taxon last seen before the Permian cannot be a
-living genus: of the **1,416** exact-attach fossils with `lla > 250 Ma` and not
-flagged extant, **1,380 land on an OTT node that has living descendants**.
+living genus: of the **1,048 nodes** carrying an exact attachment with
+`lla > 250 Ma` and not flagged extant, **1,019 have living descendants**. Phase
+4 reports it every build, as an `observe` — that phase cannot repair it, and
+the baseline has to be on the record before phase 3 tries. Counted per *node*;
+per fossil *row* it is 1,380 of 1,416, and the two figures are the same finding
+seen at different grain.
 
 | PBDB taxon | last seen | resolved onto |
 |---|---:|---|

@@ -172,6 +172,17 @@ body {
   stroke-width: 1.6;
 }
 
+/* The click target for interaction 3. Wider than anything drawn, and drawn as
+   nothing, so a segment can be picked without thickening the line — stroke
+   weight is uniform and carries no meaning here. */
+.trace-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 16;
+  cursor: pointer;
+  pointer-events: stroke;
+}
+
 .bloom-off .trace-halo {
   display: none;
 }

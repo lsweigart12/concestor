@@ -635,11 +635,22 @@ def run(use_api: bool = True) -> int:
     else:
         before = np.load(TOPOLOGY / "age_layout.npy")
         np.save(LAYOUT_PHASE2, before)
-    bound, direct, refused = layout_bounds(con, parent, age_ma)
+    bound, direct, refused, ancient, homonyms = layout_bounds(con, parent, age_ma)
     after, moved, conflicts = bound_layout(before, age_ma, parent, bound)
     np.save(TOPOLOGY / "age_layout.npy", after)
     layout_report = layout_gates(
-        g, parent, age_ma, before, after, bound, direct, refused, moved, conflicts
+        g,
+        parent,
+        age_ma,
+        before,
+        after,
+        bound,
+        direct,
+        refused,
+        ancient,
+        homonyms,
+        moved,
+        conflicts,
     )
     print(f"  {moved:,} undated nodes moved back", flush=True)
 
@@ -753,7 +764,7 @@ def _pick_bracket_end() -> str:
 
 def layout_bounds(
     con: sqlite3.Connection, parent: U32Array, age_ma: F32Array
-) -> tuple[F64Array, int, int]:
+) -> tuple[F64Array, int, int, int, int]:
     """Oldest last-appearance a node must be drawn at or before, per node.
 
     A taxon observed in the rock at `lla` was alive then, so the node standing
@@ -800,6 +811,22 @@ def layout_bounds(
             d_l[p_l[i]] = True
     dated_below = np.array(d_l, dtype=bool)
     refused = int(((bound > 0) & dated_below).sum())
+
+    # The same comparison, read as evidence about phase 3 rather than as a
+    # guard. Counted before the bounds are cleared, because clearing them is
+    # what hides it.
+    ancient = homonyms = 0
+    for idx, lla in con.execute(
+        "SELECT attach_idx, max(lla) FROM fossil WHERE attach_walk = 0 "
+        "AND lla IS NOT NULL AND lla > 250 "
+        "AND (is_extant IS NULL OR is_extant = 0) GROUP BY attach_idx"
+    ):
+        if not (0 <= idx < n) or lla is None:
+            continue
+        ancient += 1
+        if dated_below[idx]:
+            homonyms += 1
+
     bound[dated_below] = 0.0
     direct = int((bound > 0).sum())
 
@@ -809,7 +836,7 @@ def layout_bounds(
     for i in range(n - 1, 0, -1):
         if b[i] > b[p_l[i]]:
             b[p_l[i]] = b[i]
-    return np.array(b, dtype=np.float64), direct, refused
+    return np.array(b, dtype=np.float64), direct, refused, ancient, homonyms
 
 
 def bound_layout(
@@ -850,6 +877,8 @@ def layout_gates(
     bound: F64Array,
     direct: int,
     refused: int,
+    ancient: int,
+    homonyms: int,
     moved: int,
     conflicts: int,
 ) -> JsonDict:
@@ -899,6 +928,25 @@ def layout_gates(
         note=(
             "Exact attachments only. A bracket at a parent belongs to some "
             "taxon below it and names no child, so it constrains none."
+        ),
+    )
+    g.observe(
+        "resolutions that are near-certain cross-kingdom homonyms",
+        f"{homonyms:,} of {ancient:,} fossils last seen before 250 Ma",
+        note=(
+            "A phase 3 defect, measured here because this is the first phase "
+            "where a resolution can be compared against *time* — `fossil.lla` "
+            "does not exist until now. A taxon last seen before the Permian "
+            "cannot be a living genus, so an exact attachment older than 250 Ma "
+            "landing on a node with living descendants is almost certainly the "
+            "wrong taxon: *Sadleria* is a Hawaiian fern carrying a Devonian "
+            "fossil, *Streptosolen* a South American shrub carrying an "
+            "Ordovician one. It is not confined to `name_exact` — "
+            "`gbif_backbone_provenance` and `gbif_pbdb_chain` produce them too, "
+            "so trusting the backbone alone is not the fix. An `observe` "
+            "deliberately: this phase cannot repair it, and the baseline needs "
+            "to be on the record before phase 3 tries. handoff §4 has the "
+            "shape of the fix."
         ),
     )
     g.observe(
@@ -969,6 +1017,8 @@ def layout_gates(
         "nodes_bounded_including_ancestors": int(has.sum()),
         "undated_nodes_moved": moved,
         "short_of_reachable": short,
+        "ancient_exact_attachments": ancient,
+        "probable_kingdom_homonyms": homonyms,
         "pulled_back_by_dated_ancestor": conflicts,
     }
 
