@@ -104,9 +104,14 @@ they are not estimates, and a mismatch means a real parse bug.
 ## Phase 2 — Dates, and the decision gate
 
 **Input:** Duke et al. `equal_splits_median_tree.tre`
-**Output:** `age_ma`, `age_tier` arrays; `build/date_validation.json`
+**Output:** `age_ma`, `age_tier`, `age_layout` arrays; `build/date_validation.json`
 
 This phase decides the shape of the rest of the project.
+
+`age_layout` is not in the original plan below; handoff.md §3 records why there are three
+arrays rather than two. Note what it means for ordering: **the layout is fixed here, four
+phases before the fossil record exists**, so the only bounds available to it are the
+chronogram's own — and the chronogram has no extinct taxa. Phase 4 revisits it.
 
 1. Parse the dated Newick. Tips and internal nodes are labelled with OTT ids against
    OTT 3.7.3 / synthesis v16.1 — the same release phase 1 consumed.
@@ -260,6 +265,20 @@ earlier ones.
    into a single range; they are two uncertainty brackets and the UI renders both.
 5. Carry `n_occs` as the notability ranking signal, and `is_extant` as **nullable** —
    1.7% (9,059 records) are genuinely unknown, not false.
+6. **Not built: rewrite `age_layout` with the brackets this phase just produced.** This
+   is the phase that owns it, because it is the first point in the build where a fossil
+   bound exists at all — phase 2 fixed the layout before the `fossil` table did. Clamp
+   each undated node into the bracket of a fossil attaching at the node itself
+   (`attach_walk = 0`), propagate the bound to ancestors, then re-run phase 2's
+   monotonicity sweep. Write the result over `age_layout.npy` and leave phase 2's
+   version recoverable, so the two can be diffed. **`age_ma` is not touched and no node
+   gains a number** — this is a position, and the three arrays are separate exactly so
+   that a position and a displayable age can disagree. Scope: 5,640 structural nodes have
+   a bracket available. Rationale and the numbers in handoff.md §7.
+   - Use the `lea`/`lla` end. **`fea` is frequently junk-wide** — *Homo erectus* carries
+     `fea = 5.333`, the base of the Zanclean, off one badly-dated occurrence against a
+     true first appearance near 2 Ma. An occurrence-count floor or an outlier rule is a
+     prerequisite, not a refinement.
 
 ### Gates
 
@@ -269,6 +288,11 @@ earlier ones.
   the previous build fails.
 - Spot checks: *Tyrannosaurus* `fea=83.6, fla=72.2, lea=72.2, lla=66`, attaching at or
   below Dinosauria.
+- **When step 6 exists:** no undated node is laid out younger than the last fossil
+  occurrence attaching at it. Currently violated **1,078** times across the
+  extinct-flagged nodes alone — *T. rex* is drawn at 25.9 Ma against a last appearance of
+  66 — so this gate is the measurement of whether the step worked, and it should be added
+  as an `observe` beforehand so the baseline is on the record.
 
 ---
 

@@ -188,6 +188,17 @@ everywhere). Merging the first and third to save 10 MB would put a confident
 number on every dashed node, which is the exact failure this design exists to
 prevent.
 
+**All three tiers describe divergence times from an extant-only chronogram, so
+extinct taxa are a categorical hole rather than a coverage gap.** 1,742 of the
+1,743 extinct-flagged nodes are `structural`; *Homo erectus* and *T. rex* report
+"not estimated" by construction. Worse, the layout fill has no dated descendant
+to anchor them and drags them toward the present — *T. rex* is drawn at 25.9 Ma
+against a last fossil occurrence at 66. Phase 4 already holds the brackets that
+fix the position. Two rules while it is unbuilt: **an appearance interval is not
+a divergence age and must never enter `age_ma`**, and PBDB's `fea` is frequently
+junk-wide, so trust the `lea`/`lla` end. Scope in `docs/handoff.md` §7, shape in
+`docs/ingest.md` phase 4 step 6.
+
 `concestor-build package` gates the artifact set as a whole and writes
 `build/manifest.json`, which `/v1/about` serves. It refuses to package while any
 phase's own gates record a failure — so it is currently red, on purpose.

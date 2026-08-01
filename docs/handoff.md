@@ -276,6 +276,17 @@ Three arrays ship, and keeping them separate is load-bearing:
 Collapsing `age_ma` and `age_layout` to save 10 MB would put a confident number
 on every dashed node. `tests/test_dates_tiers.py` guards that specifically.
 
+**What the three tiers do not cover, and it is a whole kingdom of taxa.** All
+three describe *divergence times*, and all three derive from a single source
+that contains only **extant** species. So the tiers say nothing about anything
+extinct — not "we are unsure", but "this question was never asked". 1,742 of the
+1,743 extinct-flagged nodes in the tree are `structural`, and that is by
+construction rather than by measurement. A fossil appearance interval is a
+different kind of claim in the same units, and there is no tier for it; whether
+to add one is open, and §7 has the scope, the evidence and the trap. Until it is
+decided, the rule that holds is the narrow one: **a stratigraphic range is not a
+divergence age and must never be written into `age_ma`.**
+
 **Watch this one:** the headline tier counts flatter us badly. 89.6% `measured`
 sounds like a well-dated tree, but 2,271,190 of those are extant tips sitting at
 the present, which is true and says nothing about any divergence. The figure
@@ -693,13 +704,92 @@ model requires. **This is the largest single piece of unbuilt product**, and
 the data behind it is ready. ~21% of taxa have no appearance interval at all
 and need an explicit "no range recorded" treatment, not a zero-width bar.
 
-**Extinct tips have no age.** *T. rex* is `structural` with no number, which is
-honest, but its layout position lands around 26 Ma because the ordinal fill
-spreads it toward the present. It renders as an open-ended fading trace rather
-than a point in time, which is the correct visual answer — but PBDB *has* its
-range (`fea=83.6, lla=66`), and phase 4 now has it too. Feeding fossil
-appearance intervals into the layout for the 1,129 extinct taxa that survive
-into the synthesis tree is a small, high-value piece of work.
+Read this together with the entry below. Both are the same unbuilt thing — the
+fossil record as a *time* layer rather than a list — and both turn on how much
+of a PBDB bracket is trustworthy. Doing them separately means answering that
+question twice.
+
+**Extinct taxa have no place in time.** Do this with the fossil lane above, not
+after it — they share a data source, an uncertainty model and a caveat, and
+splitting them is how the caveat gets solved twice and differently.
+
+*The cause is categorical, not a coverage gap.* Every age in the artifact set
+comes from Duke et al.'s chronogram, which is a tree of **extant** species. An
+extinct taxon has no counterpart to join to, `assign_tiers` drops it to
+`structural`, and `age_ma` is NaN by the rule in §3. **No extinct taxon anywhere
+in the tree can carry a number under the present design.** *Homo erectus* reads
+"not estimated" for exactly this reason, and so does *T. rex*. The genus *Homo*
+is structural for a second reason worth knowing: in Duke's tree only
+*H. sapiens* is extant, so *Homo* is unary there and their pipeline suppresses
+unary nodes — there is nothing to join to even in principle.
+
+*The layout error is the worse half.* `layout_ages` spreads an undated run
+between its nearest dated ancestor and its **deepest dated descendant**. An
+extinct lineage has no dated descendant, so the fill drags it toward the
+present, and the axis underneath is still geological time:
+
+| Taxon | drawn at | PBDB bracket | occurrences |
+|---|---:|---:|---:|
+| *Gorgosaurus libratus* | 25.9 Ma | 83.6 – 72.2 | 255 |
+| *Tyrannosaurus rex* | 25.9 Ma | 83.6 – 66.0 | 70 |
+| *Troodon formosus* | 19.9 Ma | 83.6 – 66.0 | 55 |
+| *Allosaurus fragilis* | 18.5 Ma | 154.8 – 143.1 | 58 |
+| *Villania* | 24.2 Ma | 199.5 – 184.2 | 304 |
+
+Cambrian trilobites land in the Neogene. The dashed spine says the position is
+ordinal; it does not say the position is *wrong by 450 Ma*, and a reader who
+trusts the axis has no way to tell the two apart.
+
+Measured against the brackets phase 4 already holds, restricted to nodes where
+PBDB attaches at the node itself (`attach_walk = 0`):
+
+| Node set | nodes | structural | with a bracket | drawn younger than their own last fossil | median error |
+|---|---:|---:|---:|---:|---:|
+| `extinct` own flag | 1,129 | 1,128 | 934 | 720 | 32.7 Ma |
+| `extinct_inherited` | 614 | 614 | 395 | 358 | 79.0 Ma |
+
+`extinct_inherited` is worse because those are the internal nodes *above*
+extinct tips, which the fill drags further. Widen past the extinct flags and
+**5,640 structural nodes have an exact-attach bracket available**, 2,021 of them
+with ≥ 5 occurrences. On the strictest set that admits no argument — 339 extinct
+tips with an exact PBDB name match and `is_extant = 0` — 55% are drawn younger
+than their own last fossil and only 28 land inside their own bracket.
+
+*The phase order is the constraint that shapes the work.* `age_layout.npy` is
+written by phase 2; the `fossil` table does not exist until phase 4. This
+therefore **cannot** be an edit to `layout_ages` in place. It needs a pass that
+runs after phase 4 and rewrites `age_layout.npy`, which also leaves phase 2's
+output as the un-fossil-informed baseline to diff against. See ingest.md
+phase 4.
+
+*Two changes, separable, in this order:*
+
+1. **Bound `age_layout` by the fossil record.** Clamp an undated node into its
+   own exact-attach bracket, propagate the bound to ancestors, re-run the
+   existing monotonicity sweep. This does not touch the honesty rule at all —
+   the three arrays are separate precisely so "where to draw" and "what may be
+   shown" can differ — and **nothing gains a number**. *T. rex* moves from
+   25.9 Ma into its own 83.6–66 Ma envelope. This is the change with the visible
+   payoff and it is not large.
+2. **Decide whether a fossil-derived age is a fourth tier.** This is the one
+   that would make *Homo erectus* show something. Do **not** fold it into
+   `measured` or `interpolated`: a first/last appearance is an *observed
+   stratigraphic range*, not a divergence-time estimate, and merging the two is
+   the exact failure `age_tier` exists to prevent. It renders as a range, never
+   a point, and the dash channel (architecture §7) needs a fourth treatment that
+   is not merely "more dashed". **This one is a human's call** — it adds a tier
+   to the arrays, the server, `/v1`, and the legend.
+
+*The caveat that constrains both:* **PBDB's `fea` is frequently junk-wide.**
+*Homo erectus* carries `fea = 5.333` — the base of the Zanclean — off a single
+badly-dated occurrence, against a true first appearance near 2 Ma. The
+`lea`/`lla` last-appearance end is the trustworthy one. Any use of `fea` needs
+an occurrence-count floor or an outlier rule, or the work trades a missing
+number for a confident wrong one. This is the same uncertainty model the
+drill-down lane needs, which is the second reason to do them together.
+
+*Gate to add when it is built:* no undated node may be laid out younger than its
+own exact-attach last fossil occurrence. Currently violated 1,078 times.
 
 **Unnamed divergences are described rather than blank, and the description has
 limits.** Most synthesis internal nodes carry no name — `mrcaott83926ott84217`
@@ -728,9 +818,20 @@ one pixel joined by a zero-length trace. The layout now gives every selection a
 row of its own, so the nesting is visible as a vertical drop at the true shared
 age. It is a fix in y and deliberately not in x: nudging x would buy the
 picture with the axis. The underlying honesty problem is untouched and is the
-same one as the extinct tips above — the Neanderthal branch leaves at 0 Ma
+same one as the extinct taxa above — the Neanderthal branch leaves at 0 Ma
 because that is where the ordinal fill puts it, and the fading unbounded trace
 is all that says so.
+
+**And it is the case that shows where the layout fix stops.** PBDB does hold a
+Neanderthal range (0.774–0.0117 over 6 occurrences), but OTT files the taxon as
+*Homo sapiens neanderthalensis* while PBDB calls it *Homo neanderthalensis*, so
+it attaches one hop up at the genus and **nothing attaches at the Neanderthal
+node itself**. A strict `attach_walk = 0` rule therefore leaves this branch
+exactly where it is. Whether to relax to walk-1 attachments is a real design
+question and not an obvious yes: a bracket from one hop up bounds a *superset*
+of the node, so it is an upper bound rather than a range — the same logic the
+`interpolated` tier already uses for `≤ N Ma`, and it should reuse that framing
+rather than invent a second one.
 
 **The silhouette mirror is partial.** ~4,500 of 12,863 SVGs are on disk,
 fetched in `tip_count` order so the clades people actually see came first.
