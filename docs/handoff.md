@@ -1155,6 +1155,15 @@ blocking gate is now that share rather than node coverage, and the canvas and
 the detail card both name the clade a borrowed picture speaks for and how many
 species are in it.
 
+That sentence was half false until the label took the pointer. On the canvas the
+claim is delivered as the silhouette's tooltip — that is the stated reason it
+was taken *off* the label, where it had been wide enough to cross a neighbour's
+trace — and `.mark-label` set `pointer-events: none`, so the tooltip could not
+be reached and the canvas said nothing at all. The same line made the whole
+label inert, so a node's only click target was its 10px dot. Both are fixed;
+design-reference.md's **Hit targets** section is now the authority on what may
+take a click on the canvas and what a label is allowed to cover.
+
 *What is still thin here.* The corpus remains the ceiling: 12,863 drawings for
 2.7M nodes, so 71.2% of leaves get a picture from a group of ≤ 10,000 species
 and the rest get something broader. Nothing has been done for the top of the

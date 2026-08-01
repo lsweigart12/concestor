@@ -279,15 +279,58 @@ body {
   transform: translateY(-50%);
   white-space: normal;
   overflow-wrap: break-word;
+  /*
+   * The box itself stays transparent, and its painted children take the
+   * pointer back below. The box is an explicit width from the placement pass
+   * and a flex row, so it is mostly empty — a one-word name in a 168px box
+   * leaves most of that box holding nothing, and `pointer-events: auto` here
+   * would make the nothing clickable and cover whatever is behind it.
+   *
+   * The rule this expresses, and the one to keep: **the pointer follows the
+   * ink.** What is painted is what can be hit; a gap belongs to whatever is
+   * drawn underneath it.
+   */
   pointer-events: none;
 }
 
+/*
+ * The whole label selects the node, not just the dot.
+ *
+ * `onNodeClick` fires for a click on any descendant of the React Flow node
+ * wrapper that takes pointer events, so this is a reach and not new wiring.
+ * Until it was granted, the only target for a node was the 10px `.mark` box —
+ * effectively the dot — while the name, the rank row and the 34px silhouette,
+ * which are the things a reader actually aims at, were inert. A 10px target is
+ * below every pointing guideline there is, and the largest, most obvious thing
+ * on the canvas pointing at that node was the part that did nothing.
+ *
+ * Granting it here rather than on `.mark-label` is what keeps the gaps
+ * transparent: `.mark-text` is the text column, and it is also exactly the box
+ * the crowded scrim paints, so the scrim and its target are the same rectangle
+ * by construction. The 9px gutter beside it and any slack at the end of the
+ * row stay untouched. The silhouette gets the same grant further down, where
+ * its transform needs a paragraph of its own.
+ *
+ * It also makes both `title`s reachable. They were not, and two documented
+ * affordances did nothing as a result: `borrowedTitle` on the silhouette,
+ * which is the whole justification for taking the provenance text off the
+ * canvas label (see `metaLine`), and `derivedTitle` on a divergence name,
+ * which is the only place the `Homo / Pan` construction is explained.
+ *
+ * Measured on a crowded canvas, `.mark-text` takes nothing from a trace: the
+ * placement pass tests every candidate against `traceRects` and text is only
+ * ever where it said. Where a label *is* forced onto a trace — `overlapped`,
+ * and the scrim admits it — the label wins, because the loss is not symmetric.
+ * A trace is a long run and keeps every other point along it; a label is one
+ * small box and, having lost it, the node is back to a 10px dot.
+ */
 .mark-text {
   display: flex;
   flex-direction: column;
   gap: 1px;
   flex: 1 1 auto;
   min-width: 0;
+  pointer-events: auto;
 }
 
 .mark-name {
@@ -374,8 +417,38 @@ body {
 .mark .silhouette {
   margin: 0;
   flex: none;
+  position: relative;
   transform: scale(var(--icon-scale, 1));
   transform-origin: center;
+  /* Not a target itself; `::after` below is, and says why. */
+  pointer-events: none;
+}
+
+/*
+ * The hit area is the box the placement pass reserved, not the box the
+ * transform paints.
+ *
+ * A transform moves hit-testing with it, so at the 1.6 cap the drawing claims
+ * 54.4px where `labels.ts` reserved 34 — an extra 10.2px on every side that
+ * was never tested against a trace, a dot, or a neighbour's label, because the
+ * model does not know it exists. Measured on a twelve-carnivoran canvas at
+ * that cap, it cost one segment 45% of its clickable length and made one
+ * label's silhouette answer for a *different* node.
+ *
+ * So the picture may overhang — that is deliberate, and the note above says
+ * why — but its claim on the pointer may not. A counter-scaled overlay pins
+ * the target back to 34px, and hits on it resolve to the `.silhouette` element
+ * that owns it, so the `title` and the click both behave as if it were the
+ * span itself. The span stops taking the pointer so the painted paths inside
+ * it cannot capture past the overlay.
+ */
+.mark .silhouette::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: scale(calc(1 / var(--icon-scale, 1)));
+  transform-origin: center;
+  pointer-events: auto;
 }
 /* --------------------------------------------------------- the MRCA flare -- */
 
