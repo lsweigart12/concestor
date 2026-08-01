@@ -39,7 +39,8 @@ const mod = isMac ? "⌘" : "Ctrl";
 
 export default function App() {
   const tree = useTree();
-  const [paletteOpen, setPaletteOpen] = useState(true);
+  // Closed on load. The canvas is the page; the boot hint says how to open it.
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const [scoped, setScoped] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [about, setAbout] = useState<About | null>(null);
