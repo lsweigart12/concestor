@@ -166,6 +166,15 @@ holds PBDB's own ids rather than GBIF's. Measuring its real coverage against
 the verified `taxonID 38613 → nubKey 4822631 → ott:664348` chain is the first
 task of phase 3.
 
+> **Done, 2026-07-31 — [phase3-pbdb-path.md](phase3-pbdb-path.md).** The offline
+> map reaches 38.6% of PBDB taxa but **0 of the top 100 by `n_occs`**, so it is a
+> second method, not a substitute. Two corrections to the paragraph above:
+> *Tyrannosaurus*'s nub entry cites **ZooBank**, not CoL, and `pbdb.zip` is a
+> **ColDP archive dated 2026-07-26 with 518,442 rows**, not a Darwin Core archive
+> of 461,889. More usefully, the export was never actually blocked:
+> `GET /v1/species?datasetKey={PBDB}&sourceId={taxon_no}` is a point lookup, so
+> the offset cap does not apply and the ~450 shards are unnecessary.
+
 ---
 
 ## 6. Conventions

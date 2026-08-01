@@ -106,6 +106,15 @@ So the chain is `PBDB taxon_no → GBIF checklist taxonID → nubKey → OTT gbi
 Measured yield on 120 random PBDB-checklist records: 88% reach a GBIF `nubKey`, 68% of
 those resolve in OTT → **~59% end to end** (~90% for well-known taxa).
 
+> **Superseded 2026-07-31 by a larger sample — see
+> [phase3-pbdb-path.md](phase3-pbdb-path.md) §5.** On 253 checklist records:
+> **92.9%** reach a `nubKey` (better than recorded) but only **51.9%** of those
+> resolve in OTT (materially worse) → **48.2% end to end**. Phase 3's gate uses
+> 48.2%. Also note a hard ceiling this finding does not mention: GBIF's backbone
+> has 11 ranks against PBDB's 25, so 32,629 PBDB taxa (6.2%) — subgenus,
+> subfamily, superfamily, suborder, tribe — are unmatchable by construction, and
+> they skew toward the notable end.
+
 Two decay warnings. The chain depends on GBIF's **legacy backbone, frozen 2023-08-28
 and never to be updated**; GBIF now defaults to Catalogue of Life Extended Release,
 where PBDB is reduced to 24,656 names from a Feb 2018 snapshot. And OTT's GBIF snapshot

@@ -20,20 +20,32 @@ deduplicates by GBIF key. Coverage is proven afterwards by counting distinct
 keys against the API's own total, which is a stronger check than trusting the
 shard arithmetic.
 
-STATUS: not yet run to completion. Even sharded, this is ~450 shards of up to
-99 pages each, and it is phase-3 material rather than phase-0. The published
-Darwin Core archive (`pbdb.zip`, all 461,889 records with PBDB's `taxonID`) and
-the frozen backbone are both snapshotted, so nothing decaying has been lost.
+STATUS: never run, and **do not run it**. Measured 2026-07-31, see
+`docs/phase3-pbdb-path.md`: the bulk export solves a problem the build does not
+have. A point lookup exists and is not subject to the offset cap, because it
+does not page:
 
-Worth trying first when phase 3 starts: the frozen backbone's `simple.txt.gz`
-already carries source provenance. Column 8 is the contributing dataset UUID
-and column 10 the source record key, and **212,054 backbone taxa cite the PBDB
-checklist UUID directly** — an offline `nubKey → checklist key` map for the
-PBDB-sourced portion of the backbone, needing no API at all. It is only a
-partial path (well-known fossil genera such as *Tyrannosaurus* reach the
-backbone via Catalogue of Life instead, so their nub entry cites CoL), and it
-still leaves `checklist key → PBDB taxon_no` to resolve. But it covers a large
-share of the fossil layer from a file we already hold, and it cannot decay.
+    GET /v1/species?datasetKey={PBDB_DATASET_KEY}&sourceId={pbdb_taxon_no}
+        -> the checklist record carrying nubKey, one request, ~0.5 s
+
+    GET /v1/species/{nubKey}/related?datasetKey={PBDB_DATASET_KEY}
+        -> the inverse: the PBDB checklist record for a backbone key
+
+Phase 3 needs one lookup per PBDB taxon, ordered by `n_occs`, not a dump. The
+shard planner below is kept only as documentation of a route not to take, the
+way it already documents the hierarchy-descent dead end.
+
+The offline alternative was measured too, and it is a second method rather than
+a substitute. The frozen backbone's `simple.txt.gz` records one contributing
+dataset per row — column 8 the dataset UUID, column 10 that dataset's usage key
+(GBIF's key, *not* PBDB's `taxon_no`) — and 212,054 rows cite the PBDB
+checklist. Joined back to `taxon_no` by name and rank against `pbdb_taxa.csv`
+that reaches 38.6% of PBDB taxa and 17.9% of them reach OTT, for zero requests
+and with no decay risk. But a row records only the source that *won* the
+provenance slot, and PBDB wins it only where nothing higher-priority has the
+name: 8% of genera, and **0 of PBDB's 100 highest-occurrence taxa**.
+*Tyrannosaurus* is in the checklist with the documented chain, yet its nub entry
+cites ZooBank, so the offline map cannot see a match that exists.
 """
 
 from __future__ import annotations

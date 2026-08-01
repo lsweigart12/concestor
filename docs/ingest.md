@@ -184,12 +184,35 @@ earlier ones.
    lists.
 3. **`gbif_pbdb_chain`** — the fossil path:
    `PBDB taxon_no → GBIF legacy checklist taxonID → nubKey → OTT gbif: source id`.
-   Expected yield ~59% end to end (88% reach a `nubKey`, 68% of those resolve in OTT).
-   The 32% loss at the second hop is mostly version skew: OTT's GBIF snapshot is
-   Sept 2019, the legacy backbone is 2023.
-4. **`phylopic_resolve`** — `/resolve/opentreeoflife.org/taxonomy/{ott_id}`, following
+   **Decided 2026-07-31, see [phase3-pbdb-path.md](phase3-pbdb-path.md).** Drive
+   it from the API point lookup
+   `GET /v1/species?datasetKey={PBDB}&sourceId={taxon_no}` — one request per
+   taxon, 0.5 s, no paging, so **GBIF's offset cap never applies and the ~450
+   covering shards in `gbif_checklist.py` are unnecessary**. Order the crawl by
+   `n_occs` descending and snapshot the results; this captures the decaying half
+   of the chain and is phase-0 work in spirit.
+   Measured yield on 300 random PBDB taxa: 84.3% are in the checklist, **92.9%
+   of those reach a `nubKey`, 51.9% of those resolve in OTT — 48.2% end to
+   end**, not the ~59% carried in data-sources.md. Second-hop loss is version
+   skew: OTT's GBIF snapshot is Sept 2019, the legacy backbone is 2023.
+4. **`gbif_backbone_provenance`** — the offline half of the same chain, ranked
+   below it. `simple.txt.gz` column 8 is the contributing dataset UUID and
+   column 10 that dataset's usage key, and 212,054 rows cite the PBDB checklist,
+   giving a `nubKey → checklist key` map with no API call and no decay. Join back
+   to `taxon_no` by name and rank against `pbdb_taxa.csv` — **not** the ColDP,
+   whose compound synonym ids silently map a synonym onto the accepted taxon's
+   number. Yield **38.6% of PBDB taxa, 17.9% reaching OTT**, but only 8% of
+   genera and **0 of the top 100 taxa by `n_occs`**: PBDB wins GBIF's provenance
+   slot only where no higher-priority source has the name. Keep it for the floor
+   it guarantees offline and as a regression source immune to upstream change;
+   never rely on it alone.
+
+   Note a ceiling that binds both: GBIF's backbone has 11 ranks against PBDB's
+   25, so **32,629 PBDB taxa (6.2%) — subgenus, subfamily, superfamily, suborder,
+   tribe — are unmatchable rather than unmatched**, and they skew notable.
+5. **`phylopic_resolve`** — `/resolve/opentreeoflife.org/taxonomy/{ott_id}`, following
    the 308. Note `/ott/` 404s; the namespace is `taxonomy`.
-5. **`name_exact`** — exact string, **unique candidate only**. Multiple candidates →
+6. **`name_exact`** — exact string, **unique candidate only**. Multiple candidates →
    `idx = NULL` with the candidate list recorded. 16% of PBDB genus names land here,
    including cross-kingdom homonyms.
 
@@ -199,7 +222,14 @@ earlier ones.
 - **Regressions** (previously-resolved `(source, source_id)` now failing) **must be 0**
   or explicitly acknowledged in the build config. This is the gate that catches a broken
   upstream snapshot before it silently guts the fossil layer.
-- `gbif_pbdb_chain` yield within 5 points of the 59% baseline.
+- `gbif_pbdb_chain` yield within 5 points of the **48.2%** baseline — measured
+  2026-07-31 on 253 PBDB taxa that are checklist records, superseding the ~59%
+  estimate in data-sources.md. Score the two hops separately (92.9% to a
+  `nubKey`, 51.9% of those to OTT); a drop in the first means GBIF's checklist
+  moved, a drop in the second means OTT's snapshot did, and the fixes differ.
+- `gbif_backbone_provenance` yield within 2 points of 38.6% of PBDB taxa. This
+  one reads a frozen file, so **any** movement is a bug in our code, not
+  upstream.
 - Every `manual` override still applies — an override whose target `idx` no longer
   exists is a hard failure, since it means someone's reviewed judgement was silently
   dropped.
