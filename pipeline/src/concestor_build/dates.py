@@ -927,6 +927,20 @@ def _write_ages(
     np.save(TOPO_OUT / "age_tier.npy", tier)
     np.save(TOPO_OUT / "age_layout.npy", layout)
 
+    # Phase 4 rewrites both `age_tier` and `age_layout` with the fossil record
+    # and keeps a copy of what this phase wrote, so that re-running it clamps
+    # the original rather than compounding its own output. Those copies are now
+    # stale, and a phase 4 run against them would apply the fossil bound to a
+    # layout that no longer exists — quietly, since both arrays are internally
+    # consistent and nothing would error. Deleting them makes phase 4 take a
+    # fresh baseline.
+    #
+    # Reaching here at all means this is the primary tree — the comparison tree
+    # returns before `_write_ages`, which is what `PRIMARY_TREE` gates and why
+    # there is no second check here. Everything below is a shared write.
+    for stale in ("age_layout_phase2.npy", "age_tier_phase2.npy"):
+        (TOPO_OUT / stale).unlink(missing_ok=True)
+
     counts = {name: int((tier == t).sum()) for t, name in sorted(TIER_NAMES.items())}
 
     # Split by tip vs internal, because the undifferentiated number flatters

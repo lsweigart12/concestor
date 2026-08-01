@@ -312,6 +312,14 @@ and that is what `age_provenance.json.headline` and `/v1/about` report.
   canonical gate file. Both trees pass identically, so the only symptom was a
   few nodes shifting by a fraction of a Ma. `PRIMARY_TREE` now gates every
   shared write; the comparison tree writes only its own suffixed files.
+- **Phase 4 keeps a copy of what phase 2 wrote** — `age_layout_phase2.npy`
+  and `age_tier_phase2.npy` — so re-running phase 4 clamps the original rather
+  than compounding its own output. A phase 2 re-run invalidates both, and a
+  phase 4 run against a stale copy would apply the fossil bound to a layout
+  that no longer exists, *quietly*, because both arrays would be internally
+  consistent and nothing would error. Phase 2 deletes them when it writes.
+  Same shape as the two below and found by looking for it rather than by
+  hitting it.
 - `build/phase2_gates.json` and `date_validation.json` predate the `--tree`
   flag and had been left behind as stale copies of a *failing* run. Anything
   globbing `phase*_gates.json` — `/v1/about` did — kept reporting a verdict

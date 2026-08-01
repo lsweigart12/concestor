@@ -51,6 +51,7 @@ import { divergenceFor, UNNAMED } from "../tree/naming";
 import {
   ageLabel,
   DIVERGENCE_META,
+  isScientificItalic,
   metaLine,
   NodeMark,
   type MarkData,
@@ -59,7 +60,7 @@ import {
 import { TraceEdge, type TraceEdgeData } from "./TraceEdge";
 import { TimeAxis } from "./TimeAxis";
 import { Legend, type TracePattern } from "./Legend";
-import { DrillLane, useSegment, type Drill } from "./DrillLane";
+import { DrillLane, useSegment, type Drill, type LaneEndpoint } from "./DrillLane";
 import { laneHeight, laneRows } from "./lane";
 
 const nodeTypes = { mark: NodeMark };
@@ -384,6 +385,7 @@ function Inner(props: GraphProps) {
         tier: b.node.tier,
         dim,
         unbounded,
+        drilled: activeDrill?.upper === seg.anc && activeDrill.lower === v,
         drawToken: drawDelay.has(v) ? (delta?.token ?? null) : null,
         delay: drawDelay.get(v) ?? 0,
         reduced,
@@ -508,6 +510,23 @@ function Inner(props: GraphProps) {
     [onFocus],
   );
 
+  /**
+   * Clicking a segment opens it; clicking the open one closes it.
+   *
+   * The mouse path for interaction 3. It is a convenience, never the only way
+   * in — the same toggle is a contextual command in the palette, and `esc`
+   * closes the lane the way it closes everything else.
+   */
+  const onEdgeClick = useCallback(
+    (_: unknown, e: Edge) => {
+      const upper = Number(e.source);
+      const lower = Number(e.target);
+      const open = drill?.upper === upper && drill.lower === lower;
+      onDrill(open ? null : { upper, lower });
+    },
+    [drill, onDrill],
+  );
+
   return (
     <div
       className={`canvas${bloomOff ? " bloom-off" : ""}`}
@@ -519,6 +538,7 @@ function Inner(props: GraphProps) {
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         onNodeClick={onNodeClick}
+        onEdgeClick={onEdgeClick}
         onPaneClick={() => onFocus(null)}
         nodesDraggable={false}
         nodesConnectable={false}
@@ -537,6 +557,19 @@ function Inner(props: GraphProps) {
           color="rgba(120,190,200,0.07)"
         />
       </ReactFlow>
+      {activeDrill && (
+        <DrillLane
+          upper={endpoint(activeDrill.upper, ind, nodeMap)}
+          lower={endpoint(activeDrill.lower, ind, nodeMap)}
+          intermediates={laneIntermediates}
+          rows={laneRowsData}
+          segment={segment}
+          available={segment.data?.fossils_available ?? true}
+          toScreenX={toScreenX}
+          width={vw || window.innerWidth}
+          onClose={() => onDrill(null)}
+        />
+      )}
       <TimeAxis
         maxAge={lay.maxAge}
         width={vw || window.innerWidth}
@@ -547,6 +580,27 @@ function Inner(props: GraphProps) {
       />
     </div>
   );
+}
+
+/**
+ * How the lane names one end of the segment it is annotating.
+ *
+ * Through `divergenceFor`, so a node the taxonomy never named reads the same
+ * in the lane's title as it does on the canvas — "Homo / Pan" in both places,
+ * rather than a name above and a placeholder below.
+ */
+function endpoint(
+  idx: number,
+  ind: Induced,
+  nodeMap: Map<number, PathNode>,
+): LaneEndpoint {
+  const n = nodeMap.get(idx);
+  const div = divergenceFor(idx, ind, nodeMap);
+  return {
+    name: n?.name ?? div?.text ?? UNNAMED,
+    italic: !div && isScientificItalic(n?.rank ?? null),
+    age: n?.age_layout ?? 0,
+  };
 }
 
 /** Does anything at or below `v` in the rendered subtree carry a real age? */

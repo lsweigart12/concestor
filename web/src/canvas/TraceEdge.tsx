@@ -31,6 +31,11 @@ export interface TraceEdgeData extends Record<string, unknown> {
   dim: boolean;
   /** True when nothing below this node is dated: the position is a guess. */
   unbounded: boolean;
+  /**
+   * This segment's drill-down lane is open. Brightness is legitimate here: it
+   * is a selection, which is exactly what luminance is reserved for.
+   */
+  drilled: boolean;
   /** Changes when a new draw should run; null means "already settled". */
   drawToken: number | null;
   /** ms after the interaction start, per the signature sequence. */
@@ -126,6 +131,7 @@ export function TraceEdge({ id, data }: EdgeProps) {
         "trace",
         TIER_CLASS[d.tier] ?? "tier-measured",
         d.unbounded ? "trace-unbounded" : "",
+        d.drilled ? "trace-drilled" : "",
         d.dim ? "dimmed" : "",
       ]
         .filter(Boolean)
