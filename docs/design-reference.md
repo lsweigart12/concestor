@@ -34,13 +34,28 @@ Sequence, overlapping not sequential:
 
 1. `t=0` — Existing nodes begin spring reflow to new positions.
 2. `t=80` — MRCA node flares. Brief bright pulse. The connection beat.
-3. `t=120` — New trace draws from MRCA outward, ~350ms, ease-out.
-4. `t=470` — Trace decays from flare-bright to steady state over ~800ms.
+3. `t=120` — New traces draw from MRCA outward, ~613ms, ease-out.
+4. `t=733` — Each decays from flare-bright to steady state over ~1400ms.
 
 Reflow and draw must overlap. Sequential feels laggy; overlapping feels
 alive. If the new path spans multiple segments, draw them in order
-root-ward → leaf-ward, lightly staggered. All-at-once reads as a fade-in;
-staggered reads as travel.
+root-ward → leaf-ward, lightly staggered, a wave every ~96ms. All-at-once
+reads as a fade-in; staggered reads as travel.
+
+**A wave, not a route.** Everything the same number of segments from the
+MRCA draws together. Two lineages that parted at one node have to leave it
+at the same moment, because that is what the node *says*. Staggering by
+distance-along-one-path instead is invisible while a single species is being
+added — the new segments are a chain then — but on a restored selection,
+where every segment is new, it picks one arbitrary leaf, unspools the tree
+down its ancestry, and leaves every other branch to appear beside it with no
+animation at all. Breadth-first is the general case; the chain is a special
+case of it.
+
+The MRCA itself is not drawn on. A segment belongs to the node *below* it,
+and the MRCA has nothing above it inside the subtree — it is where the first
+wave leaves from. Giving it a wave of its own spends the first beat of the
+sequence on nothing and delays the whole draw past `t=120`.
 
 Implementation: React Flow edges are SVG paths — use `getTotalLength()` with
 `stroke-dasharray` / `stroke-dashoffset`. Decay is a separate opacity or

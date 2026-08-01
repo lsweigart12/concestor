@@ -45,6 +45,18 @@ export interface TraceEdgeData extends Record<string, unknown> {
 }
 
 /**
+ * How long a trace takes to draw itself on, and how long it takes to settle
+ * from flare-bright back to steady, in ms.
+ *
+ * Exported because `Graph.tsx` has to hold the delta open until the last trace
+ * has finished both — hand it back early and the cleanup here cancels a draw
+ * mid-flight. That is a real coupling between two files, so it is a shared
+ * constant rather than a number that happens to be large enough today.
+ */
+export const DRAW_MS = 613;
+export const DECAY_MS = 1400;
+
+/**
  * The class that carries a tier's dash pattern. Exported because the legend
  * draws real traces rather than pictures of them — see `Legend.tsx`.
  */
@@ -102,18 +114,18 @@ export function TraceEdge({ id, data }: EdgeProps) {
 
     const draw = core.animate(
       [{ strokeDashoffset: len }, { strokeDashoffset: 0 }],
-      { duration: 350, delay: d.delay, easing: "cubic-bezier(.16,.9,.3,1)", fill: "both" },
+      { duration: DRAW_MS, delay: d.delay, easing: "cubic-bezier(.16,.9,.3,1)", fill: "both" },
     );
 
-    // t=470 relative to the interaction: decay from flare-bright to steady
-    // over ~800ms. Brightness encodes recency here, which is exactly what
-    // luminance is reserved for.
+    // Once the line has arrived, it decays from flare-bright to steady.
+    // Brightness encodes recency here, which is exactly what luminance is
+    // reserved for.
     const decay = group.animate(
       [
         { opacity: 1, filter: "brightness(2.1)" },
         { opacity: 1, filter: "brightness(1)" },
       ],
-      { duration: 800, delay: d.delay + 350, easing: "ease-out", fill: "both" },
+      { duration: DECAY_MS, delay: d.delay + DRAW_MS, easing: "ease-out", fill: "both" },
     );
 
     const done = () => {
