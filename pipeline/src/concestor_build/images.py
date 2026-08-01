@@ -70,7 +70,7 @@ from .topology import DB, TAXONOMY
 from .topology import OUT as TOPO_OUT
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator, Mapping, Sequence
 
     import httpx
 
@@ -110,6 +110,10 @@ M_EXACT, M_ANCESTOR, M_DESCENDANT, M_NONE = 0, 1, 2, 255
 METHOD_NAME = {M_EXACT: "exact", M_ANCESTOR: "ancestor", M_DESCENDANT: "descendant"}
 
 NO_IMAGE = -1
+
+# Which seeding pass a node's image survived from — see `seed_nodes`. Ordered
+# by strength, and only ever compared, never stored.
+T_UNSEEDED, T_NAME_TRUNCATED, T_NAME, T_LIFTED, T_OTT_ID = 0, 1, 2, 3, 4
 
 # Max root-to-tip depth is 111 (data-sources.md), so 7 rounds of pointer
 # doubling cover any chain. The loop exits on a fixpoint anyway; the cap only
@@ -397,27 +401,155 @@ def load_forwards(con: sqlite3.Connection) -> dict[int, int]:
     return dict(con.execute("SELECT old_ott_id, new_ott_id FROM forward"))
 
 
-def taxonomy_parents() -> dict[int, int]:
-    """`uid -> parent_uid` from OTT's `taxonomy.tsv`, for the one-hop lift.
+def name_candidates(records: list[ImageRecord]) -> set[str]:
+    """Every taxon name the name passes might need to look up.
 
-    Returns empty when the taxonomy has not been extracted; lifting is an
-    improvement, not a prerequisite, so its absence must not fail the phase.
+    Collected up front so `taxonomy_index` can filter 4.5M rows down to the
+    few thousand that matter in a single pass. Holding the whole `name -> uid`
+    map would be ~4.5M strings for the ~30k this ever asks about.
     """
+    out: set[str] = set()
+    for r in records:
+        title = (r.node_title or "").strip()
+        if not title:
+            continue
+        out.add(title)
+        out.update(_truncations(title))
+    return out
+
+
+def _truncations(title: str) -> list[str]:
+    """A binomial's species and genus, in decreasing specificity.
+
+    `Equus quagga chapmani -> ["Equus quagga", "Equus"]`. A one-word title has
+    nothing to truncate to: dropping a word off `Orthocerida` yields nothing,
+    and dropping one off a genus would be a rank jump, not a truncation.
+    """
+    parts = title.split()
+    return [" ".join(parts[:k]) for k in (2, 1) if len(parts) > k]
+
+
+def taxonomy_index(
+    wanted_names: set[str] | None = None,
+) -> tuple[dict[int, int], dict[str, list[int]]]:
+    """`uid -> parent_uid` and `name -> uids`, from OTT's `taxonomy.tsv`.
+
+    One pass for both, because the file is 4.5M rows and the two consumers —
+    the one-hop lift and the name passes — want it at the same moment.
+
+    Names are returned as a *list* of uids: OTT carries homonyms across
+    kingdoms, and a name that resolves two ways is a name we cannot use. The
+    caller refuses those rather than picking one.
+
+    Returns empties when the taxonomy has not been extracted; both lifting and
+    name matching are improvements, not prerequisites, so their absence must
+    not fail the phase.
+    """
+    parents: dict[int, int] = {}
+    names: dict[str, list[int]] = {}
     if not TAXONOMY.exists():
-        return {}
-    out: dict[int, int] = {}
+        return parents, names
     with TAXONOMY.open(encoding="utf-8") as fh:
         cols = [c.strip() for c in fh.readline().split("\t|\t")]
         i_uid, i_par = cols.index("uid"), cols.index("parent_uid")
+        i_name = cols.index("name")
+        need = max(i_uid, i_par, i_name)
         for line in fh:
             f = line.split("\t|\t")
-            if len(f) <= max(i_uid, i_par):
+            if len(f) <= need:
                 continue
-            try:
-                out[int(f[i_uid])] = int(f[i_par])
-            except ValueError:
+            uid_s, par_s = f[i_uid].strip(), f[i_par].strip()
+            if not uid_s.isdigit():
                 continue
-    return out
+            uid = int(uid_s)
+            # Exactly one row in 4.5M has no parent: `life`, the root.
+            if par_s.isdigit():
+                parents[uid] = int(par_s)
+            name = f[i_name].strip()
+            if wanted_names is not None and name not in wanted_names:
+                continue
+            names.setdefault(name, []).append(uid)
+    return parents, names
+
+
+@dataclass(slots=True)
+class NameSeeds:
+    """What the name passes found. Each list is `(node idx, record position)`."""
+
+    exact: list[tuple[int, int]] = field(default_factory=list)
+    truncated: list[tuple[int, int]] = field(default_factory=list)
+    ambiguous: int = 0
+
+
+def _seed_by_name(
+    titles: Sequence[str | None] | None,
+    landed: set[int],
+    name_uids: Mapping[str, list[int]] | None,
+    lookup: Callable[[I64Array], I64Array],
+    forwards: dict[int, int],
+    tip_count: U32Array,
+    max_tips: int,
+) -> NameSeeds:
+    """Passes 4 and 5 of `seed_nodes` — reach an image through its node's name.
+
+    Only images that seeded nothing through an OTT id are considered, so this
+    can add nodes but never move one an id already claimed.
+    """
+    found = NameSeeds()
+    if not titles or not name_uids:
+        return found
+
+    def resolve(uids: list[int]) -> tuple[int, bool]:
+        """`(node idx, ambiguous)`. Chases a forward, as pass 2 does."""
+        ids = np.array(uids, dtype=np.int64)
+        hit = lookup(ids)
+        miss = hit == NO_IMAGE
+        if bool(miss.any()) and forwards:
+            fwd = np.array(
+                [forwards.get(int(o), int(o)) for o in ids[miss]], dtype=np.int64
+            )
+            hit[miss] = lookup(fwd)
+        nodes = {int(n) for n in hit.tolist() if n != NO_IMAGE}
+        if len(nodes) > 1:
+            return NO_IMAGE, True
+        return (nodes.pop() if nodes else NO_IMAGE), False
+
+    for record, raw in enumerate(titles):
+        if record in landed:
+            continue
+        title = (raw or "").strip()
+        if not title:
+            continue
+
+        uids = name_uids.get(title)
+        if uids:
+            node, ambiguous = resolve(uids)
+            if ambiguous:
+                # A homonym tells us the title is not enough to identify the
+                # taxon. Truncating it would only widen the ambiguity.
+                found.ambiguous += 1
+                continue
+            if node != NO_IMAGE:
+                found.exact.append((node, record))
+                continue
+
+        for candidate in _truncations(title):
+            uids = name_uids.get(candidate)
+            if not uids:
+                continue
+            node, ambiguous = resolve(uids)
+            if ambiguous:
+                found.ambiguous += 1
+                break
+            if node == NO_IMAGE:
+                continue
+            # Truncations run specific-first, so a target too broad here is
+            # only going to get broader. Stop rather than climb to the family.
+            if tip_count[node] <= max_tips:
+                found.truncated.append((node, record))
+            break
+
+    return found
 
 
 def seed_nodes(
@@ -427,12 +559,14 @@ def seed_nodes(
     forwards: dict[int, int],
     parents: dict[int, int] | None = None,
     lift_max_tips: int = LIFT_MAX_TIPS,
+    titles: Sequence[str | None] | None = None,
+    name_uids: Mapping[str, list[int]] | None = None,
 ) -> tuple[I64Array, JsonDict]:
-    """Map PhyloPic's OTT ids onto node indices.
+    """Map PhyloPic's images onto node indices.
 
     Returns `seed[idx] = position in records`, `NO_IMAGE` elsewhere.
 
-    Three passes, in decreasing strength:
+    Five passes, in decreasing strength:
 
     1. **Direct.** The cited OTT id is a node. 6,976 of 9,461 offered ids.
     2. **Forwarded.** OTT id forwarding is silent, so a direct miss is not the
@@ -449,8 +583,24 @@ def seed_nodes(
        still broadly representative of it. That admits `Homo sapiens sapiens →
        Homo sapiens`, `Panthera gombaszoegensis → Panthera` and 315 more, and
        refuses every fossil-onto-phylum case.
+    4. **Named.** 1,783 images declare no OTT id at all — their specific node
+       resolves only in GBIF or PBDB namespaces — so passes 1–3 cannot reach
+       them however hard they try. But every image *names* its node, and that
+       name is an OTT name: match `node_title` against `taxonomy.tsv` and the
+       id comes back. This is an exact claim about the taxon, so it carries no
+       tip bound. `Chlamydiae`'s silhouette really is of Chlamydiae.
+    5. **Named, truncated.** A title that names no node may still name one once
+       the trailing epithet comes off: `Equus quagga chapmani → Equus quagga →
+       Equus`, `Phoca caspica → Phoca`. Bounded by `lift_max_tips` for exactly
+       the reason pass 3 is — a genus is a defensible target for a species
+       image, a family is not.
 
-    A direct hit always beats a lifted one for the same node.
+    Passes 4 and 5 refuse a name that resolves to more than one node. OTT
+    carries homonyms across kingdoms and nothing in the title says which
+    `Prunella` PhyloPic drew, so the honest answer is no image.
+
+    A direct hit always beats a lifted one for the same node, and an OTT id
+    always beats a name.
     """
     order = np.argsort(ott_id, kind="stable")
     order = order[ott_id[order] != NO_OTT]
@@ -492,21 +642,49 @@ def seed_nodes(
         lift[still] = np.where(narrow, cand, NO_IMAGE)
         n_lifted = int(narrow.sum())
 
+    ok = idx != NO_IMAGE
+    lifted = lift != NO_IMAGE
+
+    by_name = _seed_by_name(
+        titles=titles,
+        landed=set(images[ok].tolist()) | set(images[lifted].tolist()),
+        name_uids=name_uids,
+        lookup=lookup,
+        forwards=forwards,
+        tip_count=tip_count,
+        max_tips=lift_max_tips,
+    )
+
     seed = np.full(ott_id.size, NO_IMAGE, dtype=np.int64)
     # Two OTT ids can land on one node when a forward collapses a synonym onto
     # its accepted id. Last write wins, deterministically: `wanted` comes out of
-    # an insertion-ordered dict built from a stable record list. Lifts go down
-    # first so that a direct hit always overwrites one.
-    lifted = lift != NO_IMAGE
-    seed[lift[lifted]] = images[lifted]
-    ok = idx != NO_IMAGE
-    seed[idx[ok]] = images[ok]
+    # an insertion-ordered dict built from a stable record list, and the name
+    # passes walk `titles` in record order. Weakest evidence goes down first so
+    # that a stronger pass overwrites it.
+    #
+    # `tier` records which pass a node's seed *survived* from, which is the only
+    # honest way to credit one. Most name matches land on a node an OTT id also
+    # reaches, so counting matches would report thousands of "recoveries" that
+    # changed nothing — the flattering-gate failure this project keeps hitting.
+    tier = np.zeros(ott_id.size, dtype=np.uint8)
+    for node, record in by_name.truncated:
+        seed[node], tier[node] = record, T_NAME_TRUNCATED
+    for node, record in by_name.exact:
+        seed[node], tier[node] = record, T_NAME
+    seed[lift[lifted]], tier[lift[lifted]] = images[lifted], T_LIFTED
+    seed[idx[ok]], tier[idx[ok]] = images[ok], T_OTT_ID
 
     return seed, {
         "ott_ids_offered": len(per_ott),
         "ott_ids_in_tree": int(ok.sum()),
         "ott_ids_via_forward": n_forwarded,
         "ott_ids_lifted_one_hop": n_lifted,
+        "names_matched": len(by_name.exact),
+        "names_matched_truncated": len(by_name.truncated),
+        "names_ambiguous": by_name.ambiguous,
+        # Nodes seeded by a name and by nothing stronger.
+        "nodes_from_name": int((tier == T_NAME).sum()),
+        "nodes_from_name_truncated": int((tier == T_NAME_TRUNCATED).sum()),
         "seeded_nodes": int((seed != NO_IMAGE).sum()),
     }
 
@@ -1135,9 +1313,15 @@ def run(budget: int = 0, mirror_only: bool = False, log: Log = _log) -> int:
         con.close()
 
         t0 = time.monotonic()
-        parents = taxonomy_parents()
+        parents, name_uids = taxonomy_index(name_candidates(records))
         seed, stats = seed_nodes(
-            ott_id, tip_count, pick_per_ott(records), forwards, parents
+            ott_id,
+            tip_count,
+            pick_per_ott(records),
+            forwards,
+            parents,
+            titles=[r.node_title for r in records],
+            name_uids=name_uids,
         )
         assign = propagate(parent, depth, subtree_out, seed)
         log(f"  propagated in {time.monotonic() - t0:,.1f}s")
@@ -1168,6 +1352,25 @@ def run(budget: int = 0, mirror_only: bool = False, log: Log = _log) -> int:
                 "sapiens sapiens, which synthesis does not carry."
                 if parents
                 else "taxonomy.tsv not extracted; lifting skipped"
+            ),
+        )
+        g.observe(
+            "nodes seeded by their image's node name and nothing stronger",
+            f"{stats['nodes_from_name']:,} exact, "
+            f"{stats['nodes_from_name_truncated']:,} truncated to species or genus",
+            note=(
+                f"{len(records) - with_ott:,} images declare no OTT id at all — "
+                "their specific node resolves only in GBIF or PBDB namespaces — "
+                "and no amount of id chasing reaches those. The name does. "
+                f"Read this against the {stats['names_matched']:,} exact and "
+                f"{stats['names_matched_truncated']:,} truncated matches the "
+                "passes actually made: most land on a node an OTT id also "
+                "reaches, and crediting those to the name would be counting "
+                "work rather than result. "
+                f"{stats['names_ambiguous']:,} refused as homonyms, resolving "
+                "to more than one node."
+                if name_uids
+                else "taxonomy.tsv not extracted; name matching skipped"
             ),
         )
         cov = coverage_gates(g, assign, tip_count, subtree_out)

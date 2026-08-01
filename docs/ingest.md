@@ -276,20 +276,24 @@ earlier ones.
 
 **Output:** `silhouettes/`, `silhouette` table, `node.phylopic_id`, `timescale.json`
 
-1. Mirror the PhyloPic corpus — 12,863 SVGs, ~136 MB, plus 192px PNGs (~53 MB) as
-   raster fallback. Mirroring removes the runtime dependency and the build-number churn:
-   stale `build` values return **410 Gone**, not a redirect, with the current build in
-   the error body.
-2. Resolve each node to an image at build time:
-   - **Commercial-safe path** (`--commercial-safe`, the default):
-     `/images?filter_clade={uuid}&filter_license_nc=false&page=0&embed_items=true`,
-     take item 0. Reproduces `primaryImage`'s proximity ordering while excluding the 745
-     NonCommercial images. **93.7% coverage.** Walk `/lineage` upward for the remainder.
-   - Otherwise `primaryImage` with `embed_primaryImage=true` — but note it **ignores
-     license filters entirely**, yielding 47.2% attribution-required, 12.8% ShareAlike,
-     5.5% NonCommercial.
-   - `primaryImage` is `nullable: true` in the schema. Null-check it even though 1,920
-     sampled nodes produced zero nulls.
+1. Mirror the PhyloPic corpus — 12,863 SVGs, 149.8 MB. Vectors only: the client inlines
+   the markup to strip PhyloPic's baked `fill`, so a raster tier would be a fallback
+   nothing can fall back to. Mirroring removes the runtime dependency and the
+   build-number churn: stale `build` values return **410 Gone**, not a redirect, with
+   the current build in the error body.
+2. Resolve each node to an image at build time. **This step as originally written — one
+   `primaryImage` call per node — is 2.7M requests against a small volunteer service,
+   and `images.py` deliberately does not do it.** What it does instead: crawl the image
+   *index* in ~269 requests, seed the nodes the corpus names, and propagate to the rest
+   by nearest ancestor in a single 0.2 s sweep. Seeding is five passes, in decreasing
+   strength — OTT id, forwarded OTT id, one-hop lift, node name, truncated node name —
+   and the module docstring is the reference for all of it. Read that before changing
+   anything here.
+   - The licence filters (`filter_license_nc=false`) are a **query-time** concern that
+     the index crawl sidesteps: it carries every image's licence inline, so filtering is
+     local. Note that `primaryImage` **ignores license filters entirely**, yielding
+     47.2% attribution-required, 12.8% ShareAlike, 5.5% NonCommercial — which is why
+     nothing in this build asks it for one.
 3. Store license URL, `attribution` (original creator) **and** `contributor` (uploader)
    separately — they differ 31% of the time. `attribution` is null 19.3% overall but
    **0% null among the 5,432 images that require attribution**, so the field is always

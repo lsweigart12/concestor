@@ -6,11 +6,11 @@
     "num_source_studies": 1931,
     "num_source_trees": 2064,
     "phase0_gates_ok": true,
-    "written_at": "2026-08-01T03:18:03+00:00",
+    "written_at": "2026-08-01T05:48:45+00:00",
     "phylopic_mirror": {
       "images": 12863,
-      "mirrored": 12862,
-      "bytes": 149764686,
+      "mirrored": 12863,
+      "bytes": 149767685,
       "root": "snapshot/phylopic",
       "note": "Per-file SHA-256 lives in the silhouette table, not here."
     }
@@ -162,7 +162,7 @@
       "path": "snapshot/phylopic/index.jsonl",
       "bytes": 6130649,
       "sha256": "bfa97de8e42e9900d53d2efbed8e4822269275a8bba19781728c5a65224bbe42",
-      "fetched_at": "2026-08-01T03:02:30+00:00",
+      "fetched_at": "2026-08-01T05:48:45+00:00",
       "content_length": null,
       "note": "12,863 images with licence, attribution, contributor and their specific node's OTT ids. ~268 paged requests, not one per node."
     }

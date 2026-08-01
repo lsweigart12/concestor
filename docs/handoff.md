@@ -570,7 +570,7 @@ it cannot deliver.
   Coverage is **100%**, better than the 88/94% baseline, which described a
   different mechanism and is no longer the thing to measure.
 - **The number that matters for silhouettes is `climb`, not coverage.** Mean
-  27.3 ancestor hops; only 0.22% of tips get an exact image; three sources
+  27.2 ancestor hops; only 0.23% of tips get an exact image; three sources
   (Ecdysozoa, cellular organisms, Opisthokonta) serve 1.79M nodes between them.
   100% coverage therefore means "every node has *an* image", most of them very
   generic. The UI suppresses one inherited from a kingdom-sized ancestor rather
@@ -582,6 +582,24 @@ it cannot deliver.
   fix is a **bounded** one-hop lift onto a target of ≤100 tips — an unbounded
   parent walk seeds Amphibia with a Devonian stem tetrapod, which is the same
   failure in the other direction.
+- **1,783 images cite no OTT id at all**, because their specific node resolves
+  only in GBIF or PBDB namespaces. No amount of id chasing reaches them, so
+  seeding has two further passes that go through the *name*: match the image's
+  `node_title` against `taxonomy.tsv`, then, failing that, against the title
+  truncated to species and genus (`Equus quagga chapmani → Equus quagga →
+  Equus`). Exact name matches carry no tip bound — the image really is of that
+  taxon — while truncated ones reuse the lift's ≤100 tips. A name resolving to
+  two nodes is refused outright; OTT carries homonyms across kingdoms and
+  nothing in the title says which `Prunella` was drawn. Worth 337 nodes (125
+  exact, 212 truncated) and 13,477 nodes given a closer image. The gate reports
+  those, not the 2,958 matches the passes make — most land where an OTT id
+  already reached, and crediting them would be counting work, not result.
+- **Seeding is at the corpus ceiling, and the ceiling is low.** 12,863 images
+  → 11,080 with an OTT id → 9,461 distinct ids → 6,976 in the tree → 7,470
+  seeded nodes against 2,725,682. Every remaining idea (deeper lifts, fuzzy
+  names, synonym tables) is worth tens of nodes, not thousands. More
+  silhouettes on screen is now a threshold and rendering question, or a
+  second-corpus project — not a resolution one.
 - **Mirrored PhyloPic SVGs hardcode `fill="#000000"`.** Architecture §7's
   `fill: currentColor` is true of the shape and false of the file: through
   `<img src>` or `background-image` an SVG is an opaque image and nothing in the
@@ -732,9 +750,10 @@ same one as the extinct tips above — the Neanderthal branch leaves at 0 Ma
 because that is where the ordinal fill puts it, and the fading unbounded trace
 is all that says so.
 
-**The silhouette mirror is partial.** ~4,500 of 12,863 SVGs are on disk,
-fetched in `tip_count` order so the clades people actually see came first.
-Resumable by checksum: `uv run concestor-build images`.
+**The silhouette mirror is complete.** All 12,863 SVGs are on disk, 149.8 MB,
+each checksummed into the `silhouette` table. It is resumable by checksum —
+`uv run concestor-build images` re-verifies what is there and fetches only
+what is missing, which is how the last straggler was picked up.
 
 **Bloom cost is unverified under load.** design-reference.md asks for this
 early. The current implementation is two stacked strokes plus a CSS blur rather
