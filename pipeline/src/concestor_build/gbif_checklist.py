@@ -19,6 +19,21 @@ rank, then status, then phylum — accepts the resulting overlap, and
 deduplicates by GBIF key. Coverage is proven afterwards by counting distinct
 keys against the API's own total, which is a stronger check than trusting the
 shard arithmetic.
+
+STATUS: not yet run to completion. Even sharded, this is ~450 shards of up to
+99 pages each, and it is phase-3 material rather than phase-0. The published
+Darwin Core archive (`pbdb.zip`, all 461,889 records with PBDB's `taxonID`) and
+the frozen backbone are both snapshotted, so nothing decaying has been lost.
+
+Worth trying first when phase 3 starts: the frozen backbone's `simple.txt.gz`
+already carries source provenance. Column 8 is the contributing dataset UUID
+and column 10 the source record key, and **212,054 backbone taxa cite the PBDB
+checklist UUID directly** — an offline `nubKey → checklist key` map for the
+PBDB-sourced portion of the backbone, needing no API at all. It is only a
+partial path (well-known fossil genera such as *Tyrannosaurus* reach the
+backbone via Catalogue of Life instead, so their nub entry cites CoL), and it
+still leaves `checklist key → PBDB taxon_no` to resolve. But it covers a large
+share of the fossil layer from a file we already hold, and it cannot decay.
 """
 
 from __future__ import annotations
