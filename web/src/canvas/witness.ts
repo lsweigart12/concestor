@@ -21,13 +21,16 @@
  * said otherwise.
  *
  * So a witness-less divergence draws nothing, and that is the point rather
- * than a shortfall. Only 66 nodes have a witness, so most forks now carry no
- * picture — an empty slot withholds where the raccoon misinformed. Caniformia
- * is the case to hold in mind: its oldest drawn *and* dated member is
- * Archaeocyon at 31.8 Ma, 25 Ma adrift of the split, and the stem carnivorans
- * that would fit (Vulpavus, 56–45.9 Ma) sit inside Carnivora but outside
- * Caniformia, so they are not eligible. There is no picture to draw. Saying so
- * is the honest answer.
+ * So a witness-less divergence draws nothing, and that is the point rather
+ * than a shortfall. 548 nodes have a witness — the rule shipped capped at a
+ * 25% gap and gave 66, which left the canvas too bare to be worth looking at,
+ * so the cap came off and undated forks fell back to their drawn position.
+ * Forks below that still draw nothing, and Caniformia is the case to hold in
+ * mind for why the coverage is what it is: its oldest drawn *and* dated member
+ * is Archaeocyon at 31.8 Ma, 25 Ma adrift, and the stem carnivorans that would
+ * fit (Vulpavus, 56–45.9 Ma) sit inside Carnivora but outside Caniformia, so
+ * they are not eligible. Uncapped it draws Archaeocyon anyway, with both
+ * ranges on screen so the reader can see the stretch.
  */
 
 import { witnessFor, silhouetteIsInformative, type PathNode, type Witness } from "../api";
@@ -44,7 +47,19 @@ export function witnessOn(p: Placement): Witness | null {
   return p.isLeaf ? null : witnessFor(p.node);
 }
 
-/** Whether a node may draw its group's exemplar. A divergence may not. */
+/**
+ * Whether a node may draw its group's exemplar. A divergence may not *borrow*
+ * one — but a picture of itself was never a borrow.
+ *
+ * The thing wrong with an exemplar at a fork is that it is somebody else's
+ * portrait: `node_image` resolves to the closest drawn *relative*, and a
+ * relative is nearly always a living group younger than the fork. When the
+ * drawing is of the node itself that objection disappears — Cetacea drawn at
+ * Cetacea is exactly what a silhouette is for. Without this, a fork that has
+ * its own image and no witness draws nothing, which is the rule failing rather
+ * than withholding: Cetacea, Felidae and Homo all went blank.
+ */
 export function mayDrawExemplar(p: Placement): boolean {
-  return p.isLeaf && silhouetteIsInformative(p.node, p.node.silhouette_clade_tips);
+  if (!silhouetteIsInformative(p.node, p.node.silhouette_clade_tips)) return false;
+  return p.isLeaf || p.node.silhouette_source_idx === p.node.idx;
 }

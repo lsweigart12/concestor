@@ -13,8 +13,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   api,
   ping,
-  silhouetteIsInformative,
-  witnessFor,
   TIER_OCCURRENCE,
   TIER_STRUCTURAL,
   type About,
@@ -25,6 +23,7 @@ import {
 import { bracketGeom, bracketTitle, endedSpanLabel } from "./canvas/Bracket";
 import { Graph } from "./canvas/Graph";
 import { Silhouette } from "./canvas/Silhouette";
+import { mayDrawExemplar, witnessOn } from "./canvas/witness";
 import { ageLabel, DerivedName, isScientificItalic } from "./canvas/NodeMark";
 import { Palette, type Command, type Scope } from "./palette/Palette";
 import { resetUsage } from "./palette/fuzzy";
@@ -495,7 +494,6 @@ export default function App() {
         <Detail
           detail={detail}
           hue={laneHue(focusedNode.idx)}
-          cladeTips={detail.silhouette_clade_tips}
           divergence={divergenceFor(focusedNode.idx, tree.induced, tree.nodes)}
           nested={nestedSelections(focusedNode.idx, tree.induced, tree.nodes)}
           isLeaf={tree.induced.leaves.includes(focusedNode.idx)}
@@ -544,14 +542,12 @@ export default function App() {
 function Detail({
   detail,
   hue,
-  cladeTips,
   divergence,
   nested,
   isLeaf,
 }: {
   detail: NodeDetail;
   hue: number;
-  cladeTips: number | null | undefined;
   /** Set only where the taxonomy has no name and one was derived. */
   divergence: Divergence | null;
   /** Chosen species classified inside this one. Almost always empty. */
@@ -573,10 +569,10 @@ function Detail({
   // nothing; only a clade the reader chose draws its group's exemplar. The
   // ordinary silhouette is therefore not shown *or credited* on a fork, since
   // it is not on screen and crediting an image nobody can see is noise.
-  const witness = isLeaf ? null : witnessFor(detail);
+  const place = { node: detail, isLeaf };
+  const witness = witnessOn(place);
   const witnessCredit = witness ? (detail.divergence_silhouette ?? null) : null;
-  const sil =
-    isLeaf && silhouetteIsInformative(detail, cladeTips) ? detail.silhouette : null;
+  const sil = mayDrawExemplar(place) ? detail.silhouette : null;
   // A picture that is not of this node is a picture of something inside the
   // clade, and the card is where that gets said in full rather than in a
   // tooltip. `clade_name` is null for the unnamed `mrcaott…` nodes, and there
@@ -735,13 +731,30 @@ function Detail({
           <em className={isScientificItalic(witness.rank) ? "sci-italic" : undefined}>
             {witness.name ?? "a taxon inside this group"}
           </em>
-          , not this whole group — one lineage from inside it that the rock
-          places{" "}
-          {witness.spans ? "across this divergence" : "close to this divergence"}
-          . The most familiar thing below a split is nearly always a living
-          group that did not exist when the split happened, so this shows
-          something that did instead. Its dates are observations, not an
-          estimate of when these lineages parted.
+          , not this whole group — one lineage from inside it, and the nearest
+          in time that anyone has drawn. The most familiar thing below a split
+          is nearly always a living group that did not exist when the split
+          happened, so this shows something that did instead. Its dates are
+          observations of where it turns up in the rock, never an estimate of
+          when these lineages parted.
+          {age === null ? (
+            <>
+              {" "}
+              This fork has no estimated age, so the match was made against
+              where it is <em>drawn</em> on the axis rather than against a date.
+              Read the pairing loosely: the picture is the closest available,
+              not a claim that the two coincide.
+            </>
+          ) : witness.spans ? (
+            <> Its range does contain this split.</>
+          ) : (
+            <>
+              {" "}
+              Its range does not reach this split — compare the two figures
+              above and read the picture as the nearest available, not a
+              contemporary.
+            </>
+          )}
         </p>
       )}
       {detail.vernaculars.length > 0 && (

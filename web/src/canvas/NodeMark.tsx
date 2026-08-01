@@ -213,8 +213,13 @@ export function borrowedTitle(
  * *Sahelanthropus* at 7.2–5.3 Ma sits across a split dated 6.7 — which is the
  * thing worth showing them.
  *
- * Two forms, because spanning the split and merely nearing it are different
- * strengths of claim and the wording should not flatten them.
+ * Three forms. Spanning the split and merely nearing it are different strengths
+ * of claim, and the wording must not flatten them — but the third matters more:
+ * **most witnesses now sit on a fork nobody has dated.** The rule falls back to
+ * where the fork is *drawn* when there is no estimate, which is what makes
+ * Carnivora draw *Vulpavus* instead of nothing. Saying "the closest to when
+ * these lineages parted" there would imply we know when that was. We do not,
+ * and the sentence says so instead.
  */
 export function witnessTitle(
   w: Witness,
@@ -227,10 +232,12 @@ export function witnessTitle(
       ? ` known from ${endedSpanLabel(w.oldest, w.youngest)}`
       : "";
   const dated = ageLabel(splitAge, tier);
-  const at = dated ? `, and this split is dated ${dated}` : "";
+  if (!dated) {
+    return `${who} —${when}. Nobody has dated this split, so this is the nearest drawn taxon to where it sits on the axis, not to a known date.`;
+  }
   return w.spans
-    ? `${who} —${when}, so it was around when these lineages parted${at}.`
-    : `${who} —${when}, the closest anyone has drawn to when these lineages parted${at}.`;
+    ? `${who} —${when}, so it was around when these lineages parted, and this split is dated ${dated}.`
+    : `${who} —${when}, the closest anyone has drawn to when these lineages parted, and this split is dated ${dated}.`;
 }
 
 /**

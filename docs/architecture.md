@@ -719,7 +719,7 @@ Rendering a mole for "Mammalia" is worse than rendering nothing.
 > the reader reached the node, which only the client knows: a species they chose wants
 > its group's exemplar, a divergence they arrived at wants the witness. It is refused
 > where the split is undated, where the node draws its own image, and where nothing
-> drawn inside the clade is dated near enough — 66 nodes, not 2.7M. See handoff.md §5.
+> drawn inside the clade has a fossil bracket — 548 nodes, not 2.7M. See handoff.md §5.
 >
 > **And a fork draws its witness or nothing** — never a borrow. That reverses "draw
 > everything" above for internal nodes, on a ground that rule does not address: it
