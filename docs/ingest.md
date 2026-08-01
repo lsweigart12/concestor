@@ -80,7 +80,12 @@ from the live API's `synth_id`.
    project has restored previously-changed ids.
 7. Mark the 9,839 broken taxa from `broken_taxa.json` (259 MB, key
    `non_monophyletic_taxa`), retaining `attachment_points` for the UI.
-8. Build the FTS5 index over 2,599,664 names plus 2,226,375 synonyms.
+8. ~~Build the FTS5 index over 2,599,664 names plus 2,226,375 synonyms.~~ **Phase 1
+   does not do this and never did.** The index is built by a separate `search` phase
+   that must run *after* `vernaculars`, because it indexes common names too. It is one
+   row per *name* — 6,834,727 against 2,725,682 nodes — and `node_fts.rowid` is a
+   `search_name.id`, never a `node.idx`. Joining it as though it were does not error: it
+   joins cleanly to unrelated nodes and returns confident nonsense.
 
 ### Gates
 
@@ -304,7 +309,10 @@ earlier ones.
 - Attachment depth distribution reported; median attachment materially shallower than
   the previous build fails.
 - Spot checks: *Tyrannosaurus* `fea=83.6, fla=72.2, lea=72.2, lla=66`, attaching at or
-  below Dinosauria.
+  below ~~Dinosauria~~ **Tyrannosauridae**. Dinosauria is ott 90215 in the taxonomy but
+  is **not a node in the synthesis tree** — the lineage runs Sauria → unnamed `mrca*`
+  nodes → Tyrannosauridae — so the check as written is untestable. Tyrannosauridae is a
+  strictly stronger claim anyway.
 - **Step 6's gate, as built:** every undated node is pushed back as far as its fossil
   bound allows. It is phrased against what the pass can reach rather than against the raw
   bound, because a node cannot be drawn older than a *dated* parent without either
@@ -362,10 +370,14 @@ earlier ones.
 Not required for launch, but the search experience is meaningfully worse without it.
 **OTT carries no common names**: "Tyrannosaurus" resolves, "T. rex" and "dog" do not.
 
-Options, in preference order: GBIF vernacular names (already joined via
-`ott_sourceinfo`, no new resolution work); Wikidata labels via OTT property **P9157**
-(~2.03M items — direct OTT linkage, no name matching at all); Wikipedia page titles as a
-last resort.
+Options, in preference order. ~~GBIF vernacular names (already joined via
+`ott_sourceinfo`, no new resolution work)~~ — **they are not free and this claim appears
+in three documents.** `topology.py` never parses `sourceinfo` into the database and the
+snapshotted `simple.txt.gz` carries no vernacular names at all; getting them means a
+fresh GBIF crawl. What shipped: Wikidata labels via OTT property **P9157** (~2.03M items
+— direct OTT linkage, no name matching), a bounded `wdt:P225` name pass for the top of
+the tree that P9157 does not reach, and the PBDB ColDP archive's `VernacularName.tsv`,
+which is small, already snapshotted, and covers *fossil* groups.
 
 Feeds the FTS index as an additional column, weighted below scientific names so exact
 binomials always win.

@@ -172,7 +172,13 @@ CREATE VIRTUAL TABLE node_fts USING fts5(
 
 -- fossil taxa, attached to the tree rather than placed in it
 CREATE TABLE fossil (
-  pbdb_orig_no    INTEGER PRIMARY KEY,
+  -- Keyed on `taxon_no`, NOT `orig_no`. `orig_no` is not unique — 407,634
+  -- distinct values over 523,112 rows, 86,302 of them repeated, and
+  -- Dinosauria alone has ten rank-variant records sharing 52775. `taxon_no`
+  -- is unique and is what `parent_no`, `accepted_no` and GBIF's `sourceId`
+  -- all reference. `orig_no` is kept as an ordinary column.
+  pbdb_taxon_no   INTEGER PRIMARY KEY,
+  pbdb_orig_no    INTEGER NOT NULL,
   accepted_no     INTEGER NOT NULL,
   name            TEXT NOT NULL,
   rank            TEXT,
@@ -368,6 +374,11 @@ table is an artifact, reviewed like code.
 |---|---|---|---|
 | 1 | `manual` | curated TSV in the repo | 1.00 |
 | 2 | `ott_sourceinfo` | OTT's own `sourceinfo` column | 0.99 |
+<!-- This resolves *ids*, and it is the reason three documents claimed GBIF
+     vernacular names arrive free with no new resolution work. They do not:
+     `topology.py` never parses `sourceinfo` into the database, and the
+     snapshotted `simple.txt.gz` carries no vernacular names at all. Common
+     names come from Wikidata P9157 and the PBDB ColDP archive. -->
 | 3 | `phylopic_resolve` | PhyloPic `/resolve/opentreeoflife.org/taxonomy/{ott}` | 0.98 |
 | 4 | `gbif_pbdb_chain` | PBDB `taxon_no` → GBIF legacy `taxonID` → `nubKey` → OTT | 0.90 |
 | 5 | `name_exact` | exact string, **unique** candidate only | 0.70 |

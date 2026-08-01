@@ -41,9 +41,11 @@ The time axis is secondary; rough dating is fine. The fossil layer is secondary.
 
 **The previous version of this brief told you not to re-research the figures in those documents. That instruction is now conditionally wrong, and this is the most important thing on this page.** The specs were written before anything was built. Building it proved a dozen of their figures wrong, and every correction is enumerated in `handoff.md` §4 — but the corrections live *only* there. The specs still say the old thing.
 
-Concretely: someone reading `architecture.md` §3.4 today will implement `fossil.pbdb_orig_no INTEGER PRIMARY KEY`, which cannot work, because `orig_no` is not unique (407,634 distinct over 523,112 rows). `ingest.md` phase 4 asks for a spot check "at or below Dinosauria", which is untestable because Dinosauria is not a node in the synthesis tree. `ingest.md` phase 1 step 8 claims phase 1 builds the FTS index; it never did. Three separate documents state that GBIF vernaculars arrive free via `ott_sourceinfo`; they do not exist in our snapshot at all.
+**Those four traps are now fixed in the specs themselves** — `fossil` is keyed on `taxon_no`, the Dinosauria spot check names Tyrannosauridae, phase 1 step 8 says the `search` phase builds the index, and the GBIF-vernaculars-are-free claim is struck in all three places. Each correction is struck through in place rather than deleted, so a reader who half-remembers the old figure finds out why it changed instead of wondering whether they misremembered.
 
-So: **trust `handoff.md` over the specs wherever they disagree, and make reconciling them your first substantial task.** It is a few hours and it stops the next person walking into a trap we already know about and documented. When you finish, this paragraph can go back to saying "do not re-research them".
+The reconciliation is not finished. `handoff.md` §4 is still the authoritative list and it is longer than those four.
+
+So: **trust `handoff.md` over the specs wherever they disagree.** The traps that would have cost a reader real time are corrected in place; the rest of §4 has not been folded back, and until it is, §4 wins.
 
 ## What to do, in order
 

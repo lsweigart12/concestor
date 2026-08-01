@@ -59,6 +59,8 @@ import {
 import { TraceEdge, type TraceEdgeData } from "./TraceEdge";
 import { TimeAxis } from "./TimeAxis";
 import { Legend, type TracePattern } from "./Legend";
+import { DrillLane, useSegment, type Drill } from "./DrillLane";
+import { laneHeight, laneRows } from "./lane";
 
 const nodeTypes = { mark: NodeMark };
 const edgeTypes = { trace: TraceEdge };
@@ -114,6 +116,9 @@ export interface GraphProps {
   axisMode: "log" | "linear";
   intervals: TimescaleInterval[] | null;
   fitSignal: { kind: "all" | "selection"; token: number } | null;
+  /** The segment whose drill-down lane is open. Lives in the URL. */
+  drill: Drill | null;
+  onDrill: (d: Drill | null) => void;
 }
 
 const prefersReduced = () =>
@@ -131,6 +136,8 @@ function Inner(props: GraphProps) {
     axisMode,
     intervals,
     fitSignal,
+    drill,
+    onDrill,
   } = props;
 
   const rf = useReactFlow();
@@ -193,6 +200,40 @@ function Inner(props: GraphProps) {
     () => layout(ind, nodeMap, { plotWidth, label: describeLabel }),
     [ind, nodeMap, plotWidth, describeLabel],
   );
+
+  /**
+   * The open lane's segment, or null.
+   *
+   * Checked against the induced subtree rather than trusted: the URL carries
+   * `seg`, and an add can promote a suppressed node to a rendered one and split
+   * the very segment the link was made against. A lane for a segment the canvas
+   * is not drawing would annotate a branch that is not there.
+   */
+  const activeDrill = useMemo(
+    () =>
+      drill && ind.segments.get(drill.lower)?.anc === drill.upper ? drill : null,
+    [drill, ind],
+  );
+
+  const segment = useSegment(activeDrill);
+
+  // The suppressed nodes are already in memory from the layout pass, so the
+  // spine draws in the same frame as the click and only the fossils wait on
+  // the round trip. The response's own copies are the fallback.
+  const laneIntermediates = useMemo(() => {
+    if (!activeDrill) return [];
+    const byIdx = new Map(segment.data?.intermediates.map((n) => [n.idx, n]) ?? []);
+    return (ind.segments.get(activeDrill.lower)?.suppressed ?? [])
+      .map((i) => nodeMap.get(i) ?? byIdx.get(i))
+      .filter((n): n is PathNode => n !== undefined);
+  }, [activeDrill, ind, nodeMap, segment.data]);
+
+  const laneRowsData = useMemo(
+    () => laneRows(segment.data?.fossils ?? [], segment.data?.fossils_total ?? 0),
+    [segment.data],
+  );
+
+  const laneH = activeDrill ? laneHeight(laneRowsData) : 0;
 
   // The lineage from the focused node to the induced root. `⌘\` isolates it;
   // otherwise it is what "selected path burns bright" is measured against.
@@ -393,9 +434,10 @@ function Inner(props: GraphProps) {
       const maxX = c.x + c.w + EDGE_PAD;
       const minY = c.y - EDGE_PAD;
       const maxY = c.y + c.h + EDGE_PAD;
-      // The axis owns the bottom strip; fitting into the full height would
-      // slide the lowest lineage underneath it.
-      const usableH = Math.max(vh - AXIS_RESERVE, 160);
+      // The axis owns the bottom strip, and an open drill-down lane owns more
+      // of it; fitting into the full height would slide the lowest lineage
+      // underneath whichever is there.
+      const usableH = Math.max(vh - AXIS_RESERVE - laneH, 160);
       const z = Math.min(
         vw / Math.max(maxX - minX, 1),
         usableH / Math.max(maxY - minY, 1),
@@ -410,8 +452,22 @@ function Inner(props: GraphProps) {
         { duration },
       );
     },
-    [lay, vw, vh, rf],
+    [lay, vw, vh, rf, laneH],
   );
+
+  // Opening or closing the lane changes how much canvas there is, so the tree
+  // reframes into what is left rather than sliding under the strip. Keyed on
+  // whether a lane is open and not on its height: the row count changes when
+  // the fossils land, and refitting then would jog the picture after the
+  // reader has started reading it.
+  const laneOpen = activeDrill !== null;
+  const lastLaneOpen = useRef(laneOpen);
+  useEffect(() => {
+    if (lastLaneOpen.current === laneOpen) return;
+    lastLaneOpen.current = laneOpen;
+    const t = window.setTimeout(() => fitToContent(reduced ? 0 : 380), 30);
+    return () => window.clearTimeout(t);
+  }, [laneOpen, fitToContent, reduced]);
 
   useEffect(() => {
     if (!fitSignal) return;
