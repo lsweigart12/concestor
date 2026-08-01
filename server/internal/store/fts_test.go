@@ -264,3 +264,116 @@ func TestSynonymHitsRankBelowCurrentNames(t *testing.T) {
 			firstSynonym, lastCurrent, names(res))
 	}
 }
+
+// A broken taxon's name is filed in search_name against the MRCA that
+// swallowed it, because that is the node the client draws once the app has
+// explained itself. That row must never come back as an ordinary node hit:
+// doing so answers about the substitute, silently, which is the live Open Tree
+// behaviour handoff.md §3 exists to refuse. Searching "Dinosauria" returned a
+// node called *Sauria*, ranked above the explanation.
+func TestABrokenTaxonsNameNeverReturnsTheSubstitutedNode(t *testing.T) {
+	st := open(t)
+	if st.Schema.FTS == nil {
+		t.Skip("node_fts not wired up in this build")
+	}
+	ctx := t.Context()
+
+	for _, c := range []struct{ q, substitute string }{
+		{"Dinosauria", "Sauria"},
+		{"Escherichia coli", ""},
+	} {
+		res, err := st.Search(ctx, c.q, 10)
+		if err != nil {
+			t.Fatalf("%q: %v", c.q, err)
+		}
+		var explained bool
+		for _, r := range res {
+			if r.Kind == "broken" && r.Name != nil && strings.EqualFold(*r.Name, c.q) {
+				explained = true
+			}
+			if r.Kind == "broken" || r.Name == nil {
+				continue
+			}
+			// A real node whose own name contains the query is fine —
+			// "Escherichia coli O157:H7" is a genuine taxon. The substitute is
+			// not: it does not bear the name at all.
+			if c.substitute != "" && strings.EqualFold(*r.Name, c.substitute) {
+				t.Errorf("%q returned the substituted node %q as a node hit; "+
+					"the app must explain the broken taxon, not silently "+
+					"answer about what replaced it", c.q, *r.Name)
+			}
+		}
+		if !explained {
+			t.Errorf("%q did not come back explained as a broken taxon", c.q)
+		}
+	}
+}
+
+// Metazoa's English name is "animals" and it holds 1.49M tips. It matched
+// "animal" through both a vernacular and the synonym *Animalia*, and two
+// separate defects then buried it: the ranking took its tier from the
+// strongest name reported rather than the best one matched, so reporting
+// "synonym" demoted it; and a plural counted only as a prefix, so it lost the
+// whole-word band to a Wikidata alias reading "arthropod animal". It fell
+// below five-tip bacteria and off the end of the page entirely.
+func TestTheWordAnimalReachesTheAnimals(t *testing.T) {
+	st := open(t)
+	if st.Schema.FTS == nil {
+		t.Skip("node_fts not wired up in this build")
+	}
+	res, err := st.Search(t.Context(), "animal", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, r := range res {
+		if r.Name != nil && *r.Name == "Metazoa" {
+			if i > 2 {
+				t.Errorf("Metazoa ranked %d for \"animal\"; it is the answer", i)
+			}
+			return
+		}
+	}
+	names := make([]string, 0, len(res))
+	for _, r := range res {
+		if r.Name != nil {
+			names = append(names, *r.Name)
+		}
+	}
+	t.Errorf("\"animal\" did not return Metazoa at all; got %v", names)
+}
+
+// "E. coli" is what people type, and *Escherichia coli* is a broken taxon so
+// `search.py` generated no abbreviation for it — the abbreviation corpus comes
+// from `node`, and a broken taxon is precisely what is not in there. The query
+// answered *Entamoeba coli* and never mentioned the bacterium.
+func TestAnAbbreviatedBinomialReachesABrokenTaxon(t *testing.T) {
+	st := open(t)
+	res, err := st.Search(t.Context(), "E. coli", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range res {
+		if r.Kind == "broken" && r.Name != nil && *r.Name == "Escherichia coli" {
+			if r.MatchedOn != "abbreviation" {
+				t.Errorf("matched_on = %q, want \"abbreviation\"", r.MatchedOn)
+			}
+			return
+		}
+	}
+	t.Error("\"E. coli\" never mentioned Escherichia coli")
+}
+
+func TestAbbreviateBinomial(t *testing.T) {
+	for name, want := range map[string]string{
+		"Tyrannosaurus rex":      "T. rex",
+		"Escherichia coli":       "E. coli",
+		"Canis lupus familiaris": "C. l. familiaris",
+		"Dinosauria":             "", // uninomial: nothing to abbreviate
+		"T. rex":                 "", // already abbreviated
+		"":                       "",
+	} {
+		if got := abbreviateBinomial(name); got != want {
+			t.Errorf("abbreviateBinomial(%q) = %q, want %q", name, got, want)
+		}
+	}
+}

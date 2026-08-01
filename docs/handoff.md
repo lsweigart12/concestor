@@ -723,18 +723,46 @@ clades-first then tips by ascending OTT id, a notability proxy that puts
 the remainder is genuinely tail. WDQS runs at ~50 s/page, so finishing is ~3.5
 unattended hours: `uv run concestor-build vernaculars` re-fetches nothing.
 
-**The server's ranking diverges from the baked ranking on two cases**, both
-worth chasing because the corpus-side answer is already correct:
+**The two server ranking divergences are fixed**, and each turned out to be
+worse than recorded.
 
-- `animal` → *Arthropoda* from the server, but *Metazoa* from `search.py`'s own
-  measurement. Metazoa carries the vernacular "animal**s**" and 1,490,245 tips,
-  so it should win on `tip_count` within the prefix band; something is putting
-  Arthropoda in a higher band.
-- `E. coli` → *Entamoeba coli*, not *Escherichia coli*. `search_name.kind = 4`
-  is the broken-taxon column and holds all 9,839 rows, but the server reports
-  `kind: "node"` for these, so the fifth column is indexed and not wired
-  through. *Escherichia coli* and *Dinosauria* are both broken taxa, and
-  explaining that is a stated requirement, not a nicety.
+- `animal` returned *Arthropoda*, and *Metazoa* was not on the page at all —
+  it had fallen below five-tip bacteria, so this was retrieval, not ranking.
+  Two defects compounded. One: `matched_on` reports the *strongest* name that
+  matched and `matchTier` demotes exactly one thing, a deprecated synonym, and
+  those two shared a value — Metazoa matched through the synonym *Animalia*
+  and the vernacular *animals*, so reporting the synonym cost it the ranking.
+  One row was answering three questions (how well did it match, which name
+  should be reported, is any name current) and now answers them separately.
+  Two: **a plural counted only as a prefix**, one band below a whole word.
+  Vernaculars are stored plural and people type singular, so "animal" was a
+  whole word in a Wikidata alias reading "arthropod animal" and merely a
+  prefix of "animals". `samePlural` handles `s`/`es` on tokens of three
+  characters or more; anything English does irregularly (mouse, genus, larva)
+  was never reachable through this path anyway and needs a stemmer.
+
+- `E. coli` returned *Entamoeba coli*, and the cause was not that `kind = 4`
+  went unreported. It is that **those rows were leaking into the node path**.
+  A broken taxon's name is filed in `search_name` against the MRCA that
+  swallowed it, so FTS matching one returned that MRCA as an ordinary node
+  hit: searching *Dinosauria* returned a node called **Sauria**, ranked above
+  the explanation. That is the live Open Tree behaviour §3 exists to refuse,
+  reproduced exactly. `searchFTS` now skips `kind = 4` outright — those names
+  are indexed to be findable, and finding them is `searchBroken`'s job.
+
+  Separately, *Escherichia coli* had no abbreviation at all: the abbreviation
+  corpus is generated from `node`, and a broken taxon is precisely what is not
+  in there. Rather than add a row that would have to be filed against some
+  node's idx — the mistake above — the abbreviated form is computed in Go when
+  the broken table loads, so an abbreviation can only ever produce an
+  explanation. The whole-name rule holds: an abbreviated binomial typed in
+  full is a complete name, not a prefix, so it carries the same evidence that
+  the person meant that taxon.
+
+  *Escherichia coli* still ranks below *Entamoeba coli*, which is a real node
+  with an exact abbreviation match, and that is left alone deliberately —
+  §3 makes a broken taxon an explanation rather than a candidate competing
+  with real nodes, and the UI renders it as `BrokenNote` rather than a row.
 
 **Search ranking is now banded and behaves**, so this is a note rather than a
 gap: precedence runs band (exact string → exact token → prefix) → current-name

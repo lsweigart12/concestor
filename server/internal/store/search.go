@@ -56,13 +56,29 @@ type SearchResult struct {
 	NAttachmentPoints *int `json:"n_attachment_points,omitempty"`
 
 	// sort keys, not serialised
-	exact    bool
-	band     int
+	exact bool
+	band  int
+	// Whether the name matched is one the taxon still goes by. Derived from
+	// MatchedOn unless tierSet, because MatchedOn answers "which name should I
+	// report?" and this answers "is that name deprecated?" — a node can match
+	// both a synonym and a current name, and reporting the former must not cost
+	// it the latter's standing. See searchFTS.
+	tier     int
+	tierSet  bool
 	score    float64
 	rankTip  int64
 	hasMeas  bool
 	hasVern  bool
 	sortName string
+}
+
+// resultTier is the ranking tier, preferring one computed across every name a
+// node matched over one inferred from the single name picked for display.
+func resultTier(r *SearchResult) int {
+	if r.tierSet {
+		return r.tier
+	}
+	return matchTier(r.MatchedOn)
 }
 
 const (
@@ -240,7 +256,7 @@ func lessResult(a, b *SearchResult) bool {
 	// synonym is Cantharoidea — above Cantharellales, because Elateroidea has
 	// the larger subtree. A vernacular hit is *not* demoted: for a lay
 	// audience a common name is as good a way in as a scientific one.
-	if at, bt := matchTier(a.MatchedOn), matchTier(b.MatchedOn); at != bt {
+	if at, bt := resultTier(a), resultTier(b); at != bt {
 		return at < bt
 	}
 	// Nodes outrank broken taxa on a non-exact match. A broken taxon has no
@@ -495,7 +511,14 @@ func (s *Store) resultsForIdxs(ctx context.Context, idxs []int, matchedOn string
 }
 
 // nameKind maps search_name.kind onto the matched_on value the API reports.
+// There is deliberately no entry for kindBrokenName: those rows are filed
+// against a node that does not bear the name, so they never become node hits.
 var nameKind = map[int64]string{0: "name", 1: "abbreviation", 2: "synonym", 3: "vernacular"}
+
+// kindBrokenName is search_name.kind for a broken taxon's name. The row's idx
+// is the MRCA that swallowed the taxon, not the taxon — it has no idx, being
+// rejected from synthesis. `searchBroken` answers for these.
+const kindBrokenName = 4
 
 // ftsScanCap bounds the rows pulled out of the FTS index before de-duplication.
 // The index holds one row per *name* — 6.8M rows against 2.7M nodes — so a
@@ -530,6 +553,8 @@ func (s *Store) searchFTS(ctx context.Context, q string, limit int) ([]*SearchRe
 	exact := map[int]bool{}
 	// Best band across every name this node matched through.
 	bands := map[int]int{}
+	// Best *tier* across them, which is a separate question — see below.
+	tiers := map[int]int{}
 	for rows.Next() {
 		var idxVal sql.NullInt64
 		var k sql.NullInt64
@@ -544,26 +569,67 @@ func (s *Store) searchFTS(ctx context.Context, q string, limit int) ([]*SearchRe
 		if !s.Arrays.Valid(idx) {
 			continue
 		}
+		// A `kind = 4` row is a broken taxon's name filed against the *MRCA that
+		// swallowed it* — 9,839 of them, and the idx is emphatically not the
+		// taxon's, because a broken taxon is rejected from synthesis and is not
+		// a node at all. Letting one through here answers a different question
+		// than the one asked: searching "Dinosauria" returned a node called
+		// *Sauria*, ranked above the explanation, which is precisely the
+		// silent substitution `searchBroken` exists to refuse. The names belong
+		// in the index so they are findable; finding them is not this path's job.
+		if k.Valid && k.Int64 == kindBrokenName {
+			continue
+		}
 		if _, seen := kinds[idx]; !seen {
 			order = append(order, idx)
 			kinds[idx] = "" // strength 0, so any real kind wins
 			bands[idx] = bandNone
+			tiers[idx] = 1 // demoted until some current name says otherwise
 		}
+		kn := ""
 		if k.Valid {
-			if kn, ok := nameKind[k.Int64]; ok && matchStrength(kn) > matchStrength(kinds[idx]) {
-				kinds[idx] = kn
-			}
+			kn = nameKind[k.Int64]
 		}
 		// "T. rex" is an abbreviation, not a scientific name, so exactness has
 		// to be judged against whichever name actually matched. Doing it here
 		// also covers synonyms and vernaculars for free, and uses the FTS index
 		// rather than a full scan of search_name, which has no index on name.
+		band := bandNone
 		if name.Valid {
-			if b := matchBand(name.String, qFold); b < bands[idx] {
-				bands[idx] = b
-			}
+			band = matchBand(name.String, qFold)
 			if strings.EqualFold(name.String, qFold) {
 				exact[idx] = true
+			}
+		}
+
+		// One row, three questions, and they had been sharing one answer.
+		//
+		//   bands[idx] — how well did the best name match?
+		//   kinds[idx] — which name should be reported as the reason?
+		//   tiers[idx] — is any name matched one the taxon still goes by?
+		//
+		// A node matching through several names can differ on all three, and
+		// Metazoa did: it reached "animal" through the synonym *Animalia* and
+		// the vernacular *animals*. Reporting the strongest name picked the
+		// synonym, which then cost it the ranking, and it fell below five-tip
+		// bacteria and off the end of the candidate cut — searching "animal"
+		// did not return the animals at all.
+		//
+		// So the reason reported is the name that actually won the band, with
+		// strength only breaking ties. That is what makes matched_on true: the
+		// vernacular is why Metazoa is on the page, and crediting the synonym
+		// pointed at a name that lost.
+		if band < bands[idx] {
+			bands[idx] = band
+			kinds[idx] = kn
+		} else if band == bands[idx] && matchStrength(kn) > matchStrength(kinds[idx]) {
+			kinds[idx] = kn
+		}
+		// The tier is the best across every name matched, never the tier of the
+		// one picked to display.
+		if kn != "" {
+			if t := matchTier(kn); t < tiers[idx] {
+				tiers[idx] = t
 			}
 		}
 	}
@@ -582,7 +648,7 @@ func (s *Store) searchFTS(ctx context.Context, q string, limit int) ([]*SearchRe
 		if bands[a] != bands[b] {
 			return bands[a] < bands[b]
 		}
-		if ta, tb := matchTier(kinds[a]), matchTier(kinds[b]); ta != tb {
+		if ta, tb := tiers[a], tiers[b]; ta != tb {
 			return ta < tb
 		}
 		return tip[a] > tip[b]
@@ -607,6 +673,13 @@ func (s *Store) searchFTS(ctx context.Context, q string, limit int) ([]*SearchRe
 		}
 		if b, ok := bands[*r.Idx]; ok {
 			r.band = b
+		}
+		// The final ranking calls matchTier on MatchedOn, which reports the
+		// strongest name and so can say "synonym" for a node that also matched
+		// a current one. Carry the tier the candidate cut computed instead, so
+		// both stages agree.
+		if t, ok := tiers[*r.Idx]; ok {
+			r.tier, r.tierSet = t, true
 		}
 	}
 	return out, nil
@@ -761,13 +834,24 @@ func (s *Store) searchBroken(qFold string) []SearchResult {
 	var out []SearchResult
 	for i := range s.broken {
 		b := &s.broken[i]
-		if b.fold != qFold {
+		matched := "name"
+		switch {
+		case b.fold == qFold:
+		case b.foldAbbr != "" && b.foldAbbr == qFold:
+			// The whole-name rule, kept. An abbreviated binomial typed in full
+			// is a complete name and not a prefix, so it carries the same
+			// evidence that the person meant *this* taxon — which is the whole
+			// reason the rule is "the whole name" rather than "a prefix of it".
+			// Without this "E. coli" answered *Entamoeba coli* and never
+			// mentioned *Escherichia coli*, the taxon nearly everyone means.
+			matched = "abbreviation"
+		default:
 			continue
 		}
 		ott := b.OttID
 		r := SearchResult{
 			Kind: "broken", Key: b.NodeKey, OttID: &ott,
-			MatchedOn: "name", MRCAIdx: b.MRCAIdx,
+			MatchedOn: matched, MRCAIdx: b.MRCAIdx,
 			exact: true, band: bandExact, sortName: b.Name,
 		}
 		if b.Name != "" {

@@ -64,7 +64,7 @@ Left as the priority-one item. Closed: the pictures now mean something, phase 5a
 ### 2. Close the front door properly
 
 - **Finish the Wikidata P9157 crawl.** 75 of 287 pages are done, it resumes and re-fetches nothing, and it is roughly 3.5 unattended hours at WDQS's pace. Coverage is 148,515 names — 3.71% of named nodes, but **56.74% weighted by `tip_count`**, which is the number a palette experiences. The notable end is done; this finishes the tail. `oak` currently returns "Oak moss".
-- **Fix two ranking divergences in the server**, both small and both cases where the corpus already holds the right answer: `animal` returns *Arthropoda* where `search.py`'s own measurement gives *Metazoa*, and `E. coli` returns *Entamoeba coli* because `search_name.kind = 4` (broken taxa, all 9,839 rows) is indexed but not wired through to the API's `kind` field. *Escherichia coli* and *Dinosauria* are both broken taxa and explaining that is a stated requirement.
+- **The two ranking divergences are fixed**, and neither was small. `animal` was not mis-ranking *Metazoa*, it was losing it entirely — a plural counted as a prefix rather than a whole word, and a node's ranking tier was being taken from the single name picked for display. `E. coli` was not a missing `kind` field: broken-taxon rows were **leaking into the node path**, so searching *Dinosauria* returned a node called *Sauria* above the explanation, which is the live Open Tree substitution handoff §3 exists to refuse. Full account in handoff §7; every front-door word now resolves — `animal`, `dog`, `shark`, `human`, `whale`, `bird`, `spider`, `T. rex`, `Dinosauria`.
 
 ### 3. Put extinct taxa somewhere true on the axis
 

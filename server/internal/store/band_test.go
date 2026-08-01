@@ -13,7 +13,20 @@ func TestMatchBand(t *testing.T) {
 		{"Canidae", "dog", bandNone},
 		{"shark", "shark", bandExact},
 		{"Shark", "shark", bandExact},
-		{"mackerel sharks", "shark", bandPrefix},
+		// A plural is the same word. This asserted bandPrefix until the plural
+		// rule landed, which was the defect that made "animal" rank Arthropoda
+		// over Metazoa: vernaculars are stored plural and people type singular.
+		{"mackerel sharks", "shark", bandToken},
+		{"animals", "animal", bandToken},
+		{"animal", "animals", bandToken},
+		{"arthropod animal", "animal", bandToken},
+		{"dog family", "dogs", bandToken},
+		{"finches", "finch", bandToken},
+		// Still a prefix, not a plural: "bane" is not a suffix that makes one.
+		{"dogbane family", "dog", bandPrefix},
+		// Too short to pluralise safely — otherwise "go" matches "goes" as a
+		// whole word, and nothing three letters or shorter is a common name.
+		{"goes nowhere", "go", bandPrefix},
 		{"Shark catfish", "shark", bandToken},
 		{"Homo sapiens", "homo sapiens", bandExact},
 		{"Homo sapiens neanderthalensis", "homo sapiens", bandToken},

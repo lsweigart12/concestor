@@ -82,6 +82,13 @@ type BrokenTaxon struct {
 	IntrudingTaxa     json.RawMessage `json:"intruding_taxa"`
 
 	fold string // case-folded name, for search
+	// The abbreviated binomial, case-folded — "Escherichia coli" -> "e. coli".
+	// A broken taxon is not a node, so `search.py` never generated one for it:
+	// the abbreviation corpus is built from `node`, and these are exactly the
+	// taxa rejected from synthesis. Without it "E. coli" answered *Entamoeba
+	// coli* and never mentioned *Escherichia coli* at all, which is the taxon
+	// almost everyone typing it means.
+	foldAbbr string
 }
 
 // Open loads the dataset. It refuses to return a Store whose topology violates
@@ -220,6 +227,7 @@ func (s *Store) loadBroken(ctx context.Context) error {
 		b.AttachmentPoints = rawJSON(ap)
 		b.IntrudingTaxa = rawJSON(it)
 		b.fold = strings.ToLower(b.Name)
+		b.foldAbbr = strings.ToLower(abbreviateBinomial(b.Name))
 		s.brokenByID[b.OttID] = len(s.broken)
 		s.broken = append(s.broken, b)
 	}
