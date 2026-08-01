@@ -719,7 +719,15 @@ Rendering a mole for "Mammalia" is worse than rendering nothing.
 > the reader reached the node, which only the client knows: a species they chose wants
 > its group's exemplar, a divergence they arrived at wants the witness. It is refused
 > where the split is undated, where the node draws its own image, and where nothing
-> drawn inside the clade is dated near enough — 66 nodes, not 2.7M. See handoff.md §5.
+> drawn inside the clade has a fossil bracket — 548 nodes, not 2.7M. See handoff.md §5.
+>
+> **And a fork draws its witness or nothing** — never a borrow. That reverses "draw
+> everything" above for internal nodes, on a ground that rule does not address: it
+> judges a borrowed picture by the size of the clade shared with the drawing, and what
+> is wrong with a borrow beside a fork is not size but *time*. Caniformia's 57 Ma split
+> drew Procyonidae, 469 species and comfortably inside the threshold, and raccoons
+> postdate that fork by 25 Ma. Most forks therefore now carry no picture, which is the
+> honest answer rather than a gap.
 
 They belong at the upper tiers of semantic zoom — a silhouette *is* the "full detail
 card" tier for a clade, and arguably earns a place at the label tier for well-known ones.

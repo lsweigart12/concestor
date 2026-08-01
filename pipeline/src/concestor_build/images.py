@@ -180,21 +180,26 @@ MIN_INFORMATIVE_INTERNAL = 0.75
 # against the depth of the thing: 2 Ma is nothing at the whale–hippo split and
 # most of the story at the human–chimp one.
 #
-# Like INFORMATIVE_CLADE_TIPS above this is a product judgement, not a number
-# the data hands over — the gap distribution is smooth, with a median of 0.502.
-# It is set where the picks stop being about the split. Measured on the built
+# **Currently uncapped, deliberately.** The knob shipped at 0.25 and the tree
+# was too bare to be worth looking at, because refusing a witness does not fall
+# back to anything — a fork draws the witness or nothing. Measured on the built
 # corpus, witnesses admitted at each cap:
 #
-#   0.20 -> 53   0.25 -> 66   0.33 -> 87   0.50 -> 114
+#   0.20 -> 53   0.25 -> 66   0.33 -> 87   0.50 -> 114   1.00 -> 225   inf -> 229
 #
-# and what the last two admit is the argument. At 0.33 Tetrapoda (360 Ma) takes
-# Ctenosauriscidae, a Triassic archosaur 110 Ma too late, and a 777 Ma node
-# takes Cambrian Hallucigenia. At 0.50 Metazoa (785 Ma) takes Hallucigenia too
-# and Aves (96 Ma) takes a Paleocene penguin. Those are not witnesses to
-# anything; they are the nearest fossil, which is a different claim. Dropping
-# to 0.20 costs Bilateria, Amniota, Boreoeutheria and Haplorrhini, all of which
-# read correctly, so 0.25 is where the rule discriminates.
-NEAR_FRACTION = 0.25
+# and with the layout fallback below, 548. The distribution is smooth — median
+# gap is 50% of the split's age, p90 is 100% — so no threshold sits at a
+# natural break, which is what makes this a preference rather than a finding.
+#
+# Uncapped, the ranking still does the work: every fork takes the *nearest*
+# drawn fossil inside it, and the two facts a reader needs to judge it — the
+# taxon's own range and the fork's age — render together wherever the picture
+# does. What is lost is the refusal, so a fork can now take something far too
+# young: Feliformia (47 Ma) draws a mongoose known only from the last 5 Ma.
+# That is visible on the card rather than hidden, which is the trade.
+#
+# To dial back, set this to a fraction. Nothing else has to change.
+NEAR_FRACTION = float("inf")
 
 NO_IMAGE = -1
 
@@ -969,6 +974,7 @@ def divergence_witnesses(
     oldest: F64Array,
     youngest: F64Array,
     near_fraction: float = NEAR_FRACTION,
+    age_layout: F32Array | None = None,
 ) -> Witness:
     """For each internal node, the drawn taxon that was there when it split.
 
@@ -984,8 +990,17 @@ def divergence_witnesses(
     fossil bracket — 398 nodes, against 7,470 drawn and 2,133 with a bracket.
     It offers itself to every ancestor and the ancestor keeps the best offer:
 
-    - Reject unless the ancestor's `age_ma` is finite. A `structural` node has
-      no dated split, so there is nothing for a fossil to be near.
+    - Reject unless the ancestor has a position in time. `age_ma` first; where
+      it is NaN — a `structural` node, which nobody has dated — fall back to
+      `age_layout`, which is finite everywhere. **That fallback is a departure
+      and is worth understanding.** `age_ma` is what may be *shown* and
+      `age_layout` is only where to *draw*, and the project's standing rule is
+      that a structural node never carries a number. It still does not: the
+      layout age is used to choose a picture and is never rendered as an age.
+      Since the fork is already drawn at that position, picking the fossil
+      nearest to where the reader sees it is the consistent choice rather than
+      a new claim — and the card says outright that the fork is undated. It
+      unlocks 319 of the 548 witnesses, Carnivora → *Vulpavus* among them.
     - Reject if the ancestor carries its own image. Exactness wins everywhere
       else in this phase and there is no reason for it to stop here; Mammalia
       stays Mammalia rather than becoming a Cretaceous monotreme.
@@ -1010,6 +1025,11 @@ def divergence_witnesses(
 
     par = parent.astype(np.int64)
     age = age_ma.astype(np.float64)
+    if age_layout is not None:
+        # Where nobody has estimated a split, use where it is drawn. Never the
+        # other way round: a finite `age_ma` always wins, so this only ever
+        # reaches nodes that would otherwise have had no witness at all.
+        age = np.where(np.isfinite(age), age, age_layout.astype(np.float64))
     seeded: BoolArray = seed != NO_IMAGE
     candidates = np.flatnonzero(seeded & np.isfinite(oldest) & np.isfinite(youngest))
 
@@ -1608,6 +1628,7 @@ def witness_gates(
     tip_count: U32Array,
     seed: I64Array,
     oldest: F64Array,
+    age_ma: F32Array,
 ) -> None:
     """Count the witnesses, then check the two everyone will look at.
 
@@ -1631,6 +1652,8 @@ def witness_gates(
             "PhyloPic has that PBDB also dates, not the resolution rule."
         ),
     )
+    undated = int((found & ~np.isfinite(age_ma.astype(np.float64))).sum())
+    cap = "uncapped" if not np.isfinite(NEAR_FRACTION) else f"{NEAR_FRACTION:.0%}"
     g.require(
         "nodes given a divergence witness",
         f"{n:,}",
@@ -1638,8 +1661,22 @@ def witness_gates(
         ok=n > 0,
         note=(
             f"{spans:,} where the taxon's observed range spans the split "
-            f"outright; the rest sit within {NEAR_FRACTION:.0%} of its age. "
+            f"outright; the rest are the nearest available, gap {cap}. "
             "Zero means phase 4 has not run, or that no drawn taxon is dated."
+        ),
+    )
+    # Not a failure — it is the fallback working — but it is the number that
+    # says how much of this layer rests on a position rather than an estimate,
+    # and the UI is obliged to caption every one of them as undated.
+    g.observe(
+        "witnesses chosen against a fork nobody has dated",
+        f"{undated:,} of {n:,} ({undated / max(n, 1):.0%})",
+        note=(
+            "`age_ma` is NaN on these, so the split was matched against "
+            "`age_layout` — where the fork is drawn, not an estimate of when "
+            "it happened. No number is shown for them anywhere; the card says "
+            "the fork is undated. Without this fallback Carnivora, Canidae, "
+            "Primates and Rodentia have no witness at all."
         ),
     )
 
@@ -1829,9 +1866,17 @@ def run(budget: int = 0, mirror_only: bool = False, log: Log = _log) -> int:
         # dated split there is nothing for a fossil to be near, so the witness
         # table is simply absent and every consumer falls back to `node_image`.
         ages = TOPO_OUT / "age_ma.npy"
+        layout = TOPO_OUT / "age_layout.npy"
         if ages.exists():
             witness = divergence_witnesses(
-                parent, depth, tip_count, np.load(ages), seed, oldest, youngest
+                parent,
+                depth,
+                tip_count,
+                np.load(ages),
+                seed,
+                oldest,
+                youngest,
+                age_layout=np.load(layout) if layout.exists() else None,
             )
         log(f"  propagated in {time.monotonic() - t0:,.1f}s")
 
@@ -1892,7 +1937,9 @@ def run(budget: int = 0, mirror_only: bool = False, log: Log = _log) -> int:
             )
         else:
             con = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
-            witness_gates(g, witness, con, parent, tip_count, seed, oldest)
+            witness_gates(
+                g, witness, con, parent, tip_count, seed, oldest, np.load(ages)
+            )
             con.close()
         write_arrays(records, assign, witness)
 

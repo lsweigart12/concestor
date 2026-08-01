@@ -60,7 +60,7 @@ our own; **no dagre, no ELK, no d3-hierarchy**, because a graph-layout engine
 assigns `x` by depth and here `x` is time.
 
 ```bash
-cd web && npm install && npm run build && npm test   # 135 tests
+cd web && npm install && npm run build && npm test   # 140 tests
 cd server && go test ./... && go run . -build ../build
 ```
 
@@ -260,13 +260,29 @@ always a crown group that did not exist yet. `node_divergence_image` answers
 "what was alive when these lineages parted": a **witness**, a drawn taxon inside
 the clade whose PBDB bracket sits at the split. *Sahelanthropus* at the
 human–chimp divergence, *Basilosaurus* at whale–hippo, *Hallucigenia* at
-Bilateria. 66 nodes, because a candidate needs both a PhyloPic drawing and a
-fossil bracket and only 398 nodes have both. Which of the two to draw depends on
-how the reader reached the node, so **only the client can decide it** — a leaf of
-the induced subtree is a species they chose and keeps its exemplar. It is
-refused where `age_ma` is NaN, where the node has its own image, and beyond
-`NEAR_FRACTION` of the split's age. A witness never renders without its fossil
-range beside it.
+Bilateria. **548 nodes**, and the ceiling is the corpus: a candidate needs both a
+PhyloPic drawing and a PBDB bracket, and only 398 taxa have both. It is refused
+where the node has its own image and where nothing drawn inside the clade has a
+bracket at all — nothing else. `NEAR_FRACTION` caps how far a fossil may sit
+from the split and **currently caps nothing**: at 0.25 it gave 66 nodes and the
+canvas was too bare to read, and refusing a witness falls back to no picture
+rather than to a worse one. Where `age_ma` is NaN the match is made against
+`age_layout` instead — 319 of the 548, Carnivora → *Vulpavus* among them. That
+is a deliberate departure and it holds only because the layout age is used to
+*choose* and never to display: those forks still show no number, and both the
+tooltip and the card say the split is undated. A witness never renders without
+its own fossil range beside it.
+
+Which of the two to draw depends on how the reader reached the node, so **only
+the client can decide it**, and `web/src/canvas/witness.ts` is where that
+happens. A leaf of the induced subtree is a clade they *chose* and keeps its
+exemplar; **a divergence draws its witness, or its own picture, or nothing.**
+What it may never draw is a *borrow* — `node_image`'s closest drawn relative,
+which is nearly always a living group younger than the fork. Caniformia's 57 Ma
+split drew Procyonidae, raccoons, with nothing on screen saying they postdate it
+by 25 million years. A node's own drawing is exempt because it was never a
+borrow: Cetacea at Cetacea is what a silhouette is for. Select Caniformia
+itself and the raccoon comes back, correctly.
 
 `concestor-build package` gates the artifact set as a whole and writes
 `build/manifest.json`, which `/v1/about` serves. It refuses to package while any

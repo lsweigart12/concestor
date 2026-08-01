@@ -310,8 +310,9 @@ func (s *Schema) resolveNodeImage() {
 // the most inclusive drawing beneath a node, which at a split is always a crown
 // group — the human–chimp split drew Homo, the whale–hippo split drew a
 // dolphin. This says what was there when the lineages parted, and it exists for
-// 66 nodes rather than 2.7M because it is refused wherever the split is undated
-// or no drawn taxon in the clade has a fossil bracket near it.
+// 548 nodes rather than 2.7M because it is refused wherever the node has no
+// position in time at all, or no drawn taxon inside the clade has a fossil
+// bracket.
 //
 // There is no clade column: a witness is always strictly inside the node's own
 // clade, so the node is what the picture speaks for. GapMa is the distance from

@@ -19,6 +19,7 @@ import {
   type Witness,
 } from "../api";
 import { witnessTitle } from "./NodeMark";
+import { mayDrawExemplar, witnessOn } from "./witness";
 
 /** The human–chimp split as the server sends it. */
 function split(over: Partial<PathNode> = {}): PathNode {
@@ -89,6 +90,75 @@ describe("witnessFor", () => {
   });
 });
 
+describe("which picture a node may draw", () => {
+  it("gives a chosen clade its exemplar and no witness", () => {
+    const p = { node: split(), isLeaf: true };
+    expect(witnessOn(p)).toBeNull();
+    expect(mayDrawExemplar(p)).toBe(true);
+  });
+
+  it("gives a divergence its witness and never the exemplar", () => {
+    const p = { node: split(), isLeaf: false };
+    expect(witnessOn(p)?.name).toBe("Sahelanthropus");
+    expect(mayDrawExemplar(p)).toBe(false);
+  });
+
+  it("lets a fork draw its own picture, which was never a borrow", () => {
+    // Cetacea has its own drawing. The objection to an exemplar at a fork is
+    // that it is somebody else's portrait — a living relative younger than the
+    // fork — and that does not apply to a picture of the node itself. Without
+    // this, Cetacea, Felidae and Homo all went blank as divergences.
+    const node = split({
+      name: "Cetacea",
+      idx: 596279,
+      silhouette_source_idx: 596279,
+      divergence_phylopic_id: null,
+      divergence_range: null,
+    });
+    expect(mayDrawExemplar({ node, isLeaf: false })).toBe(true);
+  });
+
+  it("draws nothing at a divergence with no witness", () => {
+    // Caniformia. The split is 57 Ma and the oldest drawn-and-dated taxon
+    // inside it is Archaeocyon at 31.8 Ma, so no witness survives the cap —
+    // and the borrow that used to fill the gap was Procyonidae, a family of
+    // living raccoons standing in for a 57 Ma fork. An empty slot withholds
+    // where that misinformed, so both rules must refuse.
+    const p = {
+      node: split({
+        name: "Caniformia",
+        idx: 599796,
+        age_ma: 57,
+        tier: TIER_MEASURED,
+        phylopic_id: "procyonidae-uuid",
+        // The borrow: Procyonidae, a different node entirely.
+        silhouette_source_idx: 600200,
+        divergence_phylopic_id: null,
+        divergence_range: null,
+      }),
+      isLeaf: false,
+    };
+    expect(witnessOn(p)).toBeNull();
+    expect(mayDrawExemplar(p)).toBe(false);
+  });
+
+  it("still lets a clade someone searched for draw its own group", () => {
+    // Selecting Caniformia directly is asking what caniforms look like, and
+    // the raccoon is a fair answer to that question. Same node, same data,
+    // opposite verdict — the difference is only how the reader got here.
+    const p = {
+      node: split({
+        name: "Caniformia",
+        idx: 599796,
+        phylopic_id: "procyonidae-uuid",
+        silhouette_source_idx: 600200,
+      }),
+      isLeaf: true,
+    };
+    expect(mayDrawExemplar(p)).toBe(true);
+  });
+});
+
 describe("witnessTitle", () => {
   const sahelanthropus: Witness = {
     phylopicId: "sahel-uuid",
@@ -116,12 +186,15 @@ describe("witnessTitle", () => {
     expect(t).not.toContain("so it was around when");
   });
 
-  it("says nothing about a split nobody has dated", () => {
-    // A structural node carries no age, and inventing one to compare against
-    // is the exact thing the tier exists to prevent. The pipeline refuses to
-    // write a witness for one; this is the belt to that brace.
+  it("says outright that an undated fork was matched by position", () => {
+    // Most witnesses now sit on a fork nobody has dated — the rule falls back
+    // to where the fork is *drawn*, which is what makes Carnivora draw
+    // Vulpavus rather than nothing. Claiming proximity "to when these lineages
+    // parted" there would imply we know when that was.
     const t = witnessTitle(sahelanthropus, null, TIER_STRUCTURAL);
     expect(t).not.toContain("this split is dated");
+    expect(t).toContain("Nobody has dated this split");
+    expect(t).toContain("where it sits on the axis");
     expect(t).toContain("7.2–5.3 Ma");
   });
 });

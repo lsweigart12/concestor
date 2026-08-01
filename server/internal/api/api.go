@@ -179,8 +179,10 @@ type Entry struct {
 
 	// The divergence witness: a second silhouette for an internal node, of a
 	// drawn taxon inside the clade whose fossil record puts it at this node's
-	// split. Present on 66 nodes, and never on a node that carries its own
-	// image or whose split is undated.
+	// split. Present on 548 nodes, and never on a node that carries its own
+	// image. Where the fork itself is undated the match was made against where
+	// it is *drawn* — 319 of the 548 — so a client must not caption those as a
+	// date. Tier says which: age_ma is null on exactly those nodes.
 	//
 	// A client must not draw it *instead of* PhylopicID everywhere. The two
 	// answer different questions and which one applies depends on how the

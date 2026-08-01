@@ -114,7 +114,7 @@ product is broken at its front door, not merely incomplete.
 | 2 — dates | **ACCEPTED and implemented**, 32/32 gates. Tiers are baked (§3) |
 | 3 — resolution | built — `resolve.py`, `xref` populated |
 | 4 — fossils | built — `fossils.py`, `fossil` table populated |
-| 5a — images | built — `images.py`, **32/32 gates**. Coverage is 100% and says nothing; the gate is the size of the clade a picture speaks for. Divergences carry a second silhouette, the fossil witness (§5) |
+| 5a — images | built — `images.py`, **33/33 gates**. Coverage is 100% and says nothing; the gate is the size of the clade a picture speaks for. Divergences carry a second silhouette, the fossil witness (§5) |
 | 5b — timescale | built — `timescale.py`, 26/26 gates, `build/timescale.json` |
 | 6 — vernaculars | built — `vernaculars.py` + `search.py`, `node_fts` live |
 | walking-skeleton renderer | done, throwaway, superseded |
@@ -170,7 +170,7 @@ symptom is quietly stale answers.
 
 ```bash
 cd web && npm install && npm run build   # the server picks up web/dist
-npm test                                 # 135 tests
+npm test                                 # 140 tests
 ```
 
 The client owns the topology after first paint (architecture §4): it fetches
@@ -709,9 +709,31 @@ it cannot deliver.
   answer applies depends on how the reader reached the node — a species they
   picked wants its group's exemplar, a divergence they arrived at wants the
   witness — and the pipeline cannot know that. The client decides on the
-  induced subtree's own leaf/internal distinction. Merging them would force the
-  choice at build time with the information missing, which is the same mistake
-  as merging `age_ma` with `age_layout`.
+  induced subtree's own leaf/internal distinction, in
+  `web/src/canvas/witness.ts`. Merging them would force the choice at build
+  time with the information missing, which is the same mistake as merging
+  `age_ma` with `age_layout`.
+
+  **A divergence draws its witness, its own picture, or nothing.** What it may
+  never draw is a *borrow*. This reverses `SILHOUETTE_POLICY`'s "draw
+  everything" for internal nodes, for a reason that policy does not cover: it
+  judges a borrow by the *size* of the clade shared with the drawing, and what
+  is wrong with a borrow at a fork is not size but **time**. Caniformia's split
+  is dated 57 Ma and it drew Procyonidae — 469 species, well inside the
+  threshold, and a family of living raccoons standing beside a fork that
+  predates them by 25 Ma. The caption said "the closest relative anyone has
+  drawn", which is true and warns nobody. A node's *own* drawing is exempt,
+  because it was never a borrow; without that exemption Cetacea, Felidae and
+  Homo went blank as forks, which is the rule failing rather than withholding.
+
+  Caniformia is the case that shows the coverage limit honestly, and it is why
+  both knobs came off. Its oldest drawn *and* dated member is *Archaeocyon* at
+  31.8 Ma — 44% adrift of the 57 Ma split — and the stem carnivorans that would
+  have fitted, *Vulpavus* at 56–45.9 Ma, sit inside Carnivora but **outside**
+  Caniformia, so they are not candidates for it. Carnivora itself was
+  `structural` and so had no split to witness at all. Uncapped and with the
+  layout fallback, Caniformia draws *Archaeocyon* and Carnivora draws
+  *Vulpavus*, both with their ranges on screen so the stretch is visible.
 
   Three refusals do the work, and they are why this fires on **66** nodes:
 
@@ -724,11 +746,32 @@ it cannot deliver.
   - **Exactness still wins.** A node with its own image keeps it and gets no
     witness, so Mammalia is Mammalia and not a Cretaceous monotreme.
 
-  `NEAR_FRACTION = 0.25` is the one judgement, stated in `images.py` with the
-  measurements: 0.20 → 53 nodes, 0.25 → 66, 0.33 → 87, 0.50 → 114. It is set
-  where the picks stop being about the split — at 0.33 Tetrapoda (360 Ma) takes
-  a Triassic archosaur 110 Ma too late, at 0.50 Metazoa (785 Ma) takes Cambrian
-  *Hallucigenia*. **Reading `fea` is safe here** where phase 4 forbids it for
+  **`NEAR_FRACTION` is uncapped, and that is the second decision.** It shipped
+  at 0.25 and gave 66 witnesses, which left the canvas too bare to be worth
+  looking at — and the cap bought nothing, because a refused witness falls back
+  to *no picture*, not to a worse one. Measured: 0.20 → 53, 0.25 → 66, 0.33 →
+  87, 0.50 → 114, 1.00 → 225, uncapped → 229, and 548 with the layout fallback
+  below. The gap distribution is smooth — median 50% of the split's age, p90
+  100% — so no threshold sits at a natural break, which is what makes this a
+  preference rather than a finding. Uncapped, the ranking still does the work
+  (nearest first) and both figures render together, so a poor match is visible
+  rather than hidden: Feliformia at 47 Ma draws a mongoose known only from the
+  last 5 Ma. Dial it back by setting the constant; nothing else changes.
+
+  **The layout fallback is the third, and the one to think hardest about.**
+  Where `age_ma` is NaN — a `structural` fork, which nobody has dated — the
+  match is made against `age_layout` instead. That unlocks 319 of the 548,
+  including Carnivora → *Vulpavus*, Canidae → *Archaeocyon*, Primates →
+  Notharctidae and Rodentia → *Paramys*, all of which had nothing before. It
+  does not breach the standing rule that a structural node never carries a
+  number: the layout age is used to **choose** a picture and is never rendered
+  as an age. The fork is already drawn at that position, so picking the fossil
+  nearest to where the reader sees it is the consistent choice rather than a
+  new claim — and both the tooltip and the card say outright that the split is
+  undated and the pairing is by position. A gate reports the 319 so the share
+  resting on a position rather than an estimate stays visible.
+
+  **Reading `fea` is safe here** where phase 4 forbids it for
   layout: this is a containment test on `[lla, fea]`, never a position. What a
   junk-wide bracket costs is the tie-break, which prefers the narrower one —
   that is what puts *Sahelanthropus* (7.2–5.3) ahead of *Ardipithecus*

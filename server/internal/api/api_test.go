@@ -714,21 +714,35 @@ func TestDivergenceWitnessReachesTheClient(t *testing.T) {
 		t.Fatal("no node on the Homo sapiens path carried a divergence witness")
 	}
 
-	// The named case, found by position rather than by a baked index: the
-	// deepest witnessed node on the human lineage is the last split before
-	// Homo, which is the split from Pan. The pipeline gates the same fact
-	// against the arrays; this gates it over HTTP.
-	var deepest Entry
-	for _, e := range path.Path {
-		if e.DivergencePhylopicID != nil {
-			deepest = e
+	// The named case, resolved the way the app resolves it — the last common
+	// entry of two ancestor paths — rather than by a baked index or by
+	// "deepest witnessed", which stopped being the Homo/Pan split once the cap
+	// came off and witnesses appeared below it. The pipeline gates the same
+	// fact against the arrays; this gates it over HTTP.
+	var homo, pan struct {
+		Path []Entry `json:"path"`
+	}
+	getJSON(t, ts, "/v1/path/ott770309", &homo)
+	getJSON(t, ts, "/v1/path/ott417957", &pan)
+	onPan := map[int]bool{}
+	for _, e := range pan.Path {
+		onPan[e.Idx] = true
+	}
+	var split Entry
+	for _, e := range homo.Path {
+		if onPan[e.Idx] {
+			split = e
 		}
 	}
-	if deepest.DivergenceSourceName == nil ||
-		*deepest.DivergenceSourceName != "Sahelanthropus" {
-		t.Errorf("the human–chimp split is witnessed by %v, want Sahelanthropus",
-			deepest.DivergenceSourceName)
+	if split.Key == "" {
+		t.Fatal("Homo and Pan share no ancestor; the paths are wrong")
 	}
+	if split.DivergenceSourceName == nil ||
+		*split.DivergenceSourceName != "Sahelanthropus" {
+		t.Errorf("the human–chimp split (idx %d) is witnessed by %v, want Sahelanthropus",
+			split.Idx, split.DivergenceSourceName)
+	}
+	deepest := split
 	// And it did not take the ordinary image away: that still answers the other
 	// question, and only the client knows which one a given node needs.
 	var node Entry

@@ -312,9 +312,16 @@ def brackets(*pairs: tuple[int, float, float]):
     return oldest, youngest
 
 
-def witness_for(topo, seed, age, occ, near_fraction=images.NEAR_FRACTION):
+def witness_for(topo, seed, age, occ, near_fraction=images.NEAR_FRACTION, layout=None):
     return images.divergence_witnesses(
-        PARENT, topo.depth, TIP_COUNT, age, seed, *occ, near_fraction=near_fraction
+        PARENT,
+        topo.depth,
+        TIP_COUNT,
+        age,
+        seed,
+        *occ,
+        near_fraction=near_fraction,
+        age_layout=layout,
     )
 
 
@@ -337,10 +344,28 @@ def test_the_witness_is_not_the_exemplar(topo):
     assert w.gap[1] == 0.0  # the bracket spans the split outright
 
 
-def test_a_split_nobody_has_dated_gets_no_witness(topo):
-    """`structural` nodes carry no age, so there is nothing to be near."""
-    w = witness_for(topo, make_seed([(3, 10)]), ages(), brackets((3, 12.0, 8.0)))
-    assert w.source.tolist() == [NO_IMAGE] * PARENT.size
+def test_a_split_nobody_has_dated_falls_back_to_where_it_is_drawn(topo):
+    """A `structural` fork has no estimated age, but it still has a position.
+
+    Without this, Carnivora, Canidae, Primates and Rodentia have no witness at
+    all — every one of them is undated, and they are exactly the forks a reader
+    goes looking for. The layout age is used to *choose* and never to display;
+    no number reaches the screen for these, and the card says the fork is
+    undated. See the note in `divergence_witnesses`.
+    """
+    seed, occ = make_seed([(3, 10)]), brackets((3, 12.0, 8.0))
+    assert witness_for(topo, seed, ages(), occ).source[1] == NO_IMAGE
+    assert witness_for(topo, seed, ages(), occ, layout=ages(n1=10.0)).source[1] == 3
+
+
+def test_an_estimated_age_always_beats_the_drawn_position(topo):
+    """The fallback only ever reaches nodes that would have had nothing."""
+    seed = make_seed([(3, 10), (4, 11)])
+    occ = brackets((3, 12.0, 8.0), (4, 40.0, 36.0))
+    # age_ma says 10 and the layout says 38. If the layout won, A would take
+    # the far fossil; the real age must decide.
+    w = witness_for(topo, seed, ages(n1=10.0), occ, layout=ages(n1=38.0))
+    assert w.source[1] == 3
 
 
 def test_a_node_with_its_own_image_keeps_it(topo):
@@ -350,11 +375,30 @@ def test_a_node_with_its_own_image_keeps_it(topo):
     assert w.source[1] == NO_IMAGE
 
 
-def test_a_fossil_too_far_from_the_split_is_refused(topo):
-    """The cap is a fraction of the split's own age, not a fixed span."""
+def test_the_cap_is_a_fraction_of_the_split_age_not_a_fixed_span(topo):
+    """The mechanism, exercised explicitly because the shipped cap is off.
+
+    At 0.25 a fossil 8 Ma from a 20 Ma fork is refused and the same fossil is
+    admitted at 0.5. Nothing in the ranking changes when the cap moves, so
+    dialling `NEAR_FRACTION` back is a one-line change with no other edits.
+    """
     seed, occ = make_seed([(3, 10)]), brackets((3, 12.0, 8.0))
-    assert witness_for(topo, seed, ages(n1=20.0), occ).source[1] == NO_IMAGE
+    assert witness_for(topo, seed, ages(n1=20.0), occ, 0.25).source[1] == NO_IMAGE
     assert witness_for(topo, seed, ages(n1=20.0), occ, 0.5).source[1] == 3
+
+
+def test_the_shipped_rule_refuses_nothing_on_distance(topo):
+    """Uncapped by default: a fork takes the nearest fossil however far it is.
+
+    A refused witness does not fall back to anything — the fork simply draws
+    no picture — so the cap traded coverage for nothing a reader could see.
+    The dates render beside the drawing either way, which is what lets the
+    reader judge a poor match instead of being protected from it.
+    """
+    seed, occ = make_seed([(3, 10)]), brackets((3, 2.0, 1.0))
+    w = witness_for(topo, seed, ages(n1=500.0), occ)
+    assert w.source[1] == 3
+    assert w.gap[1] == 498.0
 
 
 def test_the_narrower_bracket_wins_the_tie(topo):
