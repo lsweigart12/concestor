@@ -9,7 +9,9 @@ phases to a working product.
 
 ---
 
-You are taking over as the owner of **concestor** (`/Users/lukesweigart/Projects/concestor`, working on `main`), and running it to completion. I am away and will not be available to answer questions for a while, so proceed autonomously and queue anything that genuinely needs me rather than blocking on it.
+You are taking over as the owner of **concestor** (`/Users/lukesweigart/Projects/concestor`, working on `main`), and running it to completion.
+
+**You hold every decision this project needs.** There is no one to escalate to and nothing is waiting on an absent principal. Where these documents once said "confirm this before proceeding", they now say what was decided and why — every such question has been closed, and the closures are marked. If you hit a genuine fork the docs do not cover, decide it on the principles below, write the reasoning where the next owner will find it, and keep moving. A decision recorded with its evidence is always worth more than a decision deferred.
 
 Concestor is an interactive tree-of-life visualiser: pick species, see the minimal subtree connecting them through their common ancestors, drill into the fossil record along any branch, laid out against deep time.
 
@@ -71,7 +73,7 @@ I do not know how often a real selection actually displays a picture. Neither do
 The work splits cleanly and the halves have very different risk:
 
 - **Bounding `age_layout` by the fossil record is the safe half** and it is where the visible payoff is. Nothing gains a number; `age_ma` is not touched. Note the ordering trap — the layout is written in phase 2, four phases before the `fossil` table exists, so this is a new pass in phase 4 and not an edit to `layout_ages`. ingest.md phase 4 step 6 has the shape and the gate.
-- **Whether a fossil-derived age becomes a fourth tier is a call for you, not for whoever picks this up.** It is what would make *Homo erectus* stop saying "not estimated". It must render as a range and never a point, and it must not be folded into `measured` or `interpolated` — a stratigraphic range is an observation of occurrence, not an estimate of divergence, and merging them is precisely the failure `age_tier` exists to prevent. It touches the arrays, the server, `/v1` and the legend.
+- **A fossil-derived range becomes a fourth tier, `occurrence`. Decided — build it.** It is what makes *Homo erectus* stop saying "not estimated". The reasoning is that refusing to show a sourced observation is not honesty; it is the app implying nothing is known about dinosaurs to an audience that came to ask about dinosaurs. The honesty rule was always "never a confident divergence figure where nobody estimated one", and an observed stratigraphic range is a different, weaker, fully sourced claim. Four constraints are not negotiable: it never enters `age_ma`; it renders as a **range and never a point** (no midpoint, ever); it is labelled as fossil occurrences rather than as an age; and it uses exact attachments only. Shape in ingest.md phase 4, evidence in handoff.md §7.
 
 **The trap in both:** `fea` is frequently junk-wide. *Homo erectus* carries `fea = 5.333` — the base of the Zanclean — off a single badly-dated occurrence, against a true first appearance near 2 Ma. Trust the `lea`/`lla` end, and set an occurrence-count floor or an outlier rule *before* either half, not after. Get this wrong and the product trades a missing number for a confident wrong one, which is the trade this whole design exists to refuse.
 
@@ -102,9 +104,9 @@ Everything settled in the previous brief still holds, and is now implemented rat
 
 ## The risk nobody has touched
 
-**No curious non-specialist has ever opened this.** Every judgement call so far, mine included, was made by reading the design documents very carefully. Before committing to another large build, put it in front of two or three actual people from the audience it is for and watch what they type into the palette. Their second and third guesses are the real test of vernacular coverage, and no percentage substitutes for it.
+**No curious non-specialist has ever opened this.** Every judgement call so far was made by reading the design documents very carefully, which is not the same thing as watching someone use the product. This is yours to close, and it does not need anyone's permission: recruit two or three people from the audience it is for, watch what they type into the palette, and record what they typed. Their second and third guesses are the real test of vernacular coverage, and no percentage substitutes for it. If you genuinely cannot get people in front of it, say so in `handoff.md` §7 and treat every coverage number in this document as unvalidated — do not quietly let the gap stay invisible.
 
-Related: **get a critical design pass from someone other than the person who wrote the UI.** It implements `design-reference.md` faithfully — phosphor persistence, the MRCA flare at `t=80`, orthogonal traces, semantic zoom, dash-not-luminance for provenance. Whether it actually *reads* that way on screen is a different question, and its author is the wrong person to answer it.
+Related: **get a critical design pass from someone other than whoever wrote the UI.** It implements `design-reference.md` faithfully — phosphor persistence, the MRCA flare at `t=80`, orthogonal traces, semantic zoom, dash-not-luminance for provenance. Whether it actually *reads* that way on screen is a different question, and its author is the wrong person to answer it. A fresh agent instance with no memory of building it is an acceptable substitute; the author re-reading their own work is not.
 
 ## The culture of this codebase, which matters more than the schedule
 

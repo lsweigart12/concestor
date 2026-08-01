@@ -279,6 +279,14 @@ earlier ones.
      `fea = 5.333`, the base of the Zanclean, off one badly-dated occurrence against a
      true first appearance near 2 Ma. An occurrence-count floor or an outlier rule is a
      prerequisite, not a refinement.
+7. **Not built: emit the `occurrence` age tier.** Decided; see handoff.md §7. Same
+   brackets, same exact-attach rule, but this one is *displayed* rather than only drawn,
+   so it carries the constraints that make it safe: the interval goes in **its own
+   array**, never `age_ma`; it renders as a **range and never a point** — no midpoint, no
+   "≈", nothing that could be read as an estimate; and the label says fossil occurrences,
+   not age. Tier value 3, alongside the three in `dates.py`. `/v1` and the legend gain a
+   case. This is the step that makes *Homo erectus* and *T. rex* stop reading "not
+   estimated", which is the reason the fourth tier exists at all.
 
 ### Gates
 

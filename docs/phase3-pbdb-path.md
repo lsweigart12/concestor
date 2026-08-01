@@ -307,14 +307,20 @@ record.
 - **ingest.md phase 0** says GBIF's offset cap is why the checklist export is
   hard. True of a bulk export, irrelevant to a point lookup (§5).
 
-## 9. Open question for a human
+## 9. The crawl budget. Settled by outcome.
 
-The crawl is ~73 hours of politely-paced requests against a service that has no
-rate limit *because nobody implemented one*, and it is the same academic-scale
-infrastructure data-sources.md warns about for Open Tree. Prioritised to 50k it
-is ~7 hours, and the tail beyond that buys taxa with fewer than ~10 occurrences
-each.
+This section used to ask for a decision before phase 3 started. Phase 3 ran, so
+the question is answered by what happened rather than by argument.
 
-**Confirm the crawl budget before phase 3 starts: full 523k, or the prioritised
-50k with the tail deferred?** The recommendation is 50k first, measure, then
-decide — but it should be a decision, not a default.
+**The prioritised `n_occs`-ordered crawl at a budget of 25,000 is the settled
+answer.** It is what ran — `build/reconciliation.json` records `budget: 25000`,
+25,950 checkpointed records, 0 regressions and 0 new ambiguities — and phase 3
+passed its gates on it. The full 523k crawl is ~73 hours of politely-paced
+requests against a service that has no rate limit *because nobody implemented
+one*, which is the same academic-scale infrastructure data-sources.md warns
+about for Open Tree. The tail beyond the budget buys taxa with fewer than ~10
+occurrences each.
+
+**Do not run the exhaustive crawl.** Raise the budget only if a coverage gate
+goes red and the shortfall is traced to crawl depth specifically — and if it
+does, raise it in increments and measure, rather than reaching for 523k.

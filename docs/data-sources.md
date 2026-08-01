@@ -38,9 +38,11 @@ every step introducing silent failure modes. It is now a fallback, not a require
 
 Caveat carried from research: bioRxiv blocks automated fetching, so the preprint
 internals came from Zenodo, Europe PMC, and GitHub metadata rather than a direct read.
-There is an unresolved source-tree count discrepancy (280 vs 334). **Download the
-Zenodo tree and validate it against v16.1 yourself before committing** — see the
-ingest plan, phase 2.
+There is an unresolved source-tree count discrepancy (280 vs 334). **Phase 2 did the
+validation this paragraph used to ask for, and the discrepancy is not load-bearing**: it
+concerns which published chronograms fed the authors' date harvest, not whether their
+tree joins to ours, and the join measured 99.93% with no forward-chasing needed. Settled
+in [phase2-decision.md](phase2-decision.md); nothing here needs re-checking.
 
 ### 2. TimeTree cannot be shipped
 

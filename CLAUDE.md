@@ -168,10 +168,16 @@ All detailed in `docs/data-sources.md`:
 
 **All six phases are implemented, the server is built, and the UI works end to
 end.** `docs/handoff.md` §2 has the table and §7 the honest list of what is
-thin. The biggest gap is vernacular coverage: `test_vernaculars.py` asserts the
-words a person actually types and is **red on "dog"**, which is the canonical
-example of the palette being broken at its front door. Leave it red until the
-Wikidata P9157 pass is complete — the crawl is checkpointed and resumable.
+thin. `test_vernaculars.py` asserts the words a person actually types and is
+**green** — `dog`, `cat`, `whale`, `human`, `shark`, `T. rex` all resolve. The
+tail is still missing (`oak` returns "Oak moss") and the Wikidata P9157 crawl is
+checkpointed and resumable, but the front door works.
+
+**Decisions in this codebase are made by whoever holds it.** These docs escalate
+nothing and hold nothing open pending approval; where a question was once
+deferred, the file now records what was decided and on what evidence. If you
+meet a fork the docs do not cover, decide it, write the reasoning where the next
+reader will find it, and continue.
 
 **Phase 2 accepted the Duke et al. dated tree**, 32/32 gates. It missed the gate
 *as originally written* (99.6036% clade compatibility against 99.9%), and the
@@ -194,10 +200,13 @@ extinct taxa are a categorical hole rather than a coverage gap.** 1,742 of the
 "not estimated" by construction. Worse, the layout fill has no dated descendant
 to anchor them and drags them toward the present — *T. rex* is drawn at 25.9 Ma
 against a last fossil occurrence at 66. Phase 4 already holds the brackets that
-fix the position. Two rules while it is unbuilt: **an appearance interval is not
-a divergence age and must never enter `age_ma`**, and PBDB's `fea` is frequently
-junk-wide, so trust the `lea`/`lla` end. Scope in `docs/handoff.md` §7, shape in
-`docs/ingest.md` phase 4 step 6.
+fix the position. A fourth tier, `occurrence`, is **decided and unbuilt**: it
+shows the fossil range so extinct taxa stop reading "not estimated". Two rules
+that hold whatever it looks like — **an appearance interval is not a divergence
+age, lives in its own array, and must never enter `age_ma`**, and it renders as
+a range, never a point. PBDB's `fea` is frequently junk-wide, so trust the
+`lea`/`lla` end. Scope in `docs/handoff.md` §7, shape in `docs/ingest.md` phase 4
+steps 6–7.
 
 `concestor-build package` gates the artifact set as a whole and writes
 `build/manifest.json`, which `/v1/about` serves. It refuses to package while any

@@ -282,10 +282,11 @@ that contains only **extant** species. So the tiers say nothing about anything
 extinct — not "we are unsure", but "this question was never asked". 1,742 of the
 1,743 extinct-flagged nodes in the tree are `structural`, and that is by
 construction rather than by measurement. A fossil appearance interval is a
-different kind of claim in the same units, and there is no tier for it; whether
-to add one is open, and §7 has the scope, the evidence and the trap. Until it is
-decided, the rule that holds is the narrow one: **a stratigraphic range is not a
-divergence age and must never be written into `age_ma`.**
+different kind of claim in the same units, and a fourth tier — `occurrence` —
+is **decided and unbuilt**; §7 has the scope, the evidence and the trap. The
+rule it must respect, then and now: **a stratigraphic range is not a divergence
+age and must never be written into `age_ma`.** It gets its own array precisely
+so that rule needs no discipline to hold.
 
 **Watch this one:** the headline tier counts flatter us badly. 89.6% `measured`
 sounds like a well-dated tree, but 2,271,190 of those are extant tips sitting at
@@ -789,14 +790,23 @@ phase 4.
    shown" can differ — and **nothing gains a number**. *T. rex* moves from
    25.9 Ma into its own 83.6–66 Ma envelope. This is the change with the visible
    payoff and it is not large.
-2. **Decide whether a fossil-derived age is a fourth tier.** This is the one
-   that would make *Homo erectus* show something. Do **not** fold it into
-   `measured` or `interpolated`: a first/last appearance is an *observed
-   stratigraphic range*, not a divergence-time estimate, and merging the two is
-   the exact failure `age_tier` exists to prevent. It renders as a range, never
-   a point, and the dash channel (architecture §7) needs a fourth treatment that
-   is not merely "more dashed". **This one is a human's call** — it adds a tier
-   to the arrays, the server, `/v1`, and the legend.
+2. **Add the fourth tier, `occurrence`.** Decided; build it. This is the one
+   that makes *Homo erectus* show something. Refusing to display a sourced
+   observation is not honesty — it is the app implying nothing is known about
+   dinosaurs, to an audience that came to ask about dinosaurs. The honesty rule
+   was always "never a confident divergence figure where nobody estimated one",
+   and an observed stratigraphic range is a different, weaker, fully sourced
+   claim that does not trip it.
+
+   Four constraints, none negotiable. It **never enters `age_ma`** — it gets its
+   own array, so nothing downstream can mistake a range for a divergence age. It
+   renders as a **range and never a point**; no midpoint, ever, because a
+   midpoint is a fabricated estimate wearing an observation's clothes. It is
+   **labelled as fossil occurrences**, not as an age — the card says what is
+   known from the rock, not when lineages parted. And it uses **exact
+   attachments only** (`attach_walk = 0`), for the reason in the Neanderthal
+   entry below. The dash channel (architecture §7) needs a treatment that reads
+   as *bounded but not pinned* rather than a fourth dash density.
 
 *The caveat that constrains both:* **PBDB's `fea` is frequently junk-wide.**
 *Homo erectus* carries `fea = 5.333` — the base of the Zanclean — off a single
@@ -845,11 +855,18 @@ Neanderthal range (0.774–0.0117 over 6 occurrences), but OTT files the taxon a
 *Homo sapiens neanderthalensis* while PBDB calls it *Homo neanderthalensis*, so
 it attaches one hop up at the genus and **nothing attaches at the Neanderthal
 node itself**. A strict `attach_walk = 0` rule therefore leaves this branch
-exactly where it is. Whether to relax to walk-1 attachments is a real design
-question and not an obvious yes: a bracket from one hop up bounds a *superset*
-of the node, so it is an upper bound rather than a range — the same logic the
-`interpolated` tier already uses for `≤ N Ma`, and it should reuse that framing
-rather than invent a second one.
+exactly where it is.
+
+**Do not relax the walk to fix it.** A bracket attached at a parent belongs to
+some fossil taxon below that parent, and nothing records *which child* — so it
+constrains no particular child, and borrowing it would put a Neanderthal range
+on any sibling that happened to be undated. The apparent walk problem is really
+an identifier-resolution gap: PBDB carries *Homo neanderthalensis* at **species**
+rank, OTT carries *Homo sapiens neanderthalensis* at **subspecies** rank, and
+the two never matched. That belongs in phase 3's `xref`, where rank not
+surviving resolution is already a known shape (ingest.md phase 4 step 2). Fix it
+there and the bracket lands at walk 0 by itself, which is the correct fix in
+every other case of the same kind too.
 
 **The silhouette mirror is complete.** All 12,863 SVGs are on disk, 149.8 MB,
 each checksummed into the `silhouette` table. It is resumable by checksum —

@@ -113,6 +113,19 @@ The honest summary: this tree's ages are good, its topology is compatible in
 99.6% of cases, and the 0.4% where it is not is small enough to render as
 uncertainty rather than hide.
 
-**Open question for a human:** the threshold was set as a proxy for "is this
-tree good enough to build on". The evidence says yes. Confirm the reframing
-before phase 3 depends on it.
+## The reframing is confirmed. Closed.
+
+This section used to ask a human to confirm the restated criterion before phase
+3 depended on it. It is confirmed, and the confirmation is not an opinion:
+
+- Phase 2 shipped at **32/32 gates** against the restated criteria, and phases 3
+  through 6 were built on top of it without the ages needing revision.
+- The **comparison tree passes the same criteria independently** — `birth_model`
+  scores 32/32 at 99.6237% compatible with 899 conflicts. That is the check the
+  question was really reaching for: the reframing is not tuned to the one tree
+  it was written against.
+- The 947 contradicted nodes are demoted mechanically, by `assign_tiers`, and
+  the demotion is gated on the written array rather than on a count in a report.
+
+Nothing further is pending. Do not reopen this to re-confirm it, and do not
+start the fallback congruification pipeline.

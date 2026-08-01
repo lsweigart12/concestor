@@ -263,14 +263,24 @@ extinct-flagged nodes in the tree are `structural`, including *T. rex* and *Homo
 erectus*, which report "not estimated". Meanwhile §3.4's `fossil` table holds a
 first/last appearance bracket for most of them.
 
-There is deliberately **no fourth row yet**. A stratigraphic range is an *observation of
-occurrence*, not an estimate of divergence, and the two are only superficially the same
-kind of number: one says "specimens of this were in the ground between these dates", the
-other says "these two lineages parted". Adding it means a tier that renders as a range
-rather than a point, and a channel for it that is not just "more dashed" (§7). It also
-means deciding how much of a PBDB bracket to trust, since `fea` is frequently junk-wide.
-Until that is decided the operative rule is narrow and absolute: **an appearance interval
-must never be written into `age_ma`.** Scope and evidence in handoff.md §7.
+A fourth row is **decided and unbuilt**:
+
+| Tier | Meaning | Rendering |
+|---|---|---|
+| **occurrence** | extinct, with a fossil appearance interval attached at the node itself | range mark spanning the interval; **never a point**, labelled as fossil occurrences rather than as an age |
+
+A stratigraphic range is an *observation of occurrence*, not an estimate of divergence:
+one says "specimens of this were in the ground between these dates", the other says
+"these two lineages parted". They are only superficially the same kind of number, which
+is why the row is separate and why the interval **lives in its own array and never in
+`age_ma`** — a rule that then costs no discipline to keep. The channel it needs reads as
+*bounded but not pinned* (§7), not as a fourth dash density.
+
+It is worth it because the alternative is worse. Every extinct taxon currently reports
+"not estimated", which to a curious reader is the app claiming to know nothing about
+dinosaurs — while §3.4's table holds a sourced range for most of them. Declining to show
+a real observation is not honesty; it is a different inaccuracy with better manners.
+Scope, measurements and the `fea` trap in handoff.md §7.
 
 ---
 
