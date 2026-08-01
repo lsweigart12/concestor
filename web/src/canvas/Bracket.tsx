@@ -155,6 +155,19 @@ export function maLabel(ma: number): string {
 }
 
 /**
+ * A bracket's extent in words.
+ *
+ * The unit binds to the older figure when the younger one is not a figure:
+ * "239–present Ma" parses as a number of Ma called "present", and a third of
+ * the deepest clades in the tree have a last appearance of zero because they
+ * are still alive.
+ */
+export function spanLabel(oldest: number, youngest: number): string {
+  if (youngest < 0.05) return `${maLabel(oldest)} Ma – present`;
+  return `${maLabel(oldest)}–${maLabel(youngest)} Ma`;
+}
+
+/**
  * What one row claims, in words.
  *
  * The difference between an empty certain extent and a real one has to survive
@@ -166,7 +179,7 @@ export function bracketTitle(name: string, b: BracketGeom): string {
   if (b.kind === "absent") {
     return `${name} — the Paleobiology Database records no appearance interval, so this taxon has no position in time here.`;
   }
-  const extent = `${maLabel(b.oldest)}–${maLabel(b.youngest)} Ma`;
+  const extent = spanLabel(b.oldest, b.youngest);
   const head = b.openYoung
     ? `${name} — first appears within ${extent}; no last appearance is recorded`
     : `${name} — somewhere within ${extent}`;

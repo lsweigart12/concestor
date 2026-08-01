@@ -469,18 +469,18 @@ function Inner(props: GraphProps) {
   );
 
   // Opening or closing the lane changes how much canvas there is, so the tree
-  // reframes into what is left rather than sliding under the strip. Keyed on
-  // whether a lane is open and not on its height: the row count changes when
-  // the fossils land, and refitting then would jog the picture after the
-  // reader has started reading it.
-  const laneOpen = activeDrill !== null;
-  const lastLaneOpen = useRef(laneOpen);
+  // reframes into what is left rather than sliding underneath it. Keyed on the
+  // *height* and not merely on whether a lane is open: the strip is one row
+  // tall until the fossils land and its final height a moment later, and
+  // fitting only to the first of those leaves the lowest lineage covered by
+  // the rows that arrive after it.
+  const lastLaneH = useRef(laneH);
   useEffect(() => {
-    if (lastLaneOpen.current === laneOpen) return;
-    lastLaneOpen.current = laneOpen;
+    if (lastLaneH.current === laneH) return;
+    lastLaneH.current = laneH;
     const t = window.setTimeout(() => fitToContent(reduced ? 0 : 380), 30);
     return () => window.clearTimeout(t);
-  }, [laneOpen, fitToContent, reduced]);
+  }, [laneH, fitToContent, reduced]);
 
   useEffect(() => {
     if (!fitSignal) return;

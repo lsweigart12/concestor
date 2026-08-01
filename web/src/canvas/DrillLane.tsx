@@ -28,14 +28,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { api, type PathNode, type SegmentResponse } from "../api";
-import { Bracket, bracketGeom, bracketKey, bracketTitle, maLabel } from "./Bracket";
+import { Bracket, bracketGeom, bracketKey, bracketTitle, spanLabel } from "./Bracket";
 import {
   capNote,
+  laneHeight,
   rankIntermediates,
   spineLabels,
   unplacedNote,
-  FOOT_H,
-  HEAD_H,
   ROW_H,
   SPINE_H,
   type LaneRows,
@@ -150,8 +149,12 @@ export function DrillLane({
   const ranked = useMemo(() => rankIntermediates(intermediates), [intermediates]);
   const labels = spineLabels(ranked, toScreenX, { width });
 
+  // A minimum rather than a height: the footer wraps at narrow widths, and a
+  // fixed box would take the extra line out of the field and clip the last
+  // bracket. The reserve `Graph.tsx` frames the tree against is the same
+  // figure, so growing past it costs a few pixels of overlap and never a row.
   return (
-    <div className="drill" style={{ height: HEAD_H + fieldH + FOOT_H }}>
+    <div className="drill" style={{ minHeight: laneHeight(rows) }}>
       <div className="drill-head">
         <span className="drill-title">
           Fossil occurrences along{" "}
@@ -204,7 +207,7 @@ export function DrillLane({
                   {f.name}
                 </tspan>
                 <tspan className="drill-row-span" dx="8">
-                  {maLabel(geom.oldest)}–{maLabel(geom.youngest)} Ma
+                  {spanLabel(geom.oldest, geom.youngest)}
                 </tspan>
                 <tspan className="drill-row-occs" dx="8">
                   {f.n_occs.toLocaleString()}×

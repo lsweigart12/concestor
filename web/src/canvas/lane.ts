@@ -27,7 +27,9 @@ import { textWidth } from "../tree/labels";
 export const HEAD_H = 22;
 export const SPINE_H = 30;
 export const ROW_H = 16;
-export const FOOT_H = 22;
+const FOOT_LINE = 13;
+/** One line of footer plus its padding. */
+export const FOOT_H = 8 + FOOT_LINE;
 
 /**
  * How many fossil taxa get a bracket.
@@ -113,8 +115,22 @@ export function unplacedNote(unplaced: readonly FossilTaxon[]): string | null {
   return `no appearance interval recorded, so not placed in time: ${list}`;
 }
 
+/**
+ * How tall the strip is, which is also how much canvas the fit gives up.
+ *
+ * The footer takes a second line whenever taxa had to be named rather than
+ * drawn, and reserving for one line regardless is what squeezed the bottom
+ * bracket row out of the field. Both callers use this figure — the lane for
+ * its own box and `Graph.tsx` for the reserve — so neither can drift.
+ */
 export function laneHeight(rows: LaneRows): number {
-  return HEAD_H + SPINE_H + Math.max(rows.placed.length, 1) * ROW_H + FOOT_H;
+  return (
+    HEAD_H +
+    SPINE_H +
+    Math.max(rows.placed.length, 1) * ROW_H +
+    FOOT_H +
+    (rows.unplaced.length ? FOOT_LINE : 0)
+  );
 }
 
 /** A rank OTT actually gave the node, as opposed to the "no rank" filler. */

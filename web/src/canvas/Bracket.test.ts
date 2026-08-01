@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bracketGeom, bracketKey, MIN_MARK_PX, type Appearance } from "./Bracket";
+import { bracketGeom, bracketKey, spanLabel, MIN_MARK_PX, type Appearance } from "./Bracket";
 
 /**
  * A linear stand-in for the symlog axis: present at x=1000, one Ma per px
@@ -109,6 +109,15 @@ describe("bracketGeom", () => {
     expect(g.certainty).toBe("unrecorded");
     expect(g.certain).toBeNull();
     expect(g.envelope.w).toBeCloseTo(8);
+  });
+});
+
+describe("spanLabel", () => {
+  it("keeps the unit on a figure", () => {
+    expect(spanLabel(161.5, 137.05)).toBe("162–137 Ma");
+    // A living clade's last appearance is zero, and "239–present Ma" reads as
+    // a quantity of Ma named "present".
+    expect(spanLabel(239.48, 0)).toBe("239 Ma – present");
   });
 });
 

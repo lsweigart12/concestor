@@ -534,6 +534,7 @@ body {
   gap: var(--s3);
   padding: 0 var(--s4);
   height: 22px;
+  flex: none;
   font-size: 11px;
   color: var(--ink-3);
 }
@@ -574,8 +575,12 @@ body {
   color: var(--ink-2);
 }
 
+/* Never shrinks. The field holds data; the footer holds words about it, and a
+   footer that wrapped used to take its extra line out of the bottom bracket
+   row. */
 .drill-field {
   display: block;
+  flex: none;
   overflow: hidden;
 }
 
