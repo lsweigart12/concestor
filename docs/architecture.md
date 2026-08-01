@@ -256,6 +256,22 @@ meaning "time" and starts meaning "nesting depth", and the rendering has to say 
 dashed spine costs nothing and prevents the app from confidently asserting that two
 beetle genera diverged 46.3 Ma when nobody has ever estimated that.
 
+**All three rows describe divergence times, and the source has no extinct taxa in it.**
+That is a limit of the table, not of the data available to us. An extinct taxon never
+joins the chronogram, so it lands in row three by construction — 1,742 of the 1,743
+extinct-flagged nodes in the tree are `structural`, including *T. rex* and *Homo
+erectus*, which report "not estimated". Meanwhile §3.4's `fossil` table holds a
+first/last appearance bracket for most of them.
+
+There is deliberately **no fourth row yet**. A stratigraphic range is an *observation of
+occurrence*, not an estimate of divergence, and the two are only superficially the same
+kind of number: one says "specimens of this were in the ground between these dates", the
+other says "these two lineages parted". Adding it means a tier that renders as a range
+rather than a point, and a channel for it that is not just "more dashed" (§7). It also
+means deciding how much of a PBDB bracket to trust, since `fea` is frequently junk-wide.
+Until that is decided the operative rule is narrow and absolute: **an appearance interval
+must never be written into `age_ma`.** Scope and evidence in handoff.md §7.
+
 ---
 
 ## 4. Backend
@@ -404,6 +420,16 @@ Build-time validation: every node's age must be ≥ its children's. Violations a
 counted and reported; a nonzero count in a region we intend to render as `measured`
 fails the build.
 
+**The source is extant-only, and that has a layout consequence, not just a coverage
+one.** Undated runs are positioned by spreading them between the nearest dated ancestor
+and the deepest dated *descendant*. An extinct lineage has no dated descendant, so the
+spread has nothing to anchor its lower end and drags the whole run toward the present:
+*T. rex* is drawn at 25.9 Ma, and Cambrian trilobites land in the Neogene. This is not
+the ordinal-position caveat working as intended — an ordinal position between two real
+bounds is honest, and a position 450 Ma past the taxon's last fossil is not, while the
+two render identically. The fix belongs to the fossil layer (§3.4) and cannot live in
+this phase; handoff.md §7 has the measurements and the phase-ordering constraint.
+
 ### Scale
 
 Linear and logarithmic, toggleable, as specified. Two things to get right:
@@ -519,6 +545,15 @@ So provenance does not get luminance. It gets:
 `structural`-tier nodes are positioned ordinally between their nearest dated ancestor and
 descendant. In those regions the horizontal axis stops meaning time and starts meaning
 nesting depth, and the rendering has to say so.
+
+**The channel is one bit short and it shows on extinct taxa.** Dash currently says only
+"this position is ordinal". It cannot distinguish an ordinal position sitting between two
+real bounds from one that has no lower bound at all and has drifted to the present — and
+the second is where *T. rex* renders in the Oligocene (§6). If the fourth tier in §3.5 is
+ever built, it needs a treatment that reads as *bounded but not pinned* — a range mark, a
+bracketed extent — rather than a fourth dash density, because dash density is already
+carrying an ordering the eye reads as confidence and a fossil bound is more certain than
+what sits above it, not less.
 
 ### The signature interaction
 

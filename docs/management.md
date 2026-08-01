@@ -62,15 +62,26 @@ I do not know how often a real selection actually displays a picture. Neither do
 - **Finish the Wikidata P9157 crawl.** 75 of 287 pages are done, it resumes and re-fetches nothing, and it is roughly 3.5 unattended hours at WDQS's pace. Coverage is 148,515 names — 3.71% of named nodes, but **56.74% weighted by `tip_count`**, which is the number a palette experiences. The notable end is done; this finishes the tail. `oak` currently returns "Oak moss".
 - **Fix two ranking divergences in the server**, both small and both cases where the corpus already holds the right answer: `animal` returns *Arthropoda* where `search.py`'s own measurement gives *Metazoa*, and `E. coli` returns *Entamoeba coli* because `search_name.kind = 4` (broken taxa, all 9,839 rows) is indexed but not wired through to the API's `kind` field. *Escherichia coli* and *Dinosauria* are both broken taxa and explaining that is a stated requirement.
 
-### 3. Give extinct tips their real ages
+### 3. Put extinct taxa somewhere true on the axis
 
-*Tyrannosaurus rex* currently renders with no number — correct, it is `structural` — but its ordinal layout position lands near 26 Ma. PBDB has its range and phase 4 now has it attached (`fea=83.6, fla=72.2, lea=72.2, lla=66`). Feeding appearance intervals into the layout for the ~1,129 extinct taxa that survive into the synthesis tree is small, self-contained, and turns a visibly odd placement into a correct one.
+**This used to be item 3 and the drill-down used to be item 4, on the reasoning that one was small and the other was a treat to be deferred. Treat them as one item.** They read from the same table, they turn on the same unanswered question about how much of a PBDB bracket to trust, and answering it twice is how the two ship disagreeing with each other.
 
-### 4. Then, and only then, the fossil drill-down
+*T. rex* renders with no number — correct, it is `structural` — but its layout position lands at 25.9 Ma, against a last fossil occurrence at 66. That is not the ordinal-position caveat doing its job. An ordinal position between two real bounds is honest; a position 40 Ma past the taxon's extinction is not, and the two render identically. Measured: **1,742 of the 1,743 extinct-flagged nodes are `structural`**, 1,078 of them are drawn younger than their own last fossil, and Cambrian trilobites land in the Neogene. Widen past the extinct flags and 5,640 structural nodes have an exact-attach bracket sitting unused.
 
-This is the largest unbuilt product surface and it is fully de-risked: all 523,112 taxa are attached, and `/v1/segment` already returns them ranked with both uncertainty brackets and a `fossils_total` for the "showing N of M" cap. Architecture §7 "Drill-down" specifies the rendering — spine of intermediates, **double bracket** (faded envelope `fea→lla`, solid bar `fla→lea`), offset lane sharing the time axis. ~21% of taxa have no interval and need an explicit "no range recorded" treatment, not a zero-width bar.
+The work splits cleanly and the halves have very different risk:
 
-It is genuinely the most satisfying thing left to build, which is exactly why it comes fourth. Fossils are secondary and the three items above serve the stated priorities.
+- **Bounding `age_layout` by the fossil record is the safe half** and it is where the visible payoff is. Nothing gains a number; `age_ma` is not touched. Note the ordering trap — the layout is written in phase 2, four phases before the `fossil` table exists, so this is a new pass in phase 4 and not an edit to `layout_ages`. ingest.md phase 4 step 6 has the shape and the gate.
+- **Whether a fossil-derived age becomes a fourth tier is a call for you, not for whoever picks this up.** It is what would make *Homo erectus* stop saying "not estimated". It must render as a range and never a point, and it must not be folded into `measured` or `interpolated` — a stratigraphic range is an observation of occurrence, not an estimate of divergence, and merging them is precisely the failure `age_tier` exists to prevent. It touches the arrays, the server, `/v1` and the legend.
+
+**The trap in both:** `fea` is frequently junk-wide. *Homo erectus* carries `fea = 5.333` — the base of the Zanclean — off a single badly-dated occurrence, against a true first appearance near 2 Ma. Trust the `lea`/`lla` end, and set an occurrence-count floor or an outlier rule *before* either half, not after. Get this wrong and the product trades a missing number for a confident wrong one, which is the trade this whole design exists to refuse.
+
+Full evidence and measurements: handoff.md §7.
+
+### 4. The fossil drill-down, alongside the above
+
+The largest unbuilt product surface, and fully de-risked: all 523,112 taxa are attached, and `/v1/segment` already returns them ranked with both uncertainty brackets and a `fossils_total` for the "showing N of M" cap. Architecture §7 "Drill-down" specifies the rendering — spine of intermediates, **double bracket** (faded envelope `fea→lla`, solid bar `fla→lea`), offset lane sharing the time axis. ~21% of taxa have no interval and need an explicit "no range recorded" treatment, not a zero-width bar.
+
+Fossils are still secondary to silhouettes and the palette, so this stays behind items 1 and 2. What has changed is that it is no longer behind item 3 — it *is* item 3, seen from the other end. The double bracket is the same visual vocabulary a fourth age tier would need, so build the bracket first and let the tier reuse it rather than inventing a second way to draw the same uncertainty.
 
 ## Decisions already taken — implement, don't relitigate
 
