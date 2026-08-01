@@ -192,7 +192,7 @@ uv run concestor-build snapshot    # ~1.4 GB, ~4 min on a fast link
 uv run concestor-build topology    # ~3 min incl. the oracle
 uv run concestor-build dates       # phase 2; writes age_ma / age_tier / age_layout
 uv run concestor-build resolve     # phase 3
-uv run concestor-build fossils     # phase 4
+uv run concestor-build fossils     # phase 4; also REWRITES age_tier + age_layout
 uv run concestor-build images      # phase 5a; long, resumable, paced
 uv run concestor-build timescale   # phase 5b
 uv run concestor-build vernaculars # phase 6
@@ -200,8 +200,13 @@ uv run concestor-build search      # FTS index; must run AFTER vernaculars
 uv run concestor-build render      # throwaway skeleton, still useful as an oracle
 ```
 
-Order matters in two places only: `search` reads the `vernacular` table, and
-`fossils` reads `xref`. Everything else is independent.
+Order matters in three places. `search` reads the `vernacular` table;
+`fossils` reads `xref`; and **`fossils` must run after `dates`, because it
+rewrites `age_tier` and `age_layout` with the fossil record** — the fourth age
+tier and the layout bound are both its output, not phase 2's. Re-running
+`dates` therefore undoes both and phase 4 has to run again; `dates` deletes the
+baselines phase 4 keeps so that this cannot happen silently. Everything else is
+independent.
 
 Phase 1 needs the tarballs unpacked into `build/extracted/` first:
 
