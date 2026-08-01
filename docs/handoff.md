@@ -170,7 +170,7 @@ symptom is quietly stale answers.
 
 ```bash
 cd web && npm install && npm run build   # the server picks up web/dist
-npm test                                 # 45 tests
+npm test                                 # 120 tests
 ```
 
 The client owns the topology after first paint (architecture §4): it fetches
@@ -738,6 +738,38 @@ it cannot deliver.
   **does not error** — it joins cleanly to unrelated nodes and returns confident
   nonsense. Searching "dog" returned three unnamed `mrcaott…` internal nodes.
   Anything reading the index must go through the mapping table.
+- **A view toggle that does not reach the layout is worse than no toggle.**
+  `axisMode` reached `TimeAxis.tsx`, where it hid the knee marker and changed
+  "symlog" to "linear" in the footer, and never reached `layout()` or
+  `toScreenX` — both of which called `symlogFrac` unconditionally. So choosing
+  linear left every node exactly where it was and removed the notice that the
+  scale was bent. Nothing failed; the type was defined twice, once in
+  `state/store.ts` and once in the props, and structural typing means two
+  identical unions never disagree. `ageFrac(age, maxAge, mode)` is now the one
+  mapping and `AxisMode` has one definition, in `layout.ts`.
+- **An axis built from a fixed tick set is a decoration.** `AXIS_TICKS` was ten
+  round ages, filtered to `≤ maxAge` and culled for collisions. Two failures,
+  both reproducible from a link: human-and-chimp — whose whole tree is inside
+  7 Ma, and the set holds nothing between 1 and 10 — drew an axis whose only
+  number was `0`; and any zoom past the fit pushed all ten off-screen, so the
+  strip rendered a bare rule with no ticks and no geologic band at all. The
+  ticks and the band are now generated from the age range under the viewport,
+  which needs the *inverse* of `toScreenX` — the piece that was missing.
+- **An axis whose extent comes from the data is not an axis.** Ticks and the
+  geologic band were both cut off at `maxAge`, the deepest node in the current
+  selection, so the strip began abruptly and unlabelled wherever that root fell
+  — and the edge moved every time a species was added. It now runs to the Big
+  Bang at 13787 Ma. `maxAge` still sets the *scale*; it no longer sets the
+  domain. The band stops 9,220 Ma short of the end because `chart.ttl` does, and
+  both edges of that bare stretch are marked and named — *Earth forms* and *Big
+  Bang* — on the principle that an edge a reader cannot account for is worse
+  than one that runs off the screen.
+- **On a log axis no single geologic rank is legible everywhere.** The same
+  view gives the Cenozoic 225 px and the Neoproterozoic 29. Choosing one rank
+  by median band width therefore picks between "PHANEROZOIC" across two thirds
+  of the screen and a Precambrian of unreadable slivers, and it picked the
+  first. The band is grown down the ICS containment tree instead; details and
+  the two split rules that fail are in architecture §6.
 
 ---
 

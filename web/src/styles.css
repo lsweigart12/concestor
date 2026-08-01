@@ -479,6 +479,23 @@ body {
   opacity: 0.75;
 }
 
+/* The two fixed edges of the axis: the Big Bang, where it ends, and the
+   formation of the Earth, where the geologic band starts and 9,220 Ma of bare
+   axis stops. Solid where the knee is dashed — the knee is a change in the
+   *scale* and these are boundaries of the *domain*, and a reader should not have
+   to work out which of the two they are looking at. All three are recessive;
+   none of them is data. */
+.axis-origin {
+  stroke: var(--hairline-strong);
+  opacity: 0.8;
+}
+
+.axis-origin-label {
+  fill: var(--ink-4);
+  font-size: 10px;
+  font-family: var(--mono);
+}
+
 /*
  * The geologic band keeps the official ICS hue *relationships* and drops the
  * official saturation and luminance (architecture §6). It is a reference
