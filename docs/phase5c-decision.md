@@ -1,9 +1,13 @@
 # Phase 5c — generated outlines from Wikimedia photographs
 
 **Status: planned, not built.** Every figure here was measured on 2026-08-01
-against the live services and the current build (`a2b513305e2ddb95`). Do not
-re-research them; several cost hours to establish and two of them contradict
-the obvious approach.
+against the live services and build `b48553b2b8a4a2ed`. Do not re-research them;
+several cost hours to establish and two of them contradict the obvious approach.
+
+The figures drawn from phase 5a — §2's corpus table and §3's propagation
+simulation — were taken from `build/` while `main` was moving underneath this
+branch. They concern `node_image` seeding, which the witness work does not
+touch, so they should hold; re-run `propagate()` to confirm before building.
 
 `handoff.md` §2 must gain a row when this lands. It has none yet, deliberately.
 
