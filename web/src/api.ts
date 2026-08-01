@@ -279,6 +279,12 @@ export interface SilhouettePolicy {
 /**
  * **Draw everything.** Every node with a resolved image draws it.
  *
+ * Superseded in one place, and the exception is not about clade size at all: a
+ * *divergence* draws its witness or nothing, never a borrow. See
+ * `Graph.mayDrawExemplar`. This policy governs only the nodes still eligible
+ * for a borrow — the clades a reader chose — and the threshold below is what
+ * would catch a misinforming one among those.
+ *
  * This was an uneasy experiment when the alternative was a `cellular
  * organisms` blob on two thirds of the tree; it is now simply what the data
  * supports. Measured on the built corpus after the resolution change: the

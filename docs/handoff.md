@@ -170,7 +170,7 @@ symptom is quietly stale answers.
 
 ```bash
 cd web && npm install && npm run build   # the server picks up web/dist
-npm test                                 # 135 tests
+npm test                                 # 139 tests
 ```
 
 The client owns the topology after first paint (architecture §4): it fetches
@@ -709,9 +709,35 @@ it cannot deliver.
   answer applies depends on how the reader reached the node — a species they
   picked wants its group's exemplar, a divergence they arrived at wants the
   witness — and the pipeline cannot know that. The client decides on the
-  induced subtree's own leaf/internal distinction. Merging them would force the
-  choice at build time with the information missing, which is the same mistake
-  as merging `age_ma` with `age_layout`.
+  induced subtree's own leaf/internal distinction, in
+  `web/src/canvas/witness.ts`. Merging them would force the choice at build
+  time with the information missing, which is the same mistake as merging
+  `age_ma` with `age_layout`.
+
+  **A divergence draws its witness or nothing.** No borrow is drawn at a fork,
+  even when one is available and even when the fork would otherwise be bare.
+  This is a reversal of `SILHOUETTE_POLICY`'s "draw everything", made for a
+  reason that policy does not cover: it judges a borrow by the *size* of the
+  clade shared with the drawing, and the thing wrong with a borrow at a fork is
+  not size but **time**. Caniformia's split is dated 57 Ma and it drew
+  Procyonidae — a clade of 469 species, well inside the threshold, and a family
+  of living raccoons standing beside a fork that predates them by 25 Ma. The
+  caption said "the closest relative anyone has drawn", which is true and does
+  not warn anybody.
+
+  Since only 66 nodes have a witness, **most forks now carry no picture at
+  all**. That is the answer, not a shortfall: an empty slot withholds where the
+  raccoon misinformed. Selecting Caniformia directly still draws it, because
+  then the reader is asking what caniforms look like and the raccoon answers
+  that.
+
+  Caniformia is also the case that shows the coverage limit honestly. Its
+  oldest drawn *and* dated member is *Archaeocyon* at 31.8 Ma — 44% adrift —
+  and the stem carnivorans that would have fitted, *Vulpavus* at 56–45.9 Ma,
+  sit inside Carnivora but **outside** Caniformia, so they are not candidates.
+  Carnivora itself is `structural`, so it has no dated split to witness either.
+  Nothing in the rule is failing there; the corpus simply has no picture to
+  draw.
 
   Three refusals do the work, and they are why this fires on **66** nodes:
 

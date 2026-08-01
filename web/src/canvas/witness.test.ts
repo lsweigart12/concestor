@@ -19,6 +19,7 @@ import {
   type Witness,
 } from "../api";
 import { witnessTitle } from "./NodeMark";
+import { mayDrawExemplar, witnessOn } from "./witness";
 
 /** The human–chimp split as the server sends it. */
 function split(over: Partial<PathNode> = {}): PathNode {
@@ -86,6 +87,52 @@ describe("witnessFor", () => {
   it("distinguishes spanning the split from merely nearing it", () => {
     expect(witnessFor(split())?.spans).toBe(true);
     expect(witnessFor(split({ divergence_gap_ma: 1.94 }))?.spans).toBe(false);
+  });
+});
+
+describe("which picture a node may draw", () => {
+  it("gives a chosen clade its exemplar and no witness", () => {
+    const p = { node: split(), isLeaf: true };
+    expect(witnessOn(p)).toBeNull();
+    expect(mayDrawExemplar(p)).toBe(true);
+  });
+
+  it("gives a divergence its witness and never the exemplar", () => {
+    const p = { node: split(), isLeaf: false };
+    expect(witnessOn(p)?.name).toBe("Sahelanthropus");
+    expect(mayDrawExemplar(p)).toBe(false);
+  });
+
+  it("draws nothing at a divergence with no witness", () => {
+    // Caniformia. The split is 57 Ma and the oldest drawn-and-dated taxon
+    // inside it is Archaeocyon at 31.8 Ma, so no witness survives the cap —
+    // and the borrow that used to fill the gap was Procyonidae, a family of
+    // living raccoons standing in for a 57 Ma fork. An empty slot withholds
+    // where that misinformed, so both rules must refuse.
+    const p = {
+      node: split({
+        name: "Caniformia",
+        age_ma: 57,
+        tier: TIER_MEASURED,
+        phylopic_id: "procyonidae-uuid",
+        divergence_phylopic_id: null,
+        divergence_range: null,
+      }),
+      isLeaf: false,
+    };
+    expect(witnessOn(p)).toBeNull();
+    expect(mayDrawExemplar(p)).toBe(false);
+  });
+
+  it("still lets a clade someone searched for draw its own group", () => {
+    // Selecting Caniformia directly is asking what caniforms look like, and
+    // the raccoon is a fair answer to that question. Same node, same data,
+    // opposite verdict — the difference is only how the reader got here.
+    const p = {
+      node: split({ name: "Caniformia", phylopic_id: "procyonidae-uuid" }),
+      isLeaf: true,
+    };
+    expect(mayDrawExemplar(p)).toBe(true);
   });
 });
 

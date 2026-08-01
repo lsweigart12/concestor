@@ -292,20 +292,19 @@ export const NodeMark = memo(function NodeMark({ data }: NodeProps) {
   const showDetail = d.zoom === "detail";
   const div = d.divergence;
   const name = n.name ?? div?.text ?? UNNAMED;
-  // Clades get an image too, not just selections. architecture §7: a
-  // silhouette legitimately represents a *clade*, where a photograph can only
-  // represent one member — so a mammal beside Mammalia is the case it is best
-  // at, and `silhouetteIsInformative` is what keeps a kingdom-sized borrow out.
-  // Not gated on zoom: see the note at the top of this file.
+  // Two pictures, one slot, and which is allowed depends on how the reader got
+  // here — `Graph.mayDrawExemplar` makes that call and this only renders it.
+  // A clade a reader *chose* draws its exemplar, which is architecture §7's
+  // case and the one a silhouette is best at: a mammal beside Mammalia says
+  // something a photograph could not. The same picture beside a *fork* says
+  // something false, because a borrow is nearly always a living group and the
+  // fork predates it, so a divergence draws its witness or nothing at all.
   //
-  // A divergence with a witness draws that instead. Not as well as — the label
-  // is already the widest thing on the canvas and two pictures on one mark
-  // would double it — and the witness is strictly the better answer where it
-  // exists, because it is inside this clade rather than borrowed from a
-  // relative, and it is contemporary with the fork rather than a crown group
-  // that came later. It draws even where `showSilhouette` would suppress the
-  // ordinary one: the suppression rule judges the size of a borrow, and a
-  // witness borrows nothing.
+  // Never both. The label is already the widest thing on the canvas and two
+  // images on one mark would double it — and there is nothing to combine
+  // anyway, since the two are answers to different questions.
+  //
+  // Not gated on zoom: see the note at the top of this file.
   const witness = d.witness;
   const withSilhouette = witness !== null || (d.showSilhouette && Boolean(n.phylopic_id));
   const meta = div && showDetail ? DIVERGENCE_META : metaLine(n.rank, showDetail);

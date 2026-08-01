@@ -568,15 +568,15 @@ function Detail({
     detail.tier === TIER_OCCURRENCE && detail.occurrence
       ? bracketGeom(detail.occurrence, () => 0)
       : null;
-  // The card must show what the canvas shows, so it makes the same call by the
-  // same rule: a divergence with a witness draws the witness, and the ordinary
-  // silhouette is not shown *or credited*, because it is not on screen.
+  // The card must show what the canvas shows, and by the same rule, or the two
+  // disagree about what a node looks like. A divergence draws its witness or
+  // nothing; only a clade the reader chose draws its group's exemplar. The
+  // ordinary silhouette is therefore not shown *or credited* on a fork, since
+  // it is not on screen and crediting an image nobody can see is noise.
   const witness = isLeaf ? null : witnessFor(detail);
   const witnessCredit = witness ? (detail.divergence_silhouette ?? null) : null;
   const sil =
-    witness || !silhouetteIsInformative(detail, cladeTips)
-      ? null
-      : detail.silhouette;
+    isLeaf && silhouetteIsInformative(detail, cladeTips) ? detail.silhouette : null;
   // A picture that is not of this node is a picture of something inside the
   // clade, and the card is where that gets said in full rather than in a
   // tooltip. `clade_name` is null for the unnamed `mrcaott…` nodes, and there

@@ -60,7 +60,7 @@ our own; **no dagre, no ELK, no d3-hierarchy**, because a graph-layout engine
 assigns `x` by depth and here `x` is time.
 
 ```bash
-cd web && npm install && npm run build && npm test   # 135 tests
+cd web && npm install && npm run build && npm test   # 139 tests
 cd server && go test ./... && go run . -build ../build
 ```
 
@@ -261,12 +261,20 @@ always a crown group that did not exist yet. `node_divergence_image` answers
 the clade whose PBDB bracket sits at the split. *Sahelanthropus* at the
 human–chimp divergence, *Basilosaurus* at whale–hippo, *Hallucigenia* at
 Bilateria. 66 nodes, because a candidate needs both a PhyloPic drawing and a
-fossil bracket and only 398 nodes have both. Which of the two to draw depends on
-how the reader reached the node, so **only the client can decide it** — a leaf of
-the induced subtree is a species they chose and keeps its exemplar. It is
-refused where `age_ma` is NaN, where the node has its own image, and beyond
-`NEAR_FRACTION` of the split's age. A witness never renders without its fossil
-range beside it.
+fossil bracket and only 398 nodes have both. It is refused where `age_ma` is
+NaN, where the node has its own image, and beyond `NEAR_FRACTION` of the split's
+age. A witness never renders without its fossil range beside it.
+
+Which of the two to draw depends on how the reader reached the node, so **only
+the client can decide it**, and `web/src/canvas/witness.ts` is where that
+happens. A leaf of the induced subtree is a clade they *chose* and keeps its
+exemplar; **a divergence draws its witness or nothing at all.** No borrowed
+image is ever drawn at a fork. That means most forks now carry no picture,
+which is the intended answer rather than a shortfall: a borrow is nearly always
+a living group, and Caniformia's 57 Ma split drew Procyonidae — raccoons, with
+nothing on screen saying they postdate it by 25 million years. An empty slot
+withholds where that misinformed. Select Caniformia itself and the raccoon
+comes back, correctly.
 
 `concestor-build package` gates the artifact set as a whole and writes
 `build/manifest.json`, which `/v1/about` serves. It refuses to package while any
