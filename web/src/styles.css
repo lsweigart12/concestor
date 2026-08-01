@@ -1,0 +1,820 @@
+/*
+ * Concestor — a dark instrument where the graph is the only light source.
+ *
+ * design-reference.md is authoritative and this file is its implementation.
+ * The rules that constrain everything below:
+ *
+ *   - Brightness encodes recency and selection, NEVER data value. Age
+ *     provenance is a data value we are obliged to render, so it gets dash
+ *     pattern and desaturation instead (architecture §7).
+ *   - Uniform stroke weight. Meaning lives in luminance and hue, never width.
+ *   - Cool throughout. No warm-orange heatmap. No glassmorphism, no gradient
+ *     meshes, no ambient animation — the glow comes from the data, nowhere
+ *     else.
+ *   - Hairline borders at low opacity; background steps and glow for
+ *     hierarchy, never drop shadows.
+ *   - Light theme is out of scope. This is a dark-only instrument.
+ */
+
+:root {
+  /* Canvas. Two steps of near-black, not a gradient. */
+  --void: #0a0a0b;
+  --void-2: #0e0e10;
+  --void-3: #131316;
+  --grid: rgba(120, 190, 200, 0.045);
+
+  /* The cool accent. Selection and focus only. */
+  --accent-h: 186;
+  --accent: hsl(var(--accent-h) 72% 62%);
+  --accent-dim: hsl(var(--accent-h) 40% 44%);
+
+  --ink: hsl(190 14% 92%);
+  --ink-2: hsl(190 10% 68%);
+  --ink-3: hsl(190 8% 46%);
+  --ink-4: hsl(190 8% 30%);
+
+  --hairline: rgba(150, 200, 210, 0.1);
+  --hairline-strong: rgba(150, 200, 210, 0.2);
+
+  /* Tight spacing scale. Assume the user wants more on screen, not less. */
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 24px;
+  --s6: 36px;
+
+  --radius: 7px;
+
+  /* Two weights maximum. Hierarchy from size, opacity and glow. */
+  --w-reg: 400;
+  --w-med: 560;
+
+  --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+
+  --spring: cubic-bezier(0.22, 1, 0.28, 1);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--void);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-weight: var(--w-reg);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+/* All numerics are tabular-figure mono. Confident, unapologetic. This
+   supersedes the old-style figures architecture.md originally called for —
+   those belong to a print aesthetic, not an instrument. */
+.num,
+.mono {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1, "zero" 1;
+  letter-spacing: -0.01em;
+}
+
+/* Scientific naming convention is not decoration. Species and genus names are
+   italic, higher taxa roman. It costs one rule keyed on rank, and getting it
+   wrong is visible to exactly the audience most likely to share the thing —
+   which is why the UI sans needs a genuine italic, not a synthesised oblique. */
+.sci-italic {
+  font-style: italic;
+}
+
+/* ---------------------------------------------------------------- canvas -- */
+
+.canvas {
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(
+      ellipse 120% 90% at 62% 45%,
+      var(--void-2) 0%,
+      var(--void) 72%
+    ),
+    var(--void);
+}
+
+/* Faint grid in the void, barely perceptible, no parallax. */
+.canvas::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 56px 56px;
+  pointer-events: none;
+}
+
+.react-flow__pane {
+  cursor: default;
+}
+.react-flow__attribution {
+  display: none;
+}
+.react-flow__edge-path,
+.react-flow__connection-path {
+  stroke: none;
+}
+.react-flow__node {
+  cursor: pointer;
+  font-family: var(--sans);
+}
+.react-flow__handle {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* ---------------------------------------------------------------- traces -- */
+
+/*
+ * A trace is a 1–2px luminous core plus a soft additive bloom halo, drawn as
+ * two stacked strokes rather than a filter. That is deliberate: a real
+ * post-process bloom pass costs frames at exactly the moment the signature
+ * animation is running, and design-reference.md is explicit that frame budget
+ * beats glow. `.bloom-off` drops the halo entirely at low zoom, which is the
+ * documented acceptable answer.
+ */
+.trace-halo {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 7;
+  opacity: 0.16;
+  filter: blur(3.5px);
+}
+
+.trace-core {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.6;
+}
+
+.bloom-off .trace-halo {
+  display: none;
+}
+
+/*
+ * Age provenance. Luminance is spoken for, so this channel is dash and
+ * saturation (architecture §7):
+ *   measured      solid, full chroma, age shown
+ *   interpolated  desaturated, fine dash, age shown as an upper bound
+ *   structural    dashed, no numeric age at all — the hard requirement
+ */
+.tier-interpolated .trace-core {
+  stroke-dasharray: 7 3;
+}
+.tier-structural .trace-core {
+  stroke-dasharray: 3 5;
+  opacity: 0.72;
+}
+.tier-structural .trace-halo {
+  opacity: 0.07;
+}
+
+/* An undated lineage with nothing dated below it is not bracketed at all —
+   its position is a guess in one direction only. It fades out rather than
+   terminating at a definite time. */
+.trace-unbounded .trace-core {
+  stroke-dasharray: 2 6;
+}
+
+/* Unselected lineages recede to dim and desaturated. Contrast does the
+   wayfinding, not labels. */
+.dimmed {
+  opacity: 0.26;
+  filter: saturate(0.35);
+}
+
+/* ------------------------------------------------------------ node marks -- */
+
+/*
+ * A mark is a small square box whose centre is the node's computed (x, y).
+ * The dot fills the box; labels and silhouettes hang off it absolutely.
+ *
+ * Two constraints meet here, and both are load-bearing.
+ *
+ * Laying the dot out in normal flow beside its label and centring the whole
+ * row with translate(-50%, -50%) displaces the dot by half the label width, so
+ * the point drifts off the coordinate the layout computed and every trace —
+ * drawn to the *true* coordinate — overshoots and strikes through the text. On
+ * a time axis that is not cosmetic: the dot's x position *is* the node's age.
+ *
+ * The obvious fix, a zero-size anchor, is worse: React Flow skips any edge
+ * whose endpoint node measures zero width, so the graph renders as a field of
+ * unconnected points. Hence a real box, with the position offset by half of it
+ * in Graph.tsx so the centre still lands exactly on the coordinate.
+ */
+.mark {
+  position: relative;
+  width: 10px;
+  height: 10px;
+  white-space: nowrap;
+}
+
+.mark-dot {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  transition:
+    box-shadow 180ms var(--spring),
+    transform 180ms var(--spring);
+}
+
+.mark:hover .mark-dot,
+.mark.is-focus .mark-dot {
+  transform: scale(1.45);
+}
+
+.mark-label {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  left: 20px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  letter-spacing: 0.005em;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* Labels never rotate. Truncate with ellipsis before you tilt text. */
+}
+
+/*
+ * Internal nodes label *above* the point, not beside it.
+ *
+ * Beside is the obvious choice and it is wrong: an internal node always has a
+ * trace arriving horizontally from its parent and leaving horizontally toward
+ * its children, so a label on either flank sits directly on top of a line at
+ * exactly its own y. Above is the only free side, and it is where phylogenies
+ * conventionally put clade names anyway.
+ *
+ * Above and to the *left*, specifically. Children leave to the right, and when
+ * an internal node's y lands close to one child's lane — which happens
+ * whenever the midpoint of its children's extent is near one of them — an
+ * above-right label lies straight across that child's horizontal run. Nothing
+ * is ever routed above-left: the parent arrives horizontally at this node's
+ * own y, below the label, and its vertical drop is back at the parent's x.
+ */
+.mark-label.leading {
+  left: auto;
+  right: 5px;
+  top: auto;
+  bottom: 12px;
+  transform: none;
+  justify-content: flex-end;
+  text-align: right;
+}
+
+.mark .silhouette {
+  position: absolute;
+  left: 19px;
+  top: 50%;
+  transform: translateY(-50%);
+  margin: 0;
+}
+.mark-label.has-silhouette {
+  left: 60px;
+}
+
+.mark-age {
+  font-size: 11px;
+  color: var(--ink-4);
+}
+
+.mark-rank {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--ink-4);
+  margin-left: 8px;
+}
+
+.mark.is-leaf .mark-label {
+  color: var(--ink);
+  font-size: 13.5px;
+}
+
+.mark.is-mrca .mark-label {
+  color: var(--ink);
+  font-weight: var(--w-med);
+}
+
+/* Silhouettes are monochrome, so `fill: currentColor` drops them straight into
+   the instrument and lets them take the trace colour, bloom included. That is
+   a real advantage over photographs — alongside the one that matters more: a
+   silhouette legitimately represents a *clade*, where a photograph can only
+   ever represent one member of it. */
+.silhouette {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  margin-right: 10px;
+  opacity: 0.9;
+}
+.silhouette svg,
+.silhouette img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.silhouette svg path,
+.silhouette svg polygon {
+  fill: currentColor;
+}
+
+/* The clade an inherited silhouette actually depicts. Says so rather than
+   implying the image is of this species. */
+.silhouette-of {
+  font-size: 10px;
+  color: var(--ink-4);
+  letter-spacing: 0.04em;
+}
+
+/* --------------------------------------------------------- the MRCA flare -- */
+
+@keyframes flare {
+  0% {
+    box-shadow: 0 0 0 0 currentColor;
+    transform: scale(1);
+  }
+  22% {
+    box-shadow:
+      0 0 14px 5px currentColor,
+      0 0 34px 12px currentColor;
+    transform: scale(2.05);
+  }
+  100% {
+    box-shadow: 0 0 6px 1px currentColor;
+    transform: scale(1);
+  }
+}
+
+.mark-dot.flaring {
+  animation: flare 620ms var(--spring) both;
+}
+
+/* ------------------------------------------------------------- time axis -- */
+
+.axis {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 84px;
+  pointer-events: none;
+  z-index: 4;
+  background: linear-gradient(to top, var(--void) 46%, transparent);
+}
+
+.axis-line {
+  stroke: var(--hairline-strong);
+  stroke-width: 1;
+}
+
+.axis-tick text {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 10.5px;
+  fill: var(--ink-3);
+}
+
+.axis-grid {
+  stroke: rgba(150, 200, 210, 0.06);
+  stroke-width: 1;
+}
+
+/* The axis changes character at t0, and a scale that bends without saying so
+   misleads. One gridline is a cheap price for an honest chart. The label sits
+   above the rule because the pinned hint bar owns the bottom-right corner. */
+.axis-knee {
+  stroke: var(--accent-dim);
+  stroke-dasharray: 2 4;
+  opacity: 0.75;
+}
+
+/*
+ * The geologic band keeps the official ICS hue *relationships* and drops the
+ * official saturation and luminance (architecture §6). It is a reference
+ * scale at the edge of the canvas, not data — so it never glows, and nothing
+ * in it should compete with a trace for attention. Wayfinding comes from
+ * labels and hairline dividers first, hue second.
+ */
+.ics-band rect {
+  opacity: 0.5;
+}
+.ics-band line {
+  stroke: rgba(0, 0, 0, 0.5);
+}
+.ics-band text {
+  font-size: 9.5px;
+  letter-spacing: 0.05em;
+  fill: var(--ink-3);
+  text-transform: uppercase;
+}
+
+/* ---------------------------------------------------------------- palette -- */
+
+/* ⌘K is the root. Opening the app opens the palette; the empty canvas state is
+   the command list, not an illustration. */
+.palette-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  justify-content: center;
+  padding-top: 14vh;
+  background: rgba(6, 6, 8, 0.62);
+  animation: fade 110ms ease-out;
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+
+.palette {
+  width: min(680px, 92vw);
+  max-height: 62vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--void-2);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.palette-input-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s3) var(--s4);
+  border-bottom: 1px solid var(--hairline);
+}
+
+/* The search field carries a breadcrumb of current scope. Backspace at
+   position zero pops the scope. */
+.scope-chip {
+  flex: none;
+  font-size: 11.5px;
+  padding: 3px 8px;
+  border-radius: 5px;
+  background: rgba(120, 200, 210, 0.12);
+  color: var(--accent);
+  border: 1px solid var(--hairline);
+}
+
+.palette-input {
+  flex: 1;
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 16px;
+  padding: 2px 0;
+}
+.palette-input::placeholder {
+  color: var(--ink-4);
+}
+
+.palette-list {
+  overflow-y: auto;
+  padding: var(--s2) 0;
+  scrollbar-width: thin;
+  scrollbar-color: var(--ink-4) transparent;
+}
+
+.palette-section {
+  padding: var(--s2) var(--s4) var(--s1);
+  font-size: 10px;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+}
+
+/* Raycast row anatomy: icon · title · subtitle · right-aligned accessory. */
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  padding: 7px var(--s4);
+  cursor: pointer;
+  border-left: 2px solid transparent;
+}
+
+.row.active {
+  background: rgba(120, 200, 210, 0.07);
+  border-left-color: var(--accent);
+}
+
+.row-icon {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 5px;
+  background: var(--void-3);
+  border: 1px solid var(--hairline);
+  color: var(--ink-3);
+  font-size: 12px;
+}
+.row.active .row-icon {
+  color: var(--accent);
+}
+.row-icon .silhouette {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+}
+
+.row-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.row-title {
+  display: block;
+  font-size: 13.5px;
+  line-height: 1.25;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.row-sub {
+  display: block;
+  font-size: 11.5px;
+  line-height: 1.25;
+  color: var(--ink-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Fuzzy search with highlighted match ranges. */
+.hl {
+  color: var(--accent);
+}
+
+.row-accessory {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  font-size: 11px;
+  color: var(--ink-4);
+}
+
+/* Inline keybind hints on every row. */
+.kbd {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  padding: 2px 5px;
+  border-radius: 4px;
+  border: 1px solid var(--hairline);
+  background: var(--void-3);
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+.palette-empty {
+  padding: var(--s5) var(--s4);
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+/* Persistent hint bar pinned bottom-right. */
+/* Above the axis strip, not on it — the axis is 84px of fixed chrome at the
+   bottom and the hint bar was printing over its caption. */
+.hintbar {
+  position: fixed;
+  right: var(--s4);
+  bottom: 92px;
+  z-index: 30;
+  display: flex;
+  gap: var(--s3);
+  align-items: center;
+  font-size: 11px;
+  color: var(--ink-4);
+  background: rgba(10, 10, 12, 0.72);
+  padding: 5px 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--hairline);
+  backdrop-filter: blur(6px);
+}
+
+/* Chrome auto-hides. The canvas is the page. */
+.hintbar.idle {
+  opacity: 0.28;
+}
+
+/* In a narrow panel the hint bar is wider than the useful canvas, and the
+   detail card would cover the graph it describes. The bindings still work;
+   the advertisement is what goes. */
+@media (max-width: 620px) {
+  .hintbar {
+    display: none;
+  }
+  /* Truncate with ellipsis before you tilt text — and before you let it run
+     off the canvas, which is the same failure with no warning. */
+  .mark-label {
+    max-width: 40vw;
+  }
+  .detail {
+    width: auto;
+    left: var(--s3);
+    right: var(--s3);
+    max-height: 42vh;
+  }
+}
+.hintbar {
+  transition: opacity 400ms ease;
+}
+
+/* ----------------------------------------------------------------- toasts -- */
+
+/* Confirmations are brief HUD toasts. No modals, no dialogs. */
+.toasts {
+  position: fixed;
+  left: 50%;
+  bottom: var(--s6);
+  transform: translateX(-50%);
+  z-index: 45;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  align-items: center;
+  pointer-events: none;
+}
+
+.toast {
+  background: rgba(14, 14, 17, 0.94);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius);
+  padding: 8px 14px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  max-width: min(560px, 88vw);
+  animation: toast-in 180ms var(--spring);
+  pointer-events: auto;
+}
+.toast strong {
+  font-weight: var(--w-med);
+  color: var(--ink);
+}
+.toast.warn {
+  border-color: rgba(120, 200, 210, 0.34);
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+/* ------------------------------------------------------------ detail card -- */
+
+.detail {
+  position: fixed;
+  top: var(--s4);
+  right: var(--s4);
+  width: 330px;
+  max-height: calc(100vh - 130px);
+  overflow-y: auto;
+  z-index: 25;
+  background: rgba(14, 14, 17, 0.9);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  padding: var(--s4);
+  backdrop-filter: blur(8px);
+  scrollbar-width: thin;
+}
+
+.detail h2 {
+  margin: 0 0 2px;
+  font-size: 16px;
+  font-weight: var(--w-med);
+}
+.detail .rank {
+  font-size: 10px;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+}
+.detail dl {
+  margin: var(--s4) 0 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 5px var(--s3);
+  font-size: 12px;
+}
+.detail dt {
+  color: var(--ink-4);
+}
+.detail dd {
+  margin: 0;
+  color: var(--ink-2);
+  text-align: right;
+}
+.detail .credit {
+  margin-top: var(--s4);
+  padding-top: var(--s3);
+  border-top: 1px solid var(--hairline);
+  font-size: 11px;
+  color: var(--ink-4);
+  line-height: 1.5;
+}
+.detail .credit a {
+  color: var(--ink-3);
+}
+
+.detail .note {
+  margin-top: var(--s3);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--ink-3);
+  border-left: 2px solid var(--hairline-strong);
+  padding-left: var(--s3);
+}
+
+/* ------------------------------------------------------------------ boot -- */
+
+.boot {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  padding: var(--s5);
+}
+.boot-inner {
+  max-width: 520px;
+  line-height: 1.6;
+  color: var(--ink-3);
+  font-size: 13.5px;
+}
+.boot-inner h1 {
+  font-size: 15px;
+  font-weight: var(--w-med);
+  color: var(--ink);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  margin: 0 0 var(--s3);
+}
+.boot-inner code {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--accent);
+  background: var(--void-3);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+/* ------------------------------------------------------------- reduced -- */
+
+/* Respect prefers-reduced-motion: cut to the final state, keep the glow
+   static. Motion here rewards the add action; it is never decoration, so
+   removing it costs information but not meaning. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
+  .mark-dot.flaring {
+    box-shadow: 0 0 10px 3px currentColor;
+  }
+}

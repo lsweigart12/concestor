@@ -12,3 +12,12 @@
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# Frontend
+/web/node_modules/
+/web/dist/
+/web/.vite/
+
+# Go
+/server/concestor-serve
+/web/tsconfig.tsbuildinfo

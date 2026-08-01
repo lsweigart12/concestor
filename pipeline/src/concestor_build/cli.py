@@ -2,6 +2,11 @@
 
 Each phase is a separate subcommand writing to `build/` with a manifest, and
 phases are resumable — `dates` does not re-run `topology`.
+
+The numbering in ingest.md is a *dependency* order, not a priority order
+(handoff.md §1). `images` and `vernaculars` are priority-one work that happens
+to sit late in the numbering; nothing about this list implies they wait for
+`fossils`.
 """
 
 from __future__ import annotations
@@ -48,6 +53,38 @@ def main(argv: list[str] | None = None) -> int:
         help="write age arrays even if the gate fails (walking skeleton only)",
     )
 
+    r = sub.add_parser("resolve", help="phase 3 — the identifier resolution layer")
+    r.add_argument(
+        "--budget",
+        type=int,
+        default=25_000,
+        help="PBDB taxa to point-look-up via the API, ordered by n_occs descending",
+    )
+    r.add_argument("--no-api", action="store_true", help="offline methods only")
+
+    f = sub.add_parser("fossils", help="phase 4 — attach PBDB taxa to segments")
+    f.add_argument("--no-api", action="store_true", help="offline methods only")
+
+    i = sub.add_parser("images", help="phase 5a — PhyloPic mirror and node resolution")
+    i.add_argument(
+        "--budget",
+        type=int,
+        default=0,
+        help="stop after N node resolutions (0 = no limit); the crawl is resumable",
+    )
+    i.add_argument(
+        "--mirror-only", action="store_true", help="fetch SVGs for already-resolved ids"
+    )
+
+    sub.add_parser("timescale", help="phase 5b — ICS chart.ttl into timescale.json")
+
+    v = sub.add_parser("vernaculars", help="phase 6 — common names")
+    v.add_argument("--no-api", action="store_true", help="skip the Wikidata query")
+
+    sub.add_parser("search", help="build the FTS index over names and vernaculars")
+
+    sub.add_parser("package", help="emit topology.bin, meta.bin and the build manifest")
+
     sub.add_parser("render", help="throwaway renderer — one induced subtree")
 
     args = p.parse_args(argv)
@@ -67,6 +104,34 @@ def main(argv: list[str] | None = None) -> int:
             from . import dates
 
             return dates.run(tree=args.tree, provisional=args.provisional)
+        case "resolve":
+            from . import resolve
+
+            return resolve.run(budget=args.budget, use_api=not args.no_api)
+        case "fossils":
+            from . import fossils
+
+            return fossils.run(use_api=not args.no_api)
+        case "images":
+            from . import images
+
+            return images.run(budget=args.budget, mirror_only=args.mirror_only)
+        case "timescale":
+            from . import timescale
+
+            return timescale.run()
+        case "vernaculars":
+            from . import vernaculars
+
+            return vernaculars.run(use_api=not args.no_api)
+        case "search":
+            from . import search
+
+            return search.run()
+        case "package":
+            from . import package
+
+            return package.run()
         case "render":
             from . import render
 

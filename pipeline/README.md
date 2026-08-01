@@ -10,6 +10,8 @@ uv sync
 uv run concestor-build snapshot    # phase 0 — pin and checksum sources
 uv run concestor-build topology    # phase 1 — parse the OTT Newick
 uv run concestor-build dates       # phase 2 — the decision gate
+uv run concestor-build resolve     # phase 3 — xref; --budget bounds the GBIF crawl
+uv run concestor-build fossils     # phase 4 — attach PBDB taxa to the tree
 uv run concestor-build render      # throwaway walking-skeleton renderer
 uv run pytest
 ```
@@ -60,8 +62,10 @@ read API gets written.
 | `snapshot.py` | Phase 0 |
 | `topology.py` | Phase 1 |
 | `dates.py` | Phase 2, the decision gate |
+| `resolve.py` | Phase 3, the identifier resolution layer → `xref` |
+| `fossils.py` | Phase 4, PBDB attachment points → `fossil` |
 | `oracle.py` | Validates our topology against the live Open Tree API |
-| `gbif_checklist.py` | PBDB→GBIF `nubKey` export, sharded around the offset cap |
+| `gbif_checklist.py` | **Superseded by `resolve.py`.** The sharded bulk export, kept as documentation of a route not to take |
 | `provenance.py` | Fetching with checksums; writes `snapshot/manifest.json` |
 | `gates.py` | Named assertions; a failed blocking gate refuses to write output |
 | `typing_.py` | Array and JSON type aliases; the dtypes are load-bearing |

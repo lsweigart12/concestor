@@ -1,0 +1,953 @@
+package store
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"math"
+	"sort"
+	"strings"
+	"unicode"
+)
+
+// Search ranking, per architecture §4: exact match first, then tip_count
+// descending, then has-silhouette, then has-measured-age. Ranking ambiguous
+// prefixes by subtree size is what makes "can" surface Cantharellales before
+// a one-species genus.
+//
+// Candidate generation has two paths. When node_fts exists it is used. Until
+// then the fallback is an indexed prefix range over node.name — SQLite's
+// default collation is BINARY, so the query is issued once per plausible
+// capitalisation rather than relying on LIKE, which cannot use the index.
+
+// SearchResult is one row of /v1/search.
+type SearchResult struct {
+	Kind       string  `json:"kind"` // "node" | "broken"
+	Key        string  `json:"key"`
+	Idx        *int    `json:"idx"`
+	OttID      *int64  `json:"ott_id"`
+	Name       *string `json:"name"`
+	Vernacular *string `json:"vernacular"`
+	Rank       *string `json:"rank"`
+	TipCount   *int64  `json:"tip_count"`
+	HasAge     bool    `json:"has_age"`
+	HasImage   bool    `json:"has_image"`
+	MatchedOn  string  `json:"matched_on"` // "name" | "vernacular" | "fts"
+
+	// Broken taxa are not nodes, so idx and tip_count are null for them. These
+	// two extra fields give the UI something to act on.
+	MRCAIdx           *int `json:"mrca_idx,omitempty"`
+	NAttachmentPoints *int `json:"n_attachment_points,omitempty"`
+
+	// sort keys, not serialised
+	exact    bool
+	band     int
+	score    float64
+	rankTip  int64
+	hasMeas  bool
+	hasVern  bool
+	sortName string
+}
+
+const (
+	maxSearchLimit     = 50
+	defaultSearchLimit = 20
+	// Candidates kept per prefix variant before the final ranking. tip_count
+	// is the dominant sort key once exact matches are separated out, so any
+	// value at or above maxSearchLimit yields exactly the same page; the
+	// headroom is only for de-duplication across variants and against the
+	// vernacular and FTS candidate sets.
+	candidatesPerVariant = 128
+	// Below this token length the FTS prefix enumeration costs more than the
+	// hot-name cache, which answers the same query from memory.
+	minFTSToken = 3
+)
+
+func longestToken(q string) int {
+	n := 0
+	for _, t := range tokens(q) {
+		n = max(n, len(t))
+	}
+	return n
+}
+
+// Search runs the typeahead query.
+func (s *Store) Search(ctx context.Context, q string, limit int) ([]SearchResult, error) {
+	q = strings.Join(strings.Fields(q), " ")
+	if limit <= 0 {
+		limit = defaultSearchLimit
+	}
+	limit = min(limit, maxSearchLimit)
+	if q == "" {
+		return []SearchResult{}, nil
+	}
+	qFold := strings.ToLower(q)
+
+	byIdx := map[int]*SearchResult{}
+	add := func(r *SearchResult) {
+		if r.Idx == nil {
+			return
+		}
+		// A node reached by several routes keeps the strongest one: a hit on
+		// the scientific name beats an FTS hit beats a vernacular hit.
+		if prev, ok := byIdx[*r.Idx]; ok && matchStrength(prev.MatchedOn) >= matchStrength(r.MatchedOn) {
+			return
+		}
+		byIdx[*r.Idx] = r
+	}
+
+	// FTS5 answers a prefix query by enumerating every indexed term with that
+	// prefix. Measured against this corpus: '"homo"*' is 0.4 ms, '"can"*' is
+	// 2 ms, and '"a"*' is 90 ms. So the shortest queries — the ones a palette
+	// fires on the very first keystroke — go to the hot-name cache instead,
+	// which answers them from memory and ranks them identically.
+	useFTS := s.Schema.FTS != nil && longestToken(q) >= minFTSToken
+	if useFTS {
+		rows, err := s.searchFTS(ctx, q, limit*8)
+		if err != nil {
+			s.log.Warn("FTS query failed, falling back to prefix scan", "err", err)
+			useFTS = false
+		} else {
+			for _, r := range rows {
+				add(r)
+			}
+		}
+	}
+	if len(byIdx) < limit*2 {
+		rows, err := s.searchNamePrefix(ctx, q)
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range rows {
+			add(r)
+		}
+	}
+	exactVern := map[int]struct{}{}
+	if s.Schema.Vernacular != nil {
+		// node_fts already indexes vernaculars (search_name.kind = 3), so the
+		// separate prefix scan over the vernacular table is only needed when
+		// FTS did not run.
+		if !useFTS {
+			rows, err := s.searchVernacular(ctx, q, limit*4)
+			if err != nil {
+				s.log.Warn("vernacular query failed", "err", err)
+			} else {
+				for _, r := range rows {
+					add(r)
+				}
+			}
+		}
+		// A node whose common name *is* the query has to be a candidate even
+		// if the capped prefix scan missed it.
+		if ev, err := s.exactVernacularMatches(ctx, q); err != nil {
+			s.log.Warn("exact vernacular lookup failed", "err", err)
+		} else {
+			exactVern = ev
+			missing := make([]int, 0, len(ev))
+			for idx := range ev {
+				if _, have := byIdx[idx]; !have {
+					missing = append(missing, idx)
+				}
+			}
+			if len(missing) > 0 {
+				extra, err := s.resultsForIdxs(ctx, missing, "vernacular")
+				if err != nil {
+					return nil, err
+				}
+				for _, r := range extra {
+					add(r)
+				}
+			}
+		}
+	}
+
+	results := make([]SearchResult, 0, len(byIdx)+8)
+	for _, r := range byIdx {
+		results = append(results, *r)
+	}
+	// Broken taxa must be searchable. There are 9,839 and they live in memory,
+	// so this is a linear scan over a small slice.
+	results = append(results, s.searchBroken(qFold)...)
+
+	if err := s.decorate(ctx, results, qFold, exactVern); err != nil {
+		return nil, err
+	}
+
+	sort.SliceStable(results, func(i, j int) bool { return lessResult(&results[i], &results[j]) })
+	results = truncateKeepingBroken(results, limit)
+	if err := s.fillVernaculars(ctx, results); err != nil {
+		return nil, err
+	}
+	if results == nil {
+		results = []SearchResult{}
+	}
+	return results, nil
+}
+
+// reservedBrokenSlots is how many tail positions a matching broken taxon may
+// claim when the node results would otherwise fill the page. Nodes deserve to
+// win the ranking, but a user who typed a prefix of a non-monophyletic taxon
+// has to be able to *see* the explanation — silently answering a different
+// question is exactly the failure mode this product exists to avoid.
+const reservedBrokenSlots = 2
+
+func truncateKeepingBroken(results []SearchResult, limit int) []SearchResult {
+	if len(results) <= limit {
+		return results
+	}
+	head := results[:limit]
+	for _, r := range head {
+		if r.Kind == "broken" {
+			return head
+		}
+	}
+	// Scale the reserve to the page. Two slots out of twenty is a footnote;
+	// two out of four is the palette handing half its answer to taxa the user
+	// probably did not mean.
+	reserve := min(reservedBrokenSlots, limit/8)
+	if reserve == 0 {
+		return head
+	}
+	var rescued []SearchResult
+	for _, r := range results[limit:] {
+		if r.Kind == "broken" {
+			rescued = append(rescued, r)
+			if len(rescued) == reserve {
+				break
+			}
+		}
+	}
+	if len(rescued) == 0 {
+		return head
+	}
+	out := make([]SearchResult, 0, limit)
+	out = append(out, head[:limit-len(rescued)]...)
+	return append(out, rescued...)
+}
+
+func matchStrength(m string) int {
+	switch m {
+	case "name":
+		return 5
+	case "abbreviation":
+		return 4
+	case "synonym":
+		return 3
+	case "fts":
+		return 2
+	case "vernacular":
+		return 1
+	}
+	return 0
+}
+
+// matchTier splits "a name this taxon goes by" from "a name it used to go by".
+func matchTier(m string) int {
+	if m == "synonym" {
+		return 1
+	}
+	return 0
+}
+
+func lessResult(a, b *SearchResult) bool {
+	// How well the query sits inside the name comes before everything else:
+	// exact string, then whole-word, then prefix-of-word. Without this band a
+	// query like "dog" falls straight through to tip_count, and Apocynaceae
+	// ("dogbane family", 7,050 tips) beats Canidae ("dog family", 211).
+	if a.band != b.band {
+		return a.band < b.band
+	}
+	// A hit on a deprecated synonym is weaker than one on a name the taxon
+	// actually goes by. Without this, "Can" surfaces Elateroidea — whose
+	// synonym is Cantharoidea — above Cantharellales, because Elateroidea has
+	// the larger subtree. A vernacular hit is *not* demoted: for a lay
+	// audience a common name is as good a way in as a scientific one.
+	if at, bt := matchTier(a.MatchedOn), matchTier(b.MatchedOn); at != bt {
+		return at < bt
+	}
+	// Nodes outrank broken taxa on a non-exact match. A broken taxon has no
+	// subtree of its own, so the only size signal available is its substituted
+	// MRCA's — which is by construction *larger* than the taxon, because the
+	// MRCA is what swallowed the intruders. Ranking on that would let 9,839
+	// broken taxa crowd out 2.4M real names on every short prefix. Ask for one
+	// by name and it still comes first, via the exact band.
+	if aBroken, bBroken := a.Kind == "broken", b.Kind == "broken"; aBroken != bBroken {
+		return bBroken
+	}
+	if a.score != b.score {
+		return a.score > b.score
+	}
+	if a.rankTip != b.rankTip {
+		return a.rankTip > b.rankTip
+	}
+	if a.HasImage != b.HasImage {
+		return a.HasImage
+	}
+	if a.hasMeas != b.hasMeas {
+		return a.hasMeas
+	}
+	// One tiebreak past architecture §4's list, and it earns its place: having
+	// a common name at all is the strongest available proxy for "a curious
+	// person has heard of this". It is what separates Tyrannosaurus rex from
+	// the nine other species whose abbreviation is also "T. rex" and which are
+	// identical on every other signal.
+	if a.hasVern != b.hasVern {
+		return a.hasVern
+	}
+	if a.sortName != b.sortName {
+		return a.sortName < b.sortName
+	}
+	return a.Kind < b.Kind
+}
+
+// nameVariants covers the capitalisations a user actually types against a
+// BINARY-collated index. Scientific names capitalise the genus only, so
+// "homo sapiens" must reach "Homo sapiens".
+func nameVariants(q string) []string {
+	upperFirst := func(s string) string {
+		r := []rune(s)
+		if len(r) == 0 {
+			return s
+		}
+		r[0] = unicode.ToUpper(r[0])
+		return string(r)
+	}
+	lower := strings.ToLower(q)
+	cands := []string{q, upperFirst(q), upperFirst(lower), lower}
+	seen := map[string]bool{}
+	out := cands[:0:0]
+	for _, c := range cands {
+		if c == "" || seen[c] {
+			continue
+		}
+		seen[c] = true
+		out = append(out, c)
+	}
+	return out
+}
+
+// prefixBound returns an exclusive upper bound for a BINARY prefix range.
+// U+10FFFF is the largest code point, so no realistic taxon name sorts above
+// prefix+"\U0010FFFF" while still starting with prefix.
+func prefixBound(p string) string { return p + "\U0010FFFF" }
+
+// searchNamePrefix is the fallback used until node_fts exists.
+//
+// The obvious query — range scan ORDER BY tip_count DESC LIMIT 400 — measures
+// 65 ms for a one-character prefix, because SQLite has to leave the covering
+// index and seek the primary key for every one of 268,281 candidate rows just
+// to sort them. The index-only scan of the same range is 3.5 ms.
+//
+// So the ranking happens here instead: take idx alone (index-only), read
+// tip_count straight out of the mmap'd array, keep the best K in a bounded
+// heap, and fetch full rows for only those. Same answer, one order of
+// magnitude cheaper.
+func (s *Store) searchNamePrefix(ctx context.Context, q string) ([]*SearchResult, error) {
+	seen := make(map[int]struct{})
+	var idxs []int
+	add := func(list []int) {
+		for _, idx := range list {
+			if _, dup := seen[idx]; dup {
+				continue
+			}
+			seen[idx] = struct{}{}
+			idxs = append(idxs, idx)
+		}
+	}
+
+	// The hot set holds the globally largest subtrees. If it alone yields a
+	// full page of prefix matches, no node outside it can outrank them on
+	// tip_count, so the SQL scan is provably unnecessary — which is what keeps
+	// a one-character query from touching 268,281 index entries.
+	hot := s.hotPrefixMatches(q, candidatesPerVariant)
+	add(hot)
+	if len(hot) < candidatesPerVariant {
+		for _, v := range nameVariants(q) {
+			top, err := s.topByTipCount(ctx, v, candidatesPerVariant)
+			if err != nil {
+				return nil, err
+			}
+			add(top)
+		}
+	}
+	// An exact match can be a one-species node far outside the hot set, and it
+	// has to rank first. One indexed equality lookup per capitalisation.
+	exact, err := s.exactNameMatches(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	add(exact)
+
+	if len(idxs) == 0 {
+		return nil, nil
+	}
+	return s.resultsForIdxs(ctx, idxs, "name")
+}
+
+func (s *Store) exactNameMatches(ctx context.Context, q string) ([]int, error) {
+	var out []int
+	for _, v := range nameVariants(q) {
+		rows, err := s.DB.QueryContext(ctx, `SELECT idx FROM node WHERE name = ?`, v)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var idx int
+			if err := rows.Scan(&idx); err != nil {
+				_ = rows.Close()
+				return nil, err
+			}
+			out = append(out, idx)
+		}
+		err = rows.Err()
+		_ = rows.Close()
+		if err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
+// topByTipCount returns the k node indices with the largest subtrees whose
+// name starts with prefix.
+func (s *Store) topByTipCount(ctx context.Context, prefix string, k int) ([]int, error) {
+	rows, err := s.DB.QueryContext(ctx,
+		`SELECT idx FROM node WHERE name >= ? AND name < ?`, prefix, prefixBound(prefix))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close() //nolint:errcheck
+
+	h := &tipHeap{tip: s.Arrays.TipCount}
+	for rows.Next() {
+		var idx int
+		if err := rows.Scan(&idx); err != nil {
+			return nil, err
+		}
+		if !s.Arrays.Valid(idx) {
+			continue
+		}
+		h.push(idx, k)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return h.sorted(), nil
+}
+
+// tipHeap keeps the k largest subtrees seen, as a min-heap on tip_count.
+type tipHeap struct {
+	tip  []uint32
+	item []int
+}
+
+func (h *tipHeap) less(i, j int) bool { return h.tip[h.item[i]] < h.tip[h.item[j]] }
+
+func (h *tipHeap) push(idx, k int) {
+	if len(h.item) < k {
+		h.item = append(h.item, idx)
+		h.up(len(h.item) - 1)
+		return
+	}
+	if h.tip[idx] <= h.tip[h.item[0]] {
+		return
+	}
+	h.item[0] = idx
+	h.down(0)
+}
+
+func (h *tipHeap) up(i int) {
+	for i > 0 {
+		p := (i - 1) / 2
+		if !h.less(i, p) {
+			return
+		}
+		h.item[i], h.item[p] = h.item[p], h.item[i]
+		i = p
+	}
+}
+
+func (h *tipHeap) down(i int) {
+	n := len(h.item)
+	for {
+		l, r, m := 2*i+1, 2*i+2, i
+		if l < n && h.less(l, m) {
+			m = l
+		}
+		if r < n && h.less(r, m) {
+			m = r
+		}
+		if m == i {
+			return
+		}
+		h.item[i], h.item[m] = h.item[m], h.item[i]
+		i = m
+	}
+}
+
+func (h *tipHeap) sorted() []int {
+	out := append([]int(nil), h.item...)
+	sort.Slice(out, func(i, j int) bool { return h.tip[out[i]] > h.tip[out[j]] })
+	return out
+}
+
+// resultsForIdxs materialises search rows for a already-chosen set of indices.
+func (s *Store) resultsForIdxs(ctx context.Context, idxs []int, matchedOn string) ([]*SearchResult, error) {
+	var out []*SearchResult
+	for start := 0; start < len(idxs); start += metaChunk {
+		end := min(start+metaChunk, len(idxs))
+		chunk := idxs[start:end]
+		q := "SELECT idx, ott_id, node_key, name, rank, tip_count FROM node WHERE idx IN (" +
+			placeholders(len(chunk)) + ")"
+		args := make([]any, len(chunk))
+		for i, v := range chunk {
+			args[i] = v
+		}
+		rows, err := s.DB.QueryContext(ctx, q, args...)
+		if err != nil {
+			return nil, err
+		}
+		batch, err := scanNodeResults(rows, matchedOn)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, batch...)
+	}
+	return out, nil
+}
+
+// nameKind maps search_name.kind onto the matched_on value the API reports.
+var nameKind = map[int64]string{0: "name", 1: "abbreviation", 2: "synonym", 3: "vernacular"}
+
+// ftsScanCap bounds the rows pulled out of the FTS index before de-duplication.
+// The index holds one row per *name* — 6.8M rows against 2.7M nodes — so a
+// heavily-synonymised taxon can occupy dozens of them. De-duplication has to
+// happen before the page is cut, or one taxon fills the whole palette.
+const ftsScanCap = 4000
+
+func (s *Store) searchFTS(ctx context.Context, q string, limit int) ([]*SearchResult, error) {
+	expr := ftsPrefixQuery(q)
+	if expr == "" {
+		return nil, nil
+	}
+	f := s.Schema.FTS
+	kind := "NULL"
+	if f.MapKind != "" {
+		kind = "m." + fmt.Sprintf("%q", f.MapKind)
+	}
+	// node_fts.rowid is a search_name.id, NOT a node.idx. Joining it straight
+	// to node does not error — it joins cleanly to unrelated nodes and returns
+	// confident nonsense, which is exactly what it did.
+	rows, err := s.DB.QueryContext(ctx, fmt.Sprintf(
+		`SELECT m.%q, %s, m.%q FROM %q f JOIN %q m ON m.%q = f.rowid WHERE %q MATCH ? LIMIT ?`,
+		f.MapIdx, kind, f.MapName, f.Table, f.MapTable, f.MapID, f.Table), expr, ftsScanCap)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close() //nolint:errcheck
+
+	qFold := strings.ToLower(q)
+	var order []int
+	kinds := map[int]string{}
+	exact := map[int]bool{}
+	// Best band across every name this node matched through.
+	bands := map[int]int{}
+	for rows.Next() {
+		var idxVal sql.NullInt64
+		var k sql.NullInt64
+		var name sql.NullString
+		if err := rows.Scan(&idxVal, &k, &name); err != nil {
+			return nil, err
+		}
+		if !idxVal.Valid {
+			continue
+		}
+		idx := int(idxVal.Int64)
+		if !s.Arrays.Valid(idx) {
+			continue
+		}
+		if _, seen := kinds[idx]; !seen {
+			order = append(order, idx)
+			kinds[idx] = "" // strength 0, so any real kind wins
+			bands[idx] = bandNone
+		}
+		if k.Valid {
+			if kn, ok := nameKind[k.Int64]; ok && matchStrength(kn) > matchStrength(kinds[idx]) {
+				kinds[idx] = kn
+			}
+		}
+		// "T. rex" is an abbreviation, not a scientific name, so exactness has
+		// to be judged against whichever name actually matched. Doing it here
+		// also covers synonyms and vernaculars for free, and uses the FTS index
+		// rather than a full scan of search_name, which has no index on name.
+		if name.Valid {
+			if b := matchBand(name.String, qFold); b < bands[idx] {
+				bands[idx] = b
+			}
+			if strings.EqualFold(name.String, qFold) {
+				exact[idx] = true
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// Cut the candidate list on the same keys the final ranking uses, not on
+	// raw tip_count. "can" matches a synonym of Elateroidea (9,651 tips) and
+	// dozens like it; truncating by subtree size alone pushed Cantharellales —
+	// a genuine whole-name prefix match — off the end before the band and
+	// synonym rules ever saw it.
+	tip := s.Arrays.TipCount
+	sort.SliceStable(order, func(i, j int) bool {
+		a, b := order[i], order[j]
+		if bands[a] != bands[b] {
+			return bands[a] < bands[b]
+		}
+		if ta, tb := matchTier(kinds[a]), matchTier(kinds[b]); ta != tb {
+			return ta < tb
+		}
+		return tip[a] > tip[b]
+	})
+	idxs := order
+	if len(idxs) > limit {
+		idxs = idxs[:limit]
+	}
+	if len(idxs) == 0 {
+		return nil, nil
+	}
+	out, err := s.resultsForIdxs(ctx, idxs, "fts")
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range out {
+		if k, ok := kinds[*r.Idx]; ok && k != "" {
+			r.MatchedOn = k
+		}
+		if exact[*r.Idx] {
+			r.exact = true
+		}
+		if b, ok := bands[*r.Idx]; ok {
+			r.band = b
+		}
+	}
+	return out, nil
+}
+
+// exactVernacularMatches finds nodes whose common name *is* the query. It uses
+// the vernacular table's own name index, so "human" reaches Homo rather than
+// losing to Pulex ("Human Fleas"), which has a larger subtree and would win a
+// pure tip_count ordering.
+func (s *Store) exactVernacularMatches(ctx context.Context, q string) (map[int]struct{}, error) {
+	out := map[int]struct{}{}
+	v := s.Schema.Vernacular
+	if v == nil {
+		return out, nil
+	}
+	for _, variant := range nameVariants(q) {
+		rows, err := s.DB.QueryContext(ctx, fmt.Sprintf(
+			`SELECT %q FROM %q WHERE %q = ? AND %q IS NOT NULL`,
+			v.Idx, v.Table, v.Name, v.Idx), variant)
+		if err != nil {
+			return out, err
+		}
+		for rows.Next() {
+			var idx sql.NullInt64
+			if err := rows.Scan(&idx); err != nil {
+				_ = rows.Close()
+				return out, err
+			}
+			if idx.Valid && s.Arrays.Valid(int(idx.Int64)) {
+				out[int(idx.Int64)] = struct{}{}
+			}
+		}
+		err = rows.Err()
+		_ = rows.Close()
+		if err != nil {
+			return out, err
+		}
+	}
+	return out, nil
+}
+
+// ftsPrefixQuery turns free text into an FTS5 MATCH expression: every token
+// double-quoted (so punctuation cannot become an operator) and the last one
+// given a prefix star, which is what typeahead needs.
+func ftsPrefixQuery(q string) string {
+	fields := strings.FieldsFunc(q, func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	})
+	if len(fields) == 0 {
+		return ""
+	}
+	parts := make([]string, len(fields))
+	for i, f := range fields {
+		parts[i] = `"` + strings.ReplaceAll(f, `"`, `""`) + `"`
+		if i == len(fields)-1 {
+			parts[i] += "*"
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+// searchVernacular mirrors searchNamePrefix: pull candidate indices without
+// leaving the vernacular table, rank them against the mmap'd tip_count array,
+// and only then join back to node. vernacularScanCap bounds the worst case for
+// a one-character prefix over a corpus that will run to millions of rows.
+const vernacularScanCap = 20000
+
+func (s *Store) searchVernacular(ctx context.Context, q string, limit int) ([]*SearchResult, error) {
+	v := s.Schema.Vernacular
+	h := &tipHeap{tip: s.Arrays.TipCount}
+	for _, variant := range nameVariants(q) {
+		// idx is NULL for vernaculars whose taxon has not been resolved to a
+		// node yet — the vernacular corpus is keyed by ott_id and by PBDB
+		// taxon_no, and not all of those land in the synthesis tree.
+		rows, err := s.DB.QueryContext(ctx, fmt.Sprintf(
+			`SELECT %q FROM %q WHERE %q >= ? AND %q < ? AND %q IS NOT NULL LIMIT ?`,
+			v.Idx, v.Table, v.Name, v.Name, v.Idx),
+			variant, prefixBound(variant), vernacularScanCap)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var idx sql.NullInt64
+			if err := rows.Scan(&idx); err != nil {
+				_ = rows.Close()
+				return nil, err
+			}
+			if idx.Valid && s.Arrays.Valid(int(idx.Int64)) {
+				h.push(int(idx.Int64), limit)
+			}
+		}
+		err = rows.Err()
+		_ = rows.Close()
+		if err != nil {
+			return nil, err
+		}
+	}
+	idxs := h.sorted()
+	if len(idxs) == 0 {
+		return nil, nil
+	}
+	return s.resultsForIdxs(ctx, idxs, "vernacular")
+}
+
+func scanNodeResults(rows *sql.Rows, matchedOn string) ([]*SearchResult, error) {
+	defer rows.Close() //nolint:errcheck
+	var out []*SearchResult
+	for rows.Next() {
+		var idx int
+		var ott sql.NullInt64
+		var key string
+		var name, rank sql.NullString
+		var tip int64
+		if err := rows.Scan(&idx, &ott, &key, &name, &rank, &tip); err != nil {
+			return nil, err
+		}
+		i := idx
+		t := tip
+		r := &SearchResult{
+			Kind: "node", Key: key, Idx: &i, Name: nullStr(name),
+			Rank: nullStr(rank), TipCount: &t, MatchedOn: matchedOn,
+			rankTip: tip,
+		}
+		if ott.Valid {
+			v := ott.Int64
+			r.OttID = &v
+		}
+		if name.Valid {
+			r.sortName = name.String
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) searchBroken(qFold string) []SearchResult {
+	var out []SearchResult
+	for i := range s.broken {
+		b := &s.broken[i]
+		if b.fold == "" || !strings.HasPrefix(b.fold, qFold) {
+			continue
+		}
+		ott := b.OttID
+		r := SearchResult{
+			Kind: "broken", Key: b.NodeKey, OttID: &ott,
+			MatchedOn: "name", MRCAIdx: b.MRCAIdx,
+			exact: b.fold == qFold, band: matchBand(b.Name, qFold), sortName: b.Name,
+		}
+		if b.Name != "" {
+			n := b.Name
+			r.Name = &n
+		}
+		n := b.NAttachmentPoints
+		r.NAttachmentPoints = &n
+		// A broken taxon has no tip_count of its own — it is not in the tree.
+		// The substituted MRCA's subtree size is used as a ranking signal only,
+		// so that a big broken taxon like Reptilia still surfaces; it is
+		// deliberately not reported as this taxon's tip_count.
+		if b.MRCAIdx != nil && s.Arrays.Valid(*b.MRCAIdx) {
+			r.rankTip = int64(s.Arrays.TipCount[*b.MRCAIdx])
+		}
+		out = append(out, r)
+		if len(out) >= 200 {
+			break
+		}
+	}
+	return out
+}
+
+// decorate fills the ranking signals that live in the arrays and the optional
+// tables: exact match, has-image, has-measured-age, baked score.
+//
+// Exact match is the primary sort key (architecture §4) and it is judged
+// against every name a node has, not just its scientific one. "human" must
+// reach Homo (7 tips) rather than Pulex, the human flea (22 tips); "T. rex"
+// must reach Tyrannosaurus rex through its abbreviation.
+func (s *Store) decorate(ctx context.Context, results []SearchResult, qFold string, exactVern map[int]struct{}) error {
+	idxs := make([]int, 0, len(results))
+	for i := range results {
+		r := &results[i]
+		if r.band == 0 && !r.exact {
+			r.band = bandNone // 0 is bandExact; only searchFTS sets it deliberately
+		}
+		if r.Name != nil {
+			r.band = min(r.band, matchBand(*r.Name, qFold))
+		}
+		if r.Idx != nil {
+			if _, ok := exactVern[*r.Idx]; ok {
+				r.exact = true
+				r.band = bandExact
+			}
+		}
+		if r.exact {
+			r.band = bandExact
+		}
+		if r.Idx == nil {
+			continue
+		}
+		idxs = append(idxs, *r.Idx)
+		if a := s.Arrays.AgeMa; a != nil {
+			v := a[*r.Idx]
+			r.HasAge = !math.IsNaN(float64(v)) && !math.IsInf(float64(v), 0)
+		}
+		if t := s.Arrays.AgeTier; t != nil {
+			r.hasMeas = t[*r.Idx] == 0
+		} else {
+			r.hasMeas = r.HasAge
+		}
+	}
+	if len(idxs) == 0 {
+		return nil
+	}
+	images, err := s.Images(ctx, idxs)
+	if err != nil {
+		return err
+	}
+	scores, err := s.bakedScores(ctx, idxs)
+	if err != nil {
+		return err
+	}
+	vern, err := s.BestVernaculars(ctx, idxs)
+	if err != nil {
+		s.log.Warn("vernacular ranking signal unavailable", "err", err)
+		vern = map[int]string{}
+	}
+	// A node's band has to be judged against *every* common name it carries:
+	// Canidae matches "dog" as a whole word through "dog family", which is not
+	// its primary vernacular.
+	allVern, err := s.allVernacularNames(ctx, idxs)
+	if err != nil {
+		s.log.Warn("vernacular band signal unavailable", "err", err)
+		allVern = map[int][]string{}
+	}
+	for i := range results {
+		r := &results[i]
+		if r.Idx == nil {
+			continue
+		}
+		for _, n := range allVern[*r.Idx] {
+			if b := matchBand(n, qFold); b < r.band {
+				r.band = b
+			}
+		}
+	}
+	for i := range results {
+		r := &results[i]
+		if r.Idx == nil {
+			continue
+		}
+		if _, ok := images[*r.Idx]; ok {
+			r.HasImage = true
+		}
+		if v, ok := scores[*r.Idx]; ok {
+			r.score = v
+		}
+		if v, ok := vern[*r.Idx]; ok {
+			r.hasVern = true
+			n := v
+			r.Vernacular = &n
+		}
+	}
+	return nil
+}
+
+func (s *Store) bakedScores(ctx context.Context, idxs []int) (map[int]float64, error) {
+	out := map[int]float64{}
+	rk := s.Schema.Ranking
+	if rk == nil {
+		return out, nil
+	}
+	q := fmt.Sprintf("SELECT %q, %q FROM %q WHERE %q IN (%s)",
+		rk.Idx, rk.Score, rk.Table, rk.Idx, placeholders(len(idxs)))
+	args := make([]any, len(idxs))
+	for i, v := range idxs {
+		args[i] = v
+	}
+	rows, err := s.DB.QueryContext(ctx, q, args...)
+	if err != nil {
+		return out, err
+	}
+	defer rows.Close() //nolint:errcheck
+	for rows.Next() {
+		var idx int
+		var score sql.NullFloat64
+		if err := rows.Scan(&idx, &score); err != nil {
+			return out, err
+		}
+		if score.Valid {
+			out[idx] = score.Float64
+		}
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) fillVernaculars(ctx context.Context, results []SearchResult) error {
+	if s.Schema.Vernacular == nil || len(results) == 0 {
+		return nil
+	}
+	idxs := make([]int, 0, len(results))
+	for i := range results {
+		if results[i].Idx != nil {
+			idxs = append(idxs, *results[i].Idx)
+		}
+	}
+	if len(idxs) == 0 {
+		return nil
+	}
+	best, err := s.BestVernaculars(ctx, idxs)
+	if err != nil {
+		return err
+	}
+	for i := range results {
+		if results[i].Idx == nil {
+			continue
+		}
+		if v, ok := best[*results[i].Idx]; ok {
+			n := v
+			results[i].Vernacular = &n
+		}
+	}
+	return nil
+}

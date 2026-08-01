@@ -1,0 +1,416 @@
+/**
+ * The canvas.
+ *
+ * React Flow / xyflow v12 handles pan, zoom and hit-testing; positions come
+ * entirely from our own layout pass and node dragging is off. The rendered set
+ * is at most `2|L| − 1` nodes — ten species is nineteen — so we are drawing
+ * dozens of elements, not millions, which is what makes a DOM/SVG renderer the
+ * right call here even though the source dataset is 2.4M leaves. Reaching for
+ * WebGL because the *source* is large would be optimising the wrong number.
+ *
+ * The signature interaction lives here, and it is the product:
+ *
+ *   t=0    existing nodes begin spring reflow to their new positions
+ *   t=80   the MRCA flares — the connection beat, and the subject
+ *   t=120  the new trace draws from the MRCA *outward*, ~350ms ease-out
+ *   t=470  it decays from flare-bright to steady over ~800ms
+ *
+ * Reflow and draw overlap. Sequential feels laggy; overlapping feels alive.
+ */
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Background,
+  BackgroundVariant,
+  ReactFlow,
+  ReactFlowProvider,
+  useReactFlow,
+  useStore,
+  type Edge,
+  type Node,
+} from "@xyflow/react";
+import "@xyflow/react/dist/style.css";
+
+import {
+  silhouetteIsInformative,
+  TIER_STRUCTURAL,
+  type PathNode,
+  type TimescaleInterval,
+} from "../api";
+import { layout, orthPath, symlogFrac, PAD_X, PLOT_W } from "../tree/layout";
+import type { Induced } from "../tree/induced";
+import type { AddDelta } from "../tree/induced";
+import { NodeMark, type MarkData, type ZoomTier } from "./NodeMark";
+import { TraceEdge, type TraceEdgeData } from "./TraceEdge";
+import { TimeAxis } from "./TimeAxis";
+
+const nodeTypes = { mark: NodeMark };
+const edgeTypes = { trace: TraceEdge };
+
+/**
+ * Side of the square node box, in px. React Flow positions a node by its
+ * top-left corner, so every position is offset by half of this to put the
+ * node's *centre* — the dot, and therefore its position in time — exactly on
+ * the coordinate the layout computed. See the `.mark` rules in styles.css.
+ */
+const NODE_BOX = 10;
+
+/**
+ * Room the labels need beyond the node boxes, in layout px. Leaf names run to
+ * the right of their dot and clade names sit above theirs, so the reserve is
+ * deliberately asymmetric — a symmetric fit wastes the left half of the canvas
+ * and still clips the right.
+ */
+const LABEL_PAD_LEFT = 240;
+const LABEL_PAD_RIGHT = 300;
+/**
+ * Horizontal room the layout gives itself, before the fit scales it.
+ *
+ * This has to follow the container rather than being a constant. Node labels
+ * live inside the transformed viewport, so they scale with zoom — and a fixed
+ * 1240px layout squeezed into an 800px panel fits at ~0.45, which renders
+ * 12.5px type at under 6px. Semantic zoom would then correctly drop to the
+ * point tier and the tree would lose every name it has.
+ *
+ * Shrinking the *layout* instead keeps the fit near 1:1, so text stays at its
+ * designed size and the tiers mean what they say. The graph gets narrower in a
+ * narrow panel, which is the honest trade.
+ */
+const MIN_PLOT_W = 340;
+const LABEL_PAD_TOP = 46;
+const LABEL_PAD_BOTTOM = 34;
+/** The time axis is fixed to the bottom and would otherwise cover a lineage. */
+const AXIS_RESERVE = 104;
+const MAX_FIT_ZOOM = 1.4;
+
+/** Per design-reference.md's signature sequence, in ms. */
+const T_FLARE = 80;
+const T_DRAW = 120;
+const STAGGER = 55;
+
+export interface GraphProps {
+  induced: Induced;
+  nodes: Map<number, PathNode>;
+  delta: (AddDelta & { token: number }) | null;
+  onDeltaPlayed: () => void;
+  focusedIdx: number | null;
+  onFocus: (idx: number | null) => void;
+  isolate: boolean;
+  axisMode: "log" | "linear";
+  intervals: TimescaleInterval[] | null;
+  fitSignal: { kind: "all" | "selection"; token: number } | null;
+}
+
+const prefersReduced = () =>
+  window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+
+function Inner(props: GraphProps) {
+  const {
+    induced: ind,
+    nodes: nodeMap,
+    delta,
+    onDeltaPlayed,
+    focusedIdx,
+    onFocus,
+    isolate,
+    axisMode,
+    intervals,
+    fitSignal,
+  } = props;
+
+  const rf = useReactFlow();
+  const zoom = useStore((s) => s.transform[2]);
+  const tx = useStore((s) => s.transform[0]);
+  const vw = useStore((s) => s.width);
+  const vh = useStore((s) => s.height);
+  const reduced = useMemo(prefersReduced, []);
+  const [flaring, setFlaring] = useState<number | null>(null);
+  const playedToken = useRef<number | null>(null);
+
+  // Reserve for the leaf labels that hang off the right edge, proportional in
+  // a small panel and capped in a large one.
+  const labelPadRight = vw ? Math.min(LABEL_PAD_RIGHT, Math.max(120, vw * 0.3)) : LABEL_PAD_RIGHT;
+  // Clade names hang to the *left* of their node, so this reserve is what
+  // stops the induced root's label running off the edge. Long ones ellipsize
+  // inside it rather than being clipped by the viewport.
+  const labelPadLeft = vw ? Math.min(LABEL_PAD_LEFT, Math.max(150, vw * 0.34)) : LABEL_PAD_LEFT;
+  const plotWidth = vw
+    ? Math.max(MIN_PLOT_W, Math.min(PLOT_W, vw - labelPadLeft - labelPadRight - 2 * PAD_X))
+    : PLOT_W;
+
+  const lay = useMemo(
+    () => layout(ind, nodeMap, { plotWidth }),
+    [ind, nodeMap, plotWidth],
+  );
+
+  // The lineage from the focused node to the induced root. `⌘\` isolates it;
+  // otherwise it is what "selected path burns bright" is measured against.
+  const focusLineage = useMemo(() => {
+    const out = new Set<number>();
+    let cur: number | null = focusedIdx;
+    while (cur !== null && cur !== undefined) {
+      out.add(cur);
+      cur = ind.segments.get(cur)?.anc ?? null;
+    }
+    return out;
+  }, [focusedIdx, ind]);
+
+  /**
+   * Semantic zoom tiers. Nodes change what they render, not just their size.
+   */
+  const zoomTier: ZoomTier = zoom < 0.55 ? "point" : zoom < 1.15 ? "label" : "detail";
+
+  // Bloom is the first thing to go when frames are tight, and dropping to flat
+  // strokes at low zoom is the documented acceptable answer.
+  const bloomOff = zoom < 0.5;
+
+  const drawDelay = useMemo(() => {
+    const m = new Map<number, number>();
+    if (!delta) return m;
+    // Root-ward → leaf-ward, lightly staggered. All-at-once reads as a
+    // fade-in; staggered reads as travel.
+    delta.drawOrder.forEach((v, i) => m.set(v, T_DRAW + i * STAGGER));
+    return m;
+  }, [delta]);
+
+  // Fire the flare at t=80 and hand the delta back once the whole sequence
+  // has had time to run, so a rapid second add interrupts cleanly rather than
+  // queueing.
+  useEffect(() => {
+    if (!delta || playedToken.current === delta.token) return;
+    playedToken.current = delta.token;
+    const flareAt = window.setTimeout(
+      () => setFlaring(delta.flare),
+      reduced ? 0 : T_FLARE,
+    );
+    const clearAt = window.setTimeout(
+      () => {
+        setFlaring(null);
+        onDeltaPlayed();
+      },
+      reduced ? 60 : T_DRAW + delta.drawOrder.length * STAGGER + 1250,
+    );
+    return () => {
+      window.clearTimeout(flareAt);
+      window.clearTimeout(clearAt);
+    };
+  }, [delta, onDeltaPlayed, reduced]);
+
+  const rfNodes: Node[] = useMemo(
+    () =>
+      [...lay.placed.values()].map((p) => {
+        const dim =
+          (isolate && !focusLineage.has(p.idx)) ||
+          (!isolate && focusedIdx !== null && !focusLineage.has(p.idx));
+        const srcIdx = p.node.silhouette_source_idx;
+        const src = srcIdx === null || srcIdx === undefined ? undefined : nodeMap.get(srcIdx);
+        const showSilhouette = silhouetteIsInformative(p.node, src?.tip_count);
+        const data: MarkData = {
+          node: p.node,
+          hue: p.hue,
+          isLeaf: p.isLeaf,
+          isMRCA: p.isMRCA,
+          dim,
+          focused: focusedIdx === p.idx,
+          flaring: flaring === p.idx,
+          zoom: zoomTier,
+          showSilhouette,
+          // Only worth naming when the image is of something else. Saying
+          // "silhouette: Homo sapiens" on Homo sapiens is noise.
+          silhouetteOf:
+            showSilhouette && src && srcIdx !== p.idx ? (src.name ?? null) : null,
+        };
+        return {
+          id: String(p.idx),
+          type: "mark",
+          position: { x: p.x - NODE_BOX / 2, y: p.y - NODE_BOX / 2 },
+          data: data as unknown as Record<string, unknown>,
+          draggable: false,
+          selectable: true,
+          connectable: false,
+        };
+      }),
+    [lay, focusedIdx, focusLineage, isolate, flaring, zoomTier, nodeMap],
+  );
+
+  const rfEdges: Edge[] = useMemo(() => {
+    const out: Edge[] = [];
+    for (const [v, seg] of ind.segments) {
+      if (seg.anc === null) continue;
+      const a = lay.placed.get(seg.anc);
+      const b = lay.placed.get(v);
+      if (!a || !b) continue;
+
+      // A structural node with nothing dated below it is bracketed on one side
+      // only — its position is a guess toward the present rather than an
+      // interpolation between two known ages. It says so by fading out.
+      const unbounded =
+        b.node.tier === TIER_STRUCTURAL &&
+        !hasDatedDescendant(v, ind, nodeMap);
+
+      const dim =
+        (isolate && !(focusLineage.has(v) && focusLineage.has(seg.anc))) ||
+        (!isolate && focusedIdx !== null && !focusLineage.has(v));
+
+      const data: TraceEdgeData = {
+        d: orthPath(a.x, a.y, b.x, b.y),
+        hue: b.hue,
+        tier: b.node.tier,
+        dim,
+        unbounded,
+        drawToken: drawDelay.has(v) ? (delta?.token ?? null) : null,
+        delay: drawDelay.get(v) ?? 0,
+        reduced,
+      };
+      out.push({
+        id: `${seg.anc}-${v}`,
+        source: String(seg.anc),
+        target: String(v),
+        type: "trace",
+        data: data as unknown as Record<string, unknown>,
+      });
+    }
+    return out;
+  }, [ind, lay, focusedIdx, focusLineage, isolate, drawDelay, delta, reduced, nodeMap]);
+
+  /**
+   * Fit the *content*, not the nodes.
+   *
+   * React Flow's `fitView` frames node boxes, and our node box is a 10px dot —
+   * so it happily fits a tree whose leaf labels run 260px off the right edge
+   * and whose root name is cut in half by the left one. Padding cannot fix
+   * that: the overflow is asymmetric and measured in pixels, while padding is
+   * a symmetric fraction of the viewport.
+   *
+   * So compute the transform directly from the layout bounds plus the space
+   * labels are known to need. Same principle as everything else here —
+   * positions are computed, never guessed at by a solver.
+   */
+  const fitToContent = useCallback(
+    (duration: number) => {
+      const ps = [...lay.placed.values()];
+      if (ps.length === 0 || !vw || !vh) return;
+      const xs = ps.map((p) => p.x);
+      const ys = ps.map((p) => p.y);
+      const minX = Math.min(...xs) - labelPadLeft;
+      const maxX = Math.max(...xs) + labelPadRight;
+      const minY = Math.min(...ys) - LABEL_PAD_TOP;
+      const maxY = Math.max(...ys) + LABEL_PAD_BOTTOM;
+      // The axis owns the bottom strip; fitting into the full height would
+      // slide the lowest lineage underneath it.
+      const usableH = Math.max(vh - AXIS_RESERVE, 160);
+      const z = Math.min(
+        vw / Math.max(maxX - minX, 1),
+        usableH / Math.max(maxY - minY, 1),
+        MAX_FIT_ZOOM,
+      );
+      rf.setViewport(
+        {
+          x: (vw - (minX + maxX) * z) / 2,
+          y: (usableH - (minY + maxY) * z) / 2,
+          zoom: z,
+        },
+        { duration },
+      );
+    },
+    [lay, vw, vh, rf, labelPadLeft, labelPadRight],
+  );
+
+  useEffect(() => {
+    if (!fitSignal) return;
+    if (fitSignal.kind === "selection" && focusedIdx !== null) {
+      rf.fitView({
+        duration: reduced ? 0 : 420,
+        padding: 0.35,
+        nodes: [{ id: String(focusedIdx) }],
+        maxZoom: 1.6,
+      });
+      return;
+    }
+    fitToContent(reduced ? 0 : 420);
+  }, [fitSignal, rf, focusedIdx, reduced, fitToContent]);
+
+  // Fit whenever the rendered set changes size, so an add never leaves the new
+  // lineage off-screen — but only after the draw has had time to read.
+  const lastCount = useRef(0);
+  useEffect(() => {
+    if (ind.rendered.length === lastCount.current) return;
+    const first = lastCount.current === 0;
+    lastCount.current = ind.rendered.length;
+    const t = window.setTimeout(
+      () => fitToContent(reduced || first ? 0 : 520),
+      first ? 0 : 260,
+    );
+    return () => window.clearTimeout(t);
+  }, [ind.rendered.length, fitToContent, reduced]);
+
+  const toScreenX = useCallback(
+    (age: number) =>
+      (PAD_X + plotWidth * (1 - symlogFrac(age, lay.maxAge))) * zoom + tx,
+    [lay.maxAge, zoom, tx, plotWidth],
+  );
+
+  const onNodeClick = useCallback(
+    (_: unknown, n: Node) => onFocus(Number(n.id)),
+    [onFocus],
+  );
+
+  return (
+    <div className={`canvas${bloomOff ? " bloom-off" : ""}`}>
+      <ReactFlow
+        nodes={rfNodes}
+        edges={rfEdges}
+        nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
+        onNodeClick={onNodeClick}
+        onPaneClick={() => onFocus(null)}
+        nodesDraggable={false}
+        nodesConnectable={false}
+        elementsSelectable
+        panOnScroll
+        selectionOnDrag={false}
+        proOptions={{ hideAttribution: true }}
+        minZoom={0.12}
+        maxZoom={3}
+        defaultEdgeOptions={{ type: "trace" }}
+      >
+        <Background
+          variant={BackgroundVariant.Dots}
+          gap={56}
+          size={1}
+          color="rgba(120,190,200,0.07)"
+        />
+      </ReactFlow>
+      <TimeAxis
+        maxAge={lay.maxAge}
+        width={vw || window.innerWidth}
+        toScreenX={toScreenX}
+        intervals={intervals}
+        axisMode={axisMode}
+      />
+    </div>
+  );
+}
+
+/** Does anything at or below `v` in the rendered subtree carry a real age? */
+function hasDatedDescendant(
+  v: number,
+  ind: Induced,
+  nodeMap: Map<number, PathNode>,
+): boolean {
+  for (const [child, seg] of ind.segments) {
+    if (seg.anc !== v) continue;
+    const n = nodeMap.get(child);
+    if (n && n.tier !== TIER_STRUCTURAL) return true;
+    if (hasDatedDescendant(child, ind, nodeMap)) return true;
+  }
+  return false;
+}
+
+export function Graph(props: GraphProps) {
+  return (
+    <ReactFlowProvider>
+      <Inner {...props} />
+    </ReactFlowProvider>
+  );
+}

@@ -9,21 +9,34 @@ looking backward.
 
 ## Status
 
-Build pipeline phases 0–2 are implemented and green, plus a throwaway renderer
-that proves the premise end to end. Phase 3 is measured and designed but not
-built; phases 4–6, the serving binary and the real UI are not started.
+**All six build phases are implemented, the Go serving binary is built, and the
+real UI works end to end.** The signature interaction — search a species, watch
+the draw originate at the MRCA and extend outward — is live. Remaining work is
+depth rather than new machinery; the honest list of what is thin is
+[handoff.md](docs/handoff.md) §7, and the largest item is vernacular-name
+coverage.
+
+```bash
+cd pipeline && uv sync && uv run concestor-build topology   # see handoff.md
+scripts/serve.sh                                            # then open :8080
+```
+
+`scripts/serve.sh` builds the frontend if needed and serves it alongside the
+API from one process. It is also the `concestor` entry in `.claude/launch.json`,
+so agents and the preview browser start it the same way.
 
 **This is for curious people interested in evolution, not for evolutionary
 biologists.** Identifying an MRCA, drawing the tree well, and showing useful
 silhouettes are the priorities; the time axis and the fossil layer are secondary.
 That reorders the phases as numbered — see [handoff.md](docs/handoff.md) §1.
 
-Two decisions are settled. The Duke et al. dated tree is **accepted** despite
-missing its gate by 0.30 points, because the ages are excellent and the shortfall
-is a criterion that assumed an impossible node-for-node identity. Fossil
-resolution will use a **GBIF point lookup** rather than the bulk export that
-appeared to be blocked, with the offline backbone map kept as a free second
-method.
+Two decisions are settled and now implemented. The Duke et al. dated tree is
+**accepted** despite missing its gate by 0.30 points, because the ages are
+excellent and the shortfall is a criterion that assumed an impossible
+node-for-node identity; the 947 nodes it genuinely contradicts are demoted to a
+tier that renders without a number. Fossil resolution uses a **GBIF point
+lookup** rather than the bulk export that appeared to be blocked, with the
+offline backbone map kept as a free second method.
 
 ## Documents
 
@@ -40,6 +53,7 @@ method.
 - **[ingest.md](docs/ingest.md)** — six-phase build pipeline with validation gates.
 - **[data-sources.md](docs/data-sources.md)** — verified facts and corrections for every
   upstream dataset. Read this first; several widely-repeated figures are wrong.
+- **[serving-binary.md](docs/serving-binary.md)** — why the read API is Go, and what it serves.
 - **[pipeline/README.md](pipeline/README.md)** — running and working on the build.
 
 ## What it looks like

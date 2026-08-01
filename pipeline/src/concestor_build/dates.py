@@ -5,6 +5,9 @@ tree joins to our phase-1 topology well enough to carry the time axis, or the
 fallback congruification pipeline in ingest.md phase 2 is needed and the
 project grows by 4–6 weeks.
 
+**Decided 2026-07-31: ACCEPTED.** See docs/phase2-decision.md for the evidence
+and docs/handoff.md §3. The fallback is not to be built.
+
 The design could not read the preprint directly (bioRxiv 403s automated
 fetching) and there is an unresolved source-tree count discrepancy in the
 authors' materials, so nothing here is assumed. Every criterion in
@@ -15,8 +18,17 @@ is fully bifurcating while the synthesis tree is heavily polytomous, so the two
 cannot be node-for-node identical by construction. The question is whether
 their extra structure merely resolves our polytomies (a refinement, in which
 case the ages are usable) or contradicts our clades (a conflict, in which case
-they are not). That is tested by comparing induced-subtree clade sets over
-random shared tip samples, in both directions.
+they are not). That is tested by comparing clade sets over the tips the two
+trees share, exactly, via XOR subtree fingerprints.
+
+ingest.md's original accept table asked for "≥ 99.9% of internal nodes
+correspond", which silently assumes a node-for-node identity that no
+bifurcating chronogram can have against a 12,964-way polytomy. It is restated
+here as two criteria that mean something — compatible-clade share and
+unary-excluded correspondence — and the nodes Duke actively contradicts are
+demoted to the `structural` tier rather than failing the build. That is
+architecture §3.5's mechanism working as designed, on a set small enough to
+enumerate.
 """
 
 from __future__ import annotations
@@ -24,6 +36,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -36,20 +49,58 @@ from .topology import DB, load_forwards
 from .topology import OUT as TOPO_OUT
 
 if TYPE_CHECKING:
-    from .typing_ import BoolArray, F64Array, I64Array, Json, Log, U32Array, U64Array
+    from .typing_ import (
+        BoolArray,
+        F32Array,
+        F64Array,
+        I64Array,
+        Json,
+        JsonDict,
+        Log,
+        U8Array,
+        U32Array,
+        U64Array,
+    )
 
 TREES = {
     "equal_splits": SNAPSHOT / "duke2026" / "equal_splits_median_tree.tre",
     "birth_model": SNAPSHOT / "duke2026" / "birth_model_median_tree.tre",
 }
 
+# The tree the artifact set is built from. The other is ingested alongside as a
+# comparison layer (architecture §6) and must **never** write the shared
+# artifacts — `age_ma.npy`, the tier array, or the canonical gate file. Without
+# this, `--tree birth_model` silently replaced the accepted tree's ages and the
+# only visible symptom was a handful of nodes moving by a fraction of a Ma.
+# Both trees pass identically, which is what makes the swap invisible and the
+# guard necessary.
+PRIMARY_TREE = "equal_splits"
+
 EXPECT_ROOT_AGE = 4247.0
 ROOT_AGE_TOL = 0.01
 
-# Accept criteria, ingest.md phase 2.
-MIN_INTERNAL_CORRESPONDENCE = 0.999
+# Accept criteria. The first two supersede ingest.md's single
+# "topology congruence >= 99.9%" row, which assumed an impossible identity;
+# see the module docstring and docs/phase2-decision.md "Recommendation".
+MIN_CLADE_COMPATIBILITY = 0.995  # measured 99.6036%
+MIN_BRANCHING_CORRESPONDENCE = 0.98  # measured 98.64%, unary nodes excluded
 MIN_OTT_JOIN = 0.99
 MAX_MONOTONICITY_VIOLATION = 0.001
+
+# Age provenance, architecture §3.5. The tier is stored per node and rendered:
+# `structural` never carries a numeric age, which is the hard requirement.
+TIER_MEASURED = 0
+TIER_INTERPOLATED = 1
+TIER_STRUCTURAL = 2
+TIER_NAMES = {
+    TIER_MEASURED: "measured",
+    TIER_INTERPOLATED: "interpolated",
+    TIER_STRUCTURAL: "structural",
+}
+
+# Duke's chronogram is ultrametric to 2.7e-5 Ma, so "at the present" needs a
+# tolerance rather than an equality test.
+PRESENT_EPS_MA = 1e-3
 
 # Published crown-age ranges for the spot checks. Deliberately generous: the
 # point is to catch an off-by-a-factor or an inverted axis, not to adjudicate
@@ -120,9 +171,16 @@ def _fingerprint(
     return np.array(h_l, dtype=np.uint64), np.array(c_l, dtype=np.int64)
 
 
-def run(tree: str = "equal_splits", provisional: bool = False) -> int:
+def run(tree: str = PRIMARY_TREE, provisional: bool = False) -> int:
     g = GateSet(f"phase2-dates[{tree}]")
     path = TREES[tree]
+    is_primary = tree == PRIMARY_TREE
+    if not is_primary:
+        print(
+            f"--- {tree} is the COMPARISON tree — it will not write age "
+            f"arrays or the canonical gate file (primary: {PRIMARY_TREE}) ---",
+            flush=True,
+        )
 
     # ---- load phase 1 ---------------------------------------------------
     print("--- loading phase 1 topology ---", flush=True)
@@ -249,28 +307,30 @@ def run(tree: str = "equal_splits", provisional: bool = False) -> int:
     internal_corr = float(ours_covered[our_internal].sum()) / int(our_internal.sum())
     tip_corr = float(ours_covered[our_is_tip].sum()) / int(our_is_tip.sum())
 
-    g.require(
+    g.observe(
         "phase-1 internal nodes with a directly matched age",
         f"{int(ours_covered[our_internal].sum()):,} / "
         f"{int(our_internal.sum()):,} ({100 * internal_corr:.2f}%)",
-        f">= {MIN_INTERNAL_CORRESPONDENCE:.1%}",
-        ok=internal_corr >= MIN_INTERNAL_CORRESPONDENCE,
-        note="ingest.md accept criterion: topology congruence with phase 1.",
+        note=(
+            "Not an accept criterion. 95.2% of the shortfall is unary nodes, "
+            "which Duke's pipeline suppresses; see the gate below."
+        ),
     )
 
     # Most of the gap above is unary nodes, which subtend exactly the clade
     # their single child does and so carry no topological information
     # (data-sources.md, "Tree shape"). Duke's pipeline suppresses them. Score
-    # branching nodes separately so the number means something.
+    # branching nodes separately so the number means something — this is the
+    # accept criterion, restated from ingest.md's undifferentiated 99.9%.
     branching = our_internal & (our_child_count > 1)
     branch_corr = float(ours_covered[branching].sum()) / int(branching.sum())
     unary = our_internal & (our_child_count == 1)
-    g.observe(
+    g.require(
         "phase-1 BRANCHING internal nodes matched",
         f"{int(ours_covered[branching].sum()):,} / "
         f"{int(branching.sum()):,} ({100 * branch_corr:.2f}%)",
-        f">= {MIN_INTERNAL_CORRESPONDENCE:.1%}",
-        ok=branch_corr >= MIN_INTERNAL_CORRESPONDENCE,
+        f">= {MIN_BRANCHING_CORRESPONDENCE:.1%}",
+        ok=branch_corr >= MIN_BRANCHING_CORRESPONDENCE,
         note="Unary nodes excluded: they add depth, not topology.",
     )
     g.observe(
@@ -318,29 +378,34 @@ def run(tree: str = "equal_splits", provisional: bool = False) -> int:
         names,
         log=print,
     )
-    g.observe("tips shared by both trees", f"{cong['shared_tips']:,}")
+    c = cong.report
+    g.observe("tips shared by both trees", f"{c['shared_tips']:,}")
     g.observe(
         "matched nodes subtending an identical clade",
-        f"{cong['identical']:,} / {cong['testable_matched_nodes']:,} "
-        f"({cong['identical_pct']}%)",
+        f"{c['identical']:,} / {c['testable_matched_nodes']:,} ({c['identical_pct']}%)",
+        note="These become the `measured` tier.",
     )
     g.require(
         "matched nodes whose phase-1 clade is compatible with the dated tree",
-        f"{cong['compatible_subset']:,} / {cong['testable_matched_nodes']:,} "
-        f"({cong['compatible_pct']}%)",
-        f">= {MIN_INTERNAL_CORRESPONDENCE:.1%}",
-        ok=cong["compatible_pct"] / 100 >= MIN_INTERNAL_CORRESPONDENCE,
+        f"{c['compatible_subset']:,} / {c['testable_matched_nodes']:,} "
+        f"({c['compatible_pct']}%)",
+        f">= {MIN_CLADE_COMPATIBILITY:.1%}",
+        ok=c["compatible_pct"] / 100 >= MIN_CLADE_COMPATIBILITY,
         note=(
             "Compatible = our clade is contained in theirs. Duke commits "
             "incertae sedis taxa our tree leaves unplaced, growing clades "
-            "without contradicting them."
+            "without contradicting them. Where ours is a strict subset their "
+            "age is an upper bound on ours, so it renders as '<= N Ma'."
         ),
     )
-    g.require(
+    g.observe(
         "matched nodes the dated tree actively contradicts",
-        f"{cong['conflicting']:,} ({cong['conflicting_pct']}%)",
-        f"< {100 * (1 - MIN_INTERNAL_CORRESPONDENCE):.1f}%",
-        ok=cong["conflicting_pct"] / 100 <= (1 - MIN_INTERNAL_CORRESPONDENCE),
+        f"{c['conflicting']:,} ({c['conflicting_pct']}%)",
+        note=(
+            "Not a failure but a demotion: every one of these loses its "
+            "numeric age and renders as a dashed structural spine. Gated "
+            "below, on the written arrays rather than on this count."
+        ),
     )
 
     # ---- literature spot checks -----------------------------------------
@@ -358,6 +423,77 @@ def run(tree: str = "equal_splits", provisional: bool = False) -> int:
             f"{lo_ma:g}–{hi_ma:g} Ma",
             ok=age is not None and lo_ma <= age <= hi_ma,
         )
+
+    # ---- age tiers, and content gates on what we are about to write ------
+    # Counting rows is not checking them (CLAUDE.md). These gates run against
+    # the arrays themselves, so the "structural nodes carry no number"
+    # requirement is verified on the artifact rather than inferred from the
+    # code that produced it.
+    print("\n--- age tiers ---", flush=True)
+    age_arr, tier_arr = assign_tiers(hi, dk_to_ours, n_ours, cong)
+    layout_arr, join_violations = layout_ages(our_parent, age_arr, root_age)
+    tier_counts = {
+        name: int((tier_arr == t).sum()) for t, name in sorted(TIER_NAMES.items())
+    }
+    g.observe(
+        "age tier distribution",
+        ", ".join(
+            f"{k} {v:,} ({100 * v / n_ours:.1f}%)" for k, v in tier_counts.items()
+        ),
+    )
+    structural = tier_arr == TIER_STRUCTURAL
+    g.require(
+        "structural-tier nodes carrying a numeric age",
+        int(np.isfinite(age_arr[structural]).sum()),
+        0,
+        note=(
+            "The hard requirement of architecture §3.5. A confident figure "
+            "where nobody has estimated one is the failure mode this whole "
+            "design is organised around."
+        ),
+    )
+    g.require(
+        "contradicted nodes demoted to structural",
+        int(structural[cong.conflict_our].sum()),
+        len(cong.conflict_our),
+        note="The phase-2 accept's second condition, checked on the array.",
+    )
+    g.require(
+        "non-structural nodes missing a numeric age",
+        int((~np.isfinite(age_arr[~structural])).sum()),
+        0,
+        note="A measured or interpolated tier with no number is a tiering bug.",
+    )
+    g.require(
+        "layout positions that are not finite",
+        int((~np.isfinite(layout_arr)).sum()),
+        0,
+        note="Every node must be drawable, including the undated ones.",
+    )
+    g.require(
+        "layout positions younger than their parent's",
+        int((layout_arr[1:] > layout_arr[our_parent[1:].astype(np.int64)]).sum()),
+        0,
+        note="The x-axis must not run backwards along a lineage.",
+    )
+    g.observe(
+        "dated nodes clamped for monotonicity during the join",
+        f"{join_violations:,}",
+        note=(
+            "Duke's tree has zero negative branch lengths; any violation here "
+            "is introduced by our join, not by them."
+        ),
+    )
+    for probe, ott_id in (("Homo sapiens", 770315), ("Tyrannosaurus rex", 664349)):
+        pi = our_ott_to_idx.get(ott_id)
+        if pi is not None:
+            t = TIER_NAMES[int(tier_arr[pi])]
+            a = float(age_arr[pi])
+            shown = "none" if not np.isfinite(a) else f"{a:,.1f} Ma"
+            g.observe(
+                f"probe: {probe}",
+                f"tier={t}, age={shown}, x={float(layout_arr[pi]):,.2f} Ma",
+            )
 
     # ---- verdict ---------------------------------------------------------
     report = {
@@ -386,7 +522,8 @@ def run(tree: str = "equal_splits", provisional: bool = False) -> int:
             "our_tips_matched": tip_corr,
             "unmatched_by_kind": unmatched_labels,
         },
-        "congruence": cong,
+        "congruence": cong.report,
+        "age_tiers": tier_counts,
         "spot_checks": spot,
         "accepted": g.ok,
         "gates": [
@@ -405,11 +542,45 @@ def run(tree: str = "equal_splits", provisional: bool = False) -> int:
     print(f"\nwrote {out}", flush=True)
 
     g.write(BUILD / f"phase2_gates_{tree}.json")
+
+    # Also write the canonical unsuffixed names, but only for the primary tree.
+    # The `--tree` flag arrived after these files did, and the suffixed
+    # variants left the originals behind as stale copies of an *older run* —
+    # worse than having no file at all, because everything downstream that
+    # globs `phase*_gates.json` keeps reporting a verdict that has since been
+    # superseded. `/v1/about` was doing exactly that, announcing a failed
+    # phase 2 from a build that no longer existed.
+    if is_primary:
+        g.write(BUILD / "phase2_gates.json")
+        (BUILD / "date_validation.json").write_text(json.dumps(report, indent=2))
     print("\n" + g.summary(), flush=True)
 
     if g.ok:
-        _write_ages(hi, dk_to_ours, n_ours, tree, accepted=True)
-        print("\nDECISION GATE: ACCEPTED. Wrote age arrays.", flush=True)
+        if not is_primary:
+            print(
+                f"\nDECISION GATE: ACCEPTED ({tree}, comparison only).\n"
+                f"Age arrays NOT written — {PRIMARY_TREE} owns them. "
+                f"Gates and validation are in {out.name}.",
+                flush=True,
+            )
+            return 0
+        prov = _write_ages(
+            age_arr,
+            tier_arr,
+            layout_arr,
+            our_child_count,
+            tree,
+            cong,
+            join_violations,
+            accepted=True,
+        )
+        print(
+            f"\nDECISION GATE: ACCEPTED. Wrote age arrays — "
+            f"{prov['tiers']['measured']:,} measured, "
+            f"{prov['tiers']['interpolated']:,} interpolated, "
+            f"{prov['tiers']['structural']:,} structural.",
+            flush=True,
+        )
         return 0
 
     print(
@@ -417,15 +588,47 @@ def run(tree: str = "equal_splits", provisional: bool = False) -> int:
         f"See {out.name} and ingest.md phase 2 'If it fails'.",
         flush=True,
     )
-    if provisional:
-        _write_ages(hi, dk_to_ours, n_ours, tree, accepted=False)
+    if provisional and is_primary:
+        _write_ages(
+            age_arr,
+            tier_arr,
+            layout_arr,
+            our_child_count,
+            tree,
+            cong,
+            join_violations,
+            accepted=False,
+        )
         print(
             "--provisional given: age arrays written anyway, tagged "
             "accepted=false. They are for the walking-skeleton renderer only "
             "and must not be shipped.",
             flush=True,
         )
+    elif provisional:
+        print(
+            f"--provisional ignored: {tree} is the comparison tree and never "
+            "writes the shared age arrays.",
+            flush=True,
+        )
     return 2
+
+
+@dataclass(slots=True)
+class Congruence:
+    """The clade comparison, as both a report and the tiering input.
+
+    The index arrays are over *our* `idx` values, which is what the age tiers
+    are keyed on. Keeping them alongside the report is what makes the
+    "demote conflicts to structural" decision mechanical rather than a
+    number copied out of a JSON file by hand.
+    """
+
+    report: dict[str, Json]
+    shared_tip_our: I64Array  # tip in both trees
+    identical_our: I64Array  # our clade == Duke's clade over shared tips
+    subset_our: I64Array  # our clade ⊂ Duke's clade (Duke's age bounds ours above)
+    conflict_our: I64Array  # neither — Duke contradicts a clade we assert
 
 
 def congruence(
@@ -437,7 +640,7 @@ def congruence(
     dk_to_ours: I64Array,
     names: dict[int, str],
     log: Log = print,
-) -> dict[str, Json]:
+) -> Congruence:
     """Compare the two topologies exactly, over the tips they share.
 
     Three distinct questions, deliberately kept apart because they give very
@@ -449,6 +652,13 @@ def congruence(
                     contradicting anything our tree asserts about its members.
     3. conflict   — our clade is neither. Duke actively places a taxon
                     outside a clade our tree puts inside it, or vice versa.
+
+    Case 2 has a consequence worth stating precisely, because it is what the
+    `interpolated` tier renders: if our clade is a strict subset of Duke's,
+    Duke's node is the MRCA of a *superset* of tips, so its age is an **upper
+    bound** on the crown age of ours. Not an estimate with unknown error — a
+    bound. The UI can honestly write "≤ 96 Ma" there, which is a stronger
+    claim than a bare number and a truer one.
     """
     shared_our: list[int] = []
     shared_dk: list[int] = []
@@ -498,7 +708,7 @@ def congruence(
     ]
 
     n = len(md)
-    return {
+    report: dict[str, Json] = {
         "shared_tips": len(so),
         "testable_matched_nodes": n,
         "identical": int(identical.sum()),
@@ -509,36 +719,248 @@ def congruence(
         "conflicting_pct": round(100 * float((~is_subset).mean()), 4),
         "conflict_examples": conflict_examples,
     }
+    return Congruence(
+        report=report,
+        shared_tip_our=so.astype(np.int64),
+        identical_our=mo[identical].astype(np.int64),
+        subset_our=mo[is_subset & ~identical].astype(np.int64),
+        conflict_our=mo[~is_subset].astype(np.int64),
+    )
+
+
+def assign_tiers(
+    duke_age: F64Array,
+    dk_to_ours: I64Array,
+    n_ours: int,
+    cong: Congruence,
+) -> tuple[F32Array, U8Array]:
+    """Per-node age and provenance tier, architecture §3.5.
+
+    ingest.md phase 2 step 4 planned to read the tiers straight out of Duke et
+    al.'s cached `node_ages.json`, which records which of *their* nodes got a
+    date from a matched published chronogram. That file is not in the Zenodo
+    record we snapshotted — only the two median trees are — so the tier has to
+    come from what we can measure ourselves. What we can measure is better
+    suited to the question anyway, because it is about *our* nodes:
+
+    - `measured`      our clade is exactly Duke's clade, so their age is an
+                      estimate of this node. Also every tip the two trees
+                      share: the present is not an estimate.
+    - `interpolated`  we matched a node but cannot confirm the clade, or our
+                      clade is a strict subset of Duke's. In the subset case
+                      their age is a genuine **upper bound** on ours (see
+                      `congruence`), which the UI renders as "≤ N Ma".
+    - `structural`    no match at all, or Duke actively contradicts our clade.
+                      **No numeric age**, which is the hard requirement.
+
+    The 947 contradicted nodes land in the third tier by construction here,
+    which is the phase-2 accept's second condition — not a manual edit.
+    """
+    age = np.full(n_ours, np.nan, dtype=np.float64)
+    tier = np.full(n_ours, TIER_STRUCTURAL, dtype=np.uint8)
+
+    matched = dk_to_ours >= 0
+    ours_of = dk_to_ours[matched]
+    age[ours_of] = duke_age[matched]
+    tier[ours_of] = TIER_INTERPOLATED
+
+    # A shared tip's age is the present, not an inference.
+    tier[cong.shared_tip_our] = TIER_MEASURED
+
+    # Nor is any other node the chronogram places at the present. These are
+    # taxa our tree resolves one level finer than Duke's — *Homo sapiens* is
+    # internal for us because OTT carries its subspecies, so it is never a
+    # "shared tip" and the clade test has too few shared tips to run. Left
+    # alone it would render dashed, which reads as "we are unsure this species
+    # is extant". We are not. The uncertainty in this dataset is about
+    # divergence times, and a node at time zero has no divergence time to be
+    # uncertain about.
+    tier[np.isfinite(age) & (age <= PRESENT_EPS_MA)] = TIER_MEASURED
+
+    tier[cong.identical_our] = TIER_MEASURED
+    tier[cong.subset_our] = TIER_INTERPOLATED
+
+    # Applied last so it overrides: a contradicted clade gets no number.
+    tier[cong.conflict_our] = TIER_STRUCTURAL
+    age[cong.conflict_our] = np.nan
+
+    # Belt and braces. Nothing downstream may find a number on a structural
+    # node, whatever route it took to get there.
+    age[tier == TIER_STRUCTURAL] = np.nan
+    return age.astype(np.float32), tier
+
+
+def layout_ages(
+    parent: U32Array, age: F32Array, root_age: float, log: Log = print
+) -> tuple[F32Array, int]:
+    """Finite, monotone x-positions for every node, including undated ones.
+
+    `age_ma` is NaN wherever no number may be shown, which is correct for
+    display and useless for layout — an undated node still has to be drawn
+    somewhere. Architecture §3.5: structural nodes are "positioned ordinally
+    between their nearest dated ancestor and descendant", and in those regions
+    the horizontal axis stops meaning time and starts meaning nesting depth.
+
+    Two sweeps, both linear, both relying on `parent[i] < i`: forward for the
+    nearest dated ancestor, reverse for the deepest dated descendant. An
+    undated run is then spread evenly between the two bounds by hop count.
+
+    Returns the positions and the number of *dated* nodes whose age exceeded
+    their parent's — a real monotonicity violation in the joined result, as
+    opposed to in Duke's tree, where there are none.
+    """
+    n = len(parent)
+    par = parent.astype(np.int64)
+    par[0] = -1
+    par_l = par.tolist()
+
+    a_l = age.astype(np.float64).tolist()
+    known = np.isfinite(age).tolist()
+    if not known[0]:
+        a_l[0] = root_age
+        known[0] = True
+
+    # Dated nodes must not sit younger than their dated ancestors. Duke's tree
+    # has zero negative branch lengths, so any violation here is introduced by
+    # the join and is worth counting rather than silently clamping away.
+    violations = 0
+    for i in range(1, n):
+        p = par_l[i]
+        if known[i] and known[p] and a_l[i] > a_l[p]:
+            violations += 1
+            a_l[i] = a_l[p]
+
+    inf = float("inf")
+    # hi: age of the nearest dated ancestor. up: hops to it.
+    hi_l = [inf] * n
+    up_l = [0] * n
+    hi_l[0] = a_l[0]
+    for i in range(1, n):
+        p = par_l[i]
+        if known[p]:
+            hi_l[i] = a_l[p]
+            up_l[i] = 1
+        else:
+            hi_l[i] = hi_l[p]
+            up_l[i] = up_l[p] + 1
+
+    # lo: oldest dated descendant, which is the tightest lower bound. down:
+    # hops to the nearest dated descendant, which is what sets the spacing.
+    big = n + 1
+    lo_l = [-inf] * n
+    down_l = [big] * n
+    for i in range(n - 1, 0, -1):
+        p = par_l[i]
+        cand_age = a_l[i] if known[i] else lo_l[i]
+        if cand_age > lo_l[p]:
+            lo_l[p] = cand_age
+        cand_down = 1 if known[i] else down_l[i] + 1
+        if cand_down < down_l[p]:
+            down_l[p] = cand_down
+
+    out_l = [0.0] * n
+    for i in range(n):
+        if known[i]:
+            out_l[i] = a_l[i]
+            continue
+        top = hi_l[i] if hi_l[i] != inf else root_age
+        bot = lo_l[i] if lo_l[i] != -inf else 0.0
+        if bot > top:
+            bot = top
+        span = top - bot
+        if span <= 0.0:
+            # Nothing to spread into: the bounds coincide. Collapsing onto the
+            # bound is honest — there is genuinely no room — and the dashed
+            # rendering already says the position is ordinal.
+            out_l[i] = top
+            continue
+        below = down_l[i] if down_l[i] != big else 1
+        out_l[i] = top - span * (up_l[i] / (up_l[i] + below))
+
+    # Final clamp: layout positions must be monotone even where the ordinal
+    # fill and the dated ages disagree at a boundary.
+    for i in range(1, n):
+        p = par_l[i]
+        if out_l[i] > out_l[p]:
+            out_l[i] = out_l[p]
+
+    log(f"  layout positions filled for {n - sum(known):,} undated nodes")
+    return np.array(out_l, dtype=np.float32), violations
 
 
 def _write_ages(
-    hi: F64Array, dk_to_ours: I64Array, n_ours: int, tree: str, *, accepted: bool
-) -> None:
-    """Write per-idx ages, plus a sidecar recording whether the gate passed.
+    age: F32Array,
+    tier: U8Array,
+    layout: F32Array,
+    child_count: U32Array,
+    tree: str,
+    cong: Congruence,
+    violations: int,
+    *,
+    accepted: bool,
+) -> JsonDict:
+    """Write the age arrays, the tier array, and the provenance sidecar.
 
-    The sidecar exists so nothing downstream can consume these ages without
-    also seeing that phase 2 did not accept them.
+    Three artifacts rather than one, because they answer different questions:
+    `age_ma` is what may be *shown* (NaN where nothing may be), `age_tier` is
+    how to show it, and `age_layout` is where to draw it. Collapsing them into
+    one array is how a structural node ends up rendering a confident number.
     """
-    age = np.full(n_ours, np.nan, dtype=np.float32)
-    for d, o in enumerate(dk_to_ours.tolist()):
-        if o >= 0:
-            age[o] = hi[d]
+    n_ours = len(age)
     np.save(TOPO_OUT / "age_ma.npy", age)
-    (TOPO_OUT / "age_provenance.json").write_text(
-        json.dumps(
-            {
-                "source_tree": tree,
-                "phase2_accepted": accepted,
-                "nodes_with_age": int(np.isfinite(age).sum()),
-                "nodes_total": int(n_ours),
-                "warning": None
-                if accepted
-                else (
-                    "Phase 2 did not accept this tree. These ages are "
-                    "provisional, for the walking-skeleton renderer only."
-                ),
-            },
-            indent=2,
-        )
-        + "\n"
-    )
+    np.save(TOPO_OUT / "age_tier.npy", tier)
+    np.save(TOPO_OUT / "age_layout.npy", layout)
+
+    counts = {name: int((tier == t).sum()) for t, name in sorted(TIER_NAMES.items())}
+
+    # Split by tip vs internal, because the undifferentiated number flatters
+    # us badly. `measured` is 88.8% of nodes, but 2,271,190 of those are
+    # extant tips sitting at the present, which is true and uninformative.
+    # The figure that describes the chronogram is the internal one, and
+    # /v1/about must report that rather than the headline.
+    is_tip = child_count == 0
+    internal_total = int((~is_tip).sum())
+    measured_internal = int(((tier == TIER_MEASURED) & ~is_tip).sum())
+    prov: JsonDict = {
+        "source_tree": tree,
+        "phase2_accepted": accepted,
+        "nodes_total": int(n_ours),
+        "nodes_with_age": int(np.isfinite(age).sum()),
+        "tiers": counts,
+        "tiers_internal_only": {
+            name: int(((tier == t) & ~is_tip).sum())
+            for t, name in sorted(TIER_NAMES.items())
+        },
+        "internal_nodes_total": internal_total,
+        "headline": (
+            f"{measured_internal:,} of {internal_total:,} internal nodes "
+            f"({100 * measured_internal / internal_total:.1f}%) carry a "
+            "clade-verified divergence age. The tier totals are dominated by "
+            "extant tips at the present, which is true and is not a statement "
+            "about the chronogram."
+        ),
+        "conflicting_nodes_demoted": len(cong.conflict_our),
+        "monotonicity_violations_after_join": violations,
+        "arrays": {
+            "age_ma.npy": (
+                "float32; NaN wherever no numeric age may be displayed. "
+                "structural-tier nodes are always NaN."
+            ),
+            "age_tier.npy": (
+                "uint8; 0=measured, 1=interpolated (age is an UPPER BOUND — "
+                "render as '≤ N Ma'), 2=structural (no number, dashed)."
+            ),
+            "age_layout.npy": (
+                "float32; finite everywhere and monotone non-increasing "
+                "root-to-tip. x-position only — never display it as an age."
+            ),
+        },
+        "warning": None
+        if accepted
+        else (
+            "Phase 2 did not accept this tree. These ages are provisional, "
+            "for the walking-skeleton renderer only."
+        ),
+    }
+    (TOPO_OUT / "age_provenance.json").write_text(json.dumps(prov, indent=2) + "\n")
+    return prov

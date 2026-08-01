@@ -6,7 +6,14 @@
     "num_source_studies": 1931,
     "num_source_trees": 2064,
     "phase0_gates_ok": true,
-    "written_at": "2026-08-01T01:08:29+00:00"
+    "written_at": "2026-08-01T03:18:03+00:00",
+    "phylopic_mirror": {
+      "images": 12863,
+      "mirrored": 12862,
+      "bytes": 149764686,
+      "root": "snapshot/phylopic",
+      "note": "Per-file SHA-256 lives in the silhouette table, not here."
+    }
   },
   "artifacts": [
     {
@@ -68,6 +75,16 @@
       "fetched_at": "2026-08-01T00:45:01+00:00",
       "content_length": 35359886,
       "note": "PBDB checklist Darwin Core archive. Preserves PBDB taxon_no verbatim in taxonID. Carries no nubKey \u2014 see the API export."
+    },
+    {
+      "name": "gbif_pbdb_checklist_nubkeys",
+      "url": "https://api.gbif.org/v1/species?datasetKey=c33ce2f2-c3cc-43a5-a380-fe4526d63650&sourceId={taxon_no}",
+      "path": "snapshot/gbif_pbdb_checklist/nubkeys.ndjson",
+      "bytes": 4035692,
+      "sha256": "213500278ea45b94caeb4f069432d3ccfa4b84bb3c5fe71123943786c43941f2",
+      "fetched_at": "2026-08-01T03:18:03+00:00",
+      "content_length": null,
+      "note": "25,950 point lookups, ordered by n_occs descending, resumable. Not a bulk export: the lookup does not page, so GBIF's offset cap never applies."
     },
     {
       "name": "ics_chart_ttl",
@@ -138,6 +155,16 @@
       "fetched_at": "2026-08-01T00:46:44+00:00",
       "content_length": null,
       "note": "523,113 rows. show=seq adds lft/rgt nested-set bounds."
+    },
+    {
+      "name": "phylopic_index",
+      "url": "https://api.phylopic.org/images?embed_items=true&embed_specificNode=true",
+      "path": "snapshot/phylopic/index.jsonl",
+      "bytes": 6130649,
+      "sha256": "bfa97de8e42e9900d53d2efbed8e4822269275a8bba19781728c5a65224bbe42",
+      "fetched_at": "2026-08-01T03:02:30+00:00",
+      "content_length": null,
+      "note": "12,863 images with licence, attribution, contributor and their specific node's OTT ids. ~268 paged requests, not one per node."
     }
   ]
 }

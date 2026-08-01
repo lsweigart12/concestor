@@ -35,6 +35,10 @@ Phase 3 needs one lookup per PBDB taxon, ordered by `n_occs`, not a dump. The
 shard planner below is kept only as documentation of a route not to take, the
 way it already documents the hierarchy-descent dead end.
 
+**Superseded by `resolve.py`**, which implements the point lookup as
+`gbif_pbdb_chain` with a resumable on-disk checkpoint. Nothing imports this
+module; it is documentation now, deliberately kept rather than deleted.
+
 The offline alternative was measured too, and it is a second method rather than
 a substitute. The frozen backbone's `simple.txt.gz` records one contributing
 dataset per row — column 8 the dataset UUID, column 10 that dataset's usage key

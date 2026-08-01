@@ -32,9 +32,15 @@ That makes `ingest.md`'s numbering a *dependency* order, not a priority order.
 ```
 docs/          the spec
 pipeline/      the offline build pipeline (Python) — see pipeline/README.md
+server/        the read API (Go) — mmaps the arrays, opens the DB read-only
+web/           the real UI (React + xyflow v12). The signature interaction lives here
 snapshot/      pinned upstream sources. Gitignored except manifest.json
 build/         derived artifacts. Gitignored
 ```
+
+The three halves share only *files*. `server/` reads the pipeline's `.npy`
+output directly and `web/` talks to `server/` over `/v1`; there is no shared
+runtime, no FFI, and no code generation between them.
 
 ## Language choices
 
@@ -43,8 +49,24 @@ is there when needed, Duke et al.'s own interpolation code is Python + numpy,
 and the work is one-pass array manipulation over files. It is fast enough:
 2.7M nodes parse in 0.9 s.
 
-**Serving binary: undecided, Go or Rust** per architecture §4. It shares only
-*files* with the pipeline — no runtime, no FFI — so decide it independently.
+**Serving binary: Go**, in `server/`. Decided on mmap ergonomics, a static
+binary, and mature read-only SQLite; reasoning in `docs/serving-binary.md`. It
+reads the pipeline's `.npy` files directly — there is no `topology.bin`, and
+that is deliberate (see `package.py`).
+
+**Frontend: React 19 + TypeScript + `@xyflow/react` v12**, in `web/`. Layout is
+our own; **no dagre, no ELK, no d3-hierarchy**, because a graph-layout engine
+assigns `x` by depth and here `x` is time.
+
+```bash
+cd web && npm install && npm run build && npm test   # 28 tests
+cd server && go test ./... && go run . -build ../build
+```
+
+`web/src/tree/induced.ts` and the Go equivalent are both ports of `render.py`'s
+`induced_subtree`, each pinned to the Python reference by a test built from the
+real baked arrays. If you change the suppression rule, change it in three
+places and let those tests tell you when you have missed one.
 
 ## Working on the pipeline
 
@@ -135,14 +157,28 @@ All detailed in `docs/data-sources.md`:
 
 ## Current state
 
-Phases 0, 1 and 2 are implemented; 3–5 are not started.
+**All six phases are implemented, the server is built, and the UI works end to
+end.** `docs/handoff.md` §2 has the table and §7 the honest list of what is
+thin. The biggest gap is vernacular coverage: `test_vernaculars.py` asserts the
+words a person actually types and is **red on "dog"**, which is the canonical
+example of the palette being broken at its front door. Leave it red until the
+Wikidata P9157 pass is complete — the crawl is checkpointed and resumable.
 
-**Phase 2 did not accept the Duke et al. dated tree.** The ages are excellent
-but topology congruence measured 99.6036% against a 99.9% threshold. Read
-`docs/phase2-decision.md` before doing anything that depends on ages. The
-fallback congruification pipeline is **documented but deliberately not
-started** — it is 4–6 weeks and probably the wrong call.
+**Phase 2 accepted the Duke et al. dated tree**, 32/32 gates. It missed the gate
+*as originally written* (99.6036% clade compatibility against 99.9%), and the
+criterion was restated rather than the data changed: the original threshold
+assumed a node-for-node identity no bifurcating chronogram can have against a
+12,964-way polytomy. The 947 genuinely contradicted nodes are demoted to the
+`structural` tier and render without a number. Read `docs/phase2-decision.md`
+before touching anything that depends on ages, and do **not** start the fallback
+congruification pipeline — it is 4–6 weeks for a less defensible time axis.
 
-`concestor-build dates --provisional` writes ages anyway, tagged
-`phase2_accepted: false`, so the walking-skeleton renderer has something to
-draw. Those ages must not ship.
+Three age arrays ship and must stay separate — `age_ma` (what may be shown, NaN
+where nothing may be), `age_tier` (how), `age_layout` (where to draw, finite
+everywhere). Merging the first and third to save 10 MB would put a confident
+number on every dashed node, which is the exact failure this design exists to
+prevent.
+
+`concestor-build package` gates the artifact set as a whole and writes
+`build/manifest.json`, which `/v1/about` serves. It refuses to package while any
+phase's own gates record a failure — so it is currently red, on purpose.

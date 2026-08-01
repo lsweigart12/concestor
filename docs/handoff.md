@@ -28,9 +28,10 @@ order and not a priority order:
   what makes a clade mean anything, and a silhouette legitimately represents a
   *clade* where a photograph can only represent one member.
 - **Vernacular names (phase 6) are essential, not deferred.** OTT carries no
-  common names, so "Tyrannosaurus" resolves and **"T. rex" and "dog" do not**.
-  An app premised on inviting exploration cannot ship with a search box that
-  only accepts binomials.
+  common names at all, so on the raw taxonomy "Tyrannosaurus" resolves and
+  "T. rex" and "dog" do not. An app premised on inviting exploration cannot
+  ship with a search box that only accepts binomials. Both now work, via
+  Wikidata P9157 plus an abbreviation index; coverage is still thin (§7).
 
 **This is not a commercial project.** Drop the commercial-safety machinery — no
 `--commercial-safe` flag, no NonCommercial filtering, and ignore the PBDB licence
@@ -38,8 +39,9 @@ question. That is a straight win: PhyloPic's `primaryImage` gives effective
 **~100% node coverage** against 93.7% for the licence-filtered path. Attribution
 still applies — CC-BY requires it for any redistribution and the artists deserve
 credit — and it is a two-field problem, since `attribution` (creator) and
-`_links.contributor.title` (uploader) differ 31% of the time. TimeTree stays
-excluded; its redistribution ban is unconditional.
+`_links.contributor.title` (uploader) differ **50%** of the time (measured
+across the whole corpus; the 31% in the design docs is wrong — see §4).
+TimeTree stays excluded; its redistribution ban is unconditional.
 
 ---
 
@@ -92,14 +94,18 @@ product is broken at its front door, not merely incomplete.
 |---|---|
 | 0 — snapshot | done, 7/7 gates |
 | 1 — topology | done, **25/25 gates**, incl. 200/200 live-oracle agreement |
-| 2 — dates | **run and ACCEPTED** (§3) |
-| 3 — resolution | **measured and designed, not built** — [phase3-pbdb-path.md](phase3-pbdb-path.md) |
-| 4 — fossils | not started |
-| 5 — images and timescale | not started — **priority one** |
-| 6 — vernaculars | not started — **priority one** |
-| walking-skeleton renderer | done, throwaway |
-| serving binary | not started; Go or Rust still open |
-| real UI | not started — the largest remaining piece. Design language settled: [design-reference.md](design-reference.md) |
+| 2 — dates | **ACCEPTED and implemented**, 32/32 gates. Tiers are baked (§3) |
+| 3 — resolution | built — `resolve.py`, `xref` populated |
+| 4 — fossils | built — `fossils.py`, `fossil` table populated |
+| 5a — images | built — `images.py`, 23/23 gates, **100% node coverage** (§5) |
+| 5b — timescale | built — `timescale.py`, 26/26 gates, `build/timescale.json` |
+| 6 — vernaculars | built — `vernaculars.py` + `search.py`, `node_fts` live |
+| walking-skeleton renderer | done, throwaway, superseded |
+| serving binary | **built, in Go** — `server/`, every endpoint live. [serving-binary.md](serving-binary.md) |
+| real UI | **built** — `web/`, React + xyflow v12. The signature interaction works end to end |
+
+Everything in `ingest.md` is now implemented. What remains is depth and polish,
+not new machinery — see §7 for the honest list of what is thin.
 
 **The MRCA and tree-drawing primitive already works and is proven.** Everything
 rests on `path(node) → [root, …, node]`; induced subtrees are the union of
@@ -108,8 +114,52 @@ incremental reflow and the branch drill-down fall out of one computation. Mean
 path length is 41. The renderer hits the `2|L|−1` bound exactly. Priority 1 is
 largely de-risked; what remains is making it good, not making it work.
 
-The pipeline is Python 3.14 under `uv`, in `pipeline/`. The serving binary shares
-only *files* with it — no runtime, no FFI — so decide it independently.
+The pipeline is Python 3.14 under `uv`, in `pipeline/`. The serving binary is
+Go, in `server/`, and shares only *files* with the pipeline — no runtime, no
+FFI. Reasoning in [serving-binary.md](serving-binary.md).
+
+```bash
+cd server && go test ./... && go run . -addr :8080 -build ../build
+```
+
+It feature-detects every optional table and array, so it starts and serves
+correctly against a partially-built dataset and reports exactly what it found
+at `GET /v1/about`. The Go port of `render.py`'s `induced_subtree` is pinned
+against the Python reference node-for-node by
+`TestInducedSubtreeMatchesReference`; that test is the contract between the two
+halves of the system.
+
+The real UI is `web/` — Vite + React 19 + TypeScript + `@xyflow/react` v12.
+
+```bash
+scripts/serve.sh    # API + built frontend, one process, :8080
+```
+
+That is the `concestor` configuration in `.claude/launch.json`, so the preview
+browser and any agent start the app the same way. It verifies the artifacts
+exist first and builds `web/dist` if it is missing, rather than serving a blank
+canvas that looks identical to a broken one. `concestor-web-dev` runs Vite on
+:5173 with hot reload, proxying `/v1` to :8080, for frontend iteration.
+
+**Restart it after any pipeline run** — the arrays are mmap'd and SQLite is
+opened at startup, so a running server serves the previous build and the only
+symptom is quietly stale answers.
+
+```bash
+cd web && npm install && npm run build   # the server picks up web/dist
+npm test                                 # 34 tests
+```
+
+The client owns the topology after first paint (architecture §4): it fetches
+one ~450-byte ancestor path per selection and recomputes the induced subtree,
+MRCA and layout locally, so **the MRCA flare fires in the same frame as the
+click** with no round trip. `web/src/tree/induced.ts` is a deliberate port of
+`render.py`'s `induced_subtree` and is pinned to it by a fixture generated from
+the real baked arrays — `web/src/tree/induced.test.ts` asserts the same MRCA,
+the same rendered set, the same segments *and* the same suppressed runs for the
+skeleton renderer's eleven species. Three independent implementations of the
+same primitive now exist (Python, Go, TypeScript) and two of them are tested
+against the first.
 
 ### Reproduce from a clean checkout
 
@@ -117,9 +167,18 @@ only *files* with it — no runtime, no FFI — so decide it independently.
 cd pipeline && uv sync
 uv run concestor-build snapshot    # ~1.4 GB, ~4 min on a fast link
 uv run concestor-build topology    # ~3 min incl. the oracle
-uv run concestor-build dates
-uv run concestor-build render
+uv run concestor-build dates       # phase 2; writes age_ma / age_tier / age_layout
+uv run concestor-build resolve     # phase 3
+uv run concestor-build fossils     # phase 4
+uv run concestor-build images      # phase 5a; long, resumable, paced
+uv run concestor-build timescale   # phase 5b
+uv run concestor-build vernaculars # phase 6
+uv run concestor-build search      # FTS index; must run AFTER vernaculars
+uv run concestor-build render      # throwaway skeleton, still useful as an oracle
 ```
+
+Order matters in two places only: `search` reads the `vernacular` table, and
+`fossils` reads `xref`. Everything else is independent.
 
 Phase 1 needs the tarballs unpacked into `build/extracted/` first:
 
@@ -149,16 +208,69 @@ comfortably: root age 4246.67 Ma against an expected 4247, ultrametric to
 no forward-chasing, and Mammalia 183.2 / Aves 96.1 / Metazoa 784.6 / Eukaryota
 1781.1 Ma all in published range.
 
-**Accepted.** Implement it: restate the criterion as *compatibility* rather than
-*identity* — the original threshold assumed a node-for-node identity no
-bifurcating chronogram can have against a 12,964-way polytomy — and demote the
-947 conflicting nodes to the `structural` tier architecture §3.5 already
-specifies. `--provisional` currently tags ages `phase2_accepted: false`; that
-should become an honest accept.
+**Accepted, and now implemented — `phase2-dates[equal_splits]: 32/32`.** The
+criterion is restated as two gates that mean something (`MIN_CLADE_COMPATIBILITY
+= 0.995`, measured 99.6036%; `MIN_BRANCHING_CORRESPONDENCE = 0.98`, measured
+98.64% with unary nodes excluded), and the 947 contradicted nodes are demoted to
+`structural` by construction rather than by hand. `age_provenance.json` now says
+`phase2_accepted: true`.
 
 **The fallback congruification pipeline is not to be built.** 4–6 weeks for a
 less defensible time axis, on a secondary feature. Background in
 [phase2-decision.md](phase2-decision.md).
+
+The **comparison tree passes the restated criteria too** — `birth_model` scores
+32/32 at 99.6237% compatible with 899 conflicts — which is worth knowing,
+because it means the reframing is not tuned to the tree it was written for.
+
+#### Three age arrays, not one, and why
+
+`ingest.md` phase 2 step 4 planned to take tiers from Duke et al.'s cached
+`node_ages.json`. **That file is not in the Zenodo record we snapshotted** —
+only the two median trees are — so the tier is measured from our own clade
+comparison instead. It turns out to describe *our* nodes better than a
+transcription of theirs would have:
+
+| Tier | Meaning | Count | Rendering |
+|---|---|---:|---|
+| `measured` | our clade is exactly Duke's clade over shared tips (148,867 internal), or the node sits at the present — being extant is an observation, not an estimate | 2,441,927 | solid, age shown |
+| `interpolated` | our clade is a strict **subset** of the dated one | 95,310 | fine dash, age shown as **`≤ N Ma`** |
+| `structural` | no match, or Duke contradicts our clade | 188,445 | dashed, **no number at all** |
+
+The middle tier gained a stronger claim than the design anticipated. If our
+clade is a strict subset of Duke's, their node is the MRCA of a *superset* of
+tips, so its age is a genuine **upper bound** on ours — not an estimate with
+unknown error, a bound. The UI writes `≤ 652 Ma`, which is both more honest and
+more useful than a bare figure.
+
+Three arrays ship, and keeping them separate is load-bearing:
+
+- `age_ma.npy` — what may be *shown*. NaN wherever nothing may be.
+- `age_tier.npy` — how to show it.
+- `age_layout.npy` — where to *draw* it. Finite everywhere and monotone
+  root-to-tip, filled for undated runs by spreading them between the nearest
+  dated ancestor and the deepest dated descendant.
+
+Collapsing `age_ma` and `age_layout` to save 10 MB would put a confident number
+on every dashed node. `tests/test_dates_tiers.py` guards that specifically.
+
+**Watch this one:** the headline tier counts flatter us badly. 89.6% `measured`
+sounds like a well-dated tree, but 2,271,190 of those are extant tips sitting at
+the present, which is true and says nothing about any divergence. The figure
+that describes the chronogram is **170,737 of 339,807 internal nodes (50.2%)**,
+and that is what `age_provenance.json.headline` and `/v1/about` report.
+
+**Two traps found while implementing it**, both now guarded:
+
+- `--tree birth_model` used to overwrite the accepted tree's age arrays and the
+  canonical gate file. Both trees pass identically, so the only symptom was a
+  few nodes shifting by a fraction of a Ma. `PRIMARY_TREE` now gates every
+  shared write; the comparison tree writes only its own suffixed files.
+- `build/phase2_gates.json` and `date_validation.json` predate the `--tree`
+  flag and had been left behind as stale copies of a *failing* run. Anything
+  globbing `phase*_gates.json` — `/v1/about` did — kept reporting a verdict
+  that no longer existed. Phase 2 now rewrites both canonical names on every
+  primary run.
 
 ### Fossil resolution: API point lookup first, offline map behind it
 
@@ -228,10 +340,152 @@ suborder, tribe — are *unmatchable* rather than unmatched, and they skew towar
 the notable end. Phase 4's parent-walk handles this correctly; it just walks
 further than expected.
 
+**GBIF vernaculars are not free, contrary to three documents.** `ingest.md`
+phase 6, `management.md` and `architecture.md` §4 all say they arrive via
+`ott_sourceinfo`. `topology.py` never parses `sourceinfo` into the database,
+and the snapshotted `simple.txt.gz` carries no vernacular names at all.
+Getting them means a fresh GBIF crawl. Not implemented, and lowest priority
+now that P9157 covers the notable end.
+
+**Wikidata P9157 is not a complete map of OTT, and the hole is at the top.**
+Wikidata's `animal` item (Q729) carries **no P9157 statement**, nor do Metazoa,
+Bilateria or `cellular organisms`. An id-only join therefore answers "dog" and
+returns nothing for "animal" — the opposite of the failure you would predict.
+Closed by a bounded second pass on `wdt:P225` (scientific name), exact-and-
+unique-only per architecture §5, 25 queries.
+
+**The 9,839 broken taxa were completely unsearchable and nobody had recorded
+it.** They are rejected from synthesis so they have no `node.name`, and the
+palette simply returned nothing for *Escherichia coli* or *Dinosauria* — two
+names a curious person is entirely likely to type. They are now a fifth FTS
+column flagged `kind = broken`.
+
+**WDQS rate-limits** (429 with `Retry-After`, plus 502/503 and a hard 60 s
+query timeout), and a GET with a large `VALUES` clause returns `503 VCL
+failed` — it must be POSTed. The endpoint is free and shared; pace it.
+
+**architecture.md §3.3's `node_fts(name, synonyms)` is two columns short**, and
+`ingest.md` phase 1 step 8 claims phase 1 builds the FTS index. It never did —
+the index is built by a separate `search` phase that must run *after*
+`vernaculars`. architecture.md §4 and §10 also call vernaculars "phase 5"; they
+are phase 6.
+
+**architecture.md §3.4 — `fossil.pbdb_orig_no INTEGER PRIMARY KEY` cannot
+work.** `orig_no` is not unique: 407,634 distinct values over 523,112 rows, with
+86,302 repeated (*Dinosauria* has ten rank-variant records sharing 52775).
+`taxon_no` *is* unique and is what `parent_no`, `accepted_no` and GBIF's
+`sourceId` all reference. The table is keyed on it, with `orig_no` kept as a
+column.
+
+**ingest.md phase 4 — "the missing set is exactly those with `n_occs = 0`" is
+containment, not equality.** All 111,864 zero-occurrence rows lack an interval,
+but 112,073 rows do: 209 have occurrences and no bounds. Sixteen rows carry an
+*empty* `n_occs` rather than a zero, and the 411,039 baseline counts a *first*
+appearance bound — only 410,615 carry all four.
+
+**ingest.md phase 4 — "attaching at or below Dinosauria" is untestable as
+written.** Dinosauria is ott 90215 in the taxonomy but **is not a node in the
+synthesis tree**; the lineage runs Sauria → unnamed `mrca*` nodes →
+Tyrannosauridae. The gate uses Tyrannosauridae, which is a strictly stronger
+claim.
+
+**ingest.md phase 3 — the IRMNG figure is the naive parse's.** Distinct OTT
+taxa carrying an IRMNG id is **1,480,678**, not 1,480,677. The extra one is ott
+7494610 *Ficus variegata*, whose only IRMNG id is the space-prefixed
+`" irmng:11258800"` — so the doc's own figure is evidence for the
+malformed-prefix warning the same doc gives.
+
+**ingest.md phase 3 — the 48.2% chain gate is calibrated on a *uniform*
+sample, and the settled crawl is `n_occs`-ordered.** Those are different
+populations and scoring the gate on the prioritised cohort fails for a reason
+that is not a bug (37.8% end to end, because coverage is inversely correlated
+with how much a taxon matters — the memo's own §5 says so). Phase 3 crawls a
+1,000-taxon seeded uniform control alongside the real crawl and gates on that,
+reporting the prioritised cohort separately.
+
+**management.md — "the top 25,000 genera hold 93.3% of genus occurrences" is
+not what `--budget 25000` buys.** `n_occs` is a subtree total, so higher taxa
+dominate the ordering: the first 25,000 all-rank taxa contain only 7,946
+genera and reach **75.3%** of genus occurrences, and the 25,000th *genus* sits
+at all-rank position 87,126. The all-rank ordering is still the right one —
+those higher taxa are exactly the attachment points the parent-walk lands on,
+and 2,574 chain rows produce 239,253 attachments — but the two figures are not
+interchangeable.
+
+**phase3-pbdb-path.md §1 — the accepted-key fallback does not reproduce.** The
+memo gives 139,740 (26.7%) but does not state its rule; col 2 on synonym rows
+only gives 138,180 (26.41%), "any non-ACCEPTED" gives 144,884 (27.70%),
+"always" gives 168,781 (32.26%). Everything else in §1–§4 reproduced to the row.
+
+**architecture.md §5 and ingest.md phase 3 disagree on where
+`phylopic_resolve` ranks** — 3rd at confidence 0.98 versus 5th. Moot in
+practice, since the source namespaces are disjoint. The build follows
+ingest.md's order and architecture's confidences.
+
+**architecture.md §11 — the artifact set is 2,004 MB, not "under 700 MB".** The
+estimate predates the resolution layer and the silhouette map. `dbstat` on the
+built database: `xref` 270 MB, `search_name` 225 MB, `broken_taxon` 189 MB,
+`node_image` 163 MB, `node` 160 MB, `node_image_phylopic` 124 MB, `xref_idx`
+101 MB, plus the FTS index. This does not change the architecture — everything
+is still immutable, still baked, still deployable as an image — but "fits in a
+container image and stays resident in page cache on a small instance" now needs
+a bigger small instance, and §11's cost paragraph should be re-derived before
+anyone sizes a machine from it. `concestor-build package` reports the number
+every build; **it is an `observe` gate deliberately**, because the right
+response is to decide what to trim, not to fail the build.
+
+**ingest.md — there is no `topology.bin` or `meta.bin`, on purpose.** A `.npy`
+file is a 128-byte ASCII header followed by exactly the raw little-endian array
+architecture §3.2 describes, so the phase-1 output already *is* the format. The
+Go server reads it directly. Writing a concatenated second copy would double
+the disk cost and give the most load-bearing array in the system two candidate
+sources of truth. Read those names as describing a format, not demanding a
+file; `package.py`'s docstring records the reasoning.
+
+**data-sources.md — PhyloPic's creator and uploader differ 50% of the time, not
+31%.** Measured across the whole 12,863-image corpus. Related: the doc's 47.2%
+attribution-required figure is of `primaryImage` *results*; across the corpus it
+is 5,432 images, 42.2%. Both numbers are right and the denominators differ,
+which is worth stating because they get compared.
+
+**architecture.md §6 — "keep the official hue relationships" cannot fully hold,
+and the doc should say so.** ICS separates the four Paleoproterozoic periods
+almost entirely by a *lightness* ramp, which is the exact channel §6 instructs
+us to drop; their official minimum pairwise distance is already at the edge of a
+just-noticeable difference. §6's own next sentence — wayfinding comes from
+labels and hairline dividers first, hue second — is the resolution, but the two
+claims are in tension and a reader should not have to discover that. The
+timescale phase gates the contraction as *faithful* (every pairwise distance
+scaled by exactly 0.22, hue bit-preserved) rather than gating distinguishability
+it cannot deliver.
+
 ---
 
 ## 5. Things discovered while building
 
+- **`node_fts.rowid` is a `search_name.id`, never a `node.idx`.** The FTS index
+  holds one row per *name* — 6.8M rows against 2.7M nodes — because a taxon has
+  a scientific name, an abbreviation, synonyms and vernaculars. Architecture
+  §3.3 sketched `content=''` with an implied rowid of `node.idx`, and joining on
+  that assumption **does not error**: it joins cleanly to unrelated nodes and
+  returns confident nonsense. `q=dog` came back as three unnamed `mrcaott…`
+  internal nodes. Always go through `search_name`; `kind` is `0 sci, 1 abbr,
+  2 syn, 3 vern` and is worth surfacing as *why* a row matched. The server now
+  refuses to use an FTS index it cannot find a rowid mapping for, and
+  `server/internal/store/fts_test.go` asserts that results actually carry a name
+  containing the query — a test that only checks "some rows came back" passes
+  against this bug.
+- **FTS5 prefix cost is superlinear in how short the prefix is.** Measured on
+  this corpus: `'"homo"*'` is 0.4 ms, `'"can"*'` 2 ms, `'"a"*'` **90 ms**,
+  because FTS5 enumerates every indexed term with that prefix. A command palette
+  fires on the first keystroke, so the server answers tokens shorter than three
+  characters from an in-memory cache of the largest subtrees instead.
+- **Ranking needs a whole-word band, not just "exact vs not".** `dog` is a whole
+  word in Canidae's "dog family" and a mid-word prefix in Apocynaceae's "dogbane
+  family"; with only `tip_count` to separate them the 7,050-tip plant family
+  beats the dogs. Precedence is now: exact string, whole-word, prefix-of-word,
+  then current-name-before-synonym, then the baked `rank_score`, then
+  `tip_count`.
 - **`label_format: "id"`** on `/v3/tree_of_life/induced_subtree` returns bare
   `ott770315` / `mrcaott…` labels, matching our `node_key` convention exactly. The
   default interpolates names, which can contain apostrophes and so arrive
@@ -259,6 +513,50 @@ further than expected.
 - **GBIF's `backbone/2023-08-28/config.yaml` contains a plaintext database
   password.** Deliberately not snapshotted and not used. Flagged only so nobody
   adds it to the download list; it is GBIF's exposure, not ours.
+- **Silhouettes resolve from an index crawl, not per node.** ingest.md phase 5
+  step 2 reads as one `primaryImage` call per node, which is 2,725,682 requests
+  against a small volunteer service. Crawling the *image index* instead is 269
+  requests: `embed_items=true&embed_specificNode=true` carries licence,
+  attribution, contributor and the node's OTT id inline, and propagating to
+  every node by nearest-ancestor is a single forward sweep taking **0.2 s**.
+  Coverage is **100%**, better than the 88/94% baseline, which described a
+  different mechanism and is no longer the thing to measure.
+- **The number that matters for silhouettes is `climb`, not coverage.** Mean
+  27.3 ancestor hops; only 0.22% of tips get an exact image; three sources
+  (Ecdysozoa, cellular organisms, Opisthokonta) serve 1.79M nodes between them.
+  100% coverage therefore means "every node has *an* image", most of them very
+  generic. The UI suppresses one inherited from a kingdom-sized ancestor rather
+  than implying it depicts the species — architecture §7's "a mole for Mammalia
+  is worse than nothing", applied one level up.
+- **PhyloPic attaches human images to `Homo sapiens sapiens`**, a subspecies the
+  synthesis does not carry, so the seed was silently dropped and *Homo sapiens*
+  climbed 35 hops to Mammalia. 2,485 of 9,461 cited OTT ids are like this. The
+  fix is a **bounded** one-hop lift onto a target of ≤100 tips — an unbounded
+  parent walk seeds Amphibia with a Devonian stem tetrapod, which is the same
+  failure in the other direction.
+- **Mirrored PhyloPic SVGs hardcode `fill="#000000"`.** Architecture §7's
+  `fill: currentColor` is true of the shape and false of the file: through
+  `<img src>` or `background-image` an SVG is an opaque image and nothing in the
+  page can recolour it, so the intended behaviour renders black on near-black.
+  The client fetches and inlines the markup with the baked fill stripped
+  (`web/src/canvas/Silhouette.tsx`). Only then does the silhouette take the lane
+  hue and the selection bloom.
+- **`chart.ttl` hides 36 of its 356 age bounds behind a `skos:note "uncertain"`
+  *inside* the blank node**, ahead of `gtsd:inMYA` — undocumented anywhere. A
+  `hasBeginning\s*\[\s*gtsd:inMYA` regex misses all 36 silently. That is what
+  forced a real Turtle parser rather than a pattern match. Also: **21 of 178
+  concepts have no `skos:prefLabel` in any language** (the informal
+  Lower/Middle/Upper subdivisions), and the rank set includes `Sub-Period`, so
+  band rows must key on rank rather than depth.
+- **`timescale.json` is 52.6 KB, not the ~40 KB architecture §6 estimates**
+  (8.7 KB gzipped, served immutable, so this is immaterial — but the figure is
+  quoted in two places).
+- **`node_fts` is one row per *name*, not per node.** 6,834,727 rows against
+  2,725,682 nodes, with `search_name` carrying `id → idx` and a `kind`.
+  Architecture §3.3's sketch implies `rowid == node.idx`, and joining that way
+  **does not error** — it joins cleanly to unrelated nodes and returns confident
+  nonsense. Searching "dog" returned three unnamed `mrcaott…` internal nodes.
+  Anything reading the index must go through the mapping table.
 
 ---
 
@@ -281,4 +579,96 @@ synthesis tree is phylogenetically placed, so any dated version is overwhelmingl
 interpolating onto taxonomy-derived structure. This matters *more* for a lay
 audience, not less — they cannot tell a confident wrong number from a right one.
 But the answer is a dashed spine and no figure, not a wall of caveats. The
-renderer already does this; the real UI must not regress on it.
+renderer already does this; the real UI must not regress on it. It does not:
+`structural` nodes carry NaN in `age_ma` by construction, a gate checks the
+array rather than the code that wrote it, and the client re-checks at the API
+boundary.
+
+---
+
+## 7. What is thin
+
+Everything in `ingest.md` is implemented, so this is the honest list of where
+the depth is not yet there. Roughly in priority order.
+
+**Vernacular coverage: the front door works, the tail is missing.** 148,515
+names, of which 142,071 come from Wikidata P9157 (OTT id join, no name
+matching), 5,884 from the PBDB ColDP archive and 560 from a bounded `wdt:P225`
+name pass. `dog` → *Canis lupus familiaris*, `cat` → *Felidae*, `whale` →
+*Cetacea*, `human` → *Homo*, `shark` → *Selachii*, `T. rex` →
+*Tyrannosaurus rex*. `test_vernaculars.py` asserts the words a person actually
+types and is green.
+
+Two numbers, and the gap between them is the whole story: **3.71% of named
+nodes** have an English common name, but **56.74% weighted by `tip_count`** —
+which is the number a palette experiences, because people search for inclusive
+clades. Of the 100 largest clades, 61% have a name; the 39% that do not mostly
+genuinely have none in English (Opisthokonta, Holozoa, Panarthropoda).
+
+A concrete miss: `oak` returns *Usnea* ("Oak moss") and *Enaphalodes* ("Oak
+Borer") because **no node carries the vernacular "oak" or "oaks"** — a coverage
+problem, not a search one.
+
+**The crawl is 75 of 287 pages done and resumes cleanly.** It is ordered
+clades-first then tips by ascending OTT id, a notability proxy that puts
+*Canis lupus familiaris* 82,865th of 2.46M — so the notable end is complete and
+the remainder is genuinely tail. WDQS runs at ~50 s/page, so finishing is ~3.5
+unattended hours: `uv run concestor-build vernaculars` re-fetches nothing.
+
+**The server's ranking diverges from the baked ranking on two cases**, both
+worth chasing because the corpus-side answer is already correct:
+
+- `animal` → *Arthropoda* from the server, but *Metazoa* from `search.py`'s own
+  measurement. Metazoa carries the vernacular "animal**s**" and 1,490,245 tips,
+  so it should win on `tip_count` within the prefix band; something is putting
+  Arthropoda in a higher band.
+- `E. coli` → *Entamoeba coli*, not *Escherichia coli*. `search_name.kind = 4`
+  is the broken-taxon column and holds all 9,839 rows, but the server reports
+  `kind: "node"` for these, so the fifth column is indexed and not wired
+  through. *Escherichia coli* and *Dinosauria* are both broken taxa, and
+  explaining that is a stated requirement, not a nicety.
+
+**Search ranking is now banded and behaves**, so this is a note rather than a
+gap: precedence runs band (exact string → exact token → prefix) → current-name
+vs synonym → node vs broken → baked `rank_score` → `tip_count`. Two subtle
+bugs were found and fixed while getting there, both worth knowing about because
+they will come back if the ranking is refactored: candidates were being cut by
+raw `tip_count` *before* the band was known, and synonym hits were outranking
+current names (`Can` reached Elateroidea via "Cantharoidea").
+
+**The fossil layer is served but not drawn.** All 523,112 rows are attached and
+`/v1/segment` returns them ranked, with both uncollapsed brackets and a
+`fossils_total` for the "showing N of M" cap — but the drill-down lane
+(architecture §7 "Drill-down") is not built, so nothing renders the double
+bracket (faded envelope `fea→lla`, solid bar `fla→lea`) that PBDB's uncertainty
+model requires. **This is the largest single piece of unbuilt product**, and
+the data behind it is ready. ~21% of taxa have no appearance interval at all
+and need an explicit "no range recorded" treatment, not a zero-width bar.
+
+**Extinct tips have no age.** *T. rex* is `structural` with no number, which is
+honest, but its layout position lands around 26 Ma because the ordinal fill
+spreads it toward the present. It renders as an open-ended fading trace rather
+than a point in time, which is the correct visual answer — but PBDB *has* its
+range (`fea=83.6, lla=66`), and phase 4 now has it too. Feeding fossil
+appearance intervals into the layout for the 1,129 extinct taxa that survive
+into the synthesis tree is a small, high-value piece of work.
+
+**The silhouette mirror is partial.** ~4,500 of 12,863 SVGs are on disk,
+fetched in `tip_count` order so the clades people actually see came first.
+Resumable by checksum: `uv run concestor-build images`.
+
+**Bloom cost is unverified under load.** design-reference.md asks for this
+early. The current implementation is two stacked strokes plus a CSS blur rather
+than a post-process pass, and it drops the halo below 0.5 zoom — but that was
+chosen on principle, not measured. Nothing has been profiled with a large
+selection on a slow machine.
+
+**No accessibility pass.** Full keyboard operation exists and is real, but
+focus management, screen-reader semantics for the canvas, and a
+non-colour-dependent reading of the provenance tiers have not been examined.
+The dash-pattern channel was chosen partly because it survives without colour;
+that has not been tested with anyone.
+
+**The artifact set is 2,004 MB** against architecture §11's 700 MB estimate
+(§4). Nothing is wrong, but the deployment story in §11 needs re-deriving, and
+there is obvious fat: `xref` is 270 MB and `search_name` 225 MB.

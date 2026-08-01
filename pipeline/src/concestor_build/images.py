@@ -1,0 +1,1211 @@
+"""Phase 5a — mirror the PhyloPic corpus and resolve every node to a silhouette.
+
+Silhouettes are priority-one work (handoff.md §1): for a curious non-specialist
+an image is what makes a clade mean anything, and unlike a photograph a
+silhouette legitimately represents a *clade* rather than one member of it.
+
+## Why this does not do what ingest.md phase 5 step 2 says
+
+Step 2 reads "resolve each node to an image", and the obvious implementation is
+one `primaryImage` or `/resolve/opentreeoflife.org/taxonomy/{ott_id}` call per
+node. There are **2,725,682 nodes**. That is not a crawl, it is a denial of
+service against a small volunteer-run service, and every operational note in
+data-sources.md says to pace requests to exactly this kind of host.
+
+The corpus is 12,863 images against 2.7M nodes, so the index is two orders of
+magnitude smaller than the thing being resolved. Crawl the index instead:
+
+1. Page `/images?embed_items=true&embed_specificNode=true`, 48 items a page,
+   ~268 requests. Each page carries every image's licence, attribution and
+   contributor *and* its specific node's `_links.external`, which includes
+   `/resolve/opentreeoflife.org/taxonomy/{ott_id}`. That yields the whole
+   `image → ott_id` mapping from the index alone.
+2. Propagate locally in numpy with **zero further API calls**: seed the mapped
+   OTT nodes, then give every other node the image of its nearest
+   ancestor-or-self that has one.
+
+Preorder numbering (`parent[i] < i`) is what makes step 2 a sweep rather than a
+traversal, and the same interval property gives the content gate its check:
+`source_idx <= idx < subtree_out[source_idx]` iff the source really is an
+ancestor-or-self.
+
+`climb` is stored per node because the UI has to be able to say *this
+silhouette represents Mammalia, not this species*. Resolution is baked
+(architecture §7) so there is no client-side climb.
+
+## Mirroring
+
+Stale `build` values return **410 Gone, not a redirect**, with the current build
+in the error body; `_ApiClient` re-derives from that body rather than hard-coding
+a number. Mirroring the SVGs removes both the runtime dependency and the
+build-number churn. The fetch is ordered by the `tip_count` of the node an image
+resolves, so an interrupted crawl has already stored the images people actually
+see, and it is resumable by checksum rather than by presence.
+
+This is not a commercial project (handoff.md §1), so there is no NonCommercial
+filtering and no `--commercial-safe` flag. Attribution still applies: CC-BY
+requires it for any redistribution and the artists deserve credit. It is a
+two-field problem — `attribution` is the original creator, the contributor is
+the uploader, and they differ 31% of the time — so both are stored separately.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import sqlite3
+import time
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
+import numpy as np
+
+from .gates import GateSet
+from .newick import NO_OTT
+from .paths import BUILD, SNAPSHOT
+from .provenance import Manifest, record_local
+from .provenance import client as http_client
+from .topology import DB, TAXONOMY
+from .topology import OUT as TOPO_OUT
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
+    import httpx
+
+    from .typing_ import (
+        BoolArray,
+        DepthArray,
+        I64Array,
+        Json,
+        JsonDict,
+        Log,
+        U8Array,
+        U32Array,
+    )
+
+API = "https://api.phylopic.org"
+IMAGE_HOST = "https://images.phylopic.org"
+OTT_RESOLVE_PREFIX = "/resolve/opentreeoflife.org/taxonomy/"
+
+MIRROR = SNAPSHOT / "phylopic"
+INDEX = MIRROR / "index.jsonl"
+INDEX_META = MIRROR / "index_meta.json"
+OUT = BUILD / "images"
+
+# Measured 2026-07-31 (data-sources.md finding 5). Checked as a band rather
+# than an equality: the corpus grows with uploads, so a hard number here would
+# fail the build on somebody else's contribution.
+EXPECT_IMAGES = 12_863
+
+# ingest.md phase 5. Measured against PhyloPic's own `primaryImage` clade
+# fallback over sampled nodes — see the note where the gate is declared,
+# because this build resolves differently and does considerably better.
+BASELINE_INTERNAL = 0.886
+BASELINE_LEAF = 0.940
+
+# Method codes, stored in the arrays; `node_image.method` carries the name.
+M_EXACT, M_ANCESTOR, M_DESCENDANT, M_NONE = 0, 1, 2, 255
+METHOD_NAME = {M_EXACT: "exact", M_ANCESTOR: "ancestor", M_DESCENDANT: "descendant"}
+
+NO_IMAGE = -1
+
+# Max root-to-tip depth is 111 (data-sources.md), so 7 rounds of pointer
+# doubling cover any chain. The loop exits on a fixpoint anyway; the cap only
+# stops a malformed `parent` array spinning forever.
+MAX_JUMPS = 16
+
+# Licences whose terms require the creator be credited. Everything else in the
+# corpus is CC0 or the Public Domain Mark, neither of which does.
+ATTRIBUTION_REQUIRED_MARKER = "/licenses/by"
+
+# The one-hop lift's ceiling, in tips of the node being lifted onto — see
+# `seed_nodes`. Measured on the real corpus: 211 lifts at 10 tips, 317 at 100,
+# 410 at 1,000, so the curve is already flat here and every extra lift past
+# this point is a broader claim for less. At 100 the widest target is Felidae
+# (91 tips), and Amphibia (10,018), Echinodermata (8,729), Cnidaria (15,451)
+# and Sauropsida (32,043) are all excluded, which is the whole point.
+LIFT_MAX_TIPS = 100
+
+MIRROR_WORKERS = 6
+API_PAUSE = 0.15  # between index pages; the API is one small service
+SVG_PAUSE = 0.02  # between SVG fetches; images.phylopic.org is S3 + CloudFront
+
+
+class PhylopicError(RuntimeError):
+    pass
+
+
+def _log(msg: str) -> None:
+    """Unbuffered, because the mirror runs for a quarter of an hour.
+
+    `print` buffers when stdout is not a terminal, which is exactly when the
+    progress lines are wanted — a redirected log that stays empty for ten
+    minutes is indistinguishable from a hang.
+    """
+    print(msg, flush=True)
+
+
+# --------------------------------------------------------------------------
+# The index
+# --------------------------------------------------------------------------
+
+
+@dataclass(slots=True)
+class ImageRecord:
+    """One PhyloPic image, flattened out of the embedded index payload."""
+
+    uuid: str
+    license_url: str
+    attribution: str | None
+    contributor: str | None
+    modified: str
+    node_uuid: str | None
+    node_title: str | None
+    node_primary_image: str | None
+    ott_ids: list[int] = field(default_factory=list)
+    svg_url: str = ""
+
+    @property
+    def needs_attribution(self) -> bool:
+        return ATTRIBUTION_REQUIRED_MARKER in self.license_url
+
+    def to_json(self) -> JsonDict:
+        return {
+            "uuid": self.uuid,
+            "license_url": self.license_url,
+            "attribution": self.attribution,
+            "contributor": self.contributor,
+            "modified": self.modified,
+            "node_uuid": self.node_uuid,
+            "node_title": self.node_title,
+            "node_primary_image": self.node_primary_image,
+            "ott_ids": self.ott_ids,
+            "svg_url": self.svg_url,
+        }
+
+    @classmethod
+    def from_json(cls, d: JsonDict) -> ImageRecord:
+        return cls(**d)
+
+
+def _uuid_from_href(href: str | None) -> str | None:
+    if not href:
+        return None
+    return href.rsplit("/", 1)[-1].split("?", 1)[0] or None
+
+
+def ott_ids_from_node(node: JsonDict) -> list[int]:
+    """OTT ids a PhyloPic node declares, from its `_links.external` list.
+
+    A node can cite several — a genus and its type species both resolving to
+    the same silhouette — so this returns all of them rather than the first.
+    """
+    out: list[int] = []
+    for e in (node.get("_links") or {}).get("external") or []:
+        href = e.get("href") or ""
+        if not href.startswith(OTT_RESOLVE_PREFIX):
+            continue
+        tail = href[len(OTT_RESOLVE_PREFIX) :].split("?", 1)[0].strip("/")
+        try:
+            out.append(int(tail))
+        except ValueError:
+            continue
+    return out
+
+
+def record_from_item(item: JsonDict) -> ImageRecord:
+    """Flatten one `_embedded.items` entry from the paged image index."""
+    links = item.get("_links") or {}
+    node = (item.get("_embedded") or {}).get("specificNode")
+    node_links = (node or {}).get("_links") or {}
+    return ImageRecord(
+        uuid=item["uuid"],
+        license_url=(links.get("license") or {}).get("href") or "",
+        attribution=item.get("attribution"),
+        contributor=(links.get("contributor") or {}).get("title"),
+        modified=item.get("modified") or "",
+        node_uuid=(node or {}).get("uuid"),
+        node_title=(node_links.get("self") or {}).get("title"),
+        node_primary_image=_uuid_from_href(
+            (node_links.get("primaryImage") or {}).get("href")
+        ),
+        ott_ids=ott_ids_from_node(node) if node else [],
+        svg_url=(links.get("vectorFile") or {}).get("href") or "",
+    )
+
+
+class _ApiClient:
+    """Paced GET against the PhyloPic API, re-deriving the build on 410.
+
+    A stale `build` returns 410 Gone rather than a redirect, and the current
+    build is in the error body. Hard-coding a build number would therefore
+    break this phase at PhyloPic's next release, so it is read from the service
+    and re-read whenever the service says it has moved on.
+    """
+
+    def __init__(self, client: httpx.Client, log: Log) -> None:
+        self.client = client
+        self.log = log
+        self.requests = 0
+        head = self._collection_head()
+        self.build: int = head["build"]
+        # The service's own count, so the crawl can be gated on completeness
+        # rather than on a constant that goes stale with the next upload.
+        self.total_items: int | None = head.get("totalItems")
+        self.items_per_page: int | None = head.get("itemsPerPage")
+
+    def _collection_head(self) -> JsonDict:
+        """Ask the service what build it is on, rather than hard-coding one.
+
+        `/images` with *no* parameters 307s to the current build; `?page=0`
+        without a build is a 400 rather than a redirect ("Cannot pass `page`
+        without also specifying a build"). The unpaged collection is worth the
+        extra request anyway: it carries `totalItems` and `itemsPerPage`, which
+        is what turns "did the crawl finish" into a checkable question.
+
+        Responses are `application/vnd.phylopic.v2+json`, not `application/json`,
+        so there is nothing to be gained by sniffing the content type. Every
+        payload including the error bodies carries `build` at the top level.
+        """
+        r = self.client.get(f"{API}/images")
+        self.requests += 1
+        try:
+            payload = r.json()
+        except ValueError:
+            r.raise_for_status()
+            raise PhylopicError(f"{API}/images returned no JSON") from None
+        if not isinstance(payload.get("build"), int):
+            r.raise_for_status()
+            raise PhylopicError(f"no build index in {API}/images response")
+        return payload
+
+    def get(self, path: str, params: JsonDict | None = None) -> Json:
+        for attempt in range(3):
+            r = self.client.get(
+                f"{API}{path}", params=dict(params or {}) | {"build": self.build}
+            )
+            self.requests += 1
+            if r.status_code == 410:
+                fresh = r.json().get("build")
+                if not isinstance(fresh, int) or fresh == self.build:
+                    raise PhylopicError(f"410 on {path} with no usable build: {r.text}")
+                self.log(f"  build {self.build} is stale; PhyloPic is on {fresh}")
+                self.build = fresh
+                continue
+            if r.status_code >= 500 and attempt < 2:
+                time.sleep(2.0 * (attempt + 1))
+                continue
+            r.raise_for_status()
+            return r.json()
+        raise PhylopicError(f"gave up on {path}")
+
+
+def crawl_index(api: _ApiClient, log: Log) -> list[ImageRecord]:
+    """Page the whole image index, embedding each image's specific node.
+
+    ~268 requests for the entire corpus. `embed_specificNode` is what makes
+    this work: without it every image would need a second call to learn its OTT
+    id, which is 12,863 more requests for something the index already carries.
+    """
+    records: list[ImageRecord] = []
+    params = {"embed_items": "true", "embed_specificNode": "true"}
+    page = 0
+    t0 = time.monotonic()
+    while True:
+        payload = api.get("/images", {**params, "page": page})
+        records.extend(
+            record_from_item(it)
+            for it in (payload.get("_embedded") or {}).get("items") or []
+        )
+        if page % 25 == 0:
+            log(f"  page {page:>4}  {len(records):>6,} images")
+        if not (payload.get("_links") or {}).get("next"):
+            break
+        page += 1
+        time.sleep(API_PAUSE)
+    log(
+        f"  crawled {len(records):,} images over {page + 1} pages in "
+        f"{time.monotonic() - t0:,.1f}s ({api.requests} requests)"
+    )
+    return records
+
+
+def save_index(
+    records: list[ImageRecord], build: int, total_items: int | None = None
+) -> None:
+    MIRROR.mkdir(parents=True, exist_ok=True)
+    with INDEX.open("w", encoding="utf-8") as fh:
+        for r in records:
+            fh.write(json.dumps(r.to_json(), separators=(",", ":")) + "\n")
+    INDEX_META.write_text(
+        json.dumps(
+            {"build": build, "images": len(records), "total_items": total_items},
+            indent=2,
+        )
+        + "\n"
+    )
+
+
+def load_index() -> tuple[list[ImageRecord], JsonDict]:
+    """The crawled index and its metadata, or empty when nothing is cached."""
+    if not INDEX.exists():
+        return [], {}
+    with INDEX.open(encoding="utf-8") as fh:
+        records = [
+            ImageRecord.from_json(json.loads(line)) for line in fh if line.strip()
+        ]
+    meta = json.loads(INDEX_META.read_text()) if INDEX_META.exists() else {}
+    return records, meta
+
+
+# --------------------------------------------------------------------------
+# Seeding: PhyloPic's OTT ids onto our node indices
+# --------------------------------------------------------------------------
+
+
+def _rank(r: ImageRecord) -> tuple[bool, str, str]:
+    return (r.uuid == r.node_primary_image, r.modified, r.uuid)
+
+
+def pick_per_ott(records: list[ImageRecord]) -> dict[int, int]:
+    """`ott_id -> position in records`, deciding between competing images.
+
+    PhyloPic already curates this: the specific node names its own
+    `primaryImage`, so prefer that. Otherwise take the most recently modified,
+    tie-broken on uuid so the build is deterministic.
+    """
+    best: dict[int, int] = {}
+    for i, r in enumerate(records):
+        if not r.ott_ids or not r.license_url:
+            continue
+        for ott in r.ott_ids:
+            cur = best.get(ott)
+            if cur is None or _rank(r) > _rank(records[cur]):
+                best[ott] = i
+    return best
+
+
+def load_forwards(con: sqlite3.Connection) -> dict[int, int]:
+    """Retired OTT id -> current, already chased transitively in phase 1.
+
+    PhyloPic's external ids were recorded against whatever OTT release was
+    current when a curator added them, and forwarding is silent, so a direct
+    lookup that misses is not the same as an id absent from the tree.
+    """
+    return dict(con.execute("SELECT old_ott_id, new_ott_id FROM forward"))
+
+
+def taxonomy_parents() -> dict[int, int]:
+    """`uid -> parent_uid` from OTT's `taxonomy.tsv`, for the one-hop lift.
+
+    Returns empty when the taxonomy has not been extracted; lifting is an
+    improvement, not a prerequisite, so its absence must not fail the phase.
+    """
+    if not TAXONOMY.exists():
+        return {}
+    out: dict[int, int] = {}
+    with TAXONOMY.open(encoding="utf-8") as fh:
+        cols = [c.strip() for c in fh.readline().split("\t|\t")]
+        i_uid, i_par = cols.index("uid"), cols.index("parent_uid")
+        for line in fh:
+            f = line.split("\t|\t")
+            if len(f) <= max(i_uid, i_par):
+                continue
+            try:
+                out[int(f[i_uid])] = int(f[i_par])
+            except ValueError:
+                continue
+    return out
+
+
+def seed_nodes(
+    ott_id: I64Array,
+    tip_count: U32Array,
+    per_ott: dict[int, int],
+    forwards: dict[int, int],
+    parents: dict[int, int] | None = None,
+    lift_max_tips: int = LIFT_MAX_TIPS,
+) -> tuple[I64Array, JsonDict]:
+    """Map PhyloPic's OTT ids onto node indices.
+
+    Returns `seed[idx] = position in records`, `NO_IMAGE` elsewhere.
+
+    Three passes, in decreasing strength:
+
+    1. **Direct.** The cited OTT id is a node. 6,976 of 9,461 offered ids.
+    2. **Forwarded.** OTT id forwarding is silent, so a direct miss is not the
+       same as an id absent from the tree; phase 1's `forward` table already
+       chased the chains transitively.
+    3. **Lifted one hop.** 2,485 cited ids are in `taxonomy.tsv` but not in the
+       synthesis tree, and they are overwhelmingly *extinct* taxa — only 0.5%
+       of OTT taxa flagged extinct appear in synthesis at all (architecture
+       §3.4). Walking those up an unbounded parent chain is not a win, it is
+       the "mole for Mammalia" failure with extra steps: it would seed Amphibia
+       with a Devonian stem tetrapod, Cnidaria with an Ediacaran frond and
+       Sauropsida with a marine reptile. So the lift is bounded on both ends —
+       exactly one hop, and only onto a node narrow enough that the image is
+       still broadly representative of it. That admits `Homo sapiens sapiens →
+       Homo sapiens`, `Panthera gombaszoegensis → Panthera` and 315 more, and
+       refuses every fossil-onto-phylum case.
+
+    A direct hit always beats a lifted one for the same node.
+    """
+    order = np.argsort(ott_id, kind="stable")
+    order = order[ott_id[order] != NO_OTT]
+    sorted_ott = ott_id[order]
+
+    wanted = np.fromiter(per_ott.keys(), dtype=np.int64, count=len(per_ott))
+    images = np.fromiter(per_ott.values(), dtype=np.int64, count=len(per_ott))
+
+    def lookup(ids: I64Array) -> I64Array:
+        # `ids` may carry sentinels; no OTT id is negative and NO_OTT rows were
+        # dropped above, so a sentinel simply fails the equality test.
+        pos = np.clip(np.searchsorted(sorted_ott, ids), 0, sorted_ott.size - 1)
+        hit = sorted_ott[pos] == ids
+        return np.where(hit, order[pos], NO_IMAGE).astype(np.int64)
+
+    idx = lookup(wanted)
+
+    missed = idx == NO_IMAGE
+    n_forwarded = 0
+    if bool(missed.any()) and forwards:
+        fwd = np.array(
+            [forwards.get(int(o), int(o)) for o in wanted[missed]], dtype=np.int64
+        )
+        retry = lookup(fwd)
+        n_forwarded = int((retry != NO_IMAGE).sum())
+        idx[missed] = retry
+
+    lift = np.full(wanted.size, NO_IMAGE, dtype=np.int64)
+    n_lifted = 0
+    if parents:
+        still = idx == NO_IMAGE
+        up = np.array(
+            [parents.get(int(o), NO_IMAGE) for o in wanted[still]], dtype=np.int64
+        )
+        cand = lookup(up)
+        narrow = (cand != NO_IMAGE) & (
+            tip_count[np.clip(cand, 0, tip_count.size - 1)] <= lift_max_tips
+        )
+        lift[still] = np.where(narrow, cand, NO_IMAGE)
+        n_lifted = int(narrow.sum())
+
+    seed = np.full(ott_id.size, NO_IMAGE, dtype=np.int64)
+    # Two OTT ids can land on one node when a forward collapses a synonym onto
+    # its accepted id. Last write wins, deterministically: `wanted` comes out of
+    # an insertion-ordered dict built from a stable record list. Lifts go down
+    # first so that a direct hit always overwrites one.
+    lifted = lift != NO_IMAGE
+    seed[lift[lifted]] = images[lifted]
+    ok = idx != NO_IMAGE
+    seed[idx[ok]] = images[ok]
+
+    return seed, {
+        "ott_ids_offered": len(per_ott),
+        "ott_ids_in_tree": int(ok.sum()),
+        "ott_ids_via_forward": n_forwarded,
+        "ott_ids_lifted_one_hop": n_lifted,
+        "seeded_nodes": int((seed != NO_IMAGE).sum()),
+    }
+
+
+# --------------------------------------------------------------------------
+# The propagation sweep — the part with real logic in it
+# --------------------------------------------------------------------------
+
+
+@dataclass(slots=True)
+class Assignment:
+    image: I64Array  # position in `records`; NO_IMAGE where unresolved
+    source: I64Array  # the node the image is actually OF; NO_IMAGE if none
+    climb: U8Array  # hops between idx and source_idx; 0 = exact
+    method: U8Array  # M_EXACT | M_ANCESTOR | M_DESCENDANT | M_NONE
+
+
+def propagate(
+    parent: U32Array,
+    depth: DepthArray,
+    subtree_out: U32Array,
+    seed: I64Array,
+    *,
+    descendant_fallback: bool = True,
+) -> Assignment:
+    """Give every node the image of its nearest ancestor-or-self that has one.
+
+    Preorder numbering means `parent[i] < i`, so a forward sweep would already
+    have the parent's final answer by the time it reached `i`. This does the
+    same computation by pointer doubling, which is that sweep vectorised:
+    `link` starts as "self if seeded, else parent", and squaring it log(depth)
+    times walks every chain to its nearest seeded ancestor at once. A seeded
+    node is a self-loop, so it absorbs; the root is a self-loop too, so a chain
+    with no seeded ancestor terminates there and stays unresolved.
+
+    `descendant_fallback` then lets a clade with no ancestor image borrow from
+    a descendant. That is a **weaker claim** — architecture §7's point is that a
+    silhouette represents a clade, and showing one member's silhouette for a
+    clade is the "mole for Mammalia" failure — so it is marked distinctly and
+    counted separately. It only ever helps *internal* nodes: a leaf's subtree
+    is only itself, so leaf coverage is entirely down to the ancestor sweep.
+    """
+    n = parent.size
+    if not depth.size == subtree_out.size == seed.size == n:
+        raise ValueError("propagate: array lengths disagree")
+
+    idxs = np.arange(n, dtype=np.int64)
+    seeded: BoolArray = seed != NO_IMAGE
+
+    link = np.where(seeded, idxs, parent.astype(np.int64))
+    link[0] = 0  # the root's parent is the NO_PARENT sentinel, not an index
+    for _ in range(MAX_JUMPS):
+        nxt = link[link]
+        if np.array_equal(nxt, link):
+            break
+        link = nxt
+
+    resolved = seeded[link]
+    depth64 = depth.astype(np.int64)
+    source = np.where(resolved, link, NO_IMAGE)
+    hops = np.where(resolved, depth64 - depth64[link], 0)
+    image = np.where(resolved, seed[link], NO_IMAGE)
+    method = np.where(resolved, np.where(hops == 0, M_EXACT, M_ANCESTOR), M_NONE)
+
+    if descendant_fallback and not bool(resolved.all()):
+        # Nearest seeded node at or after `i` in preorder. It lies inside i's
+        # subtree exactly when it is below `subtree_out[i]` — the same interval
+        # test the content gate uses, read the other way round.
+        cand = np.where(seeded, idxs, n)
+        suffix_min = np.minimum.accumulate(cand[::-1])[::-1]
+        take = (~resolved) & (suffix_min < subtree_out.astype(np.int64))
+        if bool(take.any()):
+            j = suffix_min[take]
+            source[take] = j
+            image[take] = seed[j]
+            hops[take] = depth64[j] - depth64[take]
+            method[take] = M_DESCENDANT
+
+    if int(hops.max(initial=0)) > 255:
+        raise ValueError("climb exceeds u8; the tree is deeper than it should be")
+    return Assignment(
+        image=image,
+        source=source,
+        climb=hops.astype(np.uint8),
+        method=method.astype(np.uint8),
+    )
+
+
+# --------------------------------------------------------------------------
+# The SVG mirror
+# --------------------------------------------------------------------------
+
+
+@dataclass(slots=True)
+class MirrorRow:
+    uuid: str
+    rel_path: str
+    sha256: str
+    bytes: int
+
+
+def svg_rel_path(uuid: str) -> str:
+    """Sharded so the mirror is not one directory of 12,863 entries."""
+    return f"svg/{uuid[:2]}/{uuid}.svg"
+
+
+def existing_mirror(records: list[ImageRecord], log: Log) -> dict[str, MirrorRow]:
+    """Whatever is already on disk, verified by checksum rather than presence.
+
+    A re-run must skip only files that are genuinely complete; a truncated
+    write from an interrupted run has to be refetched, and only reading the
+    bytes back distinguishes the two.
+    """
+    have: dict[str, MirrorRow] = {}
+    for rec in records:
+        rel = svg_rel_path(rec.uuid)
+        p = MIRROR / rel
+        if not p.exists():
+            continue
+        body = p.read_bytes()
+        if not body.lstrip().startswith(b"<"):
+            continue
+        have[rec.uuid] = MirrorRow(
+            rec.uuid, rel, hashlib.sha256(body).hexdigest(), len(body)
+        )
+    if have:
+        log(f"  {len(have):,} SVGs already mirrored and verified")
+    return have
+
+
+def fetch_svg(client: httpx.Client, rec: ImageRecord) -> MirrorRow:
+    url = rec.svg_url or f"{IMAGE_HOST}/images/{rec.uuid}/vector.svg"
+    r = client.get(url)
+    r.raise_for_status()
+    body = r.content
+    if not body.lstrip().startswith(b"<"):
+        raise PhylopicError(f"{rec.uuid}: response is not SVG")
+    rel = svg_rel_path(rec.uuid)
+    dest = MIRROR / rel
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(body)
+    time.sleep(SVG_PAUSE)
+    return MirrorRow(rec.uuid, rel, hashlib.sha256(body).hexdigest(), len(body))
+
+
+def mirror_svgs(
+    records: list[ImageRecord],
+    order: list[int],
+    have: dict[str, MirrorRow],
+    budget: int,
+    log: Log,
+) -> tuple[dict[str, MirrorRow], list[str]]:
+    """Fetch missing SVGs in `order`, which is by descending resolved tip_count.
+
+    Ordering that way means an interrupted crawl has already stored the images
+    people actually see — Mammalia long before some monotypic beetle genus.
+    """
+    todo = [i for i in order if records[i].uuid not in have]
+    outstanding = len(todo)
+    if budget > 0:
+        todo = todo[:budget]
+        log(f"  budget {budget:,}: fetching {len(todo):,} of {outstanding:,} missing")
+    if not todo:
+        log("  mirror is complete; nothing to fetch")
+        return have, []
+
+    total_bytes = sum(r.bytes for r in have.values())
+    failures: list[str] = []
+    t0 = time.monotonic()
+    log(f"  fetching {len(todo):,} SVGs with {MIRROR_WORKERS} workers…")
+
+    with (
+        http_client(timeout=60.0) as client,
+        ThreadPoolExecutor(max_workers=MIRROR_WORKERS) as pool,
+    ):
+
+        def one(i: int) -> MirrorRow | str:
+            # One bad image must not stop the other 12,862, and a failure is
+            # reported rather than swallowed: it comes back as a string and is
+            # counted in a gate. Re-running retries it.
+            try:
+                return fetch_svg(client, records[i])
+            except Exception as exc:
+                return f"{records[i].uuid}: {type(exc).__name__}: {exc}"
+
+        for k, result in enumerate(pool.map(one, todo), 1):
+            if isinstance(result, MirrorRow):
+                have[result.uuid] = result
+                total_bytes += result.bytes
+            else:
+                failures.append(result)
+            if k % 500 == 0 or k == len(todo):
+                rate = k / max(time.monotonic() - t0, 1e-6)
+                log(
+                    f"  {k:>6,}/{len(todo):,}  {total_bytes / 1e6:,.1f} MB  "
+                    f"{rate:,.1f}/s  {len(failures)} failed"
+                )
+    return have, failures
+
+
+def mirror_order(
+    records: list[ImageRecord], tip_count: U32Array, assign: Assignment | None
+) -> list[int]:
+    """Fetch order: by the largest subtree each image is the silhouette for.
+
+    Falls back to index order when the resolution has not been computed, which
+    is the `--mirror-only` case.
+    """
+    if assign is None:
+        return list(range(len(records)))
+    weight = np.zeros(len(records), dtype=np.int64)
+    used = assign.image != NO_IMAGE
+    np.maximum.at(
+        weight, assign.image[used], tip_count[assign.source[used]].astype(np.int64)
+    )
+    return sorted(range(len(records)), key=lambda i: (-int(weight[i]), records[i].uuid))
+
+
+# --------------------------------------------------------------------------
+# Output
+# --------------------------------------------------------------------------
+
+
+def connect_rw() -> sqlite3.Connection:
+    """A writer that waits rather than failing.
+
+    Other phases write this database too, and a 2.7M-row insert holds the write
+    lock for a while, so the timeout is generous on both sides.
+    """
+    con = sqlite3.connect(DB, timeout=300.0)
+    con.execute("PRAGMA busy_timeout = 300000")
+    return con
+
+
+def write_silhouette(
+    con: sqlite3.Connection, records: list[ImageRecord], mirrored: dict[str, MirrorRow]
+) -> None:
+    con.executescript(
+        """
+        DROP TABLE IF EXISTS silhouette;
+        CREATE TABLE silhouette (
+          phylopic_id  TEXT PRIMARY KEY,
+          license_url  TEXT NOT NULL,
+          attribution  TEXT,     -- the original creator
+          contributor  TEXT,     -- the uploader; differs 31% of the time
+          svg_path     TEXT,     -- relative to the mirror root; NULL until fetched
+          sha256       TEXT,
+          bytes        INTEGER
+        );
+        """
+    )
+    con.executemany(
+        "INSERT INTO silhouette VALUES (?,?,?,?,?,?,?)",
+        [
+            (
+                r.uuid,
+                r.license_url,
+                r.attribution,
+                r.contributor,
+                m.rel_path if m else None,
+                m.sha256 if m else None,
+                m.bytes if m else None,
+            )
+            for r in records
+            for m in (mirrored.get(r.uuid),)
+        ],
+    )
+    con.commit()
+
+
+def write_node_image(
+    con: sqlite3.Connection, records: list[ImageRecord], assign: Assignment
+) -> int:
+    """One row per resolved node.
+
+    architecture §3.3 puts `phylopic_id` on `node`, but that table has 2.7M
+    rows and other phases are writing it, so the resolution lands in its own
+    table keyed by the same `idx`. It also carries more than a single column
+    could: `source_idx` and `climb` are what let the UI say "this silhouette
+    represents Mammalia" rather than implying it is a portrait of the species.
+    """
+    con.executescript(
+        """
+        DROP TABLE IF EXISTS node_image;
+        CREATE TABLE node_image (
+          idx          INTEGER PRIMARY KEY,
+          phylopic_id  TEXT NOT NULL,
+          source_idx   INTEGER NOT NULL,  -- the node the image is actually OF
+          climb        INTEGER NOT NULL,  -- hops from idx to source_idx; 0 = exact
+          method       TEXT NOT NULL      -- 'exact' | 'ancestor' | 'descendant'
+        );
+        """
+    )
+    uuids = [r.uuid for r in records]
+
+    def rows() -> Iterator[tuple[int, str, int, int, str]]:
+        img = assign.image.tolist()
+        src = assign.source.tolist()
+        climb = assign.climb.tolist()
+        for i, m in enumerate(assign.method.tolist()):
+            if m == M_NONE:
+                continue
+            yield (i, uuids[img[i]], src[i], climb[i], METHOD_NAME[m])
+
+    con.executemany("INSERT INTO node_image VALUES (?,?,?,?,?)", rows())
+    # Deliberately no secondary indexes. `idx` is the rowid, so the lookup the
+    # UI actually makes — node -> silhouette + attribution, including for the
+    # credits command — is already a primary-key probe. Measured with dbstat,
+    # an index on `phylopic_id` costs 124 MB and one on `source_idx` 31 MB
+    # against a 164 MB table, for reverse lookups nothing currently performs,
+    # on a dataset architecture §3.3 wants under 700 MB in total.
+    con.commit()
+    return int(con.execute("SELECT count(*) FROM node_image").fetchone()[0])
+
+
+def write_arrays(records: list[ImageRecord], assign: Assignment) -> None:
+    """The same resolution as flat arrays, for the packaging step.
+
+    `node_image` is the queryable form; these are the mmap-able one, and they
+    keep the hot path off SQLite the way architecture §3.2 does for topology.
+    """
+    OUT.mkdir(parents=True, exist_ok=True)
+    np.save(OUT / "node_image.npy", assign.image.astype(np.int32))
+    np.save(OUT / "node_image_source.npy", assign.source.astype(np.int64))
+    np.save(OUT / "node_image_climb.npy", assign.climb)
+    np.save(OUT / "node_image_method.npy", assign.method)
+    (OUT / "silhouette_ids.json").write_text(
+        json.dumps([r.uuid for r in records], separators=(",", ":")) + "\n"
+    )
+
+
+def record_mirror(records: list[ImageRecord], have: dict[str, MirrorRow]) -> None:
+    """One manifest entry for the mirror, not 12,863.
+
+    Per-file digests live in `silhouette.sha256`; putting them in the
+    git-tracked `snapshot/manifest.json` would add megabytes of churn for
+    something the database already carries. The index is checksummed properly,
+    because it is what the whole resolution is derived from.
+    """
+    m = Manifest()
+    if INDEX.exists():
+        record_local(
+            m,
+            name="phylopic_index",
+            path=INDEX,
+            url=f"{API}/images?embed_items=true&embed_specificNode=true",
+            note=(
+                f"{len(records):,} images with licence, attribution, contributor "
+                "and their specific node's OTT ids. ~268 paged requests, not one "
+                "per node."
+            ),
+        )
+    m.meta["phylopic_mirror"] = {
+        "images": len(records),
+        "mirrored": len(have),
+        "bytes": sum(r.bytes for r in have.values()),
+        "root": str(MIRROR.relative_to(SNAPSHOT.parent)),
+        "note": "Per-file SHA-256 lives in the silhouette table, not here.",
+    }
+    m.write()
+
+
+# --------------------------------------------------------------------------
+# Gates
+# --------------------------------------------------------------------------
+
+
+def coverage_gates(
+    g: GateSet, assign: Assignment, tip_count: U32Array, subtree_out: U32Array
+) -> JsonDict:
+    is_tip = tip_count == 1
+    resolved = assign.method != M_NONE
+    strict = (assign.method == M_EXACT) | (assign.method == M_ANCESTOR)
+
+    n_leaf, n_internal = int(is_tip.sum()), int((~is_tip).sum())
+    leaf_cov = float(resolved[is_tip].mean())
+    internal_cov = float(resolved[~is_tip].mean())
+    leaf_strict = float(strict[is_tip].mean())
+    internal_strict = float(strict[~is_tip].mean())
+
+    note = (
+        "The 88.6%/94.0% baseline was measured on PhyloPic's own `primaryImage` "
+        "clade fallback over sampled nodes (data-sources.md finding 5), not on "
+        "this build's resolution. It is still the right *floor* — it is the "
+        "coverage a client would get asking the API per node, which is exactly "
+        "what this replaces — but it is no longer the right ceiling, and on its "
+        "own it is no longer the right thing to measure. Crawling the index and "
+        "propagating locally resolves every node with any seeded ancestor, and "
+        "the corpus seeds high enough in the tree that that is nearly all of "
+        "them. Read the climb distribution alongside it: coverage says an image "
+        "exists, climb says how much it means."
+    )
+    g.require(
+        "leaf node coverage",
+        f"{leaf_cov:.4%} of {n_leaf:,}",
+        f">= {BASELINE_LEAF:.1%}",
+        ok=leaf_cov >= BASELINE_LEAF,
+        note=note,
+    )
+    g.require(
+        "internal node coverage",
+        f"{internal_cov:.4%} of {n_internal:,}",
+        f">= {BASELINE_INTERNAL:.1%}",
+        ok=internal_cov >= BASELINE_INTERNAL,
+    )
+    g.observe(
+        "leaf coverage, ancestor-or-self only",
+        f"{leaf_strict:.4%}",
+        note="excludes the weaker descendant fallback",
+    )
+    g.observe("internal coverage, ancestor-or-self only", f"{internal_strict:.4%}")
+
+    counts = {
+        METHOD_NAME.get(m, "none"): int((assign.method == m).sum())
+        for m in (M_EXACT, M_ANCESTOR, M_DESCENDANT, M_NONE)
+    }
+    g.observe(
+        "resolution method",
+        ", ".join(f"{k} {v:,}" for k, v in counts.items()),
+        note="descendant is the weaker claim and is counted separately.",
+    )
+
+    climb = assign.climb[resolved].astype(np.int64)
+    p50, p75, p90, p99 = (
+        np.percentile(climb, [50, 75, 90, 99]) if climb.size else (0.0, 0.0, 0.0, 0.0)
+    )
+    hist = {
+        int(k): int(v)
+        for k, v in zip(*np.unique(climb, return_counts=True), strict=True)
+    }
+    g.observe(
+        "climb distribution",
+        f"mean {float(climb.mean()) if climb.size else 0:.2f}, "
+        f"p50 {p50:.0f}, p75 {p75:.0f}, p90 {p90:.0f}, p99 {p99:.0f}, "
+        f"max {int(climb.max(initial=0))}",
+        note=(
+            "How far a node looks up for its silhouette. climb 0 is a portrait "
+            "of that taxon; climb 12 is a clade image and the UI must say so."
+        ),
+    )
+
+    # A content gate, not a row count. CLAUDE.md records a column that stayed
+    # permanently NULL while every structural gate passed: counting rows is not
+    # checking them. The preorder interval is the whole claim being made.
+    rng = np.random.default_rng(20260731)
+    pool = np.flatnonzero(resolved)
+    sample = rng.choice(pool, size=min(200_000, pool.size), replace=False)
+    src = assign.source[sample]
+    is_desc = assign.method[sample] == M_DESCENDANT
+    sane = np.where(
+        is_desc,
+        (sample <= src) & (src < subtree_out[sample].astype(np.int64)),
+        (src <= sample) & (sample < subtree_out[src].astype(np.int64)),
+    )
+    g.require(
+        "sampled silhouettes are topologically sane",
+        f"{int((~sane).sum())} violations in {sample.size:,} sampled nodes",
+        "0 violations",
+        ok=bool(sane.all()),
+        note=(
+            "source_idx <= idx < subtree_out[source_idx] iff the image's node "
+            "really is an ancestor-or-self of the node showing it; reversed for "
+            "the descendant fallback."
+        ),
+    )
+    g.require(
+        "climb agrees with method on the sample",
+        int(((assign.climb[sample] == 0) != (assign.method[sample] == M_EXACT)).sum()),
+        0,
+        note="climb 0 and method 'exact' are the same statement.",
+    )
+    return {
+        "leaf": leaf_cov,
+        "internal": internal_cov,
+        "leaf_strict": leaf_strict,
+        "internal_strict": internal_strict,
+        "methods": counts,
+        "climb_histogram": hist,
+    }
+
+
+def _licence_label(url: str) -> str:
+    if not url:
+        return "<none>"
+    parts = [p for p in url.split("/") if p]
+    return "/".join(parts[-2:]) if len(parts) >= 2 else url
+
+
+def licence_gates(
+    g: GateSet, records: list[ImageRecord], mirrored: dict[str, MirrorRow]
+) -> None:
+    g.require(
+        "images stored without a licence URL",
+        sum(1 for r in records if not r.license_url),
+        0,
+    )
+    needs = [r for r in records if r.needs_attribution]
+    g.require(
+        "attribution-required images with a null attribution",
+        sum(1 for r in needs if not (r.attribution or "").strip()),
+        0,
+        note=(
+            "attribution is null 19.3% overall but 0% null among images that "
+            "require it, so a null here is a hard failure, not a shrug."
+        ),
+    )
+    n = max(len(records), 1)
+    g.observe(
+        "images requiring attribution",
+        f"{len(needs):,} ({len(needs) / n:.1%})",
+        "47.2% of primaryImage results (data-sources.md)",
+    )
+    differ = sum(
+        1
+        for r in records
+        if r.contributor and (r.attribution or "") != (r.contributor or "")
+    )
+    g.observe(
+        "creator differs from uploader",
+        f"{differ:,} ({differ / n:.1%})",
+        "31%",
+        note="Conflating the two credits the wrong person; both columns exist.",
+    )
+    by_licence: dict[str, int] = {}
+    for r in records:
+        lbl = _licence_label(r.license_url)
+        by_licence[lbl] = by_licence.get(lbl, 0) + 1
+    g.observe(
+        "licence distribution",
+        ", ".join(
+            f"{k} {v:,}" for k, v in sorted(by_licence.items(), key=lambda kv: -kv[1])
+        ),
+        note="No NonCommercial filtering: this is not a commercial project.",
+    )
+    g.observe(
+        "SVGs mirrored",
+        f"{len(mirrored):,} / {len(records):,} "
+        f"({sum(m.bytes for m in mirrored.values()) / 1e6:,.1f} MB)",
+        f"{EXPECT_IMAGES:,} (~136 MB)",
+    )
+
+
+# --------------------------------------------------------------------------
+# Phase entry point
+# --------------------------------------------------------------------------
+
+
+def run(budget: int = 0, mirror_only: bool = False, log: Log = _log) -> int:
+    """Phase 5a.
+
+    `budget` caps **SVG downloads** in one run rather than node resolutions.
+    There is no per-node remote work left to budget — that is the point of the
+    redesign at the top of this module — so the only unbounded remote cost is
+    the mirror, and that is what the flag governs. Runs are resumable, so
+    repeated budgeted runs converge on a complete mirror.
+    """
+    g = GateSet("phase5a-images")
+    MIRROR.mkdir(parents=True, exist_ok=True)
+    OUT.mkdir(parents=True, exist_ok=True)
+
+    records, meta = load_index()
+    build: int | None = meta.get("build")
+    total_items: int | None = meta.get("total_items")
+
+    if mirror_only:
+        if not records:
+            raise SystemExit(
+                "--mirror-only needs a crawled index; run `concestor-build images` first"
+            )
+        log(f"--- mirror only: {len(records):,} images from {INDEX} ---")
+    else:
+        log("--- PhyloPic index crawl ---")
+        with http_client(timeout=60.0) as client:
+            api = _ApiClient(client, log)
+            if records and build == api.build:
+                log(f"  index is current for build {api.build}; reusing {INDEX}")
+            else:
+                if records:
+                    log(f"  index is for build {build}, service is on {api.build}")
+                records = crawl_index(api, log)
+                save_index(records, api.build, api.total_items)
+            build, total_items = api.build, api.total_items
+
+    g.observe("PhyloPic build index", build, note="Stale builds 410; never hard-coded.")
+    # The service states its own `totalItems`, so completeness is checkable
+    # rather than assumed. A short crawl means paging stopped early, which is
+    # the failure mode that would silently shrink coverage.
+    g.require(
+        "crawled every image the service lists",
+        f"{len(records):,}",
+        f"{total_items:,}" if total_items is not None else "unknown",
+        ok=total_items is not None and len(records) == total_items,
+        note=f"data-sources.md measured {EXPECT_IMAGES:,} on 2026-07-31.",
+    )
+    g.observe(
+        "corpus size against the documented figure",
+        f"{len(records):,}",
+        f"{EXPECT_IMAGES:,}",
+        note="The corpus grows with uploads; the gate above is the real check.",
+    )
+    with_ott = sum(1 for r in records if r.ott_ids)
+    g.observe(
+        "images with a specific node", f"{sum(1 for r in records if r.node_uuid):,}"
+    )
+    g.observe(
+        "images whose node declares an OTT id",
+        f"{with_ott:,} ({with_ott / max(len(records), 1):.1%})",
+        note="The rest resolve only in GBIF/PBDB namespaces, so they seed nothing.",
+    )
+
+    # --- resolution ------------------------------------------------------
+    tip_count = np.load(TOPO_OUT / "tip_count.npy")
+    subtree_out = np.load(TOPO_OUT / "subtree_out.npy")
+    assign: Assignment | None = None
+
+    if mirror_only:
+        g.observe("node resolution", "skipped (--mirror-only)")
+    else:
+        log("\n--- resolving 2,725,682 nodes locally (zero API calls) ---")
+        parent = np.load(TOPO_OUT / "parent.npy")
+        depth = np.load(TOPO_OUT / "depth.npy")
+        ott_id = np.load(TOPO_OUT / "ott_id.npy")
+
+        con = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
+        forwards = load_forwards(con)
+        con.close()
+
+        t0 = time.monotonic()
+        parents = taxonomy_parents()
+        seed, stats = seed_nodes(
+            ott_id, tip_count, pick_per_ott(records), forwards, parents
+        )
+        assign = propagate(parent, depth, subtree_out, seed)
+        log(f"  propagated in {time.monotonic() - t0:,.1f}s")
+
+        g.observe(
+            "OTT ids offered by PhyloPic",
+            f"{stats['ott_ids_offered']:,}",
+            note="distinct ids across every image's specific node",
+        )
+        g.require(
+            "seeded nodes",
+            f"{stats['seeded_nodes']:,}",
+            "> 0",
+            ok=stats["seeded_nodes"] > 0,
+            note=(
+                f"{stats['ott_ids_in_tree']:,} of the offered ids are in the tree; "
+                f"{stats['ott_ids_via_forward']:,} only after chasing a forward."
+            ),
+        )
+        g.observe(
+            "seeds recovered by the one-hop lift",
+            f"{stats['ott_ids_lifted_one_hop']:,}",
+            note=(
+                f"Cited taxa absent from synthesis, lifted onto a parent of "
+                f"<= {LIFT_MAX_TIPS} tips. Without it Homo sapiens has no "
+                "silhouette of its own and climbs 35 nodes to Mammalia, because "
+                "PhyloPic attaches its human images to the subspecies Homo "
+                "sapiens sapiens, which synthesis does not carry."
+                if parents
+                else "taxonomy.tsv not extracted; lifting skipped"
+            ),
+        )
+        cov = coverage_gates(g, assign, tip_count, subtree_out)
+        (BUILD / "phase5a_coverage.json").write_text(json.dumps(cov, indent=2) + "\n")
+        write_arrays(records, assign)
+
+    # --- mirror ----------------------------------------------------------
+    log("\n--- SVG mirror ---")
+    have = existing_mirror(records, log)
+    have, failures = mirror_svgs(
+        records, mirror_order(records, tip_count, assign), have, budget, log
+    )
+    if failures:
+        log(f"  {len(failures)} failures; first few: {failures[:3]}")
+    g.observe(
+        "SVG fetch failures this run",
+        len(failures),
+        0,
+        note="A failure does not block; re-running retries it.",
+    )
+
+    # --- tables ----------------------------------------------------------
+    log("\n--- writing tables ---")
+    con = connect_rw()
+    write_silhouette(con, records, have)
+    log(f"  silhouette: {len(records):,} rows")
+    if assign is not None:
+        log(f"  node_image: {write_node_image(con, records, assign):,} rows")
+    con.close()
+    record_mirror(records, have)
+
+    licence_gates(g, records, have)
+    g.observe(
+        "concestor.db",
+        f"{DB.stat().st_size / 1e6:,.1f} MB",
+        note="node_image is one row per resolved node.",
+    )
+
+    g.write(BUILD / "phase5a_gates.json")
+    g.exit_if_failed()
+    return 0
