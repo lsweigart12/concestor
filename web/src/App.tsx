@@ -201,7 +201,7 @@ export default function App() {
             ? "Linear puts every recent divergence in one pixel"
             : "Symlog: linear to 1 Ma, logarithmic above",
         icon: "⇄",
-        keys: `${mod}L`,
+        keys: `${mod}⇧L`,
         section: "View",
         run: () => {
           tree.setAxis(tree.view.axis === "log" ? "linear" : "log");
@@ -387,7 +387,10 @@ export default function App() {
       } else if (meta && e.key === "\\") {
         e.preventDefault();
         tree.toggleIsolate();
-      } else if (meta && e.key.toLowerCase() === "l") {
+      } else if (meta && e.shiftKey && e.key.toLowerCase() === "l") {
+        // ⇧ is load-bearing. Plain ⌘L is the browser's own "focus the URL bar"
+        // and a page cannot preventDefault it, so the axis never toggled;
+        // adding shift keeps the L-for-log mnemonic and reaches us.
         e.preventDefault();
         tree.setAxis(tree.view.axis === "log" ? "linear" : "log");
       } else if (meta && e.key.toLowerCase() === "s") {
