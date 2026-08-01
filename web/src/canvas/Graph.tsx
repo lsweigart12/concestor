@@ -399,7 +399,18 @@ function Inner(props: GraphProps) {
       });
     }
     return out;
-  }, [ind, lay, focusedIdx, focusLineage, isolate, drawDelay, delta, reduced, nodeMap]);
+  }, [
+    ind,
+    lay,
+    focusedIdx,
+    focusLineage,
+    isolate,
+    drawDelay,
+    delta,
+    reduced,
+    nodeMap,
+    activeDrill,
+  ]);
 
   // The legend reads the edges that were actually built rather than
   // recomputing which tiers are on screen. Anything else is a second copy of

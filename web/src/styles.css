@@ -55,6 +55,10 @@
   --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
 
   --spring: cubic-bezier(0.22, 1, 0.28, 1);
+
+  /* The bottom strip the axis owns. The drill-down lane stacks on top of it,
+     so both need the same number and neither may guess at it. */
+  --axis-h: 84px;
 }
 
 * {
@@ -404,7 +408,7 @@ body {
   /* Grows upward rather than clipping. Below roughly 560px the key wraps to a
      second row, and `AXIS_RESERVE` in Graph.tsx leaves enough slack that a
      wrapped footer still does not reach the lowest lineage. */
-  min-height: 84px;
+  min-height: var(--axis-h);
   display: flex;
   flex-direction: column;
   pointer-events: none;

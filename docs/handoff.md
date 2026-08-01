@@ -937,6 +937,16 @@ phase 4.
    only `structural` nodes are eligible, so a real divergence estimate is never
    overwritten with a stratigraphic range.
 
+   *The number that matters is not 2,133.* **1,274 of the 1,743
+   extinct-flagged nodes (73%) now report a range**, which is what "does
+   *T. rex* stop reading not estimated" actually asks. The remainder have no
+   PBDB taxon attaching at the node itself — the Neanderthal case below. And
+   **12,785 structural nodes with a bracket were refused because their clade
+   still contains living species**, which is the largest exclusion by far and
+   deliberate: "fossils of this group are known from 60–50 Ma" is true of them,
+   but a range *ending* at 50 Ma reads as an extinction and no caption inside a
+   bracket undoes that.
+
    **Still to do: the UI.** The tier reaches the client (`tier: "occurrence"`
    plus an `occurrence` object on the entry) and nothing renders it yet. The
    dash channel needs a treatment reading as *bounded but not pinned* rather

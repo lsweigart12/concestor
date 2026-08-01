@@ -653,7 +653,19 @@ def run(use_api: bool = True) -> int:
         tier_before = np.load(TOPOLOGY / "age_tier.npy")
         np.save(TIER_PHASE2, tier_before)
     ranges, tier_after, occ_stats = occurrence_ranges(con, parent, age_ma, tier_before)
-    occ_report = occurrence_gates(g, ranges, age_ma, tier_after, occ_stats)
+    extinct = [
+        int(i)
+        for (i,) in con.execute("SELECT idx FROM node WHERE flags LIKE '%extinct%'")
+    ]
+    occ_report = occurrence_gates(
+        g,
+        ranges,
+        age_ma,
+        tier_after,
+        occ_stats,
+        len(extinct),
+        sum(1 for i in extinct if tier_after[i] == TIER_OCCURRENCE),
+    )
     write_occurrence(con, ranges, tier_after)
     np.save(TOPOLOGY / "age_tier.npy", tier_after)
     layout_report["occurrence"] = occ_report
@@ -1048,12 +1060,18 @@ def occurrence_ranges(
     ).fetchall()
 
     eligible = 0
+    refused_alive = 0
+    refused_dated = 0
     seen: set[int] = set()
     for idx, fea, fla, lea, lla, _n_occs, _name in rows:
         if idx in seen or not (0 <= idx < n):
             continue
         seen.add(idx)  # ORDER BY put the best-attested row first
-        if alive[idx] or new_tier[idx] != TIER_STRUCTURAL:
+        if alive[idx]:
+            refused_alive += 1
+            continue
+        if new_tier[idx] != TIER_STRUCTURAL:
+            refused_dated += 1
             continue
         out[idx] = [np.nan if v is None else float(v) for v in (fea, fla, lea, lla)]
         new_tier[idx] = TIER_OCCURRENCE
@@ -1065,6 +1083,8 @@ def occurrence_ranges(
         {
             "nodes_with_a_range": eligible,
             "candidates_seen": len(seen),
+            "refused_still_alive": refused_alive,
+            "refused_already_dated": refused_dated,
         },
     )
 
@@ -1075,10 +1095,40 @@ def occurrence_gates(
     age_ma: F32Array,
     tier: U8Array,
     stats: JsonDict,
+    extinct_total: int,
+    extinct_covered: int,
 ) -> JsonDict:
     """The constraints, checked against the arrays rather than the code."""
     has = tier == TIER_OCCURRENCE
 
+    # The number a reader is actually asking about. "2,133 nodes gained a
+    # range" invites the conclusion that the available brackets were used up,
+    # and the honest question is narrower: does a taxon someone came here to
+    # look up stop reading "not estimated"?
+    g.observe(
+        "extinct-flagged nodes that now report a range",
+        f"{extinct_covered:,} of {extinct_total:,} "
+        f"({100 * extinct_covered / max(extinct_total, 1):.0f}%)",
+        note=(
+            "The reason the tier exists. The remainder have no PBDB taxon "
+            "attaching at the node itself; a bracket attached at a parent "
+            "names no child, so it constrains none — handoff §7's Neanderthal "
+            "case, whose real fix is an `xref` rank gap in phase 3."
+        ),
+    )
+    g.observe(
+        "fossil ranges refused because the lineage is still alive",
+        f"{stats.get('refused_still_alive', 0):,}",
+        note=(
+            "Deliberate, and the largest exclusion by far, so it is reported "
+            "rather than left as a gap between two other numbers. These are "
+            "structural nodes with a bracket whose clade contains living "
+            "species. The statement 'fossils of this group are known from "
+            "60–50 Ma' is true of them, but a *range* ending at 50 Ma reads as "
+            "an extinction, and no caption inside a bracket undoes that. The "
+            "tier is for taxa that ended."
+        ),
+    )
     g.observe(
         "nodes gaining the occurrence tier",
         f"{int(has.sum()):,}",
@@ -1163,7 +1213,13 @@ def occurrence_gates(
             "what it means. Across the whole fossil table this is 60.4%."
         ),
     )
-    return {"nodes": int(has.sum()), "empty_certain_extent": empty, **stats}
+    return {
+        "nodes": int(has.sum()),
+        "empty_certain_extent": empty,
+        "extinct_flagged_total": extinct_total,
+        "extinct_flagged_covered": extinct_covered,
+        **stats,
+    }
 
 
 def write_occurrence(con: sqlite3.Connection, ranges: F32Array, tier: U8Array) -> int:

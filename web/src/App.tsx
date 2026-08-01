@@ -295,6 +295,31 @@ export default function App() {
           },
         },
       );
+      // The branch *above* the focused node is the segment it arrived on, and
+      // it is the only one a single node identifies unambiguously. The induced
+      // root has none, which is why this is conditional rather than disabled.
+      const anc = tree.induced.segments.get(focusedNode.idx)?.anc ?? null;
+      if (anc !== null) {
+        const open =
+          tree.view.drill?.upper === anc && tree.view.drill.lower === focusedNode.idx;
+        base.unshift({
+          id: "ctx-drill",
+          title: open
+            ? "Close the fossil lane"
+            : `Show fossil occurrences along the branch to ${nm}`,
+          subtitle: open
+            ? "The lane below the chronogram"
+            : "Intermediate clades, and what the rock records on this segment",
+          icon: "⌗",
+          ...(open ? { keys: "esc" } : {}),
+          section: "This node",
+          contextual: true,
+          run: () => {
+            tree.setDrill(open ? null : { upper: anc, lower: focusedNode.idx });
+            setPaletteOpen(false);
+          },
+        });
+      }
       if (tree.induced.leaves.includes(focusedNode.idx)) {
         base.unshift({
           id: "ctx-remove",
@@ -366,7 +391,12 @@ export default function App() {
         e.preventDefault();
         share();
       } else if (e.key === "Escape") {
-        tree.select(null);
+        // One key, innermost thing first — the same order the palette closes
+        // in. A drill-down lane is a thing you opened over the canvas, so it
+        // goes before the selection does; otherwise dismissing it costs two
+        // presses and the first one silently does something else.
+        if (tree.view.drill) tree.setDrill(null);
+        else tree.select(null);
       } else if ((e.key === "Backspace" || e.key === "Delete") && focusedNode) {
         e.preventDefault();
         if (tree.induced.leaves.includes(focusedNode.idx)) {
@@ -441,6 +471,8 @@ export default function App() {
         axisMode={tree.view.axis}
         intervals={timescale}
         fitSignal={fitSignal}
+        drill={tree.view.drill}
+        onDrill={tree.setDrill}
       />
 
       {tree.induced.rendered.length === 0 && !paletteOpen && (

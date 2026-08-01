@@ -22,18 +22,38 @@ export interface ViewState {
   axis: AxisMode;
   selected: string | null;
   isolate: boolean;
+  /**
+   * The segment whose drill-down lane is open, as two node indices.
+   *
+   * Indices rather than keys, because that is what `/v1/segment` takes and
+   * what the induced subtree is keyed on — and unlike a selection, a segment
+   * has no name of its own to put in the URL. Architecture §7 spells this
+   * parameter `seg=upper-lower`.
+   */
+  drill: { upper: number; lower: number } | null;
 }
 
-const DEFAULT: ViewState = { keys: [], axis: "log", selected: null, isolate: false };
+const DEFAULT: ViewState = {
+  keys: [],
+  axis: "log",
+  selected: null,
+  isolate: false,
+  drill: null,
+};
 
 export function decode(search: string): ViewState {
   const p = new URLSearchParams(search);
   const raw = p.get("n");
+  const seg = (p.get("seg") ?? "").split("-").map(Number);
   return {
     keys: raw ? raw.split(",").filter(Boolean) : [],
     axis: p.get("axis") === "linear" ? "linear" : "log",
     selected: p.get("sel"),
     isolate: p.get("iso") === "1",
+    drill:
+      seg.length === 2 && Number.isInteger(seg[0]) && Number.isInteger(seg[1])
+        ? { upper: seg[0]!, lower: seg[1]! }
+        : null,
   };
 }
 
@@ -43,6 +63,7 @@ export function encode(v: ViewState): string {
   if (v.axis !== "log") p.set("axis", v.axis);
   if (v.selected) p.set("sel", v.selected);
   if (v.isolate) p.set("iso", "1");
+  if (v.drill) p.set("seg", `${v.drill.upper}-${v.drill.lower}`);
   const q = p.toString();
   return q ? `?${q}` : "/";
 }
@@ -238,6 +259,10 @@ export function useTree() {
     () => setView((v) => ({ ...v, isolate: !v.isolate })),
     [],
   );
+  const setDrill = useCallback(
+    (drill: ViewState["drill"]) => setView((v) => ({ ...v, drill })),
+    [],
+  );
   const dismissBroken = useCallback(
     (key: string) => setBroken((b) => b.filter((x) => x.key !== key)),
     [],
@@ -265,6 +290,7 @@ export function useTree() {
     setAxis,
     select,
     toggleIsolate,
+    setDrill,
     dismissBroken,
     dismissUnresolved,
     consumeDelta,
