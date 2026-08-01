@@ -346,8 +346,22 @@ body {
   fill: currentColor;
 }
 
-/* The clade an inherited silhouette actually depicts. Says so rather than
-   implying the image is of this species. */
+/*
+ * On the canvas, a silhouette grows as the canvas shrinks.
+ *
+ * Images live inside the transformed viewport, so pulling back shrinks them
+ * along with everything else — and they are the one element that is *more*
+ * useful pulled back, because a shape stays recognisable at sizes where a name
+ * is already illegible. `--icon-scale` is set from the live zoom in Graph.tsx
+ * and capped there; a transform, so it costs no relayout and cannot shift the
+ * text beside it.
+ */
+.mark .silhouette {
+  margin: 0;
+  flex: none;
+  transform: scale(var(--icon-scale, 1));
+  transform-origin: center;
+}
 /* --------------------------------------------------------- the MRCA flare -- */
 
 @keyframes flare {

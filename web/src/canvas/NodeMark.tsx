@@ -4,13 +4,20 @@
  * Semantic zoom, not scale zoom — the mark changes *what* it renders at each
  * level rather than just its size. Three tiers, per design-reference.md:
  *
- *   point        a glowing dot, no text
- *   label        dot + name (+ age, when there is one we are allowed to show)
- *   detail       dot + silhouette + name + rank
+ *   point        dot + silhouette
+ *   label        + name (and the age, when there is one we may show)
+ *   detail       + rank
  *
- * A silhouette *is* the full-detail tier for a clade, and for a well-known one
- * it earns a place at the label tier too — for a curious non-specialist an
- * image is what makes a clade mean anything.
+ * **The silhouette is in every tier, including the furthest.** The obvious
+ * reading of design-reference.md puts it in the "full detail card" tier only,
+ * and that is backwards for this element: pulled back, the text is already too
+ * small to read and the shape is not, so the image is the *only* thing still
+ * carrying meaning. Dropping it at low zoom removed information exactly when
+ * it was the last information left.
+ *
+ * What it cost in practice: the detail threshold sat at 1.15 and the fit lands
+ * at 1.144 for six species, so adding a sixth silently stripped every image
+ * from the default view. Text tiers off with zoom; images do not.
  *
  * Where the label actually goes is decided in `tree/labels.ts`, against every
  * other label and every trace on the canvas. This component only renders what
@@ -96,7 +103,8 @@ export const NodeMark = memo(function NodeMark({ data }: NodeProps) {
   // silhouette legitimately represents a *clade*, where a photograph can only
   // represent one member — so a mammal beside Mammalia is the case it is best
   // at, and `silhouetteIsInformative` is what keeps a kingdom-sized borrow out.
-  const withSilhouette = showDetail && d.showSilhouette && Boolean(n.phylopic_id);
+  // Not gated on zoom: see the note at the top of this file.
+  const withSilhouette = d.showSilhouette && Boolean(n.phylopic_id);
   const meta = metaLine(n.rank, showDetail);
 
   const box = d.label;
@@ -145,7 +153,7 @@ export const NodeMark = memo(function NodeMark({ data }: NodeProps) {
         }}
       />
 
-      {showText && (
+      {(showText || withSilhouette) && (
         <span
           className={`mark-label${box?.overlapped ? " crowded" : ""}`}
           style={style}
@@ -160,15 +168,17 @@ export const NodeMark = memo(function NodeMark({ data }: NodeProps) {
               }
             />
           )}
-          <span className="mark-text" style={{ maxWidth: box?.textMaxWidth }}>
-            <span className="mark-name">
-              <span className={isScientificItalic(n.rank) ? "sci-italic" : undefined}>
-                {name}
+          {showText && (
+            <span className="mark-text" style={{ maxWidth: box?.textMaxWidth }}>
+              <span className="mark-name">
+                <span className={isScientificItalic(n.rank) ? "sci-italic" : undefined}>
+                  {name}
+                </span>
+                {age && <span className="mark-age num">{age}</span>}
               </span>
-              {age && <span className="mark-age num">{age}</span>}
+              {meta && <span className="mark-meta">{meta}</span>}
             </span>
-            {meta && <span className="mark-meta">{meta}</span>}
-          </span>
+          )}
         </span>
       )}
     </div>

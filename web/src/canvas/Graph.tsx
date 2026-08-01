@@ -200,6 +200,23 @@ function Inner(props: GraphProps) {
   // strokes at low zoom is the documented acceptable answer.
   const bloomOff = zoom < 0.5;
 
+  /**
+   * Counter-scale for silhouettes as the canvas shrinks.
+   *
+   * Images live in the transformed viewport, so pulling back shrinks them with
+   * everything else — and they are the one element that is *more* useful when
+   * pulled back, because a shape survives at sizes where a name does not.
+   *
+   * The cap is not timidity. Lanes are `ROW_H` apart in layout space and the
+   * icon is 34 of that, so anything past ~2x has neighbouring rows colliding;
+   * and at the minimum zoom the whole tree is a few hundred pixels tall, which
+   * bounds how much any icon can say regardless of policy. 1.6x is what fits
+   * without collisions, and it is worth roughly +60% at the zoom levels people
+   * actually use to see a whole tree. A transform, so it costs no relayout and
+   * cannot move the text it sits beside.
+   */
+  const iconScale = Math.min(1.6, Math.max(1, 1 / Math.max(zoom, 0.05)));
+
   const drawDelay = useMemo(() => {
     const m = new Map<number, number>();
     if (!delta) return m;
@@ -403,7 +420,10 @@ function Inner(props: GraphProps) {
   );
 
   return (
-    <div className={`canvas${bloomOff ? " bloom-off" : ""}`}>
+    <div
+      className={`canvas${bloomOff ? " bloom-off" : ""}`}
+      style={{ "--icon-scale": iconScale } as React.CSSProperties}
+    >
       <ReactFlow
         nodes={rfNodes}
         edges={rfEdges}
