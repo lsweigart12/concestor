@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { fracToAge, laneHue, orthPath, symlogFrac, SYMLOG_T0 } from "./layout";
+import {
+  ageFrac,
+  fracToAge,
+  fracToAgeIn,
+  laneHue,
+  orthPath,
+  symlogFrac,
+  SYMLOG_T0,
+} from "./layout";
 
 describe("symlog time axis", () => {
   it("is defined at the present", () => {
@@ -30,6 +38,52 @@ describe("symlog time axis", () => {
     const share = symlogFrac(SYMLOG_T0, 4247);
     expect(share).toBeGreaterThan(1 / 4247);
     expect(share).toBeGreaterThan(0.05);
+  });
+});
+
+describe("the axis mode is a scale, not a caption", () => {
+  it("puts linear time where linear time goes", () => {
+    // The toggle used to change the footer word and the knee marker and
+    // nothing else, so "linear" was the symlog view with its warning removed.
+    expect(ageFrac(1315, 1315, "linear")).toBeCloseTo(1, 9);
+    expect(ageFrac(657.5, 1315, "linear")).toBeCloseTo(0.5, 9);
+    expect(ageFrac(0, 1315, "linear")).toBe(0);
+  });
+
+  it("collapses the recent past, which is the comparison it exists for", () => {
+    // Homo/Pan against a 1,315 Ma root: a fifth of the axis under symlog, a
+    // rounding error under linear. Seeing that is the point of the toggle.
+    expect(ageFrac(6.7, 1315, "log")).toBeGreaterThan(0.2);
+    expect(ageFrac(6.7, 1315, "linear")).toBeLessThan(0.01);
+  });
+
+  it("round-trips in both modes", () => {
+    for (const age of [0.25, 1, 12, 66, 252, 1000]) {
+      for (const mode of ["log", "linear"] as const) {
+        expect(fracToAgeIn(ageFrac(age, 1315, mode), 1315, mode)).toBeCloseTo(
+          age,
+          4,
+        );
+      }
+    }
+  });
+
+  it("is monotone in both modes", () => {
+    for (const mode of ["log", "linear"] as const) {
+      let prev = -1;
+      for (const age of [0, 0.5, 1, 5, 66, 252, 1315]) {
+        const f = ageFrac(age, 1315, mode);
+        expect(f).toBeGreaterThan(prev);
+        prev = f;
+      }
+    }
+  });
+
+  it("stays invertible off the ends, which is where a panned axis asks", () => {
+    // The axis inverts screen x = 0 and x = width to find what it is over, and
+    // both are routinely outside the plot once the view is panned.
+    expect(fracToAgeIn(1.4, 1315, "linear")).toBeCloseTo(1841, 3);
+    expect(ageFrac(2000, 1315, "linear")).toBeGreaterThan(1);
   });
 });
 

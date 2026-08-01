@@ -1,17 +1,34 @@
 /**
  * The time axis, and the geologic band beneath it.
  *
- * The axis is symlog: linear from the present to 1 Ma, logarithmic above. That
- * is what makes the app work at all — linear time puts every hominin
- * divergence inside one pixel next to the Cambrian, and the point of the scale
- * is to make the last 10 Ma legible without losing the other 4,000. The knee
- * is marked, because a scale that bends without saying so misleads.
+ * Two scales, and the toggle really switches them. Symlog is the default —
+ * linear from the present to 1 Ma, logarithmic above — and it is what makes
+ * the app work at all, because linear time puts every hominin divergence
+ * inside one pixel next to the Cambrian. Linear is offered so a reader can see
+ * that for themselves. The knee is marked, because a scale that bends without
+ * saying so misleads.
+ *
+ * **Everything here is generated from the range actually on screen**, not from
+ * the extent of the tree. That is the difference between an axis and a
+ * decoration: zoom into the Pliocene and the ticks become Pliocene ticks and
+ * the band becomes Ages, rather than the whole apparatus sliding off the edge
+ * and leaving the reader a bare rule.
+ *
+ * The axis runs from the present to the Big Bang and belongs to the canvas
+ * rather than to the selection. Every edge on it is named — "present" rather
+ * than "0", the formation of the Earth where the geologic band starts, and the
+ * beginning where the axis itself stops — because an edge a reader cannot
+ * account for is worse than one that runs off the screen.
  *
  * The ICS band keeps the official hue *relationships* and drops the official
  * saturation and luminance (architecture §6). It is a reference scale, not
- * data. Nothing in it glows. Level of detail is driven by pixels-per-Ma: show
- * Epochs only when they would exceed a legibility threshold, then Periods,
- * then Eras.
+ * data. Nothing in it glows. Level of detail is driven by pixels-per-Ma —
+ * **per region, not per axis**, because one rank across a log axis cannot be
+ * right anywhere. Picking a single rank by its median width meant either the
+ * Cenozoic said "Phanerozoic" across two thirds of the screen, or the
+ * Precambrian was a row of unreadable slivers. The band is now grown down the
+ * ICS containment tree and stops wherever the children stop being legible, so
+ * the same strip can read Quaternary at one end and Precambrian at the other.
  *
  * The strip ends in a footer line that carries everything the reader needs in
  * order to *read a position*: what the units are, whether the scale is bent,
@@ -21,15 +38,17 @@
 
 import { useMemo } from "react";
 import type { TimescaleInterval } from "../api";
-import { AXIS_TICKS, LIN_SHARE, symlogFrac } from "../tree/layout";
+import { LANDMARK_TICKS, SYMLOG_T0, type AxisMode } from "../tree/layout";
 
 interface Props {
   maxAge: number;
   width: number;
   /** Maps an age to a screen x, accounting for the current pan and zoom. */
   toScreenX: (age: number) => number;
+  /** Inverse of {@link Props.toScreenX} — what age sits under a screen x. */
+  toAge: (x: number) => number;
   intervals: TimescaleInterval[] | null;
-  axisMode: "log" | "linear";
+  axisMode: AxisMode;
   /**
    * The provenance key, if this canvas has anything to admit. It rides on the
    * footer line rather than floating over the canvas, because it answers the
@@ -38,66 +57,313 @@ interface Props {
   legend: React.ReactNode;
 }
 
-const RANK_ORDER = ["Eon", "Era", "Period", "Sub-Period", "Epoch", "Age"];
 const MIN_BAND_PX = 46;
-const MIN_TICK_GAP_PX = 38;
+/** How much of a band's width its legible children must cover before it splits. */
+const SPLIT_SHARE = 0.7;
+/** Clear space wanted between two tick labels, on top of their own widths. */
+const MIN_TICK_GAP_PX = 30;
+/** Roughly how far apart ticks should sit before density is traded for range. */
+const TARGET_TICK_PX = 96;
+/** Tick text is mono 10.5px; a mono advance is 0.6em. */
+const TICK_CHAR_PX = 6.3;
+
+/**
+ * Where the axis ends, and the only non-arbitrary place it could.
+ *
+ * The axis used to stop at `maxAge` — the deepest node in the *current
+ * selection* — so it began abruptly, unlabelled, wherever that selection's root
+ * happened to fall, and moved every time a species was added. Time before
+ * present does not end there; it ends at the beginning. 13.787 Ga is Planck
+ * 2018's ΛCDM figure, quoted in Ma to match the rest of the axis.
+ */
+const BIG_BANG_MA = 13787;
+
+/**
+ * Where the geologic band ends, which is not where the axis ends.
+ *
+ * ICS `chart.ttl` starts at the Hadean's `begin_ma`, so the coloured strip stops
+ * at 4567 and 9,220 Ma of bare axis runs on beyond it. That stretch is the point
+ * rather than a gap — it is most of the diagram — and both of its ends are named
+ * so a reader can account for what they are looking at.
+ */
+const EARTH_MA = 4567;
+
+/** A tick, and how much the axis wants to keep it when space runs out. */
+interface Tick {
+  age: number;
+  /** Lower survives longer: 0 the present, 1 landmarks and the knee, then decades. */
+  rank: number;
+}
+
+/** The 1–2–5 ladder, which is what makes a log decade readable. */
+function decadeTicks(lo: number, hi: number): Tick[] {
+  const out: Tick[] = [];
+  const from = Math.floor(Math.log10(Math.max(lo, 1e-6)));
+  const to = Math.ceil(Math.log10(Math.max(hi, 1e-6)));
+  for (let k = from; k <= to; k++) {
+    const p = 10 ** k;
+    // A power of ten reads as a rounder number than 5× it, which reads rounder
+    // than 2×; that ordering is what the cull spends its budget on.
+    for (const [m, rank] of [
+      [1, 2],
+      [5, 3],
+      [2, 4],
+    ] as const) {
+      const age = m * p;
+      if (age >= lo && age <= hi) out.push({ age, rank });
+    }
+  }
+  return out;
+}
+
+/** Evenly spaced ticks on a nice step, for the linear scale and below the knee. */
+function linearTicks(lo: number, hi: number, approxCount: number): Tick[] {
+  const span = hi - lo;
+  if (!(span > 0) || !Number.isFinite(span)) return [];
+  const rough = span / Math.max(approxCount, 1);
+  const p = 10 ** Math.floor(Math.log10(rough));
+  const m = rough / p;
+  const step = (m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10) * p;
+  const out: Tick[] = [];
+  for (let i = Math.ceil(lo / step); i * step <= hi + step * 1e-9; i++) {
+    // Every fifth step is the one to keep if the row has to thin out.
+    out.push({ age: i * step, rank: i % 5 === 0 ? 2 : 3 });
+  }
+  return out;
+}
+
+/**
+ * Ticks for what is on screen.
+ *
+ * Built as a *prioritised* candidate list rather than a set, then placed
+ * greedily: the present first, then the boundaries a reader recognises, then
+ * powers of ten, and so on down. Placing by priority rather than by position
+ * is what stops 50 Ma crowding out the K–Pg.
+ */
+export function buildTicks(
+  lo: number,
+  hi: number,
+  mode: AxisMode,
+  toScreenX: (age: number) => number,
+  width: number,
+): number[] {
+  const candidates: Tick[] = [];
+  const push = (t: Tick) => {
+    if (t.age >= lo && t.age <= hi) candidates.push(t);
+  };
+
+  push({ age: 0, rank: 0 });
+  if (mode === "log") {
+    for (const age of LANDMARK_TICKS) push({ age, rank: 1 });
+    // The knee is a fact about the scale, so it earns a number under it.
+    push({ age: SYMLOG_T0, rank: 1 });
+    if (hi > SYMLOG_T0) {
+      candidates.push(...decadeTicks(Math.max(lo, SYMLOG_T0), hi));
+    }
+    // Below the knee the scale is linear, so a log ladder would bunch there.
+    if (lo < SYMLOG_T0) {
+      const linHi = Math.min(hi, SYMLOG_T0);
+      const px = Math.abs(toScreenX(lo) - toScreenX(linHi));
+      for (const t of linearTicks(lo, linHi, px / TARGET_TICK_PX)) {
+        // Ranked below the decades, so a view spanning the knee spends its
+        // room on deep time rather than on the last 200,000 years.
+        candidates.push({ age: t.age, rank: t.rank + 3 });
+      }
+    }
+  } else {
+    candidates.push(...linearTicks(lo, hi, width / TARGET_TICK_PX));
+  }
+
+  // Collision is measured between the label *boxes*, not between the positions.
+  // A flat centre-to-centre gap was fine while every tick was a short number and
+  // stopped being fine the moment one of them read "present".
+  const placed: { age: number; x: number; half: number }[] = [];
+  const order = [...candidates].sort((a, b) => a.rank - b.rank || a.age - b.age);
+  for (const t of order) {
+    if (placed.some((p) => p.age === t.age)) continue;
+    const x = toScreenX(t.age);
+    const half = (tickLabel(t.age).length * TICK_CHAR_PX) / 2;
+    const clear = placed.every(
+      (p) => Math.abs(p.x - x) >= MIN_TICK_GAP_PX + p.half + half,
+    );
+    if (clear) placed.push({ age: t.age, x, half });
+  }
+  return placed.map((p) => p.age).sort((a, b) => a - b);
+}
+
+/**
+ * How wide a band's name draws: uppercase 9.5px with 0.05em tracking, measured,
+ * plus room to breathe.
+ *
+ * A band is either labelled with its whole name or not labelled at all. Every
+ * abbreviation available here is worse than silence — truncating to a fixed
+ * three characters put "NEO" on a strip that contains both a Neogene and a
+ * Neoproterozoic, and truncating to the shortest unambiguous prefix produces
+ * "Jura", "Lowe" and "Upper C". The name is the only useful thing a band says,
+ * so the *tiling* is what adapts (see {@link bandTiling}) and the label does not.
+ */
+function labelPx(name: string): number {
+  return name.length * 7.3 + 10;
+}
+
+/** Ticks carry real decimals below 1 Ma, and must not carry float noise above. */
+export function fmtAge(age: number): string {
+  if (age === 0) return "0";
+  return String(Number(age.toPrecision(age >= 1 ? 12 : 6)));
+}
+
+/**
+ * What a tick says. Every one is a number of millions of years except the one
+ * that is not — the present is a place on the axis, and "0" made a reader work
+ * out which end they were looking at. Lower case, because that is already the
+ * word an extant tip carries: *Homo sapiens* reads "present" on the canvas.
+ */
+export function tickLabel(age: number): string {
+  return age === 0 ? "present" : fmtAge(age);
+}
+
+/**
+ * The intervals to draw: the coarsest tiling of the axis whose bands are legible.
+ *
+ * Grown down the ICS containment tree from its roots. A node hands over to its
+ * children when the children that can *carry their own names* cover most of
+ * its width — so the Cenozoic reaches Epoch while the Mesozoic beside it stays
+ * an Era, and neither is a row of slivers.
+ *
+ * Legibility is measured against each name, not against a flat pixel count,
+ * because that is what makes "label with the whole name or not at all"
+ * affordable: a split that would leave its own children unnameable does not
+ * happen. Under a flat threshold the Mesozoic split into an unlabelled
+ * Triassic, a "Jura" and a "Lowe".
+ *
+ * Two cheaper split rules also fail on real intervals. "All children fit" is
+ * too strict: one 37-pixel Paleozoic holds the entire Phanerozoic at Eon,
+ * which is how the band came to say "PHANEROZOIC" across the whole Cenozoic.
+ * Counting children rather than measuring them fails on the Quaternary, whose
+ * two children are a screen-wide Pleistocene and an 11,700-year Holocene — one
+ * of two is not a majority, so a 470-pixel Pleistocene went unnamed.
+ *
+ * The result always tiles without gaps or overlaps, because every node is
+ * either drawn or replaced by its complete set of children.
+ */
+export function bandTiling(
+  intervals: TimescaleInterval[],
+  widthPx: (i: TimescaleInterval) => number,
+): TimescaleInterval[] {
+  const kids = new Map<string, TimescaleInterval[]>();
+  const roots: TimescaleInterval[] = [];
+  for (const i of intervals) {
+    if (i.parent === null) roots.push(i);
+    else {
+      const list = kids.get(i.parent);
+      if (list) list.push(i);
+      else kids.set(i.parent, [i]);
+    }
+  }
+
+  const out: TimescaleInterval[] = [];
+  const expand = (node: TimescaleInterval): void => {
+    const cs = kids.get(node.id);
+    if (!cs || cs.length === 0) {
+      out.push(node);
+      return;
+    }
+    let total = 0;
+    let legible = 0;
+    for (const c of cs) {
+      const w = widthPx(c);
+      total += w;
+      if (w >= Math.max(MIN_BAND_PX, labelPx(c.name))) legible += w;
+    }
+    if (total <= 0 || legible < total * SPLIT_SHARE) {
+      out.push(node);
+      return;
+    }
+    for (const c of cs) expand(c);
+  };
+  for (const r of roots) expand(r);
+  return out.sort((a, b) => b.begin_ma - a.begin_ma);
+}
 
 export function TimeAxis({
   maxAge,
   width,
   toScreenX,
+  toAge,
   intervals,
   axisMode,
   legend,
 }: Props) {
-  const bandRank = useMemo(() => {
-    if (!intervals) return null;
-    // Pick the finest rank whose narrowest visible interval still clears the
-    // legibility threshold. Falling back a rank is better than a band of
-    // unreadable slivers.
-    for (const rank of [...RANK_ORDER].reverse()) {
-      const rows = intervals.filter(
-        (i) => i.rank === rank && i.begin_ma <= maxAge * 1.05,
-      );
-      if (rows.length < 2) continue;
-      const widths = rows.map((i) =>
-        Math.abs(toScreenX(i.end_ma) - toScreenX(i.begin_ma)),
-      );
-      const median = widths.sort((a, b) => a - b)[Math.floor(widths.length / 2)] ?? 0;
-      if (median >= MIN_BAND_PX) return rank;
-    }
-    return "Eon";
-  }, [intervals, maxAge, toScreenX]);
+  /**
+   * The age range under the viewport, clamped to the axis itself.
+   *
+   * Deep time is on the left, so screen x = 0 is the *older* end. The clamps
+   * are the two ends of time-before-present and nothing to do with the current
+   * selection: right of the present the scale runs into negative time, and past
+   * {@link BIG_BANG_MA} there is no before to count back through.
+   */
+  const [ageLo, ageHi] = useMemo(() => {
+    const a = toAge(0);
+    const b = toAge(width);
+    const lo = Math.max(0, Math.min(a, b));
+    const hi = Math.min(BIG_BANG_MA, Math.max(a, b));
+    return hi > lo ? [lo, hi] : [0, Math.min(BIG_BANG_MA, maxAge)];
+  }, [toAge, width, maxAge]);
 
-  const bands = useMemo(
-    () =>
-      (intervals ?? [])
-        .filter((i) => i.rank === bandRank && i.end_ma <= maxAge)
-        .map((i) => {
-          const x1 = toScreenX(Math.min(i.begin_ma, maxAge));
-          const x2 = toScreenX(i.end_ma);
-          return { ...i, x: Math.min(x1, x2), w: Math.abs(x2 - x1) };
-        })
-        .filter((b) => b.w > 2 && b.x < width && b.x + b.w > 0),
-    [intervals, bandRank, maxAge, toScreenX, width],
+  const bands = useMemo(() => {
+    if (!intervals) return [];
+    // Measured on the *full* interval, not the part on screen, so panning
+    // never changes which rank a region is drawn at — only zooming does.
+    const geom = (i: TimescaleInterval) => {
+      const x1 = toScreenX(i.begin_ma);
+      const x2 = toScreenX(i.end_ma);
+      return { x: Math.min(x1, x2), w: Math.abs(x2 - x1) };
+    };
+    return bandTiling(intervals, (i) => geom(i).w)
+      .map((i) => {
+        const { x, w } = geom(i);
+        // A band wider than the viewport still deserves its name, centred on
+        // the part a reader can see rather than on a midpoint off-screen.
+        const vx1 = Math.max(x, 0);
+        const vx2 = Math.min(x + w, width);
+        const room = vx2 - vx1;
+        return {
+          ...i,
+          x,
+          w,
+          labelX: (vx1 + vx2) / 2,
+          room,
+          label: labelPx(i.name) <= room ? i.name : null,
+        };
+      })
+      .filter((b) => b.w > 2 && b.room > 0);
+  }, [intervals, toScreenX, width]);
+
+  const ticks = useMemo(
+    () => buildTicks(ageLo, ageHi, axisMode, toScreenX, width),
+    [ageLo, ageHi, axisMode, toScreenX, width],
   );
 
-  // Drop ticks that would collide. The set is deliberately uneven — 66 Ma is
-  // the K-Pg, 252 the end-Permian — so on a log axis in a narrow panel several
-  // land within a few pixels of each other and overprint into noise. Keeping
-  // the first of each cluster preserves the round numbers and the boundaries a
-  // reader is most likely to recognise.
-  const inRange = AXIS_TICKS.filter((t) => t <= maxAge);
-  const ticks: number[] = [];
-  for (const t of inRange) {
-    const x = toScreenX(t);
-    const last = ticks[ticks.length - 1];
-    if (last === undefined || Math.abs(toScreenX(last) - x) >= MIN_TICK_GAP_PX) {
-      ticks.push(t);
-    }
-  }
-  const kneeX = toScreenX(1);
+  const kneeX = toScreenX(SYMLOG_T0);
   const showKneeLabel = width > 560;
+  // The deep end of the axis. Everything left of it is off the end of time, so
+  // the rule stops there too rather than running on into a region it cannot
+  // measure — an edge that is drawn and named, not one the reader trips over.
+  const originX = toScreenX(BIG_BANG_MA);
+  const showOrigin = originX > 0 && originX < width;
+  // Where the geologic band starts, 9,220 Ma later. The two labels share the
+  // bare stretch between them and so take different rows: the Earth's goes in
+  // the band's row, which is empty exactly there, and the beginning's goes
+  // under it, where it may overrun to the right without hitting anything.
+  const earthX = toScreenX(EARTH_MA);
+  const bareFrom = Math.max(originX, 0);
+  const showEarth = earthX > bareFrom && earthX < width;
+  // Both labels live in the bare stretch and both shorten on the same measure,
+  // so they drop their figures together rather than one running under the
+  // other's marker. Tick text is mono 10px.
+  const bareRoom = Math.min(earthX, width) - bareFrom - 14;
+  const shortest = (full: string, short: string) =>
+    full.length * 6 <= bareRoom ? full : short;
 
   return (
     <div className="axis">
@@ -109,14 +375,14 @@ export function TimeAxis({
               <g key={b.id}>
                 <rect x={b.x} y={0} width={b.w} height={17} fill={b.color} />
                 <line x1={b.x} y1={0} x2={b.x} y2={17} />
-                {b.w > 58 && (
+                {b.label && (
                   <text
-                    x={b.x + b.w / 2}
+                    x={b.labelX}
                     y={12}
                     textAnchor="middle"
                     style={{ pointerEvents: "none" }}
                   >
-                    {b.w > 110 ? b.name : b.name.slice(0, 3)}
+                    {b.label}
                   </text>
                 )}
               </g>
@@ -124,7 +390,13 @@ export function TimeAxis({
           </g>
         )}
 
-        <line className="axis-line" x1={0} y1={30} x2={width} y2={30} />
+        <line
+          className="axis-line"
+          x1={showOrigin ? originX : 0}
+          y1={30}
+          x2={width}
+          y2={30}
+        />
 
         {ticks.map((t) => {
           const x = toScreenX(t);
@@ -134,11 +406,59 @@ export function TimeAxis({
               <line className="axis-grid" x1={x} y1={-2000} x2={x} y2={30} />
               <line className="axis-line" x1={x} y1={30} x2={x} y2={36} />
               <text x={x} y={50} textAnchor="middle">
-                {t}
+                {tickLabel(t)}
               </text>
             </g>
           );
         })}
+
+        {showEarth && (
+          <>
+            <line
+              className="axis-origin"
+              x1={earthX}
+              y1={-2000}
+              x2={earthX}
+              y2={36}
+            />
+            {/* Right-aligned into the bare stretch, the only place it can go
+                without printing over the band. The figure is worth carrying: a
+                1–2–5 ladder never lands a tick on 4567, so nothing else on the
+                strip says where the geologic record begins. */}
+            {bareRoom > 66 && (
+              <text
+                className="axis-origin-label"
+                x={earthX - 7}
+                y={12}
+                textAnchor="end"
+              >
+                {shortest("Earth forms · 4567 Ma", "Earth forms")}
+              </text>
+            )}
+          </>
+        )}
+
+        {showOrigin && (
+          <>
+            <line
+              className="axis-origin"
+              x1={originX}
+              y1={-2000}
+              x2={originX}
+              y2={36}
+            />
+            {bareRoom > 48 && (
+              <text
+                className="axis-origin-label"
+                x={originX + 7}
+                y={26}
+                textAnchor="start"
+              >
+                {shortest("Big Bang · 13787 Ma", "Big Bang")}
+              </text>
+            )}
+          </>
+        )}
 
         {axisMode === "log" && kneeX > 0 && kneeX < width && (
           <>
@@ -181,6 +501,3 @@ export function TimeAxis({
     </div>
   );
 }
-
-/** Fraction helper re-exported so the axis and the layout cannot drift apart. */
-export { symlogFrac, LIN_SHARE };

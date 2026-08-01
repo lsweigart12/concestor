@@ -42,11 +42,13 @@ import {
   type TimescaleInterval,
 } from "../api";
 import {
+  ageFrac,
+  fracToAgeIn,
   layout,
   orthPath,
-  symlogFrac,
   PAD_X,
   PLOT_W,
+  type AxisMode,
   type LabelText,
 } from "../tree/layout";
 import type { Induced } from "../tree/induced";
@@ -124,7 +126,7 @@ export interface GraphProps {
   focusedIdx: number | null;
   onFocus: (idx: number | null) => void;
   isolate: boolean;
-  axisMode: "log" | "linear";
+  axisMode: AxisMode;
   intervals: TimescaleInterval[] | null;
   fitSignal: { kind: "all" | "selection"; token: number } | null;
   /** The segment whose drill-down lane is open. Lives in the URL. */
@@ -213,8 +215,8 @@ function Inner(props: GraphProps) {
   );
 
   const lay = useMemo(
-    () => layout(ind, nodeMap, { plotWidth, label: describeLabel }),
-    [ind, nodeMap, plotWidth, describeLabel],
+    () => layout(ind, nodeMap, { plotWidth, label: describeLabel, axis: axisMode }),
+    [ind, nodeMap, plotWidth, describeLabel, axisMode],
   );
 
   /**
@@ -531,10 +533,37 @@ function Inner(props: GraphProps) {
     return () => window.clearTimeout(t);
   }, [ind.rendered.length, fitToContent, reduced]);
 
+  // Switching scales moves every node in x, and by a lot — the point of linear
+  // is that it collapses the recent past against the present. Reframing is what
+  // makes that legible as a change rather than as the tree wandering off-screen.
+  const lastAxis = useRef(axisMode);
+  useEffect(() => {
+    if (lastAxis.current === axisMode) return;
+    lastAxis.current = axisMode;
+    const t = window.setTimeout(() => fitToContent(reduced ? 0 : 420), 20);
+    return () => window.clearTimeout(t);
+  }, [axisMode, fitToContent, reduced]);
+
   const toScreenX = useCallback(
     (age: number) =>
-      (PAD_X + plotWidth * (1 - symlogFrac(age, lay.maxAge))) * zoom + tx,
-    [lay.maxAge, zoom, tx, plotWidth],
+      (PAD_X + plotWidth * (1 - ageFrac(age, lay.maxAge, axisMode))) * zoom + tx,
+    [lay.maxAge, zoom, tx, plotWidth, axisMode],
+  );
+
+  /**
+   * The inverse, so the axis can ask what is under the viewport rather than
+   * assume it is showing the whole tree. Without it the ticks are a fixed set
+   * generated from `maxAge` and every one of them leaves the screen on the
+   * first zoom.
+   */
+  const toAge = useCallback(
+    (x: number) =>
+      fracToAgeIn(
+        1 - ((x - tx) / zoom - PAD_X) / plotWidth,
+        lay.maxAge,
+        axisMode,
+      ),
+    [lay.maxAge, zoom, tx, plotWidth, axisMode],
   );
 
   const onNodeClick = useCallback(
@@ -606,6 +635,7 @@ function Inner(props: GraphProps) {
         maxAge={lay.maxAge}
         width={vw || window.innerWidth}
         toScreenX={toScreenX}
+        toAge={toAge}
         intervals={intervals}
         axisMode={axisMode}
         legend={<Legend edges={patterns} />}

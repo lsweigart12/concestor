@@ -467,12 +467,80 @@ The log mode is what makes this app work at all: linear time puts every hominin
 divergence inside one pixel next to the Cambrian. The point of the toggle is to make the
 last 10 Ma legible without losing the other 4,000.
 
+**The toggle is a scale and not a caption.** It shipped once as neither — `axisMode`
+reached the axis strip, where it removed the knee marker and changed one word in the
+footer, and never reached the layout, which computed `x` from `symlogFrac` in both
+modes. "Linear" was therefore the symlog view with its warning taken off, which is the
+one arrangement worse than either scale. `ageFrac(age, maxAge, mode)` in
+`web/src/tree/layout.ts` is now the single mapping, and `layout()`, `toScreenX` and its
+inverse all take the mode. `AxisMode` has one definition, in `layout.ts`; the copy that
+used to sit in `state/store.ts` re-exports it.
+
+**The axis belongs to the canvas, not to the selection.** It ran from the present to
+`maxAge` — the deepest node in whatever is currently drawn — so it began abruptly and
+unlabelled wherever that root happened to fall, and moved every time a species was
+added. It now runs to the **Big Bang, 13787 Ma** (Planck 2018's ΛCDM figure, quoted in
+Ma to match the rest of the axis), and stops there: no rule, no tick, no band beyond it.
+`maxAge` still normalises the *scale* — it is what puts the deepest node at the left of
+the plot — and the layout is unchanged.
+
+The geologic band does **not** run that far. `chart.ttl` starts at the Hadean's
+`begin_ma`, so the coloured strip stops at 4567 Ma and 9,220 Ma of bare axis runs on
+beyond it. That stretch is most of the diagram rather than a gap in it, and both of its
+ends carry a marker the way the knee does — *Earth forms* where the band starts and
+*Big Bang* where the axis does. The two labels share the bare stretch, so they take
+different rows (the Earth's in the band's row, which is empty exactly there) and drop
+their figures on the same measure rather than one running under the other's marker.
+
+The general rule this is an instance of: **an edge a reader cannot account for is worse
+than one that runs off the screen.** Where the axis genuinely continues past the
+viewport — a shallow selection puts 4567 Ma far off to the left — it is left to run off,
+and nothing is drawn to suggest otherwise.
+
+**The present is named, not numbered.** The tick at 0 reads "present", in the same lower
+case an extant tip already carries on the canvas (*Homo sapiens* · present). It is a
+place on the axis rather than a quantity, and "0" made a reader work out which end they
+were looking at. Tick collision is consequently measured between label *boxes* rather
+than centre to centre — a flat gap was fine while every tick was one to four characters
+and stopped being fine the moment one of them was seven.
+
+**Ticks come from the visible window, not from the tree.** A fixed set of ten ages
+(`[0, 1, 10, 66, 100, 252, 541, 1000, 2500, 4000]`) fails twice over: nothing between 1
+and 10 means human-and-chimp, whose whole tree is inside 7 Ma, draws an axis carrying the
+single number `0`; and any zoom past the fit pushes all ten off-screen and leaves the
+strip blank. The axis now inverts screen x back to age, generates a 1–2–5 ladder over
+what is actually on screen, and places candidates by *priority* — the present, then the
+boundaries a reader recognises (66, 252, 541), then powers of ten — so 50 Ma never
+crowds out the K–Pg.
+
 ### Geologic scale bar
 
 From ICS `chart.ttl` (v2026/06, CC-BY, 178 concepts, 100% with official CGMW colors),
-parsed once at build into ~40 KB of JSON. Rendered as nested bands — Eon / Era / Period
-/ Epoch — with level of detail driven by pixels-per-Ma: show Epochs only when they'd
-exceed a legibility threshold, fall back to Periods, then Eras.
+parsed once at build into ~40 KB of JSON. Rendered as bands with level of detail driven
+by pixels-per-Ma — **per region, not per axis**.
+
+One rank across the whole strip is what this originally said, and it cannot be right
+anywhere on a log scale: the same view that gives the Cenozoic 225 px gives the
+Neoproterozoic 29. Picking the rank by the median band width therefore chooses between
+"PHANEROZOIC" written across two thirds of the screen and a Precambrian of unreadable
+slivers. The band is instead grown down the ICS containment tree (`parent` is in the
+payload) from its roots, and a node hands over to its children when the children that
+can carry *their own names* cover ≥ 70% of its width. So one strip reads Proterozoic,
+Paleozoic, Mesozoic, Paleogene, Miocene, Pliocene, Pleistocene — every band named in
+full, coarse at the deep end and fine at the recent one. Zooming refines it; panning
+does not change it, because legibility is measured on the whole interval rather than on
+the part on screen.
+
+Two cheaper split rules are wrong on real intervals and were tried: "all children fit"
+lets one 37-pixel Paleozoic hold the entire Phanerozoic at Eon, and counting legible
+children rather than measuring them fails on the Quaternary, whose two children are a
+screen-wide Pleistocene and an 11,700-year Holocene.
+
+A band is labelled with its whole name or not at all. Every abbreviation available here
+is worse than silence: a fixed three-character truncation puts "NEO" on a strip holding
+both a Neogene and a Neoproterozoic, and the shortest-unambiguous-prefix rule produces
+"Jura", "Lowe" and "Upper C". Making the *tiling* name-aware is what makes that
+affordable — a split that would leave its own children unnameable does not happen.
 
 **This is the one genuine collision with [design-reference.md](design-reference.md).**
 The official CGMW palette is warm and highly saturated — Permian orange, Triassic purple,
@@ -715,9 +783,11 @@ point. No layout recomputation on the server, no jump-cut.
 already in memory from the layout pass. One `/segment` call fetches ranked fossils. Lane
 opens below, sharing the time axis, spine plus double-bracket range bars.
 
-**4 — Time axis.** `x` from `age_ma` under linear or symlog. ICS bands beneath with
-LOD by pixels-per-Ma. Provenance tiers rendered so measured, interpolated, and
-structural ages are visually distinguishable at a glance.
+**4 — Time axis.** `x` from `age_ma` under linear or symlog — both real, and both
+driving the layout, not just the strip. Ticks and ICS bands are generated from the age
+range under the viewport, so the axis follows a zoom in rather than sliding off it.
+Provenance tiers rendered so measured, interpolated, and structural ages are visually
+distinguishable at a glance.
 
 ---
 
