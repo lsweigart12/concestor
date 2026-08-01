@@ -729,11 +729,18 @@ it cannot deliver.
   **The ceiling of this design is 2,552 forks and no image budget passes it**,
   because a witness must be a *node* and only 0.5% of extinct OTT taxa are in
   synthesis at all. Moving witnesses onto phase 4's fossil attachment points
-  instead reaches 33,428 — and 5,917 with the images already mirrored, since
-  2,194 PhyloPic titles already name a dated PBDB taxon that is not a node.
-  Measured, with the work and the hazards, in
-  [witness-ceiling.md](witness-ceiling.md). Fix `xref`'s homonyms before
-  starting: this makes the witness layer an `xref` consumer.
+  instead reaches 22,808 — and 1,416 with the images already mirrored, since
+  2,267 PhyloPic titles already name a dated *extinct* PBDB taxon that is not a
+  node. Tetrapoda would draw *Acanthostega* rather than a Triassic archosaur
+  110 Ma adrift, and Perissodactyla *Eohippus* rather than nothing. Measured,
+  with the work, the worked before/after and the hazards, in
+  [witness-ceiling.md](witness-ceiling.md). Two of those hazards are the sort
+  that pass every gate: **exclude `is_extant`** — PBDB carries *Mammalia* at
+  239.5–0 Ma, so unfiltered it spans every split inside it and hands the
+  biggest forks the crown group again — and **key on `pbdb_taxon_no`, not
+  name**, because PBDB has homonyms internally as well as against OTT. Fix
+  `xref`'s homonyms before starting: this makes the witness layer an `xref`
+  consumer.
 
   Caniformia is the case that shows the coverage limit honestly, and it is why
   both knobs came off. Its oldest drawn *and* dated member is *Archaeocyon* at
