@@ -799,13 +799,32 @@ defect in the product. Measured:
 catch the first of these and cannot: it only refuses a name that is *in the
 tree*, and *Homo floresiensis* is extinct and so is not a node.
 
-*The real fix is one extra triple.* The P9157 pass does not fetch the item's own
-`wdt:P225` (taxon name), so nothing can compare what Wikidata thinks the item is
-against what OTT says the node is. Adding `?q wdt:P225 ?sci` to `_sparql` costs
-no extra requests and makes the check decisive — refuse any contribution whose
-P225 disagrees with the node's scientific name. It does invalidate the page
-cache, so it costs a fresh 3.5-hour crawl, which is why it was not done in the
-same pass as the cheaper filters.
+*The fix is implemented and the crawl that activates it is running.* The P9157
+pass now fetches each item's own `wdt:P225`, and `load` refuses any contribution
+whose taxon name disagrees with OTT's — no arbitration, no heuristic, one
+OPTIONAL triple on a query that was already being made. A row with no P225 is
+kept rather than refused: not every item has one, and absent evidence of a bad
+claim is not evidence of one.
+
+**It is inert against the pages crawled before it existed**, which carry no `s`
+field, so it drops 0 until the re-crawl lands. The pre-P225 pages are kept at
+`build/vernaculars/wikidata_pre_p225/` and the phase only rewrites the database
+on a *completed* crawl, so an interruption leaves the current names in place
+rather than a partial harvest.
+
+**Three cheaper rules were tried first and all three fail.** Recorded so nobody
+re-derives them:
+
+| rule | why it fails |
+|---|---|
+| refuse a name that is another taxon's scientific name | already present; reaches only names *in the tree*, and *Homo floresiensis* is extinct, so it shipped |
+| keep the QID contributing the most names | fits *Homo sapiens* (6 against 2) and **fails on Archaea**, where the bullfrog item carries four English names and the real one carries four — handing the domain to the frog and deleting "archaeans" |
+| drop every claimant | correct in principle, too expensive in fact: it takes "Dog" off *Canis lupus familiaris* and fails the `dog` spot check |
+
+That last one is worth dwelling on. The conservative rule — a false name is worse
+than a missing one — is the rule this project applies everywhere else, and here
+it breaks the single most important query in the product. The gate caught it,
+which is what the `dog` spot check is for.
 
 **Vernacular coverage: the front door works, the tail is missing.** 148,515
 names, of which 142,071 come from Wikidata P9157 (OTT id join, no name

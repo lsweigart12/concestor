@@ -170,9 +170,13 @@ def _sparql(ott_ids: Sequence[int]) -> str:
     values = " ".join(f'"{o}"' for o in ott_ids)
     langs = ", ".join(f'"{lang}"' for lang in LANGS)
     return (
-        "SELECT ?o ?q ?c ?k WHERE {\n"
+        "SELECT ?o ?q ?c ?k ?sci WHERE {\n"
         f"  VALUES ?o {{ {values} }}\n"
         "  ?q wdt:P9157 ?o .\n"
+        # The item's own taxon name, which is what makes a mis-tagged P9157
+        # detectable at all. Optional because a few items carry P9157 and no
+        # P225; those simply cannot be checked and are kept.
+        "  OPTIONAL { ?q wdt:P225 ?sci }\n"
         '  { ?q wdt:P1843 ?c     BIND("v" AS ?k) }\n'
         '  UNION { ?q rdfs:label ?c    BIND("l" AS ?k) }\n'
         '  UNION { ?q skos:altLabel ?c BIND("a" AS ?k) }\n'
@@ -326,6 +330,10 @@ def crawl_wikidata(con: sqlite3.Connection, log: Log = print) -> JsonDict:
                                 "k": b["k"]["value"],
                                 "c": b["c"]["value"],
                                 "g": b["c"].get("xml:lang", LANGS[0]),
+                                # The item's own taxon name. Absent for the
+                                # few items with P9157 and no P225, which are
+                                # kept rather than refused.
+                                "s": b.get("sci", {}).get("value"),
                             },
                             separators=(",", ":"),
                             ensure_ascii=False,
@@ -376,7 +384,10 @@ def read_wikidata_pages(log: Log = print) -> Iterator[RawRow]:
                     ott_id=int(d["o"]),
                     source="wikidata",
                     source_id=d["q"],
-                    sci_name=None,
+                    # Carried so the P225 mismatch check can run. Pages written
+                    # before that check existed have no "s" and are simply not
+                    # checked; the next crawl replaces them.
+                    sci_name=(d.get("s") or "").strip() or None,
                     name=name,
                     lang=d.get("g", LANGS[0]),
                     kind=d["k"],
@@ -690,7 +701,11 @@ def load(con: sqlite3.Connection, log: Log = print) -> JsonDict:
                v.lang AS lang,
                v.source AS source,
                v.source_id AS source_id,
-               v.kind AS kind
+               v.kind AS kind,
+               -- What Wikidata says the item's own taxon is, for the P225
+               -- mismatch check below. Null on the PBDB rows and on pages
+               -- crawled before the check existed.
+               v.sci_name AS sci_name
           FROM v_raw v
           LEFT JOIN node n
                  ON n.ott_id = COALESCE(
@@ -716,11 +731,12 @@ def load(con: sqlite3.Connection, log: Log = print) -> JsonDict:
     con.execute("CREATE INDEX name_cand_row ON name_cand(vrow)")
     con.execute(
         """
-        INSERT INTO v_res (idx, ott_id, name, lang, source, source_id, kind)
+        INSERT INTO v_res (idx, ott_id, name, lang, source, source_id, kind,
+                           sci_name)
         SELECT CASE WHEN c.n_cand = 1 THEN c.idx END,
                (SELECT n.ott_id FROM node n
                  WHERE c.n_cand = 1 AND n.idx = c.idx),
-               v.name, v.lang, v.source, v.source_id, v.kind
+               v.name, v.lang, v.source, v.source_id, v.kind, v.sci_name
           FROM v_raw v LEFT JOIN name_cand c ON c.vrow = v.rowid
          WHERE v.ott_id IS NULL
         """
@@ -746,6 +762,12 @@ def load(con: sqlite3.Connection, log: Log = print) -> JsonDict:
     # name `node` already carries for a different idx, it belongs to the
     # scientific column, not the vernacular one. OTT's own synonyms.tsv
     # carries the legitimate cases (`Canis familiaris`) already.
+    #
+    # **It reaches only names that are in the tree, and that is not enough.**
+    # *Homo floresiensis* is extinct and so is not a node, so it survived this
+    # and shipped: the card read "Homo sapiens — also known as Human, Homo
+    # floresiensis, man, men, humans, Flores Man". The arbitration below is
+    # what catches the rest of the family.
     shadowed = con.execute(
         """
         DELETE FROM v_res
@@ -756,10 +778,52 @@ def load(con: sqlite3.Connection, log: Log = print) -> JsonDict:
         """
     ).rowcount
 
+    # One taxon has one Wikidata item, so a node claimed by two QIDs is a
+    # conflict rather than a richer harvest — and 4,262 nodes were. P9157 is a
+    # free-text external identifier and nothing stops an item carrying somebody
+    # else's OTT id: Q186266 (*Homo floresiensis*) carries *Homo sapiens*'s,
+    # and Q387319 (*Pyxicephalus adspersus*) carries **Archaea's**, which put
+    # "Giant Bullfrog" on a domain of 2,080 archaea and returned it second for
+    # a search on "frog".
+    #
+    # The item's own `wdt:P225` settles it: if Wikidata says the item is
+    # *Pyxicephalus adspersus* and OTT says the node is *Archaea*, the item is
+    # not about this node whatever its P9157 says. No arbitration, no
+    # heuristic, and it costs no extra requests — one OPTIONAL triple on a
+    # query that was already being made.
+    #
+    # **Three cheaper rules were tried against the real data first and all
+    # three fail**, which is worth recording so nobody re-derives them:
+    #
+    #   - *Refuse a name that is another taxon's scientific name.* Already
+    #     present above, and it reaches only names that are in the tree.
+    #     *Homo floresiensis* is extinct, so it is not a node, so it shipped.
+    #   - *Keep the QID contributing the most names.* Fits *Homo sapiens*
+    #     (6 against 2) and **fails on Archaea**, where the bullfrog item
+    #     carries four English names and the real one carries four — handing
+    #     the domain to the frog and deleting "archaeans".
+    #   - *Drop every claimant.* Correct in principle and too expensive in
+    #     fact: it takes "Dog" off *Canis lupus familiaris* and fails the
+    #     `dog` spot check, which is the single most important query here.
+    #
+    # A row with no P225 is kept rather than refused: not every item has one,
+    # and absent evidence of a bad claim is not evidence of one.
+    contested = con.execute(
+        """
+        DELETE FROM v_res
+         WHERE source = 'wikidata'
+           AND idx IS NOT NULL
+           AND sci_name IS NOT NULL
+           AND EXISTS (SELECT 1 FROM node n
+                        WHERE n.idx = v_res.idx
+                          AND lower(n.name) <> lower(v_res.sci_name))
+        """
+    ).rowcount
+
     # Deduplicate, then elect one headline name per (idx, lang). Precedence is
     # source first, ordered by how the row reached its taxon rather than by how
-    # good the string is: `wikidata` came through an explicit OTT id and cannot
-    # be pointing at the wrong taxon; `pbdb_coldp` came through an exact unique
+    # good the string is: `wikidata` came through an explicit OTT id and — once
+    # the arbitration above has run — is not pointing at the wrong taxon; `pbdb_coldp` came through an exact unique
     # name match against a curated vernacular list; `wikidata_p225` came
     # through an exact unique name match against a Wikidata item that merely
     # claims the same taxon name. Then kind, where a declared `P1843` taxon
@@ -803,9 +867,11 @@ def load(con: sqlite3.Connection, log: Log = print) -> JsonDict:
     con.commit()
     log(f"  dropped {dropped:,} names that merely repeated the scientific name")
     log(f"  dropped {shadowed:,} names that are another taxon's scientific name")
+    log(f"  dropped {contested:,} names from items whose P225 is a different taxon")
     return {
         "dropped_as_scientific_name": dropped,
         "dropped_as_other_taxon_name": shadowed,
+        "dropped_as_p225_mismatch": contested,
     }
 
 
