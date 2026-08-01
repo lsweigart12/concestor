@@ -29,8 +29,17 @@ export interface PathNode {
   tip_count: number;
   depth: number;
   phylopic_id: string | null;
-  /** The node the silhouette is actually of — often an ancestor clade. */
+  /** The node the silhouette is actually a drawing of. Often a relative. */
   silhouette_source_idx: number | null;
+  /**
+   * The smallest clade containing both this node and that drawing, which is
+   * the whole of what the picture claims: *something in here looks like this*.
+   * Its `tip_count` is how big a claim that is, and it is the number the
+   * caption has to carry. Null on an older build that predates the field.
+   */
+  silhouette_clade_idx?: number | null;
+  silhouette_clade_tips?: number | null;
+  silhouette_clade_name?: string | null;
 }
 
 export interface PathResponse {
@@ -71,10 +80,11 @@ interface HitBase {
   matched_on: string;
   /** Present when the server resolved a silhouette for this hit. */
   phylopic_id?: string | null;
-  /** The node the image is actually of — often an ancestor clade. */
+  /** The node the image is actually a drawing of. Often a relative. */
   silhouette_source_idx?: number | null;
-  /** That ancestor's subtree size, which is what decides whether to draw it. */
   silhouette_source_tips?: number | null;
+  /** The smallest clade holding both this hit and that drawing — see PathNode. */
+  silhouette_clade_tips?: number | null;
 }
 
 /**
@@ -115,61 +125,74 @@ export interface NodeDetail extends PathNode {
     license_url: string;
     /** The original creator. Renders as the credit. */
     attribution: string | null;
-    /** The uploader. Differs from the creator 31% of the time. */
+    /** The uploader. Differs from the creator 50% of the time (handoff §4). */
     contributor: string | null;
+    /** The node the drawing is of. Usually a relative, rarely this node. */
     source_idx: number;
     source_name: string | null;
+    /** The smallest clade holding both — the whole of what is being claimed. */
+    clade_idx?: number | null;
+    clade_name?: string | null;
+    clade_tip_count?: number | null;
   } | null;
 }
 
 /**
  * When may a node draw an image it did not earn?
  *
- * Resolution climbs to the nearest ancestor that has an image, which gives
- * near-total coverage — and at the top of the climb that means a species can
- * inherit the picture attached to "cellular organisms". Architecture §7 is
- * blunt about why that can be worse than nothing: rendering a mole for
- * "Mammalia" misinforms, where an empty space merely withholds.
+ * Resolution finds a node's closest drawn relative and records the smallest
+ * clade containing both. That clade is the entire claim the picture makes —
+ * *something in here looks like this* — so its size is the only thing worth
+ * judging. A drawing shared with 987 other riffle beetles is a fact about the
+ * beetle; one shared with 1.2M arthropods is a fact about nothing.
  *
- * The two knobs below are that argument's dial. `maxSourceTips` is how large a
- * clade may be and still lend its picture; `allowRootSource` is whether the
- * root — whose subject is literally everything — may lend one at all.
+ * The knob used to be `maxSourceTips`, the size of the clade the image was
+ * *attached* to, and it was measuring the wrong object: under the old
+ * nearest-seeded-ancestor rule the attached clade was usually a superphylum
+ * even when a perfectly good cousin sat two hops away. Judging the shared
+ * clade instead makes the question answerable, and the answer changed —
+ * see below.
  */
 export interface SilhouettePolicy {
-  maxSourceTips: number;
-  allowRootSource: boolean;
+  maxCladeTips: number;
 }
 
 /**
- * **Dialled to maximum**: every node with a resolved image draws it, however
- * far up the climb it came from.
+ * **Draw everything.** Every node with a resolved image draws it.
  *
- * This is deliberately the permissive end of the dial and it is an experiment,
- * not a settled answer. It trades architecture §7's caution for coverage, and
- * it only holds together because the borrow is *labelled* everywhere it
- * appears — `NodeMark` captions what the picture actually depicts and the
- * detail card names the source clade. If that labelling ever weakens, this
- * setting becomes the misinformation §7 describes.
+ * This was an uneasy experiment when the alternative was a `cellular
+ * organisms` blob on two thirds of the tree; it is now simply what the data
+ * supports. Measured on the built corpus after the resolution change: the
+ * median silhouette speaks for a clade of 3,153 tips, p90 is 46,221, **no
+ * node at all** borrows from a clade of over a million, and exactly one node
+ * — the root — has the whole tree as its clade. There is no longer a
+ * population of misinforming pictures for a threshold to catch.
  *
- * The previous setting, and the one to return to, was
- * `{ maxSourceTips: 250_000, allowRootSource: false }`.
+ * It holds together because the borrow is labelled wherever it appears: the
+ * canvas tooltip and the detail card both name the drawing's subject *and*
+ * the clade it speaks for. If that labelling ever weakens, this becomes the
+ * misinformation architecture §7 warns about, and the knob is here to turn.
  */
 export const SILHOUETTE_POLICY: SilhouettePolicy = {
-  maxSourceTips: Number.POSITIVE_INFINITY,
-  allowRootSource: true,
+  maxCladeTips: Number.POSITIVE_INFINITY,
 };
 
+/**
+ * Whether to draw a node's silhouette at all.
+ *
+ * `cladeTips` is the size of the smallest clade containing the node and the
+ * drawing. It is undefined against a build that predates the field, in which
+ * case there is nothing to judge and the image is drawn — the same choice the
+ * permissive policy makes anyway.
+ */
 export function silhouetteIsInformative(
-  node: Pick<PathNode, "idx" | "phylopic_id" | "silhouette_source_idx">,
-  sourceTipCount: number | undefined,
+  node: Pick<PathNode, "phylopic_id">,
+  cladeTips: number | null | undefined,
   policy: SilhouettePolicy = SILHOUETTE_POLICY,
 ): boolean {
   if (!node.phylopic_id) return false;
-  const src = node.silhouette_source_idx;
-  if (src === null || src === undefined || src === node.idx) return true;
-  if (src === 0) return policy.allowRootSource;
-  if (sourceTipCount === undefined) return true;
-  return sourceTipCount <= policy.maxSourceTips;
+  if (cladeTips === null || cladeTips === undefined) return true;
+  return cladeTips <= policy.maxCladeTips;
 }
 
 /**
@@ -184,12 +207,8 @@ export function hitSilhouette(
   policy: SilhouettePolicy = SILHOUETTE_POLICY,
 ): string | null {
   const ok = silhouetteIsInformative(
-    {
-      idx: hit.idx,
-      phylopic_id: hit.phylopic_id ?? null,
-      silhouette_source_idx: hit.silhouette_source_idx ?? null,
-    },
-    hit.silhouette_source_tips ?? undefined,
+    { phylopic_id: hit.phylopic_id ?? null },
+    hit.silhouette_clade_tips,
     policy,
   );
   return ok ? (hit.phylopic_id ?? null) : null;

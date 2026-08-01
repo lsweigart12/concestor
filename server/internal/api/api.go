@@ -156,9 +156,18 @@ type Entry struct {
 	Depth               int64    `json:"depth"`
 	PhylopicID          *string  `json:"phylopic_id"`
 	SilhouetteSourceIdx *int     `json:"silhouette_source_idx"`
-	// How far the silhouette was borrowed from, and by what rule. Climb 0 is
-	// an exact match; climb 35 means the picture is of a clade 35 hops up and
-	// the caption must say so.
+	// The smallest clade containing both this node and the drawing, which is
+	// what the picture actually stands for. Its tip count is the size of the
+	// claim — 3,153 at the median — and it is the number the client applies its
+	// suppression rule to, since a silhouette standing for a million tips
+	// misinforms where a blank merely withholds. The name is null for
+	// `mrcaott…` clades, which have none to give.
+	SilhouetteCladeIdx  *int    `json:"silhouette_clade_idx,omitempty"`
+	SilhouetteCladeTips *int64  `json:"silhouette_clade_tips,omitempty"`
+	SilhouetteCladeName *string `json:"silhouette_clade_name,omitempty"`
+	// How far the silhouette was borrowed, and by what rule. Climb is hops up
+	// to the clade, not to the source, so climb 0 is not an exact match: an
+	// unseeded genus holding a drawn species sits at 0. Mean is 4.24.
 	SilhouetteClimb  *int   `json:"silhouette_climb,omitempty"`
 	SilhouetteMethod string `json:"silhouette_method,omitempty"`
 }
@@ -166,11 +175,26 @@ type Entry struct {
 // entries turns a list of indices into API entries, preserving order.
 func (s *Server) entries(r *http.Request, idxs []int) ([]Entry, error) {
 	ctx := r.Context()
-	metas, err := s.St.Metas(ctx, idxs)
+	images, err := s.St.Images(ctx, idxs)
 	if err != nil {
 		return nil, err
 	}
-	images, err := s.St.Images(ctx, idxs)
+	// Naming the clade a picture stands for needs a `node` row the caller did
+	// not ask for. The clade indices along a path are few and repeat heavily —
+	// neighbouring nodes share one — so they are folded into the metadata
+	// lookup that was happening anyway rather than costing a query each.
+	want := append([]int(nil), idxs...)
+	seen := make(map[int]bool, len(idxs))
+	for _, idx := range idxs {
+		seen[idx] = true
+	}
+	for _, img := range images {
+		if c := img.CladeIdx; c != nil && !seen[*c] {
+			seen[*c] = true
+			want = append(want, *c)
+		}
+	}
+	metas, err := s.St.Metas(ctx, want)
 	if err != nil {
 		return nil, err
 	}
@@ -212,8 +236,16 @@ func (s *Server) entries(r *http.Request, idxs []int) ([]Entry, error) {
 			id := img.PhylopicID
 			e.PhylopicID = &id
 			e.SilhouetteSourceIdx = img.SourceIdx
+			e.SilhouetteCladeIdx = img.CladeIdx
 			e.SilhouetteClimb = img.Climb
 			e.SilhouetteMethod = img.Method
+			if c := img.CladeIdx; c != nil {
+				e.SilhouetteCladeName = metas[*c].Name
+				if a.TipCount != nil && a.Valid(*c) {
+					t := int64(a.TipCount[*c])
+					e.SilhouetteCladeTips = &t
+				}
+			}
 		}
 		out = append(out, e)
 	}
@@ -532,9 +564,12 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request) {
 		}
 		if attrib != nil {
 			attrib.SourceIdx = entries[0].SilhouetteSourceIdx
+			attrib.CladeIdx = entries[0].SilhouetteCladeIdx
+			attrib.CladeName = entries[0].SilhouetteCladeName
+			attrib.CladeTipCount = entries[0].SilhouetteCladeTips
 			attrib.Climb = entries[0].SilhouetteClimb
 			attrib.Method = entries[0].SilhouetteMethod
-			// Name the clade the picture is of, so the card can say so rather
+			// Name the node the picture is of, so the card can say so rather
 			// than making the UI infer it from a path it may not have loaded.
 			if src := attrib.SourceIdx; src != nil && s.St.Arrays.Valid(*src) {
 				if sm, err := s.St.Metas(ctx, []int{*src}); err == nil {

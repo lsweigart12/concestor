@@ -35,8 +35,9 @@ order and not a priority order:
 
 **This is not a commercial project.** Drop the commercial-safety machinery — no
 `--commercial-safe` flag, no NonCommercial filtering, and ignore the PBDB licence
-question. That is a straight win: PhyloPic's `primaryImage` gives effective
-**~100% node coverage** against 93.7% for the licence-filtered path. Attribution
+question. That is a straight win: the unfiltered corpus reaches every node
+against 93.7% for the licence-filtered path — though see §5 on why coverage is
+the wrong thing to count. Attribution
 still applies — CC-BY requires it for any redistribution and the artists deserve
 credit — and it is a two-field problem, since `attribution` (creator) and
 `_links.contributor.title` (uploader) differ **50%** of the time (measured
@@ -113,7 +114,7 @@ product is broken at its front door, not merely incomplete.
 | 2 — dates | **ACCEPTED and implemented**, 32/32 gates. Tiers are baked (§3) |
 | 3 — resolution | built — `resolve.py`, `xref` populated |
 | 4 — fossils | built — `fossils.py`, `fossil` table populated |
-| 5a — images | built — `images.py`, 23/23 gates, **100% node coverage** (§5) |
+| 5a — images | built — `images.py`, **28/28 gates**. Coverage is 100% and says nothing; the gate is the size of the clade a picture speaks for (§5) |
 | 5b — timescale | built — `timescale.py`, 26/26 gates, `build/timescale.json` |
 | 6 — vernaculars | built — `vernaculars.py` + `search.py`, `node_fts` live |
 | walking-skeleton renderer | done, throwaway, superseded |
@@ -581,13 +582,42 @@ it cannot deliver.
   every node by nearest-ancestor is a single forward sweep taking **0.2 s**.
   Coverage is **100%**, better than the 88/94% baseline, which described a
   different mechanism and is no longer the thing to measure.
-- **The number that matters for silhouettes is `climb`, not coverage.** Mean
-  27.2 ancestor hops; only 0.23% of tips get an exact image; three sources
-  (Ecdysozoa, cellular organisms, Opisthokonta) serve 1.79M nodes between them.
-  100% coverage therefore means "every node has *an* image", most of them very
-  generic. The UI suppresses one inherited from a kingdom-sized ancestor rather
-  than implying it depicts the species — architecture §7's "a mole for Mammalia
-  is worse than nothing", applied one level up.
+- **The number that matters for silhouettes is the size of the clade a picture
+  speaks for.** Not coverage, which is 100% and always was; and not `climb`,
+  which counts our search rather than their answer.
+
+  Resolution originally gave a node the image of its nearest ancestor that was
+  *itself* seeded. With 7,470 seeds over 2.7M nodes that ancestor is usually
+  enormous: mean climb 27.2 hops, **65.3% of the tree borrowing from a clade of
+  over a million tips**, and three sources — Ecdysozoa, `cellular organisms`,
+  Opisthokonta — serving 1.79M nodes between them. A screen of arthropods drew
+  one shape repeated. Both 100% coverage and 27.2 hops were true and neither
+  told anyone that.
+
+  It now gives a node the picture of its **closest drawn relative**, and records
+  `clade_idx`: the smallest clade containing both the node and the drawing.
+  That clade is the whole of what the picture claims — *something in here looks
+  like this* — so its `tip_count` is the size of the claim, and it is what the
+  gates measure and the UI renders. Measured before → after:
+
+  | | nearest seeded ancestor | closest drawn relative |
+  |---|---:|---:|
+  | median clade a picture speaks for | 1,208,417 tips | **3,153** |
+  | nodes speaking for over 1M tips | 65.3% | **0.00%** |
+  | clade ≤ 10,000 tips (leaves) | 13.4% | **71.2%** |
+  | mean climb | 27.2 | 4.24 |
+
+  Selachii drew Opisthokonta and now draws a shark; Coccinellidae drew
+  Ecdysozoa and now draws a ladybird; a riffle beetle drew all 1.2M arthropods
+  and now draws Elminae's 987. **Exactness still wins** — a seeded node keeps
+  its own image, so Mammalia is drawn as Mammalia and never as one mole inside
+  it, and architecture §7's warning survives intact. §7 is about a *specific*
+  node wearing a clade's picture; `clade_idx` is precisely the number that says
+  how big a claim that is, which is why drawing every silhouette is now
+  defensible where it was once a nerve-holding experiment.
+
+  `method` gained a fourth value, `relative` — a cousin, neither ancestor nor
+  descendant — and it is 2,448,650 of the 2,725,682 nodes.
 - **PhyloPic attaches human images to `Homo sapiens sapiens`**, a subspecies the
   synthesis does not carry, so the seed was silently dropped and *Homo sapiens*
   climbed 35 hops to Mammalia. 2,485 of 9,461 cited OTT ids are like this. The
@@ -868,10 +898,27 @@ surviving resolution is already a known shape (ingest.md phase 4 step 2). Fix it
 there and the bracket lands at walk 0 by itself, which is the correct fix in
 every other case of the same kind too.
 
-**The silhouette mirror is complete.** All 12,863 SVGs are on disk, 149.8 MB,
-each checksummed into the `silhouette` table. It is resumable by checksum —
-`uv run concestor-build images` re-verifies what is there and fetches only
-what is missing, which is how the last straggler was picked up.
+**The silhouette mirror is complete and the pictures now mean something.** All
+12,863 SVGs are on disk, 149.8 MB, each checksummed into the `silhouette`
+table, resumable by checksum — `uv run concestor-build images` re-verifies what
+is there and fetches only what is missing.
+
+Resolution was rewritten to find a node's *closest drawn relative* rather than
+its nearest drawn ancestor, which is what took the median picture from speaking
+for 1,208,417 species to 3,153; §5 has the before/after and the reasoning. The
+blocking gate is now that share rather than node coverage, and the canvas and
+the detail card both name the clade a borrowed picture speaks for and how many
+species are in it.
+
+*What is still thin here.* The corpus remains the ceiling: 12,863 drawings for
+2.7M nodes, so 71.2% of leaves get a picture from a group of ≤ 10,000 species
+and the rest get something broader. Nothing has been done for the top of the
+tree — Eukaryota's picture still speaks for 2,267,368 species, which is honest
+and useless, and a deliberate "no useful drawing exists for this" treatment
+would serve a reader better than a caption admitting it. **No non-specialist
+has looked at any of this**; the threshold at 10,000 tips is a stated product
+judgement, not a validated one, and it is the first thing user testing should
+attack.
 
 **Bloom cost is unverified under load.** design-reference.md asks for this
 early. The current implementation is two stacked strokes plus a CSS blur rather

@@ -317,7 +317,10 @@ earlier ones.
    `primaryImage` call per node — is 2.7M requests against a small volunteer service,
    and `images.py` deliberately does not do it.** What it does instead: crawl the image
    *index* in ~269 requests, seed the nodes the corpus names, and propagate to the rest
-   by nearest ancestor in a single 0.2 s sweep. Seeding is five passes, in decreasing
+   in a single sweep — to each node's **closest drawn relative**, not its nearest drawn
+   ancestor. The ancestor rule was what shipped first and it resolved a riffle beetle to
+   a picture of all 1.2M arthropods; handoff.md §5 has the before and after. Seeding is
+   five passes, in decreasing
    strength — OTT id, forwarded OTT id, one-hop lift, node name, truncated node name —
    and the module docstring is the reference for all of it. Read that before changing
    anything here.

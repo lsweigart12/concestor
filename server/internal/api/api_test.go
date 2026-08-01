@@ -575,6 +575,98 @@ func TestNodeDetail(t *testing.T) {
 	}
 }
 
+// A node wears the picture of its closest drawn relative, and what that picture
+// legitimately stands for is the smallest clade holding both. The clade's size
+// is what the client suppresses on — median 3,153 tips — so it has to survive
+// the wire on every surface that draws a silhouette.
+func TestSilhouetteCladeReachesTheClient(t *testing.T) {
+	ts, st := serve(t)
+
+	var path struct {
+		Path []Entry `json:"path"`
+	}
+	getJSON(t, ts, "/v1/path/ott770315", &path)
+	drawn, named := 0, 0
+	for _, e := range path.Path {
+		if e.PhylopicID == nil {
+			continue
+		}
+		drawn++
+		if e.SilhouetteCladeIdx == nil {
+			t.Fatalf("idx %d has a picture but no clade to attribute it to", e.Idx)
+		}
+		if e.SilhouetteCladeTips == nil {
+			t.Fatalf("idx %d has no clade tip count; the client cannot judge the claim", e.Idx)
+		}
+		c := *e.SilhouetteCladeIdx
+		if want := int64(st.Arrays.TipCount[c]); *e.SilhouetteCladeTips != want {
+			t.Errorf("idx %d clade tips = %d, want %d", e.Idx, *e.SilhouetteCladeTips, want)
+		}
+		// The clade contains the node by construction, so it can never be
+		// smaller. A violation means the wrong index was read.
+		if *e.SilhouetteCladeTips < e.TipCount {
+			t.Errorf("idx %d: clade of %d tips cannot contain a node of %d",
+				e.Idx, *e.SilhouetteCladeTips, e.TipCount)
+		}
+		if e.SilhouetteCladeName != nil {
+			named++
+		}
+	}
+	if drawn == 0 {
+		t.Fatal("no entry on the Homo sapiens path carried a silhouette")
+	}
+	// Names are null for `mrcaott…` clades, but a path where none resolved would
+	// mean the batched lookup is returning nothing.
+	if named == 0 {
+		t.Errorf("%d drawn entries and not one named clade", drawn)
+	}
+
+	var node struct {
+		Entry
+		Silhouette *struct {
+			PhylopicID    string  `json:"phylopic_id"`
+			CladeIdx      *int    `json:"clade_idx"`
+			CladeName     *string `json:"clade_name"`
+			CladeTipCount *int64  `json:"clade_tip_count"`
+		} `json:"silhouette"`
+	}
+	getJSON(t, ts, "/v1/node/ott770315", &node)
+	if node.Silhouette == nil {
+		t.Fatal("Homo sapiens has no silhouette block")
+	}
+	// The detail card is where the app names the clade out loud, so the block
+	// must agree with the entry it was built from rather than restate it.
+	if node.Silhouette.CladeIdx == nil || node.SilhouetteCladeIdx == nil ||
+		*node.Silhouette.CladeIdx != *node.SilhouetteCladeIdx {
+		t.Errorf("silhouette.clade_idx = %v, entry says %v",
+			node.Silhouette.CladeIdx, node.SilhouetteCladeIdx)
+	}
+	if node.Silhouette.CladeTipCount == nil {
+		t.Fatal("silhouette.clade_tip_count is nil; the card cannot say how big the claim is")
+	}
+	if want := int64(st.Arrays.TipCount[*node.Silhouette.CladeIdx]); *node.Silhouette.CladeTipCount != want {
+		t.Errorf("silhouette.clade_tip_count = %d, want %d", *node.Silhouette.CladeTipCount, want)
+	}
+
+	var search struct {
+		Results []store.SearchResult `json:"results"`
+	}
+	getJSON(t, ts, "/v1/search?q=Homo+sapiens", &search)
+	hit := false
+	for _, r := range search.Results {
+		if r.PhylopicID == nil {
+			continue
+		}
+		hit = true
+		if r.SilhouetteCladeTips == nil {
+			t.Errorf("search hit %q draws a silhouette but sends no clade size", r.Key)
+		}
+	}
+	if !hit {
+		t.Error("no search hit carried a silhouette")
+	}
+}
+
 func TestSegment(t *testing.T) {
 	ts, st := serve(t)
 	// 588426 -> 603110 is one of the reference segments; render.py measures a

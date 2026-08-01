@@ -39,15 +39,16 @@ type SearchResult struct {
 	// resolution has already happened by the time HasImage is set, so sending
 	// them costs nothing beyond the bytes.
 	//
-	// SourceTips is the deciding field, not a detail. Silhouettes resolve by
-	// climbing to the nearest ancestor with an image, so a beetle can inherit
-	// the picture attached to a kingdom — and drawing that misinforms where
-	// blank merely withholds (architecture §7). The caller cannot judge that
-	// without knowing how big the clade it borrowed from is, and it has no
-	// other way to learn: the source is usually not itself in the result set.
+	// CladeTips is the deciding field, not a detail. A silhouette stands for the
+	// smallest clade holding both the hit and the drawing, and drawing one that
+	// spans a kingdom misinforms where blank merely withholds (architecture §7).
+	// The caller cannot judge that without the clade's size, and it has no other
+	// way to learn it: the clade is usually not itself in the result set. It is
+	// sent here so the palette can apply the same rule as the canvas.
 	PhylopicID           *string `json:"phylopic_id,omitempty"`
 	SilhouetteSourceIdx  *int    `json:"silhouette_source_idx,omitempty"`
 	SilhouetteSourceTips *int64  `json:"silhouette_source_tips,omitempty"`
+	SilhouetteCladeTips  *int64  `json:"silhouette_clade_tips,omitempty"`
 
 	// Broken taxa are not nodes, so idx and tip_count are null for them. These
 	// two extra fields give the UI something to act on.
@@ -887,6 +888,10 @@ func (s *Store) decorate(ctx context.Context, results []SearchResult, qFold stri
 					t := int64(s.Arrays.TipCount[v])
 					r.SilhouetteSourceTips = &t
 				}
+			}
+			if c := img.CladeIdx; c != nil && s.Arrays.TipCount != nil && s.Arrays.Valid(*c) {
+				t := int64(s.Arrays.TipCount[*c])
+				r.SilhouetteCladeTips = &t
 			}
 		}
 		if v, ok := scores[*r.Idx]; ok {

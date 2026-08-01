@@ -98,8 +98,12 @@ func futureBuild(t *testing.T) string {
 		INSERT INTO silhouette VALUES
 			('abc-123', 'https://creativecommons.org/licenses/by/4.0/', 'A Creator', 'B Uploader', 1);
 
-		CREATE TABLE node_image (idx INTEGER PRIMARY KEY, phylopic_id TEXT, source_idx INTEGER);
-		INSERT INTO node_image VALUES (594485, 'abc-123', 588427);
+		-- climb is hops up to clade_idx, not to source_idx: Homo sapiens sits
+		-- at depth 59 and Mammalia at 33.
+		CREATE TABLE node_image (idx INTEGER PRIMARY KEY, phylopic_id TEXT,
+			source_idx INTEGER NOT NULL, clade_idx INTEGER NOT NULL,
+			climb INTEGER NOT NULL, method TEXT NOT NULL);
+		INSERT INTO node_image VALUES (594485, 'abc-123', 588427, 588427, 26, 'ancestor');
 
 		CREATE TABLE synonym (idx INTEGER, name TEXT);
 		INSERT INTO synonym VALUES (594485, 'Homo sapiens Linnaeus 1758');
@@ -142,7 +146,8 @@ func TestOptionalTablesAreDetectedAndUsed(t *testing.T) {
 	if sc.Silhouette.Creator != "attribution" || sc.Silhouette.Uploader != "contributor" {
 		t.Errorf("creator and uploader must resolve separately, got %+v", sc.Silhouette)
 	}
-	if sc.NodeImage.SourceIdx != "source_idx" {
+	if sc.NodeImage.SourceIdx != "source_idx" || sc.NodeImage.CladeIdx != "clade_idx" ||
+		sc.NodeImage.Climb != "climb" || sc.NodeImage.Method != "method" {
 		t.Errorf("node_image columns resolved to %+v", sc.NodeImage)
 	}
 	if sc.FTS.MapTable != "search_name" || sc.FTS.MapID != "id" ||
@@ -171,6 +176,14 @@ func TestOptionalTablesAreDetectedAndUsed(t *testing.T) {
 	got, ok := imgs[594485]
 	if !ok || got.PhylopicID != "abc-123" || got.SourceIdx == nil || *got.SourceIdx != 588427 {
 		t.Errorf("image = %+v", got)
+	}
+	// The clade is what the picture claims to stand for, and its tip count is
+	// the only thing that tells a caller whether drawing it would misinform.
+	if got.CladeIdx == nil || *got.CladeIdx != 588427 {
+		t.Errorf("clade_idx = %v, want 588427", got.CladeIdx)
+	}
+	if got.Climb == nil || *got.Climb != 26 || got.Method != "ancestor" {
+		t.Errorf("climb/method = %v %q", got.Climb, got.Method)
 	}
 
 	att, err := st.SilhouetteAttribution(ctx, "abc-123")
@@ -284,6 +297,64 @@ func TestSearchUsesFTSAndImageSignalWhenPresent(t *testing.T) {
 	}
 	if got := *res[0].SilhouetteSourceTips; got != int64(st.Arrays.TipCount[588427]) {
 		t.Errorf("silhouette_source_tips = %d, want %d", got, st.Arrays.TipCount[588427])
+	}
+	if res[0].SilhouetteCladeTips == nil {
+		t.Fatal("silhouette_clade_tips is nil; the palette cannot apply the canvas's rule")
+	}
+	if got := *res[0].SilhouetteCladeTips; got != int64(st.Arrays.TipCount[588427]) {
+		t.Errorf("silhouette_clade_tips = %d, want %d", got, st.Arrays.TipCount[588427])
+	}
+}
+
+// A database built before phase 5a grew `clade_idx` must still open and serve.
+// Feature detection is what lets the binary run against a partially-built or an
+// older dataset, and a column added to one table is exactly the case where a
+// hardcoded SELECT would turn a rebuild into a startup failure.
+func TestNodeImageWithoutCladeColumn(t *testing.T) {
+	real := testenv.RequireBuild(t)
+	dir := t.TempDir()
+	if err := os.Symlink(filepath.Join(real, "topology"), filepath.Join(dir, "topology")); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", "file:"+filepath.Join(dir, "concestor.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`
+		CREATE TABLE node (idx INTEGER PRIMARY KEY, ott_id INTEGER, node_key TEXT NOT NULL,
+			name TEXT, rank TEXT, flags TEXT, tip_count INTEGER NOT NULL, depth INTEGER NOT NULL);
+		INSERT INTO node VALUES (594485, 770315, 'ott770315', 'Homo sapiens', 'species', '', 2, 59);
+		CREATE TABLE node_image (idx INTEGER PRIMARY KEY, phylopic_id TEXT, source_idx INTEGER);
+		INSERT INTO node_image VALUES (594485, 'abc-123', 588427);
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+
+	st, err := Open(t.Context(), Options{BuildDir: dir, Log: slog.New(slog.DiscardHandler)})
+	if err != nil {
+		t.Fatalf("opening a pre-clade_idx build: %v", err)
+	}
+	defer st.Close() //nolint:errcheck
+
+	if st.Schema.NodeImage == nil {
+		t.Fatal("node_image must still be wired up without clade_idx")
+	}
+	if st.Schema.NodeImage.CladeIdx != "" {
+		t.Errorf("clade_idx resolved to %q against a table that has no such column",
+			st.Schema.NodeImage.CladeIdx)
+	}
+	imgs, err := st.Images(t.Context(), []int{594485})
+	if err != nil {
+		t.Fatalf("Images against a pre-clade_idx table: %v", err)
+	}
+	got, ok := imgs[594485]
+	if !ok || got.SourceIdx == nil || *got.SourceIdx != 588427 {
+		t.Fatalf("image = %+v", got)
+	}
+	if got.CladeIdx != nil {
+		t.Errorf("clade_idx = %v, want nil when the column is absent", got.CladeIdx)
 	}
 }
 

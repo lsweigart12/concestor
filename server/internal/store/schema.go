@@ -82,15 +82,18 @@ type SilhouetteSchema struct {
 }
 
 // NodeImageSchema maps a node to the silhouette shown for it. SourceIdx names
-// the node the image is actually *of*: PhyloPic resolves by clade fallback, so
-// Homo sapiens can end up wearing Mammalia's silhouette 35 hops up. Climb and
-// Method carry how far, which the UI needs in order not to imply the picture
-// depicts the species the user selected.
+// the node the image is actually *of* — the closest drawn relative, which is a
+// cousin for 2,448,650 of the 2.7M nodes and an exact match for only 7,470.
+// CladeIdx is the smallest clade containing both the node and the drawing, and
+// its tip_count is the size of the claim the picture makes. Climb and Method
+// say how far and by what rule, which the UI needs in order not to imply the
+// picture depicts the species the user selected.
 type NodeImageSchema struct {
 	Table     string `json:"table"`
 	Idx       string `json:"idx"`
 	ID        string `json:"phylopic_id"`
 	SourceIdx string `json:"source_idx,omitempty"`
+	CladeIdx  string `json:"clade_idx,omitempty"`
 	Climb     string `json:"climb,omitempty"`
 	Method    string `json:"method,omitempty"`
 }
@@ -289,6 +292,7 @@ func (s *Schema) resolveNodeImage() {
 		Idx:       idx,
 		ID:        id,
 		SourceIdx: s.col(t, "silhouette_source_idx", "source_idx", "resolved_from_idx", "from_idx"),
+		CladeIdx:  s.col(t, "clade_idx", "silhouette_clade_idx", "shared_clade_idx"),
 		Climb:     s.col(t, "climb", "hops", "distance"),
 		Method:    s.col(t, "method", "match_method"),
 	}

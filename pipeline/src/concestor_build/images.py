@@ -21,17 +21,27 @@ magnitude smaller than the thing being resolved. Crawl the index instead:
    `/resolve/opentreeoflife.org/taxonomy/{ott_id}`. That yields the whole
    `image → ott_id` mapping from the index alone.
 2. Propagate locally in numpy with **zero further API calls**: seed the mapped
-   OTT nodes, then give every other node the image of its nearest
-   ancestor-or-self that has one.
+   OTT nodes, then give every other node the picture of its closest drawn
+   relative. See `propagate`.
 
 Preorder numbering (`parent[i] < i`) is what makes step 2 a sweep rather than a
-traversal, and the same interval property gives the content gate its check:
-`source_idx <= idx < subtree_out[source_idx]` iff the source really is an
-ancestor-or-self.
+traversal, and the same interval property gives the content gate its check.
 
-`climb` is stored per node because the UI has to be able to say *this
-silhouette represents Mammalia, not this species*. Resolution is baked
-(architecture §7) so there is no client-side climb.
+## The number that matters is `clade_idx`, not `climb`
+
+The first version of step 2 gave a node the image of its nearest
+ancestor-or-self that had one. That resolves every node in the tree, which is
+why this phase used to report 100% coverage — and 100% was worthless, because
+with 7,470 seeds over 2.7M nodes the nearest *seeded* ancestor is usually a
+superphylum. Two thirds of the tree was drawn as Ecdysozoa, `cellular
+organisms` or Opisthokonta, so a screen full of arthropods showed one shape
+repeated and told a reader nothing.
+
+What a borrowed picture claims is "this node and this drawing are both inside
+clade C". `clade_idx` is that C — the *smallest* one, which is the nearest
+ancestor-or-self of the node with any seed beneath it, cousins included — and
+its `tip_count` is the size of the claim. That is what the UI must render and
+what the gates are written against; `climb` is now just how far up C sat.
 
 ## Mirroring
 
@@ -106,8 +116,30 @@ BASELINE_INTERNAL = 0.886
 BASELINE_LEAF = 0.940
 
 # Method codes, stored in the arrays; `node_image.method` carries the name.
-M_EXACT, M_ANCESTOR, M_DESCENDANT, M_NONE = 0, 1, 2, 255
-METHOD_NAME = {M_EXACT: "exact", M_ANCESTOR: "ancestor", M_DESCENDANT: "descendant"}
+# `relative` is the ordinary case once resolution looks for the closest drawn
+# relative rather than the nearest drawn ancestor: a cousin is neither above
+# nor below, and before this existed those nodes took a superphylum's blob.
+M_EXACT, M_ANCESTOR, M_DESCENDANT, M_RELATIVE, M_NONE = 0, 1, 2, 3, 255
+METHOD_NAME = {
+    M_EXACT: "exact",
+    M_ANCESTOR: "ancestor",
+    M_DESCENDANT: "descendant",
+    M_RELATIVE: "relative",
+}
+
+# What size of clade may a borrowed picture speak for and still say something?
+# The gate this backs replaced a 100% node-coverage gate that was true and
+# useless. There is no natural threshold in the data — the distribution is
+# smooth — so this is a product judgement stated once, in the open: a drawing
+# from a clade of at most ten thousand species is about a recognisable group
+# (Elminae, Coccinellidae, Selachii all sit far below it), and one from a clade
+# of a million is about nothing a reader can picture. Measured against the
+# built corpus the old rule cleared it for 13.4% of nodes and this one for
+# 72.2%, so the gate is set where it discriminates between the two rules rather
+# than where it happens to pass.
+INFORMATIVE_CLADE_TIPS = 10_000
+MIN_INFORMATIVE_LEAF = 0.65
+MIN_INFORMATIVE_INTERNAL = 0.75
 
 NO_IMAGE = -1
 
@@ -698,8 +730,47 @@ def seed_nodes(
 class Assignment:
     image: I64Array  # position in `records`; NO_IMAGE where unresolved
     source: I64Array  # the node the image is actually OF; NO_IMAGE if none
-    climb: U8Array  # hops between idx and source_idx; 0 = exact
-    method: U8Array  # M_EXACT | M_ANCESTOR | M_DESCENDANT | M_NONE
+    clade: I64Array  # smallest clade holding both idx and source; NO_IMAGE if none
+    climb: U8Array  # hops from idx up to `clade`; 0 = the image is at or below idx
+    method: U8Array  # M_EXACT | M_ANCESTOR | M_DESCENDANT | M_RELATIVE | M_NONE
+
+
+def exemplars(
+    parent: U32Array, depth: DepthArray, tip_count: U32Array, seed: I64Array
+) -> I64Array:
+    """For each node, the best-drawn taxon anywhere in its subtree.
+
+    "Best" is the most inclusive: the seeded node with the largest `tip_count`,
+    tie-broken by shallower depth and then by index so the choice is
+    deterministic. That ordering is not a matter of taste. A contributor who
+    attaches a drawing to a large clade is saying the drawing stands for the
+    group, and a contributor who attaches one to a species is saying it stands
+    for that species — so preferring the inclusive seed picks the image whose
+    author intended it as an exemplar. Measured on the real corpus it is also
+    the difference between showing a boa constrictor for Serpentes and showing
+    a blind snake, and between a mushroom for Fungi and a mould.
+
+    Only 7,470 nodes are seeded, so this walks each seed's ancestor chain
+    best-first and stops at the first ancestor a better seed already claimed —
+    everything above it is claimed too. Total work is bounded by the 30,982
+    nodes that have any seed beneath them, not by the 2.7M in the tree.
+    """
+    n = parent.size
+    best = np.full(n, NO_IMAGE, dtype=np.int64)
+    seeds = np.flatnonzero(seed != NO_IMAGE)
+    order = sorted(
+        (int(s) for s in seeds),
+        key=lambda s: (-int(tip_count[s]), int(depth[s]), s),
+    )
+    par = parent.astype(np.int64)
+    for s in order:
+        v = s
+        while best[v] == NO_IMAGE:
+            best[v] = s
+            if v == 0:  # the root's parent is a sentinel, not an index
+                break
+            v = int(par[v])
+    return best
 
 
 def propagate(
@@ -707,34 +778,47 @@ def propagate(
     depth: DepthArray,
     subtree_out: U32Array,
     seed: I64Array,
-    *,
-    descendant_fallback: bool = True,
+    tip_count: U32Array,
 ) -> Assignment:
-    """Give every node the image of its nearest ancestor-or-self that has one.
+    """Give every node the picture of its closest drawn relative.
 
-    Preorder numbering means `parent[i] < i`, so a forward sweep would already
-    have the parent's final answer by the time it reached `i`. This does the
-    same computation by pointer doubling, which is that sweep vectorised:
-    `link` starts as "self if seeded, else parent", and squaring it log(depth)
-    times walks every chain to its nearest seeded ancestor at once. A seeded
-    node is a self-loop, so it absorbs; the root is a self-loop too, so a chain
-    with no seeded ancestor terminates there and stays unresolved.
+    The rule this replaced was "the nearest ancestor that is *itself* seeded",
+    and it resolved every node in the tree — which is why phase 5a reported
+    100% coverage and why that number told nobody anything. With 7,470 seeds
+    over 2.7M nodes the nearest seeded ancestor is usually enormous: measured,
+    65.3% of the tree borrowed from a clade of more than a million tips, and
+    three sources — Ecdysozoa, `cellular organisms`, Opisthokonta — served
+    1.79M nodes between them. A riffle beetle was drawn as the Ecdysozoa blob;
+    so was every other arthropod on screen, so the canvas carried no
+    information at all.
 
-    `descendant_fallback` then lets a clade with no ancestor image borrow from
-    a descendant. That is a **weaker claim** — architecture §7's point is that a
-    silhouette represents a clade, and showing one member's silhouette for a
-    clade is the "mole for Mammalia" failure — so it is marked distinctly and
-    counted separately. It only ever helps *internal* nodes: a leaf's subtree
-    is only itself, so leaf coverage is entirely down to the ancestor sweep.
+    The claim a borrowed picture actually makes is "this node and this drawing
+    are both inside clade C, and here is what something in C looks like". What
+    matters is therefore the size of **C**, not how many hops the search took —
+    and the honest choice of C is the *smallest* clade containing both, which
+    is the nearest ancestor-or-self of the node with any seed beneath it. For
+    that beetle C is Elminae (987 tips) rather than Ecdysozoa (1,208,417), and
+    the median across the tree falls from 1,208,417 tips to 3,153.
+
+    Exactness still wins: a node with its own image keeps it, so Mammalia is
+    still drawn as Mammalia and never as one mole inside it. architecture §7's
+    warning survives intact — it is about a *specific* node wearing a clade's
+    picture, and `clade` is exactly the number that says how big a claim that
+    is. The UI must render it; a picture from a 987-tip family is a fact about
+    the beetle, and one from a 1.2M-tip superphylum is not.
     """
     n = parent.size
-    if not depth.size == subtree_out.size == seed.size == n:
+    if not depth.size == subtree_out.size == seed.size == tip_count.size == n:
         raise ValueError("propagate: array lengths disagree")
 
     idxs = np.arange(n, dtype=np.int64)
     seeded: BoolArray = seed != NO_IMAGE
+    best = exemplars(parent, depth, tip_count, seed)
 
-    link = np.where(seeded, idxs, parent.astype(np.int64))
+    # The shared clade: nearest ancestor-or-self with a seed anywhere below it.
+    # Same pointer doubling as before, over "has an exemplar" instead of "is
+    # seeded" — a node with an exemplar is a self-loop and absorbs the chain.
+    link = np.where(best != NO_IMAGE, idxs, parent.astype(np.int64))
     link[0] = 0  # the root's parent is the NO_PARENT sentinel, not an index
     for _ in range(MAX_JUMPS):
         nxt = link[link]
@@ -742,32 +826,37 @@ def propagate(
             break
         link = nxt
 
-    resolved = seeded[link]
+    resolved: BoolArray = best[link] != NO_IMAGE
     depth64 = depth.astype(np.int64)
-    source = np.where(resolved, link, NO_IMAGE)
+    clade = np.where(resolved, link, NO_IMAGE)
+    # Exactness beats inclusiveness: a seeded node draws itself, not the
+    # biggest thing under it.
+    source = np.where(seeded, idxs, np.where(resolved, best[link], NO_IMAGE))
+    image = np.where(resolved, seed[source], NO_IMAGE)
     hops = np.where(resolved, depth64 - depth64[link], 0)
-    image = np.where(resolved, seed[link], NO_IMAGE)
-    method = np.where(resolved, np.where(hops == 0, M_EXACT, M_ANCESTOR), M_NONE)
 
-    if descendant_fallback and not bool(resolved.all()):
-        # Nearest seeded node at or after `i` in preorder. It lies inside i's
-        # subtree exactly when it is below `subtree_out[i]` — the same interval
-        # test the content gate uses, read the other way round.
-        cand = np.where(seeded, idxs, n)
-        suffix_min = np.minimum.accumulate(cand[::-1])[::-1]
-        take = (~resolved) & (suffix_min < subtree_out.astype(np.int64))
-        if bool(take.any()):
-            j = suffix_min[take]
-            source[take] = j
-            image[take] = seed[j]
-            hops[take] = depth64[j] - depth64[take]
-            method[take] = M_DESCENDANT
+    # The method is the topological relationship, derived rather than tracked,
+    # so it cannot drift from the arrays it describes. `relative` is new and is
+    # the common case: a cousin, neither ancestor nor descendant.
+    out64 = subtree_out.astype(np.int64)
+    is_anc = (source <= idxs) & (idxs < out64[np.maximum(source, 0)])
+    is_desc = (idxs < source) & (source < out64)
+    method = np.where(
+        ~resolved,
+        M_NONE,
+        np.where(
+            source == idxs,
+            M_EXACT,
+            np.where(is_anc, M_ANCESTOR, np.where(is_desc, M_DESCENDANT, M_RELATIVE)),
+        ),
+    )
 
     if int(hops.max(initial=0)) > 255:
         raise ValueError("climb exceeds u8; the tree is deeper than it should be")
     return Assignment(
         image=image,
         source=source,
+        clade=clade,
         climb=hops.astype(np.uint8),
         method=method.astype(np.uint8),
     )
@@ -973,23 +1062,25 @@ def write_node_image(
           idx          INTEGER PRIMARY KEY,
           phylopic_id  TEXT NOT NULL,
           source_idx   INTEGER NOT NULL,  -- the node the image is actually OF
-          climb        INTEGER NOT NULL,  -- hops from idx to source_idx; 0 = exact
-          method       TEXT NOT NULL      -- 'exact' | 'ancestor' | 'descendant'
+          clade_idx    INTEGER NOT NULL,  -- smallest clade holding idx and source
+          climb        INTEGER NOT NULL,  -- hops from idx up to clade_idx
+          method       TEXT NOT NULL      -- exact|ancestor|descendant|relative
         );
         """
     )
     uuids = [r.uuid for r in records]
 
-    def rows() -> Iterator[tuple[int, str, int, int, str]]:
+    def rows() -> Iterator[tuple[int, str, int, int, int, str]]:
         img = assign.image.tolist()
         src = assign.source.tolist()
+        clade = assign.clade.tolist()
         climb = assign.climb.tolist()
         for i, m in enumerate(assign.method.tolist()):
             if m == M_NONE:
                 continue
-            yield (i, uuids[img[i]], src[i], climb[i], METHOD_NAME[m])
+            yield (i, uuids[img[i]], src[i], clade[i], climb[i], METHOD_NAME[m])
 
-    con.executemany("INSERT INTO node_image VALUES (?,?,?,?,?)", rows())
+    con.executemany("INSERT INTO node_image VALUES (?,?,?,?,?,?)", rows())
     # Deliberately no secondary indexes. `idx` is the rowid, so the lookup the
     # UI actually makes — node -> silhouette + attribution, including for the
     # credits command — is already a primary-key probe. Measured with dbstat,
@@ -1009,6 +1100,7 @@ def write_arrays(records: list[ImageRecord], assign: Assignment) -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     np.save(OUT / "node_image.npy", assign.image.astype(np.int32))
     np.save(OUT / "node_image_source.npy", assign.source.astype(np.int64))
+    np.save(OUT / "node_image_clade.npy", assign.clade.astype(np.int64))
     np.save(OUT / "node_image_climb.npy", assign.climb)
     np.save(OUT / "node_image_method.npy", assign.method)
     (OUT / "silhouette_ids.json").write_text(
@@ -1053,7 +1145,11 @@ def record_mirror(records: list[ImageRecord], have: dict[str, MirrorRow]) -> Non
 
 
 def coverage_gates(
-    g: GateSet, assign: Assignment, tip_count: U32Array, subtree_out: U32Array
+    g: GateSet,
+    assign: Assignment,
+    tip_count: U32Array,
+    subtree_out: U32Array,
+    depth: DepthArray,
 ) -> JsonDict:
     is_tip = tip_count == 1
     resolved = assign.method != M_NONE
@@ -1065,46 +1161,99 @@ def coverage_gates(
     leaf_strict = float(strict[is_tip].mean())
     internal_strict = float(strict[~is_tip].mean())
 
+    # --- what the picture is actually claiming ---------------------------
+    #
+    # This pair of gates replaces the pair that used to block here, which
+    # required 94%/88.6% node coverage and measured 100.0000%. Both numbers
+    # were true and neither meant anything: coverage asks whether *an* image
+    # resolved, and under the old rule two thirds of the tree resolved to a
+    # blob standing for a million species. A reader seeing 100% would conclude
+    # the silhouette layer worked, and management.md records that in every
+    # screenshot of the last build not one silhouette usefully rendered.
+    #
+    # What a borrowed picture claims is "this node and this drawing are both
+    # inside clade C". So the honest measure is the size of C, and the gate is
+    # the share of nodes whose C is small enough to be about something. Read
+    # it as: for this fraction of the tree, the picture beside a node depicts
+    # a group the node genuinely belongs to and a reader can hold in mind.
+    claim = np.where(resolved, tip_count[np.maximum(assign.clade, 0)], 0)
+    informative = resolved & (claim <= INFORMATIVE_CLADE_TIPS)
+    leaf_inf = float(informative[is_tip].mean())
+    internal_inf = float(informative[~is_tip].mean())
     note = (
-        "The 88.6%/94.0% baseline was measured on PhyloPic's own `primaryImage` "
-        "clade fallback over sampled nodes (data-sources.md finding 5), not on "
-        "this build's resolution. It is still the right *floor* — it is the "
-        "coverage a client would get asking the API per node, which is exactly "
-        "what this replaces — but it is no longer the right ceiling, and on its "
-        "own it is no longer the right thing to measure. Crawling the index and "
-        "propagating locally resolves every node with any seeded ancestor, and "
-        "the corpus seeds high enough in the tree that that is nearly all of "
-        "them. Read the climb distribution alongside it: coverage says an image "
-        "exists, climb says how much it means."
+        "The clade is the smallest one containing both the node and the "
+        "drawing, so its tip count is the size of the claim the picture "
+        f"makes. At or below {INFORMATIVE_CLADE_TIPS:,} tips it is a group a "
+        "reader can picture — Elminae is 987, Coccinellidae 2,272, Selachii "
+        "723. The rule this replaced resolved 100% of nodes and cleared this "
+        "bar for 13.4% of them, because it took the nearest *seeded ancestor* "
+        "and that is usually a superphylum. Coverage is still reported below, "
+        "as an observation: it says an image exists, this says whether it is "
+        "about anything."
     )
     g.require(
-        "leaf node coverage",
-        f"{leaf_cov:.4%} of {n_leaf:,}",
-        f">= {BASELINE_LEAF:.1%}",
-        ok=leaf_cov >= BASELINE_LEAF,
+        "leaf silhouettes represent a clade a reader can picture",
+        f"{leaf_inf:.2%} of {n_leaf:,}",
+        f">= {MIN_INFORMATIVE_LEAF:.0%}",
+        ok=leaf_inf >= MIN_INFORMATIVE_LEAF,
         note=note,
     )
     g.require(
-        "internal node coverage",
-        f"{internal_cov:.4%} of {n_internal:,}",
-        f">= {BASELINE_INTERNAL:.1%}",
-        ok=internal_cov >= BASELINE_INTERNAL,
+        "internal silhouettes represent a clade a reader can picture",
+        f"{internal_inf:.2%} of {n_internal:,}",
+        f">= {MIN_INFORMATIVE_INTERNAL:.0%}",
+        ok=internal_inf >= MIN_INFORMATIVE_INTERNAL,
+    )
+
+    claimed = claim[resolved]
+    pcts = np.percentile(claimed, [50, 75, 90]) if claimed.size else (0, 0, 0)
+    g.observe(
+        "clade a silhouette speaks for",
+        f"median {pcts[0]:,.0f} tips, p75 {pcts[1]:,.0f}, p90 {pcts[2]:,.0f}",
+        note=(
+            "Median was 1,208,417 under the nearest-seeded-ancestor rule — "
+            "i.e. the typical node was drawn as Ecdysozoa."
+        ),
     )
     g.observe(
-        "leaf coverage, ancestor-or-self only",
-        f"{leaf_strict:.4%}",
-        note="excludes the weaker descendant fallback",
+        "nodes whose silhouette speaks for over a million tips",
+        f"{float((claim > 1_000_000).mean()):.2%}",
+        note="65.3% under the previous rule.",
     )
-    g.observe("internal coverage, ancestor-or-self only", f"{internal_strict:.4%}")
+
+    g.observe(
+        "leaf node coverage",
+        f"{leaf_cov:.4%} of {n_leaf:,}",
+        f">= {BASELINE_LEAF:.1%}",
+        note=(
+            "The 88.6%/94.0% baseline was measured on PhyloPic's own "
+            "`primaryImage` clade fallback over sampled nodes "
+            "(data-sources.md finding 5). It was the right floor for a "
+            "mechanism that asked the API per node, and it stopped being the "
+            "right thing to *block* on once local propagation made it "
+            "unanimous. Kept because a fall here would still mean a real "
+            "regression in seeding."
+        ),
+    )
+    g.observe("internal node coverage", f"{internal_cov:.4%} of {n_internal:,}")
+    g.observe(
+        "coverage, ancestor-or-self only",
+        f"leaf {leaf_strict:.4%}, internal {internal_strict:.4%}",
+        note="excludes the cousin and descendant routes",
+    )
 
     counts = {
         METHOD_NAME.get(m, "none"): int((assign.method == m).sum())
-        for m in (M_EXACT, M_ANCESTOR, M_DESCENDANT, M_NONE)
+        for m in (M_EXACT, M_ANCESTOR, M_DESCENDANT, M_RELATIVE, M_NONE)
     }
     g.observe(
         "resolution method",
         ", ".join(f"{k} {v:,}" for k, v in counts.items()),
-        note="descendant is the weaker claim and is counted separately.",
+        note=(
+            "`relative` is a cousin — neither ancestor nor descendant — and is "
+            "the ordinary case. It is not a weaker claim than `ancestor`: it is "
+            "the same claim about a smaller clade, which is why it exists."
+        ),
     )
 
     climb = assign.climb[resolved].astype(np.int64)
@@ -1121,8 +1270,11 @@ def coverage_gates(
         f"p50 {p50:.0f}, p75 {p75:.0f}, p90 {p90:.0f}, p99 {p99:.0f}, "
         f"max {int(climb.max(initial=0))}",
         note=(
-            "How far a node looks up for its silhouette. climb 0 is a portrait "
-            "of that taxon; climb 12 is a clade image and the UI must say so."
+            "Hops from a node up to the clade its picture speaks for. Climb 0 "
+            "means the drawing is of this node or of something inside it. This "
+            "used to count hops to the *source* and averaged 27, which was "
+            "measuring the search rather than the answer — the clade size "
+            "above is what a reader is affected by."
         ),
     )
 
@@ -1133,30 +1285,48 @@ def coverage_gates(
     pool = np.flatnonzero(resolved)
     sample = rng.choice(pool, size=min(200_000, pool.size), replace=False)
     src = assign.source[sample]
-    is_desc = assign.method[sample] == M_DESCENDANT
-    sane = np.where(
-        is_desc,
-        (sample <= src) & (src < subtree_out[sample].astype(np.int64)),
-        (src <= sample) & (sample < subtree_out[src].astype(np.int64)),
+    cld = assign.clade[sample]
+    out = subtree_out.astype(np.int64)
+    depth64 = depth.astype(np.int64)
+    # The whole claim, checked as one statement: the clade contains both the
+    # node and the drawing. Under the old ancestor-only rule this was
+    # "source is an ancestor of node", which a cousin fails while being a
+    # strictly better answer — so the invariant moves to the clade, which is
+    # the thing the UI now shows and therefore the thing that must be true.
+    sane = (
+        (cld <= sample)
+        & (sample < out[cld])
+        & (cld <= src)
+        & (src < out[cld])
+        & (assign.climb[sample] == (depth64[sample] - depth64[cld]))
     )
     g.require(
-        "sampled silhouettes are topologically sane",
+        "a sampled silhouette's clade really contains both node and drawing",
         f"{int((~sane).sum())} violations in {sample.size:,} sampled nodes",
         "0 violations",
         ok=bool(sane.all()),
         note=(
-            "source_idx <= idx < subtree_out[source_idx] iff the image's node "
-            "really is an ancestor-or-self of the node showing it; reversed for "
-            "the descendant fallback."
+            "clade <= i < subtree_out[clade] for both the node and its image's "
+            "node, and climb is the depth difference. That is exactly what the "
+            "card asserts when it says the picture is of something within this "
+            "clade, so it is what gets checked."
         ),
     )
     g.require(
-        "climb agrees with method on the sample",
-        int(((assign.climb[sample] == 0) != (assign.method[sample] == M_EXACT)).sum()),
+        "an exact silhouette is the node's own, and only then",
+        int(((src == sample) != (assign.method[sample] == M_EXACT)).sum()),
         0,
-        note="climb 0 and method 'exact' are the same statement.",
+        note=(
+            "Replaces a gate reading `climb == 0 iff exact`, which stopped "
+            "being true when climb started counting hops to the clade: an "
+            "unseeded genus holding a drawn species sits at climb 0 and is "
+            "emphatically not a portrait of itself."
+        ),
     )
     return {
+        "leaf_informative": leaf_inf,
+        "internal_informative": internal_inf,
+        "clade_tips_median": float(np.median(claimed)) if claimed.size else 0.0,
         "leaf": leaf_cov,
         "internal": internal_cov,
         "leaf_strict": leaf_strict,
@@ -1323,7 +1493,7 @@ def run(budget: int = 0, mirror_only: bool = False, log: Log = _log) -> int:
             titles=[r.node_title for r in records],
             name_uids=name_uids,
         )
-        assign = propagate(parent, depth, subtree_out, seed)
+        assign = propagate(parent, depth, subtree_out, seed, tip_count)
         log(f"  propagated in {time.monotonic() - t0:,.1f}s")
 
         g.observe(
@@ -1373,7 +1543,7 @@ def run(budget: int = 0, mirror_only: bool = False, log: Log = _log) -> int:
                 else "taxonomy.tsv not extracted; name matching skipped"
             ),
         )
-        cov = coverage_gates(g, assign, tip_count, subtree_out)
+        cov = coverage_gates(g, assign, tip_count, subtree_out, depth)
         (BUILD / "phase5a_coverage.json").write_text(json.dumps(cov, indent=2) + "\n")
         write_arrays(records, assign)
 

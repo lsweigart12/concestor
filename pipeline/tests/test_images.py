@@ -33,6 +33,7 @@ from concestor_build.images import (
     M_DESCENDANT,
     M_EXACT,
     M_NONE,
+    M_RELATIVE,
     NO_IMAGE,
     ImageRecord,
     name_candidates,
@@ -61,84 +62,130 @@ def make_seed(pairs):
     return seed
 
 
-def naive(parent, seed):
-    """The definition the sweep vectorises: walk up until something is seeded."""
-    out = []
-    for i in range(parent.size):
-        cur, hops = i, 0
+# tip_count for PARENT: tips are 3, 4, 6, 7; A(1) and B(5) hold two each.
+TIP_COUNT = np.array([4, 2, 1, 1, 1, 2, 1, 1], dtype=np.uint32)
+
+
+def naive(parent, depth, tip_count, seed):
+    """The definition the sweep vectorises, written the slow obvious way.
+
+    For each node: climb until an ancestor-or-self has *any* seed beneath it,
+    then take the most inclusive seed under that clade. Cousins included —
+    that is the whole difference from the rule this replaced.
+    """
+    n = parent.size
+
+    def subtree(v) -> list[int]:
+        out, stack = [], [v]
+        while stack:
+            u = stack.pop()
+            out.append(u)
+            stack.extend(int(i) for i in range(n) if i and int(parent[i]) == u)
+        return out
+
+    result = []
+    for i in range(n):
+        cur = i
         while True:
-            if seed[cur] != NO_IMAGE:
-                out.append((int(seed[cur]), cur, hops))
+            below = [v for v in subtree(cur) if seed[v] != NO_IMAGE]
+            if below:
+                if seed[i] != NO_IMAGE:
+                    src = i  # exactness wins over inclusiveness
+                else:
+                    src = min(
+                        below, key=lambda v: (-int(tip_count[v]), int(depth[v]), v)
+                    )
+                result.append(
+                    (int(seed[src]), src, cur, int(depth[i]) - int(depth[cur]))
+                )
                 break
             if cur == 0:
-                out.append((NO_IMAGE, NO_IMAGE, 0))
+                result.append((NO_IMAGE, NO_IMAGE, NO_IMAGE, 0))
                 break
-            cur, hops = int(parent[cur]), hops + 1
-    return out
+            cur = int(parent[cur])
+    return result
 
 
-def test_ancestor_propagation_matches_the_hand_worked_answer(topo):
+def test_propagation_matches_the_hand_worked_answer(topo):
     seed = make_seed([(1, 10), (4, 11), (7, 12)])
-    a = propagate(PARENT, topo.depth, topo.subtree_out, seed, descendant_fallback=False)
+    a = propagate(PARENT, topo.depth, topo.subtree_out, seed, TIP_COUNT)
 
-    # A and A2 and B2 are exact; A1/A1x inherit A one and two hops up.
-    assert a.image.tolist() == [NO_IMAGE, 10, 10, 10, 11, NO_IMAGE, NO_IMAGE, 12]
-    assert a.source.tolist() == [NO_IMAGE, 1, 1, 1, 4, NO_IMAGE, NO_IMAGE, 7]
-    assert a.climb.tolist() == [0, 0, 1, 2, 0, 0, 0, 0]
+    # A is the most inclusive seed (2 tips), so it is the exemplar for the
+    # root and for everything under A that has no image of its own.
+    assert a.image.tolist() == [10, 10, 10, 10, 11, 12, 12, 12]
+    assert a.source.tolist() == [1, 1, 1, 1, 4, 7, 7, 7]
+    # The clade each picture speaks for — the honest size of the claim.
+    assert a.clade.tolist() == [0, 1, 1, 1, 4, 5, 5, 7]
+    # Hops up to that clade, not to the drawing.
+    assert a.climb.tolist() == [0, 0, 1, 2, 0, 0, 1, 0]
     assert a.method.tolist() == [
-        M_NONE,  # root: nothing above it
+        M_DESCENDANT,  # root borrows A, which is inside it
         M_EXACT,  # A
         M_ANCESTOR,  # A1 -> A
         M_ANCESTOR,  # A1x -> A, two hops
         M_EXACT,  # A2 has its own image, so it does NOT inherit A's
-        M_NONE,  # B
-        M_NONE,  # B1: B2 is a sibling, not an ancestor
-        M_EXACT,  # B2
+        M_DESCENDANT,  # B borrows B2
+        M_RELATIVE,  # B1 -> B2, its sibling. The rule that made this M_NONE
+        M_EXACT,  # B2                        is the one this change removed.
     ]
 
 
-def test_a_seeded_node_keeps_its_own_image_over_its_ancestors(topo):
-    """A2 is inside A's clade and both are seeded; the specific one wins."""
+def test_a_cousin_beats_a_remote_ancestor(topo):
+    """The riffle beetle, in miniature.
+
+    B1 has no image and no seeded ancestor short of the root. The old rule
+    gave it the root's picture — a drawing standing for all four tips. The
+    clade it shares with B2 holds two, so that is what it gets.
+    """
     a = propagate(
-        PARENT,
-        topo.depth,
-        topo.subtree_out,
-        make_seed([(1, 10), (4, 11)]),
-        descendant_fallback=False,
+        PARENT, topo.depth, topo.subtree_out, make_seed([(0, 99), (7, 12)]), TIP_COUNT
+    )
+    assert a.source[6] == 7
+    assert a.clade[6] == 5
+    assert a.method[6] == M_RELATIVE
+    assert TIP_COUNT[a.clade[6]] < TIP_COUNT[0]
+
+
+def test_a_seeded_node_keeps_its_own_image(topo):
+    """A2 is inside A's clade and both are seeded; the specific one wins.
+
+    Exactness beating inclusiveness is what keeps architecture §7 intact:
+    Mammalia draws Mammalia, never one mole from inside it.
+    """
+    a = propagate(
+        PARENT, topo.depth, topo.subtree_out, make_seed([(1, 10), (4, 11)]), TIP_COUNT
     )
     assert a.image[4] == 11
+    assert a.source[4] == 4
     assert a.climb[4] == 0
     assert a.method[4] == M_EXACT
 
 
-def test_descendant_fallback_is_marked_distinctly(topo):
-    seed = make_seed([(1, 10), (7, 12)])
-    off = propagate(
-        PARENT, topo.depth, topo.subtree_out, seed, descendant_fallback=False
+def test_the_exemplar_is_the_most_inclusive_seed_not_the_nearest(topo):
+    """A boa for Serpentes, not the blind snake that happened to sort first."""
+    # Both 3 and 4 are seeded; 4 is the more inclusive by tip_count.
+    tips = np.array([4, 2, 1, 1, 3, 2, 1, 1], dtype=np.uint32)
+    a = propagate(
+        PARENT, topo.depth, topo.subtree_out, make_seed([(3, 10), (4, 11)]), tips
     )
-    on = propagate(PARENT, topo.depth, topo.subtree_out, seed, descendant_fallback=True)
+    assert a.source[1] == 4
+    assert a.image[1] == 11
 
-    # Ancestor-or-self results are untouched by turning the fallback on.
-    keep = off.method != M_NONE
-    assert np.array_equal(off.image[keep], on.image[keep])
-    assert np.array_equal(off.method[keep], on.method[keep])
 
-    # root borrows A, the first seeded node in preorder inside its subtree;
-    # B borrows B2. Both are marked `descendant`, never `ancestor`.
-    assert on.method[0] == M_DESCENDANT
-    assert on.source[0] == 1
-    assert on.method[5] == M_DESCENDANT
-    assert on.source[5] == 7
+def test_climb_zero_does_not_mean_a_portrait(topo):
+    """An unseeded genus holding a drawn species sits at climb 0.
 
-    # B1 stays unresolved. B2 is its *sibling*, not its descendant, and the
-    # fallback must not reach sideways — a leaf's subtree is only itself, so
-    # the descendant fallback can never improve leaf coverage at all.
-    assert on.method[6] == M_NONE
-    assert on.source[6] == NO_IMAGE
+    The gate that used to read `climb == 0 iff exact` was true only while
+    climb counted hops to the drawing. It counts hops to the clade now.
+    """
+    a = propagate(PARENT, topo.depth, topo.subtree_out, make_seed([(3, 10)]), TIP_COUNT)
+    assert a.climb[2] == 0
+    assert a.method[2] == M_DESCENDANT
+    assert a.source[2] == 3
 
 
 def test_a_seeded_root_resolves_every_node(topo):
-    a = propagate(PARENT, topo.depth, topo.subtree_out, make_seed([(0, 99)]))
+    a = propagate(PARENT, topo.depth, topo.subtree_out, make_seed([(0, 99)]), TIP_COUNT)
     assert (a.image == 99).all()
     assert (a.source == 0).all()
     assert a.climb.tolist() == topo.depth.tolist()
@@ -147,50 +194,77 @@ def test_a_seeded_root_resolves_every_node(topo):
 
 
 def test_nothing_seeded_resolves_nothing(topo):
-    a = propagate(PARENT, topo.depth, topo.subtree_out, make_seed([]))
+    a = propagate(PARENT, topo.depth, topo.subtree_out, make_seed([]), TIP_COUNT)
     assert (a.method == M_NONE).all()
     assert (a.source == NO_IMAGE).all()
+    assert (a.clade == NO_IMAGE).all()
 
 
-def test_source_is_always_an_ancestor_under_the_preorder_interval(topo):
-    """The exact check the content gate makes, on a tree small enough to read."""
+def test_the_clade_contains_both_the_node_and_the_drawing(topo):
+    """The exact check the content gate makes, on a tree small enough to read.
+
+    This is the invariant the card asserts out loud, so it is the one worth
+    pinning. Note it is *not* "the source is an ancestor" — a cousin fails
+    that while being the better answer.
+    """
     a = propagate(
         PARENT,
         topo.depth,
         topo.subtree_out,
         make_seed([(1, 10), (4, 11), (7, 12)]),
-        descendant_fallback=False,
+        TIP_COUNT,
     )
     for i in range(PARENT.size):
         if a.method[i] == M_NONE:
             continue
-        src = int(a.source[i])
-        assert src <= i < topo.subtree_out[src]
+        c, src = int(a.clade[i]), int(a.source[i])
+        assert c <= i < topo.subtree_out[c]
+        assert c <= src < topo.subtree_out[c]
 
 
 def test_matches_the_naive_walk_on_random_trees():
-    """Pointer doubling and the naive upward walk must agree everywhere."""
+    """The vectorised sweep and the slow obvious definition must agree."""
     rng = np.random.default_rng(7)
     for _ in range(40):
-        n = int(rng.integers(2, 400))
+        n = int(rng.integers(2, 120))
         parent = np.zeros(n, dtype=np.uint32)
         parent[0] = NO_PARENT
         for i in range(1, n):
             parent[i] = rng.integers(0, i)  # preserves parent[i] < i
         topo = derive(parent)
+        tip_count = topo.tip_count
         seed = np.where(
             rng.random(n) < rng.choice([0.02, 0.2, 0.8]),
             rng.integers(0, 50, size=n),
             NO_IMAGE,
         ).astype(np.int64)
 
-        a = propagate(
-            parent, topo.depth, topo.subtree_out, seed, descendant_fallback=False
-        )
-        expected = naive(parent, seed)
+        a = propagate(parent, topo.depth, topo.subtree_out, seed, tip_count)
+        expected = naive(parent, topo.depth, tip_count, seed)
         assert [
-            (int(a.image[i]), int(a.source[i]), int(a.climb[i])) for i in range(n)
+            (int(a.image[i]), int(a.source[i]), int(a.clade[i]), int(a.climb[i]))
+            for i in range(n)
         ] == expected
+
+
+def test_every_node_resolves_when_anything_is_seeded():
+    """The property that makes coverage a useless gate, stated as a test.
+
+    Coverage was 100% before this change and is 100% after it. That is why
+    the blocking gate is now the size of the clade, not the share of nodes.
+    """
+    rng = np.random.default_rng(11)
+    for _ in range(20):
+        n = int(rng.integers(2, 200))
+        parent = np.zeros(n, dtype=np.uint32)
+        parent[0] = NO_PARENT
+        for i in range(1, n):
+            parent[i] = rng.integers(0, i)
+        topo = derive(parent)
+        seed = np.full(n, NO_IMAGE, dtype=np.int64)
+        seed[int(rng.integers(0, n))] = 3
+        a = propagate(parent, topo.depth, topo.subtree_out, seed, topo.tip_count)
+        assert (a.method != M_NONE).all()
 
 
 def test_deep_chain_needs_more_than_one_doubling_round():
@@ -202,14 +276,16 @@ def test_deep_chain_needs_more_than_one_doubling_round():
     topo = derive(parent)
     seed = np.full(n, NO_IMAGE, dtype=np.int64)
     seed[0] = 5
-    a = propagate(parent, topo.depth, topo.subtree_out, seed)
+    a = propagate(parent, topo.depth, topo.subtree_out, seed, topo.tip_count)
     assert (a.source == 0).all()
     assert a.climb.tolist() == list(range(n))
 
 
 def test_propagate_rejects_mismatched_arrays(topo):
     with pytest.raises(ValueError, match="lengths disagree"):
-        propagate(PARENT, topo.depth, topo.subtree_out, np.zeros(3, dtype=np.int64))
+        propagate(
+            PARENT, topo.depth, topo.subtree_out, np.zeros(3, dtype=np.int64), TIP_COUNT
+        )
 
 
 # --------------------------------------------------------------------------
@@ -729,7 +805,7 @@ def test_tables_carry_data_and_not_just_rows(tmp_path, monkeypatch):
         topo.depth,
         topo.subtree_out,
         make_seed([(1, 0), (7, 1)]),
-        descendant_fallback=False,
+        TIP_COUNT,
     )
 
     con = images.connect_rw()
@@ -762,12 +838,14 @@ def test_tables_carry_data_and_not_just_rows(tmp_path, monkeypatch):
         == 0
     )
     assert con.execute(
-        "SELECT phylopic_id, source_idx, climb, method FROM node_image WHERE idx=3"
-    ).fetchone() == ("img-a", 1, 2, "ancestor")
+        "SELECT phylopic_id, source_idx, clade_idx, climb, method FROM node_image "
+        "WHERE idx=3"
+    ).fetchone() == ("img-a", 1, 1, 2, "ancestor")
     assert {m for (m,) in con.execute("SELECT DISTINCT method FROM node_image")} <= {
         "exact",
         "ancestor",
         "descendant",
+        "relative",
     }
     con.close()
 
@@ -788,11 +866,7 @@ def test_mirror_order_puts_the_biggest_clades_first():
     topo = derive(PARENT)
     # image 0 resolves the A clade (3 tips), image 1 resolves only B2 (1 tip).
     assign = propagate(
-        PARENT,
-        topo.depth,
-        topo.subtree_out,
-        make_seed([(1, 0), (7, 1)]),
-        descendant_fallback=False,
+        PARENT, topo.depth, topo.subtree_out, make_seed([(1, 0), (7, 1)]), tip_count
     )
     recs = [_rec("small-clade", [1]), _rec("big-clade", [2]), _rec("unused", [3])]
     order = images.mirror_order(recs, tip_count, assign)

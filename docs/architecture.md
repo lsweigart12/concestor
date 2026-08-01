@@ -612,13 +612,26 @@ real advantage over photographs, alongside the one that matters more: a silhouet
 legitimately represents a *clade*, where a photograph can only represent one member.
 Rendering a mole for "Mammalia" is worse than rendering nothing.
 
+> **Amended by the build.** That last sentence is right and was read too widely. It is
+> about a *specific* node wearing a picture of something far broader, and the number
+> that decides it is `node_image.clade_idx` — the smallest clade containing both the
+> node and the drawing. Mammalia has an image of its own and draws it, so the mole case
+> never arises; a riffle beetle shares Elminae's 987 species with the drawing beside it,
+> which is a fact about the beetle. Only 12,863 drawings exist for 2.7M nodes, so
+> withholding every borrowed picture means withholding nearly all of them. The rule that
+> ships is: draw it, and say what group it speaks for and how large that group is.
+> Measured before and after the resolution change, and the reasoning, in handoff.md §5.
+
 They belong at the upper tiers of semantic zoom — a silhouette *is* the "full detail
 card" tier for a clade, and arguably earns a place at the label tier for well-known ones.
 
-Resolution is baked (`node.phylopic_id`), so there is no client-side climb. Since this is
-not a commercial project, use `primaryImage`, which resolves by clade fallback
-server-side and gives effective **~100% coverage** — the licence-filtered path and its
-93.7% are no longer needed.
+Resolution is baked, so there is no client-side climb — though not in
+`node.phylopic_id`: it lives in `node_image`, which carries the drawing's own node, the
+shared clade, the climb and the method. `primaryImage` is not used either; one call per
+node is 2.7M requests against a volunteer service, and crawling the index instead is 269
+(ingest.md phase 5). **Coverage is 100% and is not the thing to measure** — every node
+resolving to *an* image says nothing about whether that image is about anything. See
+handoff.md §5.
 
 **Attribution renders in the UI**, not in a licence file: creator and licence in the node
 detail card, plus a credits view enumerating everything currently displayed. CC-BY

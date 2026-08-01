@@ -44,8 +44,11 @@ export interface MarkData extends Record<string, unknown> {
   zoom: ZoomTier;
   /** False when the only available image is of too broad a clade to inform. */
   showSilhouette: boolean;
-  /** Name of the clade an inherited silhouette actually depicts, if not this one. */
-  silhouetteOf: string | null;
+  /**
+   * What a borrowed picture speaks for: the smallest clade holding both this
+   * node and the drawing. Null when the picture is this node's own.
+   */
+  silhouetteClade: { name: string | null; tips: number | null } | null;
   /** Resolved position, from the collision pass. Absent before it runs. */
   label: LabelBox | undefined;
   /** Set only where the taxonomy has no name and we derived one. See naming.ts. */
@@ -77,6 +80,36 @@ export function ageLabel(age: number | null, tier: Tier): string | null {
   if (age < 0.05) return "present";
   const n = age >= 100 ? Math.round(age) : age >= 10 ? age.toFixed(0) : age.toFixed(1);
   return `${tier === TIER_INTERPOLATED ? "≤ " : ""}${n} Ma`;
+}
+
+/**
+ * What the picture beside a node is actually a picture of.
+ *
+ * Almost none of them are portraits — the corpus is 12,863 drawings against
+ * 2.7M nodes — so the ordinary case is a drawing of a relative, and the honest
+ * statement of that is the smallest group containing both. Naming the group
+ * and its size is what earns the right to draw the picture at all: "a beetle
+ * from within Elminae (987 species)" is a fact about this beetle, and the
+ * reader can weigh it. The caption this replaced said "the nearest clade with
+ * an image", which described our search rather than their answer.
+ */
+export function borrowedTitle(
+  name: string,
+  clade: { name: string | null; tips: number | null } | null,
+): string {
+  if (!clade) return `Silhouette of ${name}`;
+  const size = clade.tips ? `${clade.tips.toLocaleString()} species` : "many species";
+  if (!clade.name) {
+    return `Not ${name} itself — a drawing of the closest relative anyone has drawn`;
+  }
+  // A clade of the same name is the ordinary case for an unillustrated group:
+  // nobody drew Selachii, but somebody drew a shark inside it. Reading that
+  // back as "from within Selachii" for a node *called* Selachii is true and
+  // clumsy, so it gets its own sentence.
+  if (clade.name === name) {
+    return `Not ${name} itself — a drawing of one of its ${size}`;
+  }
+  return `Not ${name} itself — a drawing from within ${clade.name}, the smallest group holding both (${size})`;
 }
 
 /**
@@ -200,11 +233,7 @@ export const NodeMark = memo(function NodeMark({ data }: NodeProps) {
           {withSilhouette && n.phylopic_id && (
             <Silhouette
               phylopicId={n.phylopic_id}
-              title={
-                d.silhouetteOf
-                  ? `Silhouette of ${d.silhouetteOf}, the nearest clade with an image`
-                  : `Silhouette of ${name}`
-              }
+              title={borrowedTitle(name, d.silhouetteClade)}
             />
           )}
           {showText && (

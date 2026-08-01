@@ -11,14 +11,16 @@ import (
 )
 
 // ImageRef is the silhouette shown for a node. SourceIdx names the node the
-// image is actually *of*: PhyloPic resolves by clade fallback, so a species can
-// end up wearing its class's silhouette. Climb is how many hops away that is.
-// The UI needs both — rendering a mole for "Mammalia" is worse than rendering
-// nothing, and the inverse (a mammal outline captioned as a human) is the same
-// mistake pointed the other way.
+// image is actually *of* — the closest drawn relative, which is usually neither
+// an ancestor nor a descendant but a cousin. CladeIdx is the smallest clade
+// containing both the node and the drawing, so its tip_count is the size of the
+// claim the picture makes: 3,153 tips at the median. That number is what decides
+// whether drawing the image would misinform, and Climb is hops up to the clade,
+// not to the source — climb 0 does not imply an exact match.
 type ImageRef struct {
 	PhylopicID string
 	SourceIdx  *int
+	CladeIdx   *int
 	Climb      *int
 	Method     string
 }
@@ -31,12 +33,13 @@ func (s *Store) Images(ctx context.Context, idxs []int) (map[int]ImageRef, error
 	if ni == nil || len(idxs) == 0 {
 		return out, nil
 	}
-	src, climb, method := colOrNull(ni.SourceIdx), colOrNull(ni.Climb), colOrNull(ni.Method)
+	src, clade := colOrNull(ni.SourceIdx), colOrNull(ni.CladeIdx)
+	climb, method := colOrNull(ni.Climb), colOrNull(ni.Method)
 	for start := 0; start < len(idxs); start += metaChunk {
 		end := min(start+metaChunk, len(idxs))
 		chunk := idxs[start:end]
-		q := fmt.Sprintf("SELECT %q, %q, %s, %s, %s FROM %q WHERE %q IN (%s)",
-			ni.Idx, ni.ID, src, climb, method, ni.Table, ni.Idx, placeholders(len(chunk)))
+		q := fmt.Sprintf("SELECT %q, %q, %s, %s, %s, %s FROM %q WHERE %q IN (%s)",
+			ni.Idx, ni.ID, src, clade, climb, method, ni.Table, ni.Idx, placeholders(len(chunk)))
 		args := make([]any, len(chunk))
 		for i, v := range chunk {
 			args[i] = v
@@ -48,8 +51,8 @@ func (s *Store) Images(ctx context.Context, idxs []int) (map[int]ImageRef, error
 		for rows.Next() {
 			var idx int
 			var id, meth sql.NullString
-			var source, climbVal sql.NullInt64
-			if err := rows.Scan(&idx, &id, &source, &climbVal, &meth); err != nil {
+			var source, cladeVal, climbVal sql.NullInt64
+			if err := rows.Scan(&idx, &id, &source, &cladeVal, &climbVal, &meth); err != nil {
 				_ = rows.Close()
 				return out, err
 			}
@@ -60,6 +63,12 @@ func (s *Store) Images(ctx context.Context, idxs []int) (map[int]ImageRef, error
 			if source.Valid {
 				v := int(source.Int64)
 				ref.SourceIdx = &v
+			}
+			// -1 is the pipeline's "unresolved", and a negative index would
+			// address nothing; leave it nil rather than pass it on.
+			if cladeVal.Valid && cladeVal.Int64 >= 0 {
+				v := int(cladeVal.Int64)
+				ref.CladeIdx = &v
 			}
 			if climbVal.Valid {
 				v := int(climbVal.Int64)
@@ -257,17 +266,28 @@ type Attribution struct {
 	Available bool   `json:"available"`
 	URL       string `json:"url,omitempty"`
 
-	// What the picture is actually of. Mean climb across the corpus is 27
-	// ancestor hops, so most nodes inherit an image from a very distant clade
-	// and the UI needs the source's identity to decide whether showing it
-	// would imply something false — rendering a mole for "Mammalia" is worse
-	// than rendering nothing, and so is rendering Mammalia for a mole.
+	// What the picture is actually of. Resolution finds the closest drawn
+	// relative rather than the nearest drawn ancestor, so the source is usually
+	// a cousin and naming it alone would not say how far the likeness stretches.
 	SourceIdx      *int    `json:"source_idx"`
 	SourceName     *string `json:"source_name"`
 	SourceRank     *string `json:"source_rank"`
 	SourceTipCount *int64  `json:"source_tip_count"`
-	Climb          *int    `json:"climb"`
-	Method         string  `json:"method,omitempty"`
+
+	// The clade the picture therefore stands for: the smallest one containing
+	// both this node and the drawing. Its tip count is the size of the claim —
+	// 3,153 at the median — and the detail card is where the app names that
+	// clade out loud, so it needs the number to say how big a claim it is.
+	// CladeName is null for `mrcaott…` nodes, which have no name to give.
+	CladeIdx      *int    `json:"clade_idx"`
+	CladeName     *string `json:"clade_name"`
+	CladeTipCount *int64  `json:"clade_tip_count"`
+
+	// Climb is hops from the node up to the clade, not to the source. Mean is
+	// 4.24, and climb 0 does not imply an exact match: an unseeded genus holding
+	// a drawn species sits at 0.
+	Climb  *int   `json:"climb"`
+	Method string `json:"method,omitempty"`
 }
 
 // SilhouetteAttribution looks up the credit for one PhyloPic id.

@@ -173,10 +173,7 @@ function Inner(props: GraphProps) {
    */
   const describeLabel: LabelText = useCallback(
     (p) => {
-      const srcIdx = p.node.silhouette_source_idx;
-      const src =
-        srcIdx === null || srcIdx === undefined ? undefined : nodeMap.get(srcIdx);
-      const showSil = silhouetteIsInformative(p.node, src?.tip_count);
+      const showSil = silhouetteIsInformative(p.node, p.node.silhouette_clade_tips);
       const withSil = showSil && Boolean(p.node.phylopic_id);
       const div = divergenceFor(p.idx, ind, nodeMap);
       return {
@@ -268,9 +265,14 @@ function Inner(props: GraphProps) {
         const dim =
           (isolate && !focusLineage.has(p.idx)) ||
           (!isolate && focusedIdx !== null && !focusLineage.has(p.idx));
-        const srcIdx = p.node.silhouette_source_idx;
-        const src = srcIdx === null || srcIdx === undefined ? undefined : nodeMap.get(srcIdx);
-        const showSilhouette = silhouetteIsInformative(p.node, src?.tip_count);
+        // The clade travels on the node itself, deliberately. The drawing's
+        // own node is usually a *cousin* and so is not in the induced subtree
+        // at all — looking it up in `nodeMap` returned undefined and silently
+        // dropped the caption in exactly the cases that most need one.
+        const showSilhouette = silhouetteIsInformative(
+          p.node,
+          p.node.silhouette_clade_tips,
+        );
         const data: MarkData = {
           node: p.node,
           hue: p.hue,
@@ -283,10 +285,15 @@ function Inner(props: GraphProps) {
           label: lay.labels.get(p.idx),
           divergence: divergenceFor(p.idx, ind, nodeMap),
           showSilhouette,
-          // Only worth naming when the image is of something else. Saying
-          // "silhouette: Homo sapiens" on Homo sapiens is noise.
-          silhouetteOf:
-            showSilhouette && src && srcIdx !== p.idx ? (src.name ?? null) : null,
+          // Only worth saying when the picture is not a portrait. "Silhouette
+          // of Homo sapiens" on Homo sapiens is noise.
+          silhouetteClade:
+            showSilhouette && p.node.silhouette_source_idx !== p.idx
+              ? {
+                  name: p.node.silhouette_clade_name ?? null,
+                  tips: p.node.silhouette_clade_tips ?? null,
+                }
+              : null,
         };
         return {
           id: String(p.idx),

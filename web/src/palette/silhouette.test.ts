@@ -15,8 +15,13 @@ import {
   type SilhouettePolicy,
 } from "../api";
 
-/** The setting the dial came from, and the one to return to. */
-const CAUTIOUS: SilhouettePolicy = { maxSourceTips: 250_000, allowRootSource: false };
+/**
+ * A dial position the app does not ship, kept exercised so that turning it
+ * back on is a one-line change rather than an archaeology exercise. 10,000 is
+ * the same threshold phase 5a's blocking gate uses for "a group a reader can
+ * picture".
+ */
+const CAUTIOUS: SilhouettePolicy = { maxCladeTips: 10_000 };
 
 function hit(over: Partial<SearchHit> = {}): SearchHit {
   return {
@@ -33,7 +38,7 @@ function hit(over: Partial<SearchHit> = {}): SearchHit {
     matched_on: "name",
     phylopic_id: "abc-123",
     silhouette_source_idx: 594485,
-    silhouette_source_tips: 1,
+    silhouette_clade_tips: 1,
     ...over,
   };
 }
@@ -47,59 +52,41 @@ describe("hitSilhouette", () => {
     expect(hitSilhouette(hit({ phylopic_id: null, has_image: false }))).toBeNull();
   });
 
-  it("draws an image borrowed from a clade small enough to recognise", () => {
+  it("draws a picture shared with a group small enough to recognise", () => {
+    // Elminae: 987 riffle beetles, the case the resolution change exists for.
     expect(
       hitSilhouette(
-        hit({ silhouette_source_idx: 588427, silhouette_source_tips: 249_999 }),
+        hit({ silhouette_source_idx: 588427, silhouette_clade_tips: 987 }),
         CAUTIOUS,
       ),
     ).toBe("abc-123");
   });
 
-  // The rule the dial exists to relax. Coverage climbs to the nearest ancestor
-  // with an image, so at the top of the climb a species inherits the picture
-  // attached to something kingdom-sized. Under CAUTIOUS that is withheld.
-  it("suppresses an image borrowed from a kingdom-sized ancestor", () => {
+  it("suppresses a picture shared with a superphylum under a cautious policy", () => {
+    // Ecdysozoa: 1,208,417 tips. This was 65.3% of the tree before resolution
+    // started looking sideways for a cousin; it is now 0%.
     expect(
       hitSilhouette(
-        hit({ silhouette_source_idx: 588427, silhouette_source_tips: 250_001 }),
+        hit({ silhouette_source_idx: 588427, silhouette_clade_tips: 1_208_417 }),
         CAUTIOUS,
       ),
     ).toBeNull();
   });
 
-  it("suppresses the root's image under a cautious policy", () => {
-    expect(
-      hitSilhouette(
-        hit({ silhouette_source_idx: 0, silhouette_source_tips: 2_400_000 }),
-        CAUTIOUS,
-      ),
-    ).toBeNull();
-  });
-
-  // What the app currently ships. Both of the cases above now draw, and the
-  // honesty they used to buy has to come from the caption instead — NodeMark
-  // says what the picture depicts whenever the source is not the node itself.
+  // What the app ships, and now on evidence rather than on nerve: measured
+  // over the built corpus no node borrows from a clade of over a million tips,
+  // so there is no population of misinforming pictures left for a threshold to
+  // catch. The honesty comes from the caption — NodeMark names the clade and
+  // its size whenever the picture is not the node's own.
   describe("dialled to maximum, which is the shipped default", () => {
     it("is in fact at maximum", () => {
-      expect(SILHOUETTE_POLICY).toEqual({
-        maxSourceTips: Number.POSITIVE_INFINITY,
-        allowRootSource: true,
-      });
+      expect(SILHOUETTE_POLICY).toEqual({ maxCladeTips: Number.POSITIVE_INFINITY });
     });
 
-    it("draws an image borrowed from a kingdom-sized ancestor", () => {
+    it("draws a picture shared with a superphylum", () => {
       expect(
         hitSilhouette(
-          hit({ silhouette_source_idx: 588427, silhouette_source_tips: 2_000_000 }),
-        ),
-      ).toBe("abc-123");
-    });
-
-    it("draws even the root's image", () => {
-      expect(
-        hitSilhouette(
-          hit({ silhouette_source_idx: 0, silhouette_source_tips: 2_400_000 }),
+          hit({ silhouette_source_idx: 588427, silhouette_clade_tips: 2_000_000 }),
         ),
       ).toBe("abc-123");
     });
@@ -109,13 +96,12 @@ describe("hitSilhouette", () => {
     });
   });
 
-  // An older server sends neither field. The image is still worth drawing —
-  // absent evidence of a bad borrow is not evidence of one — but the root and
-  // the size test above must keep working the moment the fields appear.
-  it("draws when the server sends no provenance at all", () => {
+  // An older server sends no clade. The image is still worth drawing — absent
+  // evidence of a bad borrow is not evidence of one — but the size test above
+  // must keep working the moment the field appears.
+  it("draws when the server sends no clade at all", () => {
     const h = hit();
-    delete h.silhouette_source_idx;
-    delete h.silhouette_source_tips;
-    expect(hitSilhouette(h)).toBe("abc-123");
+    delete h.silhouette_clade_tips;
+    expect(hitSilhouette(h, CAUTIOUS)).toBe("abc-123");
   });
 });

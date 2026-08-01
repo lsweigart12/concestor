@@ -460,11 +460,7 @@ export default function App() {
         <Detail
           detail={detail}
           hue={laneHue(focusedNode.idx)}
-          sourceTipCount={
-            detail.silhouette
-              ? tree.nodes.get(detail.silhouette.source_idx)?.tip_count
-              : undefined
-          }
+          cladeTips={detail.silhouette_clade_tips}
           divergence={divergenceFor(focusedNode.idx, tree.induced, tree.nodes)}
           nested={nestedSelections(focusedNode.idx, tree.induced, tree.nodes)}
         />
@@ -512,35 +508,51 @@ export default function App() {
 function Detail({
   detail,
   hue,
-  sourceTipCount,
+  cladeTips,
   divergence,
   nested,
 }: {
   detail: NodeDetail;
   hue: number;
-  sourceTipCount: number | undefined;
+  cladeTips: number | null | undefined;
   /** Set only where the taxonomy has no name and one was derived. */
   divergence: Divergence | null;
   /** Chosen species classified inside this one. Almost always empty. */
   nested: string[];
 }) {
   const age = ageLabel(detail.age_ma, detail.tier);
-  // An image borrowed from a kingdom-sized ancestor tells the reader nothing
-  // and implies something false. Withhold rather than mislead.
-  const sil = silhouetteIsInformative(detail, sourceTipCount)
-    ? detail.silhouette
+  const sil = silhouetteIsInformative(detail, cladeTips) ? detail.silhouette : null;
+  // A picture that is not of this node is a picture of something inside the
+  // clade, and the card is where that gets said in full rather than in a
+  // tooltip. `clade_name` is null for the unnamed `mrcaott…` nodes, and there
+  // is nothing useful to name in that case.
+  const borrowed = sil && sil.source_idx !== detail.idx ? sil : null;
+  // What the watermark says. Normally the clade, because how far the
+  // resemblance is being claimed to reach is the thing a reader needs. But an
+  // unillustrated group's clade is itself — nobody drew Elminae, somebody drew
+  // a riffle beetle inside it — and stamping ELMINAE across the picture on the
+  // Elminae card repeats the heading instead of adding to it. There the
+  // drawing's own subject is the new fact, and the credit line below carries
+  // the group in full either way.
+  const watermark = borrowed
+    ? borrowed.clade_name && borrowed.clade_name !== detail.name
+      ? borrowed.clade_name
+      : borrowed.source_name
     : null;
   return (
     <aside className="detail" style={{ color: `hsl(${hue} 60% 62%)` }}>
       {sil && (
         <div className="detail-image">
           <Silhouette phylopicId={sil.phylopic_id} size={110} />
-          {sil.source_name && sil.source_idx !== detail.idx && (
+          {watermark && (
             // Watermarked onto the image rather than captioned beside it: the
             // claim is about *this picture*, and on the canvas the same fact
             // was wide enough to run across a neighbouring lineage.
-            <span className="detail-watermark" title="The nearest clade with an image">
-              {sil.source_name}
+            <span
+              className="detail-watermark"
+              title={`What this drawing is of. Not ${detail.name ?? "this node"} itself.`}
+            >
+              {watermark}
             </span>
           )}
         </div>
@@ -618,9 +630,21 @@ function Detail({
       {sil && (
         <div className="credit">
           Silhouette{" "}
-          {sil.source_name && sil.source_idx !== detail.idx ? (
+          {borrowed ? (
             <>
-              of <em>{sil.source_name}</em>, the nearest clade with an image —{" "}
+              of <em>{borrowed.source_name ?? "a relative"}</em>
+              {borrowed.clade_name ? (
+                <>
+                  , the closest relative anyone has drawn — both are within{" "}
+                  <em>{borrowed.clade_name}</em>
+                  {borrowed.clade_tip_count
+                    ? `, ${borrowed.clade_tip_count.toLocaleString()} species`
+                    : ""}
+                </>
+              ) : (
+                ", the closest relative anyone has drawn"
+              )}
+              {" — "}
             </>
           ) : null}
           {sil.attribution ? `by ${sil.attribution}` : "creator not recorded"}
