@@ -123,15 +123,29 @@ func futureBuild(t *testing.T) string {
 		CREATE TABLE search_rank (idx INTEGER PRIMARY KEY, rank_score REAL);
 		INSERT INTO search_rank VALUES (594485, 9.5), (588427, 1.0);
 
+		-- The ordering fixture. Mammalia attached below Mammalia is the real
+		-- shape of it: a clade accumulates every occurrence of everything
+		-- inside it, so ordering on n_occs alone hands the lane its least
+		-- informative row. Every column the ranking reads is exercised here.
 		CREATE TABLE fossil (
-			pbdb_taxon_no INTEGER PRIMARY KEY, name TEXT NOT NULL, rank TEXT,
-			attach_idx INTEGER NOT NULL, difference TEXT,
+			pbdb_taxon_no INTEGER PRIMARY KEY, accepted_no INTEGER, name TEXT NOT NULL, rank TEXT,
+			attach_idx INTEGER NOT NULL, difference TEXT, is_primary INTEGER,
 			fea REAL, fla REAL, lea REAL, lla REAL,
 			n_occs INTEGER NOT NULL, is_extant INTEGER);
 		INSERT INTO fossil VALUES
-			(1, 'Tyrannosaurus', 'genus', 588427, NULL, 72.1, 70.6, 66.0, 66.0, 400, 0),
-			(2, 'Tyrannosaurus', 'genus', 588427, 'subjective synonym of', 72.1, 70.6, 66.0, 66.0, 400, 0),
-			(3, 'Obscurosaurus', 'genus', 588427, NULL, NULL, NULL, NULL, NULL, 1, NULL);
+			(1, 1, 'Tyrannosaurus', 'genus', 588427, NULL, 1, 72.1, 70.6, 66.0, 66.0, 400, 0),
+			(2, 1, 'Tyrannosaurus', 'genus', 588427, 'subjective synonym of', 0, 72.1, 70.6, 66.0, 66.0, 400, 0),
+			(3, 3, 'Obscurosaurus', 'genus', 588427, NULL, 1, NULL, NULL, NULL, NULL, 1, NULL),
+			(4, 4, 'Mammalia', 'class', 588427, NULL, 1, 239.5, 237.0, 0.01, 0.0, 127810, 1),
+			(5, 5, 'Zalambdalestidae', 'family', 588427, NULL, 1, 83.6, 72.2, 83.6, 72.2, 9, 0),
+			(6, 6, 'Undrawnodon', 'genus', 588427, NULL, 1, 90.0, 85.0, 90.0, 85.0, 50, 0);
+
+		-- A fossil is not a node, so node_image cannot reach it. This is the
+		-- only join that can, and it is keyed on the taxon rather than a name.
+		CREATE TABLE fossil_image (accepted_no INTEGER PRIMARY KEY,
+			phylopic_id TEXT NOT NULL, matched_name TEXT NOT NULL);
+		INSERT INTO fossil_image VALUES
+			(1, 'abc-123', 'Tyrannosaurus'), (5, 'def-456', 'Zalambdalestidae');
 	`)
 	if err != nil {
 		t.Fatal(err)
@@ -531,5 +545,59 @@ func TestUnresolvableTableIsSkippedAndReported(t *testing.T) {
 	}
 	if st.Schema.Skipped["vernacular"] == "" || st.Schema.Skipped["search_rank"] == "" {
 		t.Errorf("skips must carry a reason: %v", st.Schema.Skipped)
+	}
+}
+
+// The lane's ordering, which is the whole of the drill-down fix.
+//
+// Ordering on n_occs alone put five living wastebasket clades at the top of
+// every deep segment — measured on Tetrapoda, the first eight rows were
+// Tetrapoda itself and four more like it, and Acanthostega gunnari sat at rank
+// 147 of 623. The fixture reproduces that shape in miniature: Mammalia is
+// attached below Mammalia with 127,810 occurrences and would win any
+// count-based order.
+func TestLaneOrdersByNotabilityNotOccurrenceCount(t *testing.T) {
+	dir := futureBuild(t)
+	st, err := Open(t.Context(), Options{BuildDir: dir, Log: slog.New(slog.DiscardHandler)})
+	if err != nil {
+		t.Fatalf("opening a future build: %v", err)
+	}
+	defer st.Close() //nolint:errcheck
+
+	got, total, err := st.Fossils(t.Context(), []int{588427}, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := make([]string, len(got))
+	for i, f := range got {
+		names[i] = f.Name
+	}
+	// Tyrannosaurus: extinct, drawn, a genus — clears every penalty.
+	// Zalambdalestidae: extinct and drawn, but a family.
+	// Undrawnodon: extinct and a genus, but nobody drew it — and 50
+	//   occurrences against Zalambdalestidae's 9 does not rescue it, which is
+	//   the point of weighting the drawing above specificity.
+	// Obscurosaurus: extancy unknown.
+	// Mammalia: extant, and last however many occurrences it has.
+	want := []string{"Tyrannosaurus", "Zalambdalestidae", "Undrawnodon", "Obscurosaurus", "Mammalia"}
+	if len(names) != len(want) {
+		t.Fatalf("lane = %v, want %d rows", names, len(want))
+	}
+	for i := range want {
+		if names[i] != want[i] {
+			t.Fatalf("lane = %v, want %v", names, want)
+		}
+	}
+	// The synonym row is filtered by is_primary, not merely deduplicated, so
+	// it never occupies a lane row before the dedup can drop it.
+	if total != len(want) {
+		t.Errorf("total = %d, want %d accepted taxa", total, len(want))
+	}
+	// A drawing rides along on the row that has one; a fossil never inherits.
+	if got[0].PhylopicID == nil || *got[0].PhylopicID != "abc-123" {
+		t.Errorf("Tyrannosaurus image = %v", got[0].PhylopicID)
+	}
+	if got[2].PhylopicID != nil {
+		t.Errorf("Undrawnodon has no drawing; got %v", got[2].PhylopicID)
 	}
 }

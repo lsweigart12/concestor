@@ -734,8 +734,17 @@ it cannot deliver.
   node. Tetrapoda would draw *Acanthostega* rather than a Triassic archosaur
   110 Ma adrift, and Perissodactyla *Eohippus* rather than nothing. Measured,
   with the work, the worked before/after and the hazards, in
-  [witness-ceiling.md](witness-ceiling.md). Two of those hazards are the sort
-  that pass every gate: **exclude `is_extant`** — PBDB carries *Mammalia* at
+  [witness-ceiling.md](witness-ceiling.md), **whose phase 1 has shipped**:
+  `fossil_image` links 4,656 PBDB taxa to a drawing, and the drill-down lane
+  ranks and renders them. That turned out to be the same bug in a second place.
+  The lane ordered on `n_occs`, a clade accumulates its descendants'
+  occurrences, and so Tetrapoda's lane opened on five *living* wastebasket
+  clades with *Acanthostega gunnari* at rank 147 of 623. It now opens on
+  *Diplocaulus* and *Seymouria*, every row carries its own silhouette, and
+  clicking one opens the palette scoped to its attachment point — a fossil has
+  no ancestor path, so the actions are about the node it hangs from.
+
+  Two of the remaining hazards are the sort that pass every gate: **exclude `is_extant`** — PBDB carries *Mammalia* at
   239.5–0 Ma, so unfiltered it spans every split inside it and hands the
   biggest forks the crown group again — and **key on `pbdb_taxon_no`, not
   name**, because PBDB has homonyms internally as well as against OTT. Fix

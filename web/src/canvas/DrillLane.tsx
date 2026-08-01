@@ -27,7 +27,7 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { api, type PathNode, type SegmentResponse } from "../api";
+import { api, type FossilTaxon, type PathNode, type SegmentResponse } from "../api";
 import { Bracket, bracketGeom, bracketKey, bracketTitle, spanLabel } from "./Bracket";
 import {
   capNote,
@@ -40,6 +40,8 @@ import {
   type LaneRows,
 } from "./lane";
 import { isScientificItalic } from "./NodeMark";
+import { textWidth } from "../tree/labels";
+import { SilhouetteSvg } from "./Silhouette";
 
 export interface Drill {
   upper: number;
@@ -114,16 +116,45 @@ interface Props {
   segment: SegmentState;
   /** False when this build has no fossil table at all. */
   available: boolean;
+  /**
+   * Opens the action menu for a row. A fossil is not a node — it has no
+   * ancestor path and cannot go on the canvas — so the actions are about the
+   * clade it hangs from, and only the app knows what those are.
+   */
+  onPick: (f: FossilTaxon) => void;
   toScreenX: (ma: number) => number;
   width: number;
   onClose: () => void;
 }
 
 const BAR_H = 9;
+/** Side of a row's silhouette, in px. Sits inside ROW_H with room to spare. */
+const ICON = 13;
 /** Envelope end → nearest edge of the name, in px. */
 const TEXT_GAP = 7;
 /** Room a name and its two trailing figures need to the right of a bar. */
 const TEXT_ROOM = 210;
+
+const NAME_FONT = "11px ui-sans-serif, system-ui, sans-serif";
+const FIG_FONT = "9.5px ui-monospace, monospace";
+/** The two `dx="8"` gaps between the three runs of a row's label. */
+const RUN_GAP = 8;
+
+/**
+ * How wide a row's written part actually is.
+ *
+ * Same measurer the label placement pass uses, so the lane and the canvas
+ * agree about type metrics rather than each guessing.
+ */
+function rowTextWidth(f: FossilTaxon, geom: { oldest: number; youngest: number }): number {
+  return (
+    textWidth(f.name, NAME_FONT) +
+    RUN_GAP +
+    textWidth(spanLabel(geom.oldest, geom.youngest), FIG_FONT) +
+    RUN_GAP +
+    textWidth(`${f.n_occs.toLocaleString()}×`, FIG_FONT)
+  );
+}
 
 export function DrillLane({
   upper,
@@ -135,6 +166,7 @@ export function DrillLane({
   toScreenX,
   width,
   onClose,
+  onPick,
 }: Props) {
   const fieldH = SPINE_H + Math.max(rows.placed.length, 1) * ROW_H;
   const brackets = rows.placed.map((f) => bracketGeom(f, toScreenX));
@@ -172,7 +204,7 @@ export function DrillLane({
         className="drill-field"
         width="100%"
         height={fieldH}
-        role="img"
+        role="group"
         aria-label="fossil occurrences along the selected branch"
       >
         <Spine
@@ -189,17 +221,56 @@ export function DrillLane({
           const y = SPINE_H + i * ROW_H;
           const right = geom.envelope.x + geom.envelope.w;
           const toTheRight = width - right > TEXT_ROOM;
+          // The drawing sits just past the end of the written row, so it reads
+          // bracket → name → dates → picture outward and nothing ever comes
+          // between a bar and the label naming it. Measured rather than
+          // reserved: a fixed offset leaves a hole after a short name and
+          // collides with a long one, and both were visible.
+          const textX = toTheRight ? right + TEXT_GAP : geom.envelope.x - TEXT_GAP;
+          const runW = rowTextWidth(f, geom);
+          const silX = toTheRight ? textX + runW + 6 : textX - runW - 6 - ICON;
           return (
-            <g key={f.name} className="drill-row">
+            <g
+              key={f.name}
+              className="drill-row is-actionable"
+              role="button"
+              tabIndex={0}
+              aria-label={`${f.name} — open actions`}
+              onClick={() => onPick(f)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  onPick(f);
+                }
+              }}
+            >
+              {/* The hit area. Without it only the ink is clickable and a
+                  one-pixel bracket is an unusable target. */}
+              <rect
+                className="drill-row-hit"
+                x={Math.min(silX, geom.envelope.x) - 6}
+                y={y}
+                width={Math.abs(textX - silX) + geom.envelope.w + ICON + 12}
+                height={ROW_H}
+              />
               <Bracket
                 geom={geom}
                 y={y + (ROW_H - BAR_H) / 2 - 3}
                 height={BAR_H}
                 title={bracketTitle(f.name, geom)}
               />
+              {f.phylopic_id && (
+                <SilhouetteSvg
+                  phylopicId={f.phylopic_id}
+                  x={silX}
+                  y={y + (ROW_H - ICON) / 2}
+                  size={ICON}
+                  title={`${f.name}, drawn`}
+                />
+              )}
               <text
                 className="drill-row-name"
-                x={toTheRight ? right + TEXT_GAP : geom.envelope.x - TEXT_GAP}
+                x={textX}
                 y={y + ROW_H / 2 + 1}
                 textAnchor={toTheRight ? "start" : "end"}
               >

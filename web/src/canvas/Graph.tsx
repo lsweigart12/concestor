@@ -37,6 +37,7 @@ import "@xyflow/react/dist/style.css";
 
 import {
   TIER_STRUCTURAL,
+  type FossilTaxon,
   type PathNode,
   type TimescaleInterval,
 } from "../api";
@@ -132,6 +133,8 @@ export interface GraphProps {
   /** The segment whose drill-down lane is open. Lives in the URL. */
   drill: Drill | null;
   onDrill: (d: Drill | null) => void;
+  /** A fossil row was clicked; the app opens its action menu. */
+  onPickFossil: (f: FossilTaxon) => void;
 }
 
 const prefersReduced = () =>
@@ -151,6 +154,7 @@ function Inner(props: GraphProps) {
     fitSignal,
     drill,
     onDrill,
+    onPickFossil,
   } = props;
 
   const rf = useReactFlow();
@@ -627,6 +631,7 @@ function Inner(props: GraphProps) {
           toScreenX={toScreenX}
           width={vw || window.innerWidth}
           onClose={() => onDrill(null)}
+          onPick={onPickFossil}
         />
       )}
       <TimeAxis

@@ -61,6 +61,53 @@ async function load(url: string): Promise<string | null> {
   return p;
 }
 
+/**
+ * The same drawing, inside an `<svg>` rather than beside one.
+ *
+ * The drill-down lane is a single SVG — brackets, spine and names are all
+ * drawn in one coordinate space against the canvas's time axis — so the HTML
+ * `<span>` below cannot go in it. Nested `<svg>` is valid and the fetched
+ * markup carries its own `viewBox`, so re-attaching the width and height that
+ * `sanitiseSvg` strips is the whole of the difference. Same fetch, same cache:
+ * a lane full of fossils and a canvas full of nodes share one download each.
+ */
+export function SilhouetteSvg({
+  phylopicId,
+  x,
+  y,
+  size,
+  title,
+}: {
+  phylopicId: string;
+  x: number;
+  y: number;
+  size: number;
+  title?: string;
+}) {
+  const [markup, setMarkup] = useState<string | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    load(`/v1/silhouette/${phylopicId}.svg`).then((m) => {
+      if (live) setMarkup(m);
+    });
+    return () => {
+      live = false;
+    };
+  }, [phylopicId]);
+
+  if (!markup) return null;
+  const sized = markup.replace("<svg", `<svg width="${size}" height="${size}"`);
+  return (
+    <g
+      className="silhouette"
+      transform={`translate(${x},${y})`}
+      aria-hidden="true"
+      dangerouslySetInnerHTML={{ __html: title ? `<title>${title}</title>${sized}` : sized }}
+    />
+  );
+}
+
 export function Silhouette({
   phylopicId,
   size = 34,

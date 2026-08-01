@@ -355,6 +355,13 @@ export interface FossilTaxon {
   attach_idx: number;
   n_occs: number;
   is_extant: boolean | null;
+  /**
+   * A drawing of *this taxon*, when PhyloPic has one under the same name.
+   * Never inherited: a fossil is not a node, so it has no clade to borrow a
+   * picture from, and somebody else's portrait beside it would say nothing.
+   * Present on 4,656 of the 275,082 dated PBDB taxa.
+   */
+  phylopic_id?: string | null;
   fea: number | null;
   fla: number | null;
   lea: number | null;

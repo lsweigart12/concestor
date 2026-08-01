@@ -47,7 +47,7 @@ export const LANE_ROWS = 8;
 const UNPLACED_NAMES = 5;
 
 export interface LaneRows {
-  /** Taxa with an appearance interval, capped, most-recorded first. */
+  /** Taxa with an appearance interval, capped, most notable first. */
   placed: FossilTaxon[];
   /**
    * Taxa PBDB records with no interval at all — 21.4% of the corpus. They
@@ -103,7 +103,12 @@ export function laneRows(
  */
 export function capNote(rows: Pick<LaneRows, "shown" | "total">): string | null {
   if (rows.shown >= rows.total) return null;
-  return `showing ${rows.shown.toLocaleString()} of ${rows.total.toLocaleString()} · most-recorded first`;
+  // "most-recorded first" was true while the server ordered on n_occs alone,
+  // and that ordering put five living wastebasket clades at the top of every
+  // deep segment — a clade accumulates its descendants' occurrences, so the
+  // least specific row always won. The server ranks on extinctness, then on
+  // having a drawing, then on specificity, and only then on the count.
+  return `showing ${rows.shown.toLocaleString()} of ${rows.total.toLocaleString()} · most notable first`;
 }
 
 /** How the unplaced taxa are named, or null when there are none. */
