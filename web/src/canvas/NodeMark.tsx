@@ -34,7 +34,7 @@ import {
   type PathNode,
   type Tier,
 } from "../api";
-import { spanLabel } from "./Bracket";
+import { endedSpanLabel } from "./Bracket";
 import type { LabelBox } from "../tree/labels";
 import { branchProse, UNNAMED, type Divergence } from "../tree/naming";
 import { Silhouette } from "./Silhouette";
@@ -116,7 +116,7 @@ export function occurrenceLabel(
     (v): v is number => typeof v === "number" && Number.isFinite(v),
   );
   if (bounds.length === 0) return null;
-  return `fossils ${spanLabel(Math.max(...bounds), Math.min(...bounds))}`;
+  return `fossils ${endedSpanLabel(Math.max(...bounds), Math.min(...bounds))}`;
 }
 
 /**
@@ -254,11 +254,19 @@ export const NodeMark = memo(function NodeMark({ data }: NodeProps) {
         style={{
           background: d.isLeaf || d.isMRCA ? color : "var(--void)",
           border: `1.5px solid ${color}`,
+          // The MRCA outranks the leaves, and it was not in this chain at
+          // all: every species you chose bloomed and the common ancestor —
+          // the answer, and the thing this app is named after — was a flat
+          // dot. The flare compensates for 620 ms and then never returns, so
+          // every shared link, every screenshot and every second look showed
+          // the answer as the dimmest filled mark on the canvas.
           boxShadow: d.focused
             ? `0 0 12px 3px ${color}`
-            : d.isLeaf
-              ? `0 0 7px 1px ${color}`
-              : "none",
+            : d.isMRCA
+              ? `0 0 11px 2px ${color}, 0 0 0 3px hsl(${d.hue} 70% 60% / 0.28)`
+              : d.isLeaf
+                ? `0 0 7px 1px ${color}`
+                : "none",
         }}
       />
 

@@ -40,10 +40,11 @@
  * meet at 72.2 Ma" and cannot recover that from a merged flag.
  *
  * **This file is deliberately not part of the drill-down lane.** The fourth
- * age tier (`occurrence`, decided and unbuilt — handoff §7) puts the same mark
- * on the main canvas beside an extinct node, and it must not invent a second
- * way to draw the same uncertainty. Anything that needs a range takes
- * `bracketGeom` and this component; nothing else may draw one.
+ * age tier (`occurrence`) states the same record beside an extinct node on the
+ * main canvas, and it must not invent a second way to say the same thing — it
+ * calls `bracketGeom` for the `absent`-versus-`range` decision and
+ * `endedSpanLabel` for the words. Anything that needs a range comes through
+ * here; nothing else may draw or phrase one.
  */
 
 import { useId } from "react";
@@ -165,6 +166,24 @@ export function maLabel(ma: number): string {
 export function spanLabel(oldest: number, youngest: number): string {
   if (youngest < 0.05) return `${maLabel(oldest)} Ma – present`;
   return `${maLabel(oldest)}–${maLabel(youngest)} Ma`;
+}
+
+/**
+ * The same span, for a lineage that is known to have ended.
+ *
+ * `maLabel` renders anything under 0.05 Ma as "present", which is right in the
+ * drill-down lane — a third of the deepest clades really do have fossils
+ * running to now. It is wrong by construction for the `occurrence` age tier,
+ * which is only ever applied where nothing below the node is alive: *Homo
+ * erectus* has a last appearance of 0.0117 Ma and rendered as "5.3 Ma –
+ * present", which is a plain false statement about an extinct species.
+ *
+ * So this never says "present", and it keeps a significant figure below the
+ * threshold instead of rounding a real bound to 0.0.
+ */
+export function endedSpanLabel(oldest: number, youngest: number): string {
+  const y = youngest < 0.05 ? youngest.toPrecision(1) : maLabel(youngest);
+  return `${maLabel(oldest)}–${y} Ma`;
 }
 
 /**

@@ -94,10 +94,18 @@ describe("the occurrence tier never becomes an age", () => {
     ).toBeNull();
   });
 
-  it("reaches to the present rather than inventing a young bound", () => {
-    // Mammalia's fossils run to now. "94 Ma – 0 Ma" reads as an extinction.
-    expect(occurrenceLabel(TIER_OCCURRENCE, { fea: 94, fla: 66, lea: 2, lla: 0 })).toBe(
-      "fossils 94 Ma – present",
-    );
+  it("never says the taxon is present, because the tier means it ended", () => {
+    // Homo erectus has a last appearance of 0.0117 Ma. The lane's own label
+    // renders anything under 0.05 as "present", which is right there and a
+    // plain falsehood here — the tier is only applied where nothing below the
+    // node is alive.
+    const l = occurrenceLabel(TIER_OCCURRENCE, {
+      fea: 5.333,
+      fla: 1.8,
+      lea: 0.129,
+      lla: 0.0117,
+    });
+    expect(l).not.toContain("present");
+    expect(l).toBe("fossils 5.3–0.01 Ma");
   });
 });

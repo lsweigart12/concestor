@@ -21,7 +21,7 @@ import {
   type SearchHit,
   type TimescaleInterval,
 } from "./api";
-import { bracketGeom, bracketTitle, spanLabel } from "./canvas/Bracket";
+import { bracketGeom, bracketTitle, endedSpanLabel } from "./canvas/Bracket";
 import { Graph } from "./canvas/Graph";
 import { Silhouette } from "./canvas/Silhouette";
 import { ageLabel, DerivedName, isScientificItalic } from "./canvas/NodeMark";
@@ -630,7 +630,7 @@ function Detail({
             <dt>fossils</dt>
             <dd className="num" title={bracketTitle(detail.name ?? "This taxon", occurrence)}>
               {occurrence.kind === "range"
-                ? spanLabel(occurrence.oldest, occurrence.youngest)
+                ? endedSpanLabel(occurrence.oldest, occurrence.youngest)
                 : "no range recorded"}
             </dd>
           </>

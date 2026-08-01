@@ -355,7 +355,10 @@ func (s *Server) handleAbout(w http.ResponseWriter, r *http.Request) {
 			TimescaleReady: tsErr == nil,
 			SilhouetteDir:  st.SilhouetteDir,
 			FrontendDir:    s.WebDist,
-			FossilsReady:   false,
+			// Was hardcoded false while the fossil layer was live and
+			// /v1/segment was answering. "What this is made of" is
+			// user-facing, so a false negative there is a claim.
+			FossilsReady: st.Schema.Fossil != nil,
 		},
 	}
 	if body.Features.MissingArrays == nil {
