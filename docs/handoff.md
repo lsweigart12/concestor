@@ -114,7 +114,7 @@ product is broken at its front door, not merely incomplete.
 | 2 — dates | **ACCEPTED and implemented**, 32/32 gates. Tiers are baked (§3) |
 | 3 — resolution | built — `resolve.py`, `xref` populated |
 | 4 — fossils | built — `fossils.py`, `fossil` table populated |
-| 5a — images | built — `images.py`, **28/28 gates**. Coverage is 100% and says nothing; the gate is the size of the clade a picture speaks for (§5) |
+| 5a — images | built — `images.py`, **32/32 gates**. Coverage is 100% and says nothing; the gate is the size of the clade a picture speaks for. Divergences carry a second silhouette, the fossil witness (§5) |
 | 5b — timescale | built — `timescale.py`, 26/26 gates, `build/timescale.json` |
 | 6 — vernaculars | built — `vernaculars.py` + `search.py`, `node_fts` live |
 | walking-skeleton renderer | done, throwaway, superseded |
@@ -170,7 +170,7 @@ symptom is quietly stale answers.
 
 ```bash
 cd web && npm install && npm run build   # the server picks up web/dist
-npm test                                 # 45 tests
+npm test                                 # 106 tests
 ```
 
 The client owns the topology after first paint (architecture §4): it fetches
@@ -691,6 +691,62 @@ it cannot deliver.
 
   `method` gained a fourth value, `relative` — a cousin, neither ancestor nor
   descendant — and it is 2,448,650 of the 2,725,682 nodes.
+- **A divergence wants a different picture from a clade, and now gets one.**
+  `node_image` prefers the most inclusive drawing beneath a node, which is the
+  right answer to "what does something in this group look like" and the wrong
+  answer at a fork: the human–chimp split drew the generic *Homo*, Whippomorpha
+  drew the Cetacea dolphin. Both are crown groups that did not exist when the
+  lineages parted.
+
+  `node_divergence_image` is the second answer — a **witness**, a drawn taxon
+  *inside* the clade whose fossil record puts it at that split. The human path
+  now reads Bilateria → *Hallucigenia*, Gnathostomata → *Miguashaia*,
+  Sarcopterygii → *Miguashaia*, Amniota → Ctenosauriscidae, Boreoeutheria →
+  *Protungulatum*, Haplorrhini → Parapithecidae, Homininae → *Ardipithecus*,
+  Homo/Pan → ***Sahelanthropus***. Whippomorpha draws *Basilosaurus*.
+
+  **Two tables, not more columns, and the reason is not tidiness.** Which
+  answer applies depends on how the reader reached the node — a species they
+  picked wants its group's exemplar, a divergence they arrived at wants the
+  witness — and the pipeline cannot know that. The client decides on the
+  induced subtree's own leaf/internal distinction. Merging them would force the
+  choice at build time with the information missing, which is the same mistake
+  as merging `age_ma` with `age_layout`.
+
+  Three refusals do the work, and they are why this fires on **66** nodes:
+
+  - **No dated split, no witness.** `age_ma` must be finite, so `structural`
+    nodes get none. A fossil "near" a divergence nobody has dated is a claim
+    about nothing.
+  - **A candidate needs a fossil bracket.** 398 of the 7,470 drawn nodes have
+    one. That is the ceiling on the whole mechanism, and it is PhyloPic ∩ PBDB,
+    not the resolution rule.
+  - **Exactness still wins.** A node with its own image keeps it and gets no
+    witness, so Mammalia is Mammalia and not a Cretaceous monotreme.
+
+  `NEAR_FRACTION = 0.25` is the one judgement, stated in `images.py` with the
+  measurements: 0.20 → 53 nodes, 0.25 → 66, 0.33 → 87, 0.50 → 114. It is set
+  where the picks stop being about the split — at 0.33 Tetrapoda (360 Ma) takes
+  a Triassic archosaur 110 Ma too late, at 0.50 Metazoa (785 Ma) takes Cambrian
+  *Hallucigenia*. **Reading `fea` is safe here** where phase 4 forbids it for
+  layout: this is a containment test on `[lla, fea]`, never a position. What a
+  junk-wide bracket costs is the tie-break, which prefers the narrower one —
+  that is what puts *Sahelanthropus* (7.2–5.3) ahead of *Ardipithecus*
+  (11.6–2.6) when both contain the 6.7 Ma split.
+
+  **The dates are half of it.** A witness with no fossil range is refused by
+  the client, because the picture without them is the unlabelled shape this
+  replaced. The canvas tooltip and the card both read "*Sahelanthropus*, known
+  from 7.2–5.3 Ma, so it was around when these lineages parted, and this split
+  is dated ≤ 6.7 Ma" — a sentence the reader can check.
+- **The node card's silhouette credit was reading fields that are not on the
+  wire.** The server sends `creator`/`uploader`; `NodeDetail.silhouette`
+  declares `attribution`/`contributor`, and `api.ts` translates between them at
+  the boundary. The witness credit needed the same translation and did not have
+  it, so it said "creator not recorded" about *Basilosaurus*, whose payload
+  names Conty and T. Michael Keesey under a CC-BY-SA licence. Anything adding a
+  second credit block must go through `normalise`; nothing else knows both
+  vocabularies.
 - **PhyloPic attaches human images to `Homo sapiens sapiens`**, a subspecies the
   synthesis does not carry, so the seed was silently dropped and *Homo sapiens*
   climbed 35 hops to Mammalia. 2,485 of 9,461 cited OTT ids are like this. The

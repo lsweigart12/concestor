@@ -289,6 +289,145 @@ def test_propagate_rejects_mismatched_arrays(topo):
 
 
 # --------------------------------------------------------------------------
+# The divergence witness
+# --------------------------------------------------------------------------
+#
+# Same tree. Only nodes 0, 1 and 5 can carry a witness: 2 and 3 are a unary
+# chain down to one tip and the rest are tips, and a tip is not a divergence.
+
+
+def ages(**kw: float):
+    a = np.full(PARENT.size, np.nan, dtype=np.float32)
+    for k, v in kw.items():
+        a[int(k[1:])] = v
+    return a
+
+
+def brackets(*pairs: tuple[int, float, float]):
+    """(idx, oldest, youngest) triples -> the two arrays load_occurrence returns."""
+    oldest = np.full(PARENT.size, np.nan, dtype=np.float64)
+    youngest = np.full(PARENT.size, np.nan, dtype=np.float64)
+    for idx, hi, lo in pairs:
+        oldest[idx], youngest[idx] = hi, lo
+    return oldest, youngest
+
+
+def witness_for(topo, seed, age, occ, near_fraction=images.NEAR_FRACTION):
+    return images.divergence_witnesses(
+        PARENT, topo.depth, TIP_COUNT, age, seed, *occ, near_fraction=near_fraction
+    )
+
+
+def test_the_witness_is_not_the_exemplar(topo):
+    """The headline case: the two rules disagree, and both answers are kept.
+
+    A1x is dated to the split at A; A2 is the shallower tip, so `propagate`
+    hands A its picture. That is the whale–hippo failure in miniature — the
+    crown group is what gets drawn at the fork it did not exist at.
+    """
+    seed = make_seed([(3, 10), (4, 11)])
+    occ = brackets((3, 12.0, 8.0))
+    w = witness_for(topo, seed, ages(n1=10.0), occ)
+
+    assert (
+        propagate(PARENT, topo.depth, topo.subtree_out, seed, TIP_COUNT).source[1] == 4
+    )
+    assert w.source[1] == 3
+    assert w.image[1] == 10
+    assert w.gap[1] == 0.0  # the bracket spans the split outright
+
+
+def test_a_split_nobody_has_dated_gets_no_witness(topo):
+    """`structural` nodes carry no age, so there is nothing to be near."""
+    w = witness_for(topo, make_seed([(3, 10)]), ages(), brackets((3, 12.0, 8.0)))
+    assert w.source.tolist() == [NO_IMAGE] * PARENT.size
+
+
+def test_a_node_with_its_own_image_keeps_it(topo):
+    """Exactness wins here as it does everywhere else in this phase."""
+    seed = make_seed([(1, 99), (3, 10)])
+    w = witness_for(topo, seed, ages(n1=10.0), brackets((3, 12.0, 8.0)))
+    assert w.source[1] == NO_IMAGE
+
+
+def test_a_fossil_too_far_from_the_split_is_refused(topo):
+    """The cap is a fraction of the split's own age, not a fixed span."""
+    seed, occ = make_seed([(3, 10)]), brackets((3, 12.0, 8.0))
+    assert witness_for(topo, seed, ages(n1=20.0), occ).source[1] == NO_IMAGE
+    assert witness_for(topo, seed, ages(n1=20.0), occ, 0.5).source[1] == 3
+
+
+def test_the_narrower_bracket_wins_the_tie(topo):
+    """Sahelanthropus (7.2–5.3) over Ardipithecus (11.6–2.6), in miniature.
+
+    Both contain the split, so the gap cannot separate them and the tie-break
+    is which one claims less. Without it the wider bracket wins more often,
+    because PBDB's `fea` is junk-wide and widening it can only help.
+    """
+    seed = make_seed([(3, 10), (4, 11)])
+    occ = brackets((3, 30.0, 2.0), (4, 12.0, 8.0))
+    assert witness_for(topo, seed, ages(n1=10.0), occ).source[1] == 4
+
+
+def test_spanning_the_split_beats_merely_being_near_it(topo):
+    seed = make_seed([(3, 10), (4, 11)])
+    occ = brackets((3, 19.0, 17.0), (4, 24.0, 20.0))
+    w = witness_for(topo, seed, ages(n1=18.0), occ)
+    assert w.source[1] == 3
+    assert w.gap[1] == 0.0
+
+
+def test_a_witness_must_be_inside_the_clade_it_witnesses(topo):
+    """B2's fossil says nothing about A's split, however well it is dated."""
+    w = witness_for(
+        topo,
+        make_seed([(7, 12)]),
+        ages(n0=10.0, n1=10.0, n5=10.0),
+        brackets((7, 12.0, 8.0)),
+    )
+    assert w.source.tolist() == [7, NO_IMAGE, NO_IMAGE, NO_IMAGE, NO_IMAGE, 7, -1, -1]
+
+
+def test_a_drawn_taxon_with_no_fossil_record_is_not_a_candidate(topo):
+    w = witness_for(topo, make_seed([(3, 10)]), ages(n1=10.0), brackets())
+    assert w.source.tolist() == [NO_IMAGE] * PARENT.size
+
+
+def test_witnesses_reject_mismatched_arrays(topo):
+    with pytest.raises(ValueError, match="lengths disagree"):
+        images.divergence_witnesses(
+            PARENT,
+            topo.depth,
+            TIP_COUNT,
+            ages(),
+            np.zeros(3, dtype=np.int64),
+            *brackets(),
+        )
+
+
+def test_load_occurrence_without_a_fossil_table():
+    """Phase 5a must run against a build where phase 4 has not."""
+    con = sqlite3.connect(":memory:")
+    oldest, youngest = images.load_occurrence(con, 8)
+    assert np.isnan(oldest).all() and np.isnan(youngest).all()
+
+
+def test_load_occurrence_reads_the_outer_bracket():
+    con = sqlite3.connect(":memory:")
+    con.executescript(
+        "CREATE TABLE occurrence (idx INTEGER PRIMARY KEY,"
+        " fea REAL, fla REAL, lea REAL, lla REAL);"
+        "INSERT INTO occurrence VALUES (3, 7.246, 5.333, 7.246, 5.333);"
+    )
+    oldest, youngest = images.load_occurrence(con, 8)
+    # fea and lla — the whole of when the taxon might have been alive. The
+    # inner pair is phase 4's business and is not read here.
+    assert oldest[3] == pytest.approx(7.246)
+    assert youngest[3] == pytest.approx(5.333)
+    assert np.isnan(oldest[4])
+
+
+# --------------------------------------------------------------------------
 # Seeding
 # --------------------------------------------------------------------------
 

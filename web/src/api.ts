@@ -74,6 +74,78 @@ export interface PathNode {
   silhouette_clade_idx?: number | null;
   silhouette_clade_tips?: number | null;
   silhouette_clade_name?: string | null;
+  /**
+   * The divergence witness: a second silhouette, of a taxon *inside* this
+   * clade whose fossil record puts it at this node's split.
+   *
+   * It answers a different question from `phylopic_id`, which is why both
+   * exist. `phylopic_id` prefers the most inclusive drawing beneath a node, so
+   * at a split it is always a crown group — the human–chimp split drew *Homo*,
+   * the whale–hippo split drew a dolphin. Neither existed when the lineages
+   * parted. This is what did: *Sahelanthropus*, *Basilosaurus*, *Hallucigenia*.
+   *
+   * Which one to draw is the client's call and depends on how the reader
+   * reached the node: a species they chose wants its group's exemplar, a
+   * divergence they arrived at wants the witness. Present on 66 nodes, and
+   * absent wherever the split is undated or nothing drawn inside it is dated.
+   */
+  divergence_phylopic_id?: string | null;
+  divergence_source_idx?: number | null;
+  divergence_source_name?: string | null;
+  divergence_source_rank?: string | null;
+  /** Ma from the split to that taxon's range. 0 means the range spans it. */
+  divergence_gap_ma?: number | null;
+  /**
+   * The witness taxon's own fossil bracket, and not optional in practice: it
+   * is what makes the picture legible. A range, never a point, exactly like
+   * `occurrence` — no midpoint may be computed from it.
+   */
+  divergence_range?: {
+    fea: number | null;
+    fla: number | null;
+    lea: number | null;
+    lla: number | null;
+  } | null;
+}
+
+/** A witness, resolved into the shape the canvas and the card both render. */
+export interface Witness {
+  phylopicId: string;
+  /** The taxon drawn. Null only on a build that predates the name lookup. */
+  name: string | null;
+  rank: string | null;
+  /** Widest and youngest ends of its observed range, or null if it has none. */
+  oldest: number | null;
+  youngest: number | null;
+  /** True when that range contains the split rather than merely nearing it. */
+  spans: boolean;
+}
+
+/**
+ * The witness for a node, or null.
+ *
+ * Refuses a witness with no fossil range even though the server should never
+ * send one, because the range is the entire difference between this and an
+ * unlabelled silhouette. A picture captioned "Sahelanthropus, 7.2–5.3 Ma"
+ * beside a split dated 6.7 Ma is a claim the reader can check; the same
+ * picture with no dates is the unexplained shape this replaced.
+ */
+export function witnessFor(node: PathNode): Witness | null {
+  const id = node.divergence_phylopic_id;
+  if (!id) return null;
+  const r = node.divergence_range;
+  const bounds = [r?.fea, r?.fla, r?.lea, r?.lla].filter(
+    (v): v is number => typeof v === "number" && Number.isFinite(v),
+  );
+  if (bounds.length === 0) return null;
+  return {
+    phylopicId: id,
+    name: node.divergence_source_name ?? null,
+    rank: node.divergence_source_rank ?? null,
+    oldest: Math.max(...bounds),
+    youngest: Math.min(...bounds),
+    spans: node.divergence_gap_ma === 0,
+  };
 }
 
 export interface PathResponse {
@@ -168,6 +240,19 @@ export interface NodeDetail extends PathNode {
     clade_idx?: number | null;
     clade_name?: string | null;
     clade_tip_count?: number | null;
+  } | null;
+  /**
+   * The witness drawing's own credit. A separate artist from `silhouette`'s,
+   * so a separate block: the canvas shows this image, and CC-BY applies to
+   * whatever is on screen.
+   */
+  divergence_silhouette?: {
+    phylopic_id: string;
+    license_url: string;
+    attribution: string | null;
+    contributor: string | null;
+    source_idx: number;
+    source_name: string | null;
   } | null;
 }
 
@@ -407,6 +492,16 @@ function normalise(url: string, body: unknown): unknown {
       sil.contributor = sil.contributor ?? sil.uploader ?? null;
       sil.source_idx = sil.source_idx ?? b.silhouette_source_idx ?? b.idx;
       sil.source_name = sil.source_name ?? null;
+    }
+    // The witness credit is the same shape and needs the same translation. It
+    // is not optional politeness: the canvas draws this image, several of them
+    // are CC-BY-SA, and a credit line that silently reads an absent field says
+    // "creator not recorded" about an artist the payload names.
+    const wit = b.divergence_silhouette as Record<string, unknown> | null | undefined;
+    if (wit) {
+      wit.attribution = wit.attribution ?? wit.creator ?? null;
+      wit.contributor = wit.contributor ?? wit.uploader ?? null;
+      wit.source_name = wit.source_name ?? b.divergence_source_name ?? null;
     }
     b.synonyms = toStrings(b.synonyms);
     // The server sends `{name, lang, preferred}` objects, which is the more

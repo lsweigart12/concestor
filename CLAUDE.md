@@ -60,7 +60,7 @@ our own; **no dagre, no ELK, no d3-hierarchy**, because a graph-layout engine
 assigns `x` by depth and here `x` is time.
 
 ```bash
-cd web && npm install && npm run build && npm test   # 45 tests
+cd web && npm install && npm run build && npm test   # 106 tests
 cd server && go test ./... && go run . -build ../build
 ```
 
@@ -252,6 +252,21 @@ node and the drawing — is the size of the claim the picture makes. That is the
 number the gates measure and the UI must render; coverage is 100% and always
 was, and it means nothing. Read `docs/handoff.md` §5 before changing the
 resolution.
+
+**A divergence carries a second silhouette, and the two tables must stay
+apart.** `node_image` answers "what does something in this clade look like" and
+so prefers the most inclusive drawing beneath a node — which at a *split* is
+always a crown group that did not exist yet. `node_divergence_image` answers
+"what was alive when these lineages parted": a **witness**, a drawn taxon inside
+the clade whose PBDB bracket sits at the split. *Sahelanthropus* at the
+human–chimp divergence, *Basilosaurus* at whale–hippo, *Hallucigenia* at
+Bilateria. 66 nodes, because a candidate needs both a PhyloPic drawing and a
+fossil bracket and only 398 nodes have both. Which of the two to draw depends on
+how the reader reached the node, so **only the client can decide it** — a leaf of
+the induced subtree is a species they chose and keeps its exemplar. It is
+refused where `age_ma` is NaN, where the node has its own image, and beyond
+`NEAR_FRACTION` of the split's age. A witness never renders without its fossil
+range beside it.
 
 `concestor-build package` gates the artifact set as a whole and writes
 `build/manifest.json`, which `/v1/about` serves. It refuses to package while any

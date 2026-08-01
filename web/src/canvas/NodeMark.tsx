@@ -33,6 +33,7 @@ import {
   tierHasAge,
   type PathNode,
   type Tier,
+  type Witness,
 } from "../api";
 import { endedSpanLabel } from "./Bracket";
 import type { LabelBox } from "../tree/labels";
@@ -57,6 +58,12 @@ export interface MarkData extends Record<string, unknown> {
    * node and the drawing. Null when the picture is this node's own.
    */
   silhouetteClade: { name: string | null; tips: number | null } | null;
+  /**
+   * The witness, on a divergence that has one. When set it *replaces* the
+   * silhouette above rather than joining it — see the note on `witnessTitle`.
+   * Null on every leaf, because a species you chose is not a divergence.
+   */
+  witness: Witness | null;
   /** Resolved position, from the collision pass. Absent before it runs. */
   label: LabelBox | undefined;
   /** Set only where the taxonomy has no name and we derived one. See naming.ts. */
@@ -150,6 +157,38 @@ export function borrowedTitle(
 }
 
 /**
+ * What the picture beside a *divergence* is, which is a different sentence.
+ *
+ * `borrowedTitle` above says "not this node itself — something from within the
+ * group", because that is the honest description of a borrowed exemplar. A
+ * witness makes a stronger and more interesting claim, and the caption has to
+ * carry it: this taxon is inside the clade *and* the rock has it at about the
+ * time the clade split. The dates are the whole of it. Without them the shape
+ * is just another unlabelled silhouette, and with them a reader can see that
+ * *Sahelanthropus* at 7.2–5.3 Ma sits across a split dated 6.7 — which is the
+ * thing worth showing them.
+ *
+ * Two forms, because spanning the split and merely nearing it are different
+ * strengths of claim and the wording should not flatten them.
+ */
+export function witnessTitle(
+  w: Witness,
+  splitAge: number | null,
+  tier: Tier,
+): string {
+  const who = w.name ?? "A taxon inside this group";
+  const when =
+    w.oldest !== null && w.youngest !== null
+      ? ` known from ${endedSpanLabel(w.oldest, w.youngest)}`
+      : "";
+  const dated = ageLabel(splitAge, tier);
+  const at = dated ? `, and this split is dated ${dated}` : "";
+  return w.spans
+    ? `${who} —${when}, so it was around when these lineages parted${at}.`
+    : `${who} —${when}, the closest anyone has drawn to when these lineages parted${at}.`;
+}
+
+/**
  * The secondary row. Rank only.
  *
  * What an inherited silhouette actually depicts belongs on the image, not
@@ -213,7 +252,17 @@ export const NodeMark = memo(function NodeMark({ data }: NodeProps) {
   // represent one member — so a mammal beside Mammalia is the case it is best
   // at, and `silhouetteIsInformative` is what keeps a kingdom-sized borrow out.
   // Not gated on zoom: see the note at the top of this file.
-  const withSilhouette = d.showSilhouette && Boolean(n.phylopic_id);
+  //
+  // A divergence with a witness draws that instead. Not as well as — the label
+  // is already the widest thing on the canvas and two pictures on one mark
+  // would double it — and the witness is strictly the better answer where it
+  // exists, because it is inside this clade rather than borrowed from a
+  // relative, and it is contemporary with the fork rather than a crown group
+  // that came later. It draws even where `showSilhouette` would suppress the
+  // ordinary one: the suppression rule judges the size of a borrow, and a
+  // witness borrows nothing.
+  const witness = d.witness;
+  const withSilhouette = witness !== null || (d.showSilhouette && Boolean(n.phylopic_id));
   const meta = div && showDetail ? DIVERGENCE_META : metaLine(n.rank, showDetail);
 
   const box = d.label;
@@ -275,11 +324,19 @@ export const NodeMark = memo(function NodeMark({ data }: NodeProps) {
           className={`mark-label${box?.overlapped ? " crowded" : ""}`}
           style={style}
         >
-          {withSilhouette && n.phylopic_id && (
+          {witness ? (
             <Silhouette
-              phylopicId={n.phylopic_id}
-              title={borrowedTitle(name, d.silhouetteClade)}
+              phylopicId={witness.phylopicId}
+              title={witnessTitle(witness, n.age_ma, n.tier)}
             />
+          ) : (
+            withSilhouette &&
+            n.phylopic_id && (
+              <Silhouette
+                phylopicId={n.phylopic_id}
+                title={borrowedTitle(name, d.silhouetteClade)}
+              />
+            )
           )}
           {showText && (
             <span className="mark-text" style={{ maxWidth: box?.textMaxWidth }}>

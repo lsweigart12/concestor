@@ -14,6 +14,7 @@ import {
   api,
   ping,
   silhouetteIsInformative,
+  witnessFor,
   TIER_OCCURRENCE,
   TIER_STRUCTURAL,
   type About,
@@ -497,6 +498,7 @@ export default function App() {
           cladeTips={detail.silhouette_clade_tips}
           divergence={divergenceFor(focusedNode.idx, tree.induced, tree.nodes)}
           nested={nestedSelections(focusedNode.idx, tree.induced, tree.nodes)}
+          isLeaf={tree.induced.leaves.includes(focusedNode.idx)}
         />
       )}
 
@@ -545,6 +547,7 @@ function Detail({
   cladeTips,
   divergence,
   nested,
+  isLeaf,
 }: {
   detail: NodeDetail;
   hue: number;
@@ -553,6 +556,8 @@ function Detail({
   divergence: Divergence | null;
   /** Chosen species classified inside this one. Almost always empty. */
   nested: string[];
+  /** A species the reader chose, rather than a divergence they arrived at. */
+  isLeaf: boolean;
 }) {
   const age = ageLabel(detail.age_ma, detail.tier);
   // Geometry is not wanted here — the card states the span in words — but
@@ -563,7 +568,15 @@ function Detail({
     detail.tier === TIER_OCCURRENCE && detail.occurrence
       ? bracketGeom(detail.occurrence, () => 0)
       : null;
-  const sil = silhouetteIsInformative(detail, cladeTips) ? detail.silhouette : null;
+  // The card must show what the canvas shows, so it makes the same call by the
+  // same rule: a divergence with a witness draws the witness, and the ordinary
+  // silhouette is not shown *or credited*, because it is not on screen.
+  const witness = isLeaf ? null : witnessFor(detail);
+  const witnessCredit = witness ? (detail.divergence_silhouette ?? null) : null;
+  const sil =
+    witness || !silhouetteIsInformative(detail, cladeTips)
+      ? null
+      : detail.silhouette;
   // A picture that is not of this node is a picture of something inside the
   // clade, and the card is where that gets said in full rather than in a
   // tooltip. `clade_name` is null for the unnamed `mrcaott…` nodes, and there
@@ -583,6 +596,21 @@ function Detail({
     : null;
   return (
     <aside className="detail" style={{ color: `hsl(${hue} 60% 62%)` }}>
+      {witness && (
+        <div className="detail-image">
+          <Silhouette phylopicId={witness.phylopicId} size={110} />
+          {witness.name && (
+            // The witness's own name, for the same reason the borrowed case
+            // stamps its clade: the fact the picture adds is what it is *of*.
+            <span
+              className="detail-watermark"
+              title={`What this drawing is of. Not ${detail.name ?? "this node"} itself — a taxon inside it, dated to about this split.`}
+            >
+              {witness.name}
+            </span>
+          )}
+        </div>
+      )}
       {sil && (
         <div className="detail-image">
           <Silhouette phylopicId={sil.phylopic_id} size={110} />
@@ -632,6 +660,18 @@ function Detail({
               {occurrence.kind === "range"
                 ? endedSpanLabel(occurrence.oldest, occurrence.youngest)
                 : "no range recorded"}
+            </dd>
+          </>
+        )}
+        {witness && witness.oldest !== null && witness.youngest !== null && (
+          // Its own row, and never in the `age` slot. The witness's range is a
+          // fact about a *different taxon* from the one this card is about —
+          // putting it where this node's age goes would read as this node's
+          // age, which is two wrong claims at once.
+          <>
+            <dt>witness</dt>
+            <dd className="num">
+              {endedSpanLabel(witness.oldest, witness.youngest)}
             </dd>
           </>
         )}
@@ -689,10 +729,41 @@ function Detail({
         </p>
       )}
 
+      {witness && (
+        <p className="note">
+          The picture is{" "}
+          <em className={isScientificItalic(witness.rank) ? "sci-italic" : undefined}>
+            {witness.name ?? "a taxon inside this group"}
+          </em>
+          , not this whole group — one lineage from inside it that the rock
+          places{" "}
+          {witness.spans ? "across this divergence" : "close to this divergence"}
+          . The most familiar thing below a split is nearly always a living
+          group that did not exist when the split happened, so this shows
+          something that did instead. Its dates are observations, not an
+          estimate of when these lineages parted.
+        </p>
+      )}
       {detail.vernaculars.length > 0 && (
         <p className="note">Also known as {detail.vernaculars.slice(0, 6).join(", ")}.</p>
       )}
 
+      {witnessCredit && (
+        // Credited on its own terms: a different drawing by a different artist
+        // from the one `sil` would have carried, and it is the one on screen.
+        <div className="credit">
+          Silhouette of <em>{witnessCredit.source_name ?? "a taxon inside this group"}</em>
+          {" — "}
+          {witnessCredit.attribution
+            ? `by ${witnessCredit.attribution}`
+            : "creator not recorded"}
+          {witnessCredit.contributor &&
+          witnessCredit.contributor !== witnessCredit.attribution
+            ? `, uploaded by ${witnessCredit.contributor}`
+            : ""}
+          .
+        </div>
+      )}
       {sil && (
         <div className="credit">
           Silhouette{" "}

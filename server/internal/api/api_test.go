@@ -667,6 +667,82 @@ func TestSilhouetteCladeReachesTheClient(t *testing.T) {
 	}
 }
 
+// The witness reaching the client, on the case it was built for: the path to
+// Homo sapiens runs through the human–chimp split, and that split must arrive
+// carrying Sahelanthropus and the dates that make it legible.
+//
+// The dates are half the test. A silhouette with no range beside it is the
+// unexplained shape this replaced; the claim is "Sahelanthropus, known from
+// 7.2–5.3 Ma, was around when these lineages parted", and every part of that
+// sentence has to survive the wire.
+func TestDivergenceWitnessReachesTheClient(t *testing.T) {
+	ts, st := serve(t)
+	if st.Schema.Witness == nil {
+		t.Skip("this build has no node_divergence_image table")
+	}
+
+	var path struct {
+		Path []Entry `json:"path"`
+	}
+	getJSON(t, ts, "/v1/path/ott770315", &path)
+
+	found := 0
+	for _, e := range path.Path {
+		if e.DivergencePhylopicID == nil {
+			continue
+		}
+		found++
+		if e.DivergenceSourceIdx == nil {
+			t.Fatalf("idx %d draws a witness but names no taxon", e.Idx)
+		}
+		src := *e.DivergenceSourceIdx
+		// A witness is always strictly inside the clade it witnesses. That is
+		// the whole of the claim the picture makes, so it is what to check.
+		if src <= e.Idx || int64(src) >= int64(st.Arrays.SubtreeOut[e.Idx]) {
+			t.Errorf("idx %d: witness %d is outside its own clade", e.Idx, src)
+		}
+		if e.DivergenceRange == nil || e.DivergenceRange.Fea == nil ||
+			e.DivergenceRange.Lla == nil {
+			t.Errorf("idx %d: witness %d arrives with no fossil range to caption it",
+				e.Idx, src)
+		}
+		if e.DivergenceGapMa == nil {
+			t.Errorf("idx %d: no gap, so the client cannot say how near the split it sits", e.Idx)
+		}
+	}
+	if found == 0 {
+		t.Fatal("no node on the Homo sapiens path carried a divergence witness")
+	}
+
+	// The named case, found by position rather than by a baked index: the
+	// deepest witnessed node on the human lineage is the last split before
+	// Homo, which is the split from Pan. The pipeline gates the same fact
+	// against the arrays; this gates it over HTTP.
+	var deepest Entry
+	for _, e := range path.Path {
+		if e.DivergencePhylopicID != nil {
+			deepest = e
+		}
+	}
+	if deepest.DivergenceSourceName == nil ||
+		*deepest.DivergenceSourceName != "Sahelanthropus" {
+		t.Errorf("the human–chimp split is witnessed by %v, want Sahelanthropus",
+			deepest.DivergenceSourceName)
+	}
+	// And it did not take the ordinary image away: that still answers the other
+	// question, and only the client knows which one a given node needs.
+	var node Entry
+	getJSON(t, ts, "/v1/node/idx:"+itoa(deepest.Idx), &node)
+	if node.PhylopicID == nil {
+		t.Error("the witness displaced the node's ordinary silhouette")
+	}
+	if node.DivergenceSourceName == nil ||
+		*node.DivergenceSourceName != *deepest.DivergenceSourceName {
+		t.Errorf("the detail card says %v where the path said %v",
+			node.DivergenceSourceName, deepest.DivergenceSourceName)
+	}
+}
+
 func TestSegment(t *testing.T) {
 	ts, st := serve(t)
 	// 588426 -> 603110 is one of the reference segments; render.py measures a

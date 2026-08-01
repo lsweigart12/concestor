@@ -33,9 +33,11 @@ import "@xyflow/react/dist/style.css";
 
 import {
   silhouetteIsInformative,
+  witnessFor,
   TIER_STRUCTURAL,
   type PathNode,
   type TimescaleInterval,
+  type Witness,
 } from "../api";
 import {
   layout,
@@ -126,6 +128,22 @@ export interface GraphProps {
 const prefersReduced = () =>
   window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
 
+/**
+ * The witness for a placed node, or null — and null on every leaf.
+ *
+ * The leaf test is the whole of the client's half of this decision. The server
+ * sends both silhouettes and says outright that which one applies depends on
+ * how the reader reached the node, because only the client knows that. Here it
+ * is exactly the induced subtree's own distinction: a leaf is a species the
+ * reader picked and wants to see, an internal node is a divergence they
+ * arrived at and did not name. Drawing *Sahelanthropus* on a node someone
+ * searched for as "human" would be the same category of wrong this fixes, in
+ * the other direction.
+ */
+function witnessOn(p: { node: PathNode; isLeaf: boolean }): Witness | null {
+  return p.isLeaf ? null : witnessFor(p.node);
+}
+
 function Inner(props: GraphProps) {
   const {
     induced: ind,
@@ -183,7 +201,8 @@ function Inner(props: GraphProps) {
   const describeLabel: LabelText = useCallback(
     (p) => {
       const showSil = silhouetteIsInformative(p.node, p.node.silhouette_clade_tips);
-      const withSil = showSil && Boolean(p.node.phylopic_id);
+      const withSil =
+        witnessOn(p) !== null || (showSil && Boolean(p.node.phylopic_id));
       const div = divergenceFor(p.idx, ind, nodeMap);
       return {
         name: p.node.name ?? div?.text ?? UNNAMED,
@@ -334,6 +353,7 @@ function Inner(props: GraphProps) {
           label: lay.labels.get(p.idx),
           divergence: divergenceFor(p.idx, ind, nodeMap),
           showSilhouette,
+          witness: witnessOn(p),
           // Only worth saying when the picture is not a portrait. "Silhouette
           // of Homo sapiens" on Homo sapiens is noise.
           silhouetteClade:

@@ -66,6 +66,7 @@ func futureBuild(t *testing.T) string {
 		INSERT INTO node VALUES
 			(594485, 770315, 'ott770315', 'Homo sapiens', 'species', '', 2, 59),
 			(588427, 244265, 'ott244265', 'Mammalia', 'class', '', 9328, 33),
+			(594502, 3607688, 'ott3607688', 'Sahelanthropus', 'no rank', 'extinct', 1, 51),
 			(594475, NULL,   'mrcaott786ott6182', NULL, NULL, '', 4, 55);
 
 		-- One FTS row per NAME, with search_name mapping rowid back to a node.
@@ -103,7 +104,18 @@ func futureBuild(t *testing.T) string {
 		CREATE TABLE node_image (idx INTEGER PRIMARY KEY, phylopic_id TEXT,
 			source_idx INTEGER NOT NULL, clade_idx INTEGER NOT NULL,
 			climb INTEGER NOT NULL, method TEXT NOT NULL);
-		INSERT INTO node_image VALUES (594485, 'abc-123', 588427, 588427, 26, 'ancestor');
+		INSERT INTO node_image VALUES (594485, 'abc-123', 588427, 588427, 26, 'ancestor'),
+			(594475, 'abc-123', 588427, 588427, 22, 'ancestor');
+
+		-- The second resolution: the human–chimp split witnessed by the taxon
+		-- whose fossil record sits at it, not by the crown genus below it.
+		CREATE TABLE node_divergence_image (idx INTEGER PRIMARY KEY,
+			phylopic_id TEXT NOT NULL, source_idx INTEGER NOT NULL, gap_ma REAL NOT NULL);
+		INSERT INTO node_divergence_image VALUES (594475, 'def-456', 594502, 0.0);
+
+		CREATE TABLE occurrence (idx INTEGER PRIMARY KEY,
+			fea REAL, fla REAL, lea REAL, lla REAL);
+		INSERT INTO occurrence VALUES (594502, 7.246, 5.333, 7.246, 5.333);
 
 		CREATE TABLE synonym (idx INTEGER, name TEXT);
 		INSERT INTO synonym VALUES (594485, 'Homo sapiens Linnaeus 1758');
@@ -303,6 +315,130 @@ func TestSearchUsesFTSAndImageSignalWhenPresent(t *testing.T) {
 	}
 	if got := *res[0].SilhouetteCladeTips; got != int64(st.Arrays.TipCount[588427]) {
 		t.Errorf("silhouette_clade_tips = %d, want %d", got, st.Arrays.TipCount[588427])
+	}
+}
+
+// The witness is a *second* answer, not a replacement, so the test is that both
+// survive on the same node: node_image still says what the clade looks like and
+// node_divergence_image says what stood at its split. Collapsing them is the
+// failure this table exists to avoid.
+func TestTheDivergenceWitnessDoesNotDisplaceTheOrdinaryImage(t *testing.T) {
+	dir := futureBuild(t)
+	st, err := Open(t.Context(), Options{BuildDir: dir, Log: slog.New(slog.DiscardHandler)})
+	if err != nil {
+		t.Fatalf("opening a future build: %v", err)
+	}
+	defer st.Close() //nolint:errcheck
+
+	if st.Schema.Witness == nil {
+		t.Fatal("node_divergence_image was not detected")
+	}
+	if st.Schema.Witness.SourceIdx != "source_idx" || st.Schema.Witness.GapMa != "gap_ma" {
+		t.Errorf("witness columns resolved to %+v", st.Schema.Witness)
+	}
+
+	ctx := t.Context()
+	ws, err := st.Witnesses(ctx, []int{594475, 594485})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := ws[594475]
+	if !ok || got.PhylopicID != "def-456" || got.SourceIdx != 594502 {
+		t.Fatalf("witness = %+v", got)
+	}
+	if got.GapMa == nil || *got.GapMa != 0 {
+		t.Errorf("gap_ma = %v, want 0 — the taxon's range spans this split", got.GapMa)
+	}
+	// A leaf the reader selected is not a divergence and must not acquire one.
+	if _, ok := ws[594485]; ok {
+		t.Error("594485 is a tip; it has no split for a fossil to witness")
+	}
+
+	imgs, err := st.Images(ctx, []int{594475})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if imgs[594475].PhylopicID != "abc-123" {
+		t.Errorf("the ordinary image = %+v, want it untouched", imgs[594475])
+	}
+}
+
+// A witness with no taxon is a picture with no caption, and the caption is the
+// whole point — without it the drawing is just another unexplained silhouette,
+// which is the thing this replaced. So the row is dropped rather than served
+// half-resolved.
+func TestAWitnessWithoutItsTaxonIsRefused(t *testing.T) {
+	real := testenv.RequireBuild(t)
+	dir := t.TempDir()
+	if err := os.Symlink(filepath.Join(real, "topology"), filepath.Join(dir, "topology")); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", "file:"+filepath.Join(dir, "concestor.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`
+		CREATE TABLE node (idx INTEGER PRIMARY KEY, ott_id INTEGER, node_key TEXT NOT NULL,
+			name TEXT, rank TEXT, flags TEXT, tip_count INTEGER NOT NULL, depth INTEGER NOT NULL);
+		INSERT INTO node VALUES (594475, NULL, 'mrcaott786ott6182', NULL, NULL, '', 4, 55);
+		CREATE TABLE node_divergence_image (idx INTEGER PRIMARY KEY,
+			phylopic_id TEXT NOT NULL, source_idx INTEGER NOT NULL, gap_ma REAL NOT NULL);
+		INSERT INTO node_divergence_image VALUES (594475, 'def-456', -1, 0.0);
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+
+	st, err := Open(t.Context(), Options{BuildDir: dir, Log: slog.New(slog.DiscardHandler)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close() //nolint:errcheck
+
+	ws, err := st.Witnesses(t.Context(), []int{594475})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := ws[594475]; ok {
+		t.Error("a witness whose source_idx addresses nothing must be dropped")
+	}
+}
+
+// A build from before phase 5a grew a witness table must open and serve
+// unchanged. This is the ordinary case for every dataset built to date.
+func TestNoWitnessTableIsNotAnError(t *testing.T) {
+	real := testenv.RequireBuild(t)
+	dir := t.TempDir()
+	if err := os.Symlink(filepath.Join(real, "topology"), filepath.Join(dir, "topology")); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", "file:"+filepath.Join(dir, "concestor.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`
+		CREATE TABLE node (idx INTEGER PRIMARY KEY, ott_id INTEGER, node_key TEXT NOT NULL,
+			name TEXT, rank TEXT, flags TEXT, tip_count INTEGER NOT NULL, depth INTEGER NOT NULL);
+		INSERT INTO node VALUES (594485, 770315, 'ott770315', 'Homo sapiens', 'species', '', 2, 59);
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+
+	st, err := Open(t.Context(), Options{BuildDir: dir, Log: slog.New(slog.DiscardHandler)})
+	if err != nil {
+		t.Fatalf("opening a build with no witness table: %v", err)
+	}
+	defer st.Close() //nolint:errcheck
+
+	if st.Schema.Witness != nil {
+		t.Errorf("witness schema resolved against no such table: %+v", st.Schema.Witness)
+	}
+	ws, err := st.Witnesses(t.Context(), []int{594485})
+	if err != nil || len(ws) != 0 {
+		t.Fatalf("Witnesses = %v, %v; want an empty map and no error", ws, err)
 	}
 }
 

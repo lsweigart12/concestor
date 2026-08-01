@@ -640,6 +640,19 @@ Rendering a mole for "Mammalia" is worse than rendering nothing.
 > ships is: draw it, and say what group it speaks for and how large that group is.
 > Measured before and after the resolution change, and the reasoning, in handoff.md §5.
 
+> **A divergence gets a second picture.** The rule above answers "what does something
+> in this clade look like", and it answers it by preferring the most inclusive drawing
+> beneath a node. At a *split* that is the wrong end of the branch every time: the
+> human–chimp divergence drew the generic *Homo*, the whale–hippo divergence drew the
+> Cetacea dolphin, and neither existed when the lineages parted. So internal nodes also
+> carry a **witness** in `node_divergence_image` — a drawn taxon inside the clade whose
+> fossil record puts it at the split. *Sahelanthropus*, *Basilosaurus*, *Icaronycteris*,
+> *Hallucigenia*. The two tables stay separate because which one applies depends on how
+> the reader reached the node, which only the client knows: a species they chose wants
+> its group's exemplar, a divergence they arrived at wants the witness. It is refused
+> where the split is undated, where the node draws its own image, and where nothing
+> drawn inside the clade is dated near enough — 66 nodes, not 2.7M. See handoff.md §5.
+
 They belong at the upper tiers of semantic zoom — a silhouette *is* the "full detail
 card" tier for a clade, and arguably earns a place at the label tier for well-known ones.
 

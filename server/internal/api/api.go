@@ -176,6 +176,29 @@ type Entry struct {
 	// and checked there against the array rather than the code that wrote it.
 	// A client must render it as a range and never as a point.
 	Occurrence *store.Occurrence `json:"occurrence,omitempty"`
+
+	// The divergence witness: a second silhouette for an internal node, of a
+	// drawn taxon inside the clade whose fossil record puts it at this node's
+	// split. Present on 66 nodes, and never on a node that carries its own
+	// image or whose split is undated.
+	//
+	// A client must not draw it *instead of* PhylopicID everywhere. The two
+	// answer different questions and which one applies depends on how the
+	// reader arrived at the node: a node they picked wants its clade's
+	// exemplar, a node they arrived at by splitting wants the witness. Only
+	// the client knows which.
+	//
+	// DivergenceRange is the witness taxon's own fossil bracket and is what
+	// makes the picture legible — "Sahelanthropus, 7.2–5.3 Ma" beside a split
+	// dated 6.7 Ma is a statement a reader can check. Drawing the silhouette
+	// without it restates the problem this replaced, an unexplained shape.
+	// It is a range and never a point, exactly as Occurrence is.
+	DivergencePhylopicID *string           `json:"divergence_phylopic_id,omitempty"`
+	DivergenceSourceIdx  *int              `json:"divergence_source_idx,omitempty"`
+	DivergenceSourceName *string           `json:"divergence_source_name,omitempty"`
+	DivergenceSourceRank *string           `json:"divergence_source_rank,omitempty"`
+	DivergenceGapMa      *float64          `json:"divergence_gap_ma,omitempty"`
+	DivergenceRange      *store.Occurrence `json:"divergence_range,omitempty"`
 }
 
 // entries turns a list of indices into API entries, preserving order.
@@ -185,14 +208,15 @@ func (s *Server) entries(r *http.Request, idxs []int) ([]Entry, error) {
 	if err != nil {
 		return nil, err
 	}
-	occs, err := s.St.Occurrences(ctx, idxs)
+	witnesses, err := s.St.Witnesses(ctx, idxs)
 	if err != nil {
 		return nil, err
 	}
 	// Naming the clade a picture stands for needs a `node` row the caller did
 	// not ask for. The clade indices along a path are few and repeat heavily —
 	// neighbouring nodes share one — so they are folded into the metadata
-	// lookup that was happening anyway rather than costing a query each.
+	// lookup that was happening anyway rather than costing a query each. A
+	// witness taxon is the same shape of extra row and rides along with them.
 	want := append([]int(nil), idxs...)
 	seen := make(map[int]bool, len(idxs))
 	for _, idx := range idxs {
@@ -203,6 +227,20 @@ func (s *Server) entries(r *http.Request, idxs []int) ([]Entry, error) {
 			seen[*c] = true
 			want = append(want, *c)
 		}
+	}
+	// The witness taxon's own fossil range is the caption, so it is fetched
+	// alongside the nodes' own occurrences rather than in a second pass.
+	wantOcc := append([]int(nil), idxs...)
+	for _, w := range witnesses {
+		if !seen[w.SourceIdx] {
+			seen[w.SourceIdx] = true
+			want = append(want, w.SourceIdx)
+		}
+		wantOcc = append(wantOcc, w.SourceIdx)
+	}
+	occs, err := s.St.Occurrences(ctx, wantOcc)
+	if err != nil {
+		return nil, err
 	}
 	metas, err := s.St.Metas(ctx, want)
 	if err != nil {
@@ -259,6 +297,18 @@ func (s *Server) entries(r *http.Request, idxs []int) ([]Entry, error) {
 					t := int64(a.TipCount[*c])
 					e.SilhouetteCladeTips = &t
 				}
+			}
+		}
+		if w, ok := witnesses[idx]; ok {
+			id, src := w.PhylopicID, w.SourceIdx
+			e.DivergencePhylopicID = &id
+			e.DivergenceSourceIdx = &src
+			e.DivergenceSourceName = metas[src].Name
+			e.DivergenceSourceRank = metas[src].Rank
+			e.DivergenceGapMa = w.GapMa
+			if o, ok := occs[src]; ok {
+				v := o
+				e.DivergenceRange = &v
 			}
 		}
 		out = append(out, e)
@@ -523,6 +573,11 @@ type nodeBody struct {
 	Synonyms    []string           `json:"synonyms"`
 	Vernaculars []store.Vernacular `json:"vernaculars"`
 	Silhouette  *store.Attribution `json:"silhouette"`
+	// The witness's own credit. A separate block because it is a separate
+	// drawing by a separate artist, and the canvas draws it: CC-BY applies to
+	// whatever is on screen, so an image the card cannot credit is an image
+	// the canvas may not show.
+	DivergenceSilhouette *store.Attribution `json:"divergence_silhouette,omitempty"`
 }
 
 func (s *Server) handleNode(w http.ResponseWriter, r *http.Request) {
@@ -600,10 +655,27 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	var witAttrib *store.Attribution
+	if entries[0].DivergencePhylopicID != nil {
+		witAttrib, err = s.St.SilhouetteAttribution(ctx, *entries[0].DivergencePhylopicID)
+		if err != nil {
+			s.Log.Warn("witness attribution", "idx", idx, "err", err)
+		}
+		if witAttrib != nil {
+			witAttrib.SourceIdx = entries[0].DivergenceSourceIdx
+			witAttrib.SourceName = entries[0].DivergenceSourceName
+			witAttrib.SourceRank = entries[0].DivergenceSourceRank
+			// No clade: a witness is inside the node's own clade, so the node
+			// is the whole of what the picture speaks for and there is nothing
+			// wider to report.
+		}
+	}
+
 	body := nodeBody{
 		Entry: entries[0], Flags: meta.Flags,
 		ChildCount: int64(s.St.Arrays.ChildCount[idx]),
 		Synonyms:   syn, Vernaculars: vern, Silhouette: attrib,
+		DivergenceSilhouette: witAttrib,
 	}
 	if p := s.St.Arrays.Parent[idx]; p != topo.NoParent {
 		v := int(p)

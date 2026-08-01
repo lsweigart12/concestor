@@ -43,6 +43,38 @@ ancestor-or-self of the node with any seed beneath it, cousins included — and
 its `tip_count` is the size of the claim. That is what the UI must render and
 what the gates are written against; `climb` is now just how far up C sat.
 
+## A divergence is a different question, and gets a second answer
+
+`node_image` answers "what does something in this clade look like". An internal
+node is also a *split*, and there the interesting question is a different one:
+what was alive around the time these lineages parted. The two answers disagree
+almost everywhere, because the first rule prefers the most inclusive drawing
+beneath a node and that is nearly always a crown group. The human–chimp split
+drew the generic *Homo*; Whippomorpha, the whale–hippo split, drew the Cetacea
+dolphin. Both are pictures of the wrong end of the branch.
+
+So internal nodes get a second, independent resolution — the **witness** — in
+`node_divergence_image`, and `node_image` is left exactly as it was. A witness
+is a drawn taxon inside the clade whose *fossil record* places it at the split:
+*Sahelanthropus* for human–chimp, *Basilosaurus* for whale–hippo,
+*Icaronycteris* for the bat radiation, *Hallucigenia* for Bilateria. Keeping
+them apart is the same discipline as `age_ma` / `age_layout`: a node that the
+reader *chose* should still show what its group looks like, and only a node the
+reader arrived at by splitting should show what stood at the fork.
+
+Three restrictions do the honest work, all of them refusals:
+
+- **A witness needs a dated split.** `age_ma` must be finite, so `structural`
+  nodes get none. Claiming a fossil sits near a divergence nobody has dated is
+  the exact dishonesty phase 2 exists to prevent.
+- **A witness needs a fossil record**, an `occurrence` bracket from phase 4.
+  That is 398 of the 7,470 drawn nodes, which is why this fires on 66 nodes and
+  not 66,000. Small and right beats large and invented.
+- **Exactness still wins.** A node with its own image keeps it and gets no
+  witness, so Mammalia is Mammalia and never a Cretaceous monotreme.
+
+`NEAR_FRACTION` is where the judgement sits; see the constant.
+
 ## Mirroring
 
 Stale `build` values return **410 Gone, not a redirect**, with the current build
@@ -87,6 +119,8 @@ if TYPE_CHECKING:
     from .typing_ import (
         BoolArray,
         DepthArray,
+        F32Array,
+        F64Array,
         I64Array,
         Json,
         JsonDict,
@@ -140,6 +174,27 @@ METHOD_NAME = {
 INFORMATIVE_CLADE_TIPS = 10_000
 MIN_INFORMATIVE_LEAF = 0.65
 MIN_INFORMATIVE_INTERNAL = 0.75
+
+# How far from a split may a fossil sit and still be a witness to it? Expressed
+# as a fraction of the split's own age, because "near" in deep time is read
+# against the depth of the thing: 2 Ma is nothing at the whale–hippo split and
+# most of the story at the human–chimp one.
+#
+# Like INFORMATIVE_CLADE_TIPS above this is a product judgement, not a number
+# the data hands over — the gap distribution is smooth, with a median of 0.502.
+# It is set where the picks stop being about the split. Measured on the built
+# corpus, witnesses admitted at each cap:
+#
+#   0.20 -> 53   0.25 -> 66   0.33 -> 87   0.50 -> 114
+#
+# and what the last two admit is the argument. At 0.33 Tetrapoda (360 Ma) takes
+# Ctenosauriscidae, a Triassic archosaur 110 Ma too late, and a 777 Ma node
+# takes Cambrian Hallucigenia. At 0.50 Metazoa (785 Ma) takes Hallucigenia too
+# and Aves (96 Ma) takes a Paleocene penguin. Those are not witnesses to
+# anything; they are the nearest fossil, which is a different claim. Dropping
+# to 0.20 costs Bilateria, Amniota, Boreoeutheria and Haplorrhini, all of which
+# read correctly, so 0.25 is where the rule discriminates.
+NEAR_FRACTION = 0.25
 
 NO_IMAGE = -1
 
@@ -863,6 +918,128 @@ def propagate(
 
 
 # --------------------------------------------------------------------------
+# The divergence witness — the same tree, a different question
+# --------------------------------------------------------------------------
+
+
+@dataclass(slots=True)
+class Witness:
+    """Per node: a drawn taxon whose fossil record sits at that node's split."""
+
+    image: I64Array  # position in `records`; NO_IMAGE where there is no witness
+    source: I64Array  # the node drawn, always strictly inside idx's clade
+    gap: F64Array  # Ma from the split to that taxon's observed range; 0 = spans
+
+
+def load_occurrence(con: sqlite3.Connection, n: int) -> tuple[F64Array, F64Array]:
+    """Phase 4's fossil brackets, as the widest range each taxon may have lived.
+
+    `fea` is the oldest the first appearance could be and `lla` the youngest the
+    last appearance could be, so `[lla, fea]` is the whole of when the taxon
+    might have been alive. Phase 4's warning that `fea` is junk-wide is about
+    *placing* a taxon at it — architecture §7 measured the bracket widening with
+    occurrence count — and does not carry here, because this reads the pair as a
+    range to test containment against and never as a position. What a wide
+    bracket costs a candidate is the tie-break: narrower evidence wins, which is
+    what puts *Sahelanthropus* (7.2–5.3) ahead of *Ardipithecus* (11.6–2.6) at
+    the human–chimp split when both contain it.
+
+    Returns NaN-filled arrays when phase 4 has not run.
+    """
+    oldest = np.full(n, np.nan, dtype=np.float64)
+    youngest = np.full(n, np.nan, dtype=np.float64)
+    have = con.execute(
+        "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='occurrence'"
+    ).fetchone()[0]
+    if not have:
+        return oldest, youngest
+    for idx, fea, lla in con.execute("SELECT idx, fea, lla FROM occurrence"):
+        if idx < 0 or idx >= n or fea is None or lla is None:
+            continue
+        oldest[idx], youngest[idx] = fea, lla
+    return oldest, youngest
+
+
+def divergence_witnesses(
+    parent: U32Array,
+    depth: DepthArray,
+    tip_count: U32Array,
+    age_ma: F32Array,
+    seed: I64Array,
+    oldest: F64Array,
+    youngest: F64Array,
+    near_fraction: float = NEAR_FRACTION,
+) -> Witness:
+    """For each internal node, the drawn taxon that was there when it split.
+
+    `propagate` answers "what does something in this clade look like" and gets
+    that right by preferring the most inclusive drawing beneath a node. At a
+    divergence that is the wrong end of the branch: the most inclusive drawing
+    beneath the human–chimp split is *Homo* and beneath the whale–hippo split is
+    Cetacea, so a reader who asked what parted there is shown two crown groups
+    that did not exist yet. This answers the other question, on its own terms,
+    into its own table.
+
+    A candidate is a node carrying **its own** PhyloPic image and a phase 4
+    fossil bracket — 398 nodes, against 7,470 drawn and 2,133 with a bracket.
+    It offers itself to every ancestor and the ancestor keeps the best offer:
+
+    - Reject unless the ancestor's `age_ma` is finite. A `structural` node has
+      no dated split, so there is nothing for a fossil to be near.
+    - Reject if the ancestor carries its own image. Exactness wins everywhere
+      else in this phase and there is no reason for it to stop here; Mammalia
+      stays Mammalia rather than becoming a Cretaceous monotreme.
+    - Reject if the gap between the split and `[lla, fea]` exceeds
+      `near_fraction` of the split's age.
+    - Otherwise rank by that gap, then by the *narrowest* bracket, then by the
+      most inclusive taxon and the shallowest — the same "the contributor meant
+      this as an exemplar" ordering `exemplars` uses, applied to the tie.
+
+    Cost is bounded by the candidates, not the tree: 398 chains of at most 111
+    ancestors. Everything else keeps `NO_IMAGE` and draws what it drew before.
+    """
+    n = parent.size
+    if not depth.size == tip_count.size == seed.size == n:
+        raise ValueError("divergence_witnesses: array lengths disagree")
+    if not age_ma.size == oldest.size == youngest.size == n:
+        raise ValueError("divergence_witnesses: age arrays disagree with the topology")
+
+    image = np.full(n, NO_IMAGE, dtype=np.int64)
+    source = np.full(n, NO_IMAGE, dtype=np.int64)
+    gap = np.full(n, np.nan, dtype=np.float64)
+
+    par = parent.astype(np.int64)
+    age = age_ma.astype(np.float64)
+    seeded: BoolArray = seed != NO_IMAGE
+    candidates = np.flatnonzero(seeded & np.isfinite(oldest) & np.isfinite(youngest))
+
+    # (gap, bracket width, -tip_count, depth, idx) — smallest wins. Ranked per
+    # ancestor because `gap` depends on whose split is being asked about.
+    best: dict[int, tuple[float, float, int, int, int]] = {}
+    for c in candidates.tolist():
+        hi, lo = float(oldest[c]), float(youngest[c])
+        tail = (hi - lo, -int(tip_count[c]), int(depth[c]), c)
+        v = int(par[c]) if c != 0 else NO_IMAGE
+        while 0 <= v < n:
+            a = age[v]
+            if np.isfinite(a) and a > 0.0 and tip_count[v] > 1 and not seeded[v]:
+                d = 0.0 if lo <= a <= hi else min(abs(hi - a), abs(lo - a))
+                if d <= near_fraction * a:
+                    key = (d, *tail)
+                    if v not in best or key < best[v]:
+                        best[v] = key
+                        source[v] = c
+                        gap[v] = d
+            if v == 0:  # the root's parent is a sentinel, not an index
+                break
+            v = int(par[v])
+
+    found = source != NO_IMAGE
+    image[found] = seed[source[found]]
+    return Witness(image=image, source=source, gap=gap)
+
+
+# --------------------------------------------------------------------------
 # The SVG mirror
 # --------------------------------------------------------------------------
 
@@ -1091,7 +1268,53 @@ def write_node_image(
     return int(con.execute("SELECT count(*) FROM node_image").fetchone()[0])
 
 
-def write_arrays(records: list[ImageRecord], assign: Assignment) -> None:
+def write_node_divergence_image(
+    con: sqlite3.Connection, records: list[ImageRecord], witness: Witness
+) -> int:
+    """One row per node that has a witness — 66 of them, not 2.7M.
+
+    Deliberately a second table rather than more columns on `node_image`. The
+    two resolutions answer different questions and a consumer must be able to
+    take one without the other: a node the reader *selected* still wants its
+    clade's exemplar, and only a node they arrived at by splitting wants the
+    witness. Merging them would force that choice at build time, where the
+    information needed to make it does not exist.
+
+    There is no `clade_idx` because there is nothing to compute: a witness is
+    always strictly inside the node's own clade, so the clade the picture speaks
+    for is the node itself. `gap_ma` is the distance from the split to the
+    taxon's observed range, and 0 means the range spans it.
+    """
+    con.executescript(
+        """
+        DROP TABLE IF EXISTS node_divergence_image;
+        CREATE TABLE node_divergence_image (
+          idx          INTEGER PRIMARY KEY,
+          phylopic_id  TEXT NOT NULL,
+          source_idx   INTEGER NOT NULL,  -- the taxon drawn; always inside idx
+          gap_ma       REAL NOT NULL      -- split to its range; 0 = range spans it
+        );
+        """
+    )
+    uuids = [r.uuid for r in records]
+    img = witness.image.tolist()
+    src = witness.source.tolist()
+    gap = witness.gap.tolist()
+    con.executemany(
+        "INSERT INTO node_divergence_image VALUES (?,?,?,?)",
+        (
+            (i, uuids[img[i]], src[i], gap[i])
+            for i in range(len(img))
+            if src[i] != NO_IMAGE
+        ),
+    )
+    con.commit()
+    return int(con.execute("SELECT count(*) FROM node_divergence_image").fetchone()[0])
+
+
+def write_arrays(
+    records: list[ImageRecord], assign: Assignment, witness: Witness | None = None
+) -> None:
     """The same resolution as flat arrays, for the packaging step.
 
     `node_image` is the queryable form; these are the mmap-able one, and they
@@ -1103,6 +1326,10 @@ def write_arrays(records: list[ImageRecord], assign: Assignment) -> None:
     np.save(OUT / "node_image_clade.npy", assign.clade.astype(np.int64))
     np.save(OUT / "node_image_climb.npy", assign.climb)
     np.save(OUT / "node_image_method.npy", assign.method)
+    if witness is not None:
+        np.save(OUT / "node_divergence_image.npy", witness.image.astype(np.int32))
+        np.save(OUT / "node_divergence_source.npy", witness.source.astype(np.int64))
+        np.save(OUT / "node_divergence_gap.npy", witness.gap.astype(np.float32))
     (OUT / "silhouette_ids.json").write_text(
         json.dumps([r.uuid for r in records], separators=(",", ":")) + "\n"
     )
@@ -1343,6 +1570,108 @@ def _licence_label(url: str) -> str:
     return "/".join(parts[-2:]) if len(parts) >= 2 else url
 
 
+# The two cases the witness rule was built for, pinned by OTT id because names
+# are ambiguous in this taxonomy and ids are not — looking `Vertebrata` up by
+# name in this database reaches a red alga. Neither anchor is the whole test;
+# they are the two a reader is most likely to try, and a rule that draws Homo at
+# the human–chimp split or a dolphin at the whale–hippo one has regressed
+# whatever the aggregate counts say.
+WITNESS_ANCHORS: tuple[tuple[str, tuple[int, ...], str], ...] = (
+    ("the human–chimp split", (770309, 417957), "Sahelanthropus"),
+    ("the whale–hippo split", (7655791,), "Basilosaurus"),
+)
+
+
+def _mrca(parent: U32Array, nodes: Sequence[int]) -> int:
+    """Last common element of the ancestor paths, the primitive everything uses."""
+    par = parent.astype(np.int64)
+
+    def path(v: int) -> list[int]:
+        out = [v]
+        while v != 0:
+            v = int(par[v])
+            out.append(v)
+        return out[::-1]
+
+    common = path(nodes[0])
+    for v in nodes[1:]:
+        other = set(path(v))
+        common = [u for u in common if u in other]
+    return common[-1]
+
+
+def witness_gates(
+    g: GateSet,
+    witness: Witness,
+    con: sqlite3.Connection,
+    parent: U32Array,
+    tip_count: U32Array,
+    seed: I64Array,
+    oldest: F64Array,
+) -> None:
+    """Count the witnesses, then check the two everyone will look at.
+
+    Counting rows is not the same as checking them — the standing lesson of this
+    repo — and a witness table is unusually easy to fill with confident nonsense,
+    because every row in it is a claim about time made from two independent
+    estimates. So the counts are observations and the blocking gates are the
+    named cases.
+    """
+    found = witness.source != NO_IMAGE
+    n = int(found.sum())
+    candidates = int(((seed != NO_IMAGE) & np.isfinite(oldest)).sum())
+    spans = int((witness.gap[found] == 0.0).sum())
+
+    g.observe(
+        "drawn taxa with a fossil bracket to witness with",
+        f"{candidates:,}",
+        note=(
+            f"Of {int((seed != NO_IMAGE).sum()):,} nodes carrying their own "
+            "image. The ceiling on this whole mechanism is how few drawn taxa "
+            "PhyloPic has that PBDB also dates, not the resolution rule."
+        ),
+    )
+    g.require(
+        "nodes given a divergence witness",
+        f"{n:,}",
+        "> 0",
+        ok=n > 0,
+        note=(
+            f"{spans:,} where the taxon's observed range spans the split "
+            f"outright; the rest sit within {NEAR_FRACTION:.0%} of its age. "
+            "Zero means phase 4 has not run, or that no drawn taxon is dated."
+        ),
+    )
+
+    ott = {o: i for i, o in con.execute("SELECT idx, ott_id FROM node WHERE ott_id")}
+    names = dict(con.execute("SELECT idx, name FROM node WHERE name IS NOT NULL"))
+    for label, ids, expected in WITNESS_ANCHORS:
+        nodes = [ott[o] for o in ids if o in ott]
+        if len(nodes) != len(ids):
+            g.require(
+                f"{label} resolves",
+                "missing",
+                "in the tree",
+                ok=False,
+                note=f"OTT {ids} not all present; the anchor cannot be checked.",
+            )
+            continue
+        node = _mrca(parent, nodes) if len(nodes) > 1 else nodes[0]
+        src = int(witness.source[node])
+        actual = names.get(src) if src != NO_IMAGE else None
+        g.require(
+            f"{label} is witnessed by {expected}",
+            actual or "no witness",
+            expected,
+            ok=actual == expected,
+            note=(
+                f"node {node}, {int(tip_count[node]):,} tips. Before this rule "
+                "existed it drew the most inclusive picture beneath it, which "
+                "is a crown group that did not exist when the split happened."
+            ),
+        )
+
+
 def licence_gates(
     g: GateSet, records: list[ImageRecord], mirrored: dict[str, MirrorRow]
 ) -> None:
@@ -1469,6 +1798,7 @@ def run(budget: int = 0, mirror_only: bool = False, log: Log = _log) -> int:
     tip_count = np.load(TOPO_OUT / "tip_count.npy")
     subtree_out = np.load(TOPO_OUT / "subtree_out.npy")
     assign: Assignment | None = None
+    witness: Witness | None = None
 
     if mirror_only:
         g.observe("node resolution", "skipped (--mirror-only)")
@@ -1480,6 +1810,7 @@ def run(budget: int = 0, mirror_only: bool = False, log: Log = _log) -> int:
 
         con = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
         forwards = load_forwards(con)
+        oldest, youngest = load_occurrence(con, tip_count.size)
         con.close()
 
         t0 = time.monotonic()
@@ -1494,6 +1825,14 @@ def run(budget: int = 0, mirror_only: bool = False, log: Log = _log) -> int:
             name_uids=name_uids,
         )
         assign = propagate(parent, depth, subtree_out, seed, tip_count)
+        # Phase 2's output is optional here the way phase 4's is: without a
+        # dated split there is nothing for a fossil to be near, so the witness
+        # table is simply absent and every consumer falls back to `node_image`.
+        ages = TOPO_OUT / "age_ma.npy"
+        if ages.exists():
+            witness = divergence_witnesses(
+                parent, depth, tip_count, np.load(ages), seed, oldest, youngest
+            )
         log(f"  propagated in {time.monotonic() - t0:,.1f}s")
 
         g.observe(
@@ -1545,7 +1884,17 @@ def run(budget: int = 0, mirror_only: bool = False, log: Log = _log) -> int:
         )
         cov = coverage_gates(g, assign, tip_count, subtree_out, depth)
         (BUILD / "phase5a_coverage.json").write_text(json.dumps(cov, indent=2) + "\n")
-        write_arrays(records, assign)
+        if witness is None:
+            g.observe(
+                "divergence witnesses",
+                "skipped",
+                note="age_ma.npy is absent; phase 2 has not run.",
+            )
+        else:
+            con = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
+            witness_gates(g, witness, con, parent, tip_count, seed, oldest)
+            con.close()
+        write_arrays(records, assign, witness)
 
     # --- mirror ----------------------------------------------------------
     log("\n--- SVG mirror ---")
@@ -1569,6 +1918,9 @@ def run(budget: int = 0, mirror_only: bool = False, log: Log = _log) -> int:
     log(f"  silhouette: {len(records):,} rows")
     if assign is not None:
         log(f"  node_image: {write_node_image(con, records, assign):,} rows")
+    if witness is not None:
+        rows = write_node_divergence_image(con, records, witness)
+        log(f"  node_divergence_image: {rows:,} rows")
     con.close()
     record_mirror(records, have)
 

@@ -85,6 +85,72 @@ func (s *Store) Images(ctx context.Context, idxs []int) (map[int]ImageRef, error
 	return out, nil
 }
 
+// WitnessRef is the second silhouette an internal node may carry: a drawn taxon
+// from inside the clade whose fossil record puts it at that node's divergence.
+// SourceIdx is always strictly inside the node, so unlike ImageRef there is no
+// clade to report — the node itself is the whole of the claim. GapMa is the
+// distance from the split to the taxon's observed range, and 0 means the range
+// spans it outright.
+type WitnessRef struct {
+	PhylopicID string
+	SourceIdx  int
+	GapMa      *float64
+}
+
+// Witnesses resolves divergence silhouettes for a batch of node indices.
+// Returns an empty map against a build with no node_divergence_image table,
+// which is the normal state for anything built before phase 5a grew one.
+func (s *Store) Witnesses(ctx context.Context, idxs []int) (map[int]WitnessRef, error) {
+	out := map[int]WitnessRef{}
+	w := s.Schema.Witness
+	if w == nil || len(idxs) == 0 {
+		return out, nil
+	}
+	for start := 0; start < len(idxs); start += metaChunk {
+		end := min(start+metaChunk, len(idxs))
+		chunk := idxs[start:end]
+		q := fmt.Sprintf("SELECT %q, %q, %q, %s FROM %q WHERE %q IN (%s)",
+			w.Idx, w.ID, w.SourceIdx, colOrNull(w.GapMa), w.Table, w.Idx,
+			placeholders(len(chunk)))
+		args := make([]any, len(chunk))
+		for i, v := range chunk {
+			args[i] = v
+		}
+		rows, err := s.DB.QueryContext(ctx, q, args...)
+		if err != nil {
+			return out, err
+		}
+		for rows.Next() {
+			var idx int
+			var id sql.NullString
+			var src sql.NullInt64
+			var gap sql.NullFloat64
+			if err := rows.Scan(&idx, &id, &src, &gap); err != nil {
+				_ = rows.Close()
+				return out, err
+			}
+			// Both are load-bearing: the picture is meaningless without the
+			// taxon it is of, since naming that taxon and its dates is the
+			// only thing distinguishing a witness from an ordinary borrow.
+			if !id.Valid || id.String == "" || !src.Valid || src.Int64 < 0 {
+				continue
+			}
+			ref := WitnessRef{PhylopicID: id.String, SourceIdx: int(src.Int64)}
+			if gap.Valid {
+				v := gap.Float64
+				ref.GapMa = &v
+			}
+			out[idx] = ref
+		}
+		err = rows.Err()
+		_ = rows.Close()
+		if err != nil {
+			return out, err
+		}
+	}
+	return out, nil
+}
+
 // SVGPath returns the mirrored SVG for a PhyloPic id, absolute, or "" when the
 // image has not been fetched yet. The mirror is being populated in the
 // background, so "known but not on disk" is a normal state.

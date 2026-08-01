@@ -25,6 +25,7 @@ type Schema struct {
 	Vernacular *VernacularSchema `json:"vernacular,omitempty"`
 	Silhouette *SilhouetteSchema `json:"silhouette,omitempty"`
 	NodeImage  *NodeImageSchema  `json:"node_image,omitempty"`
+	Witness    *WitnessSchema    `json:"node_divergence_image,omitempty"`
 	Synonym    *SynonymSchema    `json:"synonym,omitempty"`
 	Ranking    *RankingSchema    `json:"search_ranking,omitempty"`
 	Fossil     *FossilSchema     `json:"fossil,omitempty"`
@@ -154,6 +155,7 @@ func detectSchema(ctx context.Context, db *sql.DB) (*Schema, error) {
 	s.resolveVernacular()
 	s.resolveSilhouette()
 	s.resolveNodeImage()
+	s.resolveWitness()
 	s.resolveOccurrence()
 	s.resolveSynonym()
 	s.resolveRanking()
@@ -297,6 +299,53 @@ func (s *Schema) resolveNodeImage() {
 		CladeIdx:  s.col(t, "clade_idx", "silhouette_clade_idx", "shared_clade_idx"),
 		Climb:     s.col(t, "climb", "hops", "distance"),
 		Method:    s.col(t, "method", "match_method"),
+	}
+}
+
+// WitnessSchema maps an internal node to a *second* silhouette: a drawn taxon
+// inside the clade whose fossil record puts it at that node's divergence.
+//
+// It is a separate table from node_image because it answers a separate
+// question. node_image says what something in this clade looks like and prefers
+// the most inclusive drawing beneath a node, which at a split is always a crown
+// group — the human–chimp split drew Homo, the whale–hippo split drew a
+// dolphin. This says what was there when the lineages parted, and it exists for
+// 66 nodes rather than 2.7M because it is refused wherever the split is undated
+// or no drawn taxon in the clade has a fossil bracket near it.
+//
+// There is no clade column: a witness is always strictly inside the node's own
+// clade, so the node is what the picture speaks for. GapMa is the distance from
+// the split to that taxon's observed range, and 0 means the range spans it.
+type WitnessSchema struct {
+	Table     string `json:"table"`
+	Idx       string `json:"idx"`
+	ID        string `json:"phylopic_id"`
+	SourceIdx string `json:"source_idx"`
+	GapMa     string `json:"gap_ma,omitempty"`
+}
+
+func (s *Schema) resolveWitness() {
+	t := s.firstTable("node_divergence_image", "node_witness_image")
+	if t == "" {
+		return
+	}
+	idx := s.col(t, "idx", "node_idx")
+	id := s.col(t, "phylopic_id", "image_id", "uuid")
+	src := s.col(t, "source_idx", "witness_idx")
+	// The source is required, not optional as it is on node_image. A witness
+	// with no named taxon is a picture with no caption, and the caption is the
+	// entire reason this table exists: "Sahelanthropus, 7.2–5.3 Ma" is the
+	// claim, and the drawing alone would just be another unexplained silhouette.
+	if idx == "" || id == "" || src == "" {
+		s.Skipped[t] = "no idx/phylopic_id/source_idx columns could be resolved"
+		return
+	}
+	s.Witness = &WitnessSchema{
+		Table:     t,
+		Idx:       idx,
+		ID:        id,
+		SourceIdx: src,
+		GapMa:     s.col(t, "gap_ma", "gap"),
 	}
 }
 
