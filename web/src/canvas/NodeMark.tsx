@@ -6,16 +6,21 @@
  *
  *   point        a glowing dot, no text
  *   label        dot + name (+ age, when there is one we are allowed to show)
- *   detail       dot + silhouette + name + rank + age
+ *   detail       dot + silhouette + name + rank
  *
  * A silhouette *is* the full-detail tier for a clade, and for a well-known one
  * it earns a place at the label tier too — for a curious non-specialist an
  * image is what makes a clade mean anything.
+ *
+ * Where the label actually goes is decided in `tree/labels.ts`, against every
+ * other label and every trace on the canvas. This component only renders what
+ * that pass hands it.
  */
 
 import { memo } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { TIER_INTERPOLATED, TIER_STRUCTURAL, type PathNode, type Tier } from "../api";
+import type { LabelBox } from "../tree/labels";
 import { Silhouette } from "./Silhouette";
 
 export type ZoomTier = "point" | "label" | "detail";
@@ -33,6 +38,8 @@ export interface MarkData extends Record<string, unknown> {
   showSilhouette: boolean;
   /** Name of the clade an inherited silhouette actually depicts, if not this one. */
   silhouetteOf: string | null;
+  /** Resolved position, from the collision pass. Absent before it runs. */
+  label: LabelBox | undefined;
 }
 
 /**
@@ -57,9 +64,24 @@ export function isScientificItalic(rank: string | null): boolean {
  */
 export function ageLabel(age: number | null, tier: Tier): string | null {
   if (tier === TIER_STRUCTURAL || age === null || !Number.isFinite(age)) return null;
+  if (age < 0.05) return "present";
   const n = age >= 100 ? Math.round(age) : age >= 10 ? age.toFixed(0) : age.toFixed(1);
-  if (age < 0.05) return tier === TIER_INTERPOLATED ? "present" : "present";
   return `${tier === TIER_INTERPOLATED ? "≤ " : ""}${n} Ma`;
+}
+
+/**
+ * The secondary row. Rank only.
+ *
+ * What an inherited silhouette actually depicts belongs on the image, not
+ * beside it: as the mark's tooltip, and as a watermark over the enlarged
+ * silhouette in the detail card. Spelling it out on the canvas made a label
+ * wide enough to cross a whole lane and a neighbour's trace — "Carnivora ORDER
+ * silhouette: Mammalia Canis lupus familiaris" was one continuous run of text —
+ * in order to caption something the reader is already looking at.
+ */
+export function metaLine(rank: string | null, detail: boolean): string {
+  if (!detail || !rank || rank === "no rank") return "";
+  return rank.toUpperCase();
 }
 
 export const NodeMark = memo(function NodeMark({ data }: NodeProps) {
@@ -70,8 +92,29 @@ export const NodeMark = memo(function NodeMark({ data }: NodeProps) {
   const showText = d.zoom !== "point";
   const showDetail = d.zoom === "detail";
   const name = n.name ?? "unnamed divergence";
-  const withSilhouette =
-    showDetail && d.isLeaf && d.showSilhouette && Boolean(n.phylopic_id);
+  // Clades get an image too, not just selections. architecture §7: a
+  // silhouette legitimately represents a *clade*, where a photograph can only
+  // represent one member — so a mammal beside Mammalia is the case it is best
+  // at, and `silhouetteIsInformative` is what keeps a kingdom-sized borrow out.
+  const withSilhouette = showDetail && d.showSilhouette && Boolean(n.phylopic_id);
+  const meta = metaLine(n.rank, showDetail);
+
+  const box = d.label;
+  const right = box ? box.side === "right" : d.isLeaf;
+  const style: React.CSSProperties = {
+    ...(right ? { left: 18 } : { right: 18 }),
+    top: `calc(50% + ${box?.dy ?? 0}px)`,
+    flexDirection: right ? "row" : "row-reverse",
+    textAlign: right ? "left" : "right",
+    // An explicit width, not a max-width. The label's containing block is the
+    // 10px node box, so an absolutely-positioned element with `left: 18` has a
+    // negative available width and shrink-to-fit collapses it to min-content —
+    // "Canis lupus familiaris" broke onto three lines inside a box with 123px
+    // of room. Rendering the exact width the placement pass measured also
+    // makes the drawn box identical to the one collisions were tested
+    // against, which is the property that keeps this honest.
+    ...(box ? { width: box.width } : {}),
+  };
 
   return (
     <div
@@ -89,17 +132,6 @@ export const NodeMark = memo(function NodeMark({ data }: NodeProps) {
       <Handle type="target" position={Position.Left} />
       <Handle type="source" position={Position.Right} />
 
-      {/* Internal nodes label to the left of the point so the label sits over
-          the deep-time side and never collides with the trace running right. */}
-      {showText && !d.isLeaf && (
-        <span className="mark-label leading">
-          <span className={isScientificItalic(n.rank) ? "sci-italic" : undefined}>
-            {name}
-          </span>
-          {age && <span className="mark-age num">{age}</span>}
-        </span>
-      )}
-
       <span
         className={`mark-dot${d.flaring ? " flaring" : ""}`}
         style={{
@@ -113,19 +145,30 @@ export const NodeMark = memo(function NodeMark({ data }: NodeProps) {
         }}
       />
 
-      {withSilhouette && n.phylopic_id && (
-        <Silhouette phylopicId={n.phylopic_id} title={d.silhouetteOf ?? undefined} />
-      )}
-
-      {showText && d.isLeaf && (
-        <span className={`mark-label${withSilhouette ? " has-silhouette" : ""}`}>
-          <span className={isScientificItalic(n.rank) ? "sci-italic" : undefined}>
-            {name}
-          </span>
-          {showDetail && n.rank && <span className="mark-rank">{n.rank}</span>}
-          {showDetail && d.silhouetteOf && (
-            <span className="silhouette-of"> silhouette: {d.silhouetteOf}</span>
+      {showText && (
+        <span
+          className={`mark-label${box?.overlapped ? " crowded" : ""}`}
+          style={style}
+        >
+          {withSilhouette && n.phylopic_id && (
+            <Silhouette
+              phylopicId={n.phylopic_id}
+              title={
+                d.silhouetteOf
+                  ? `Silhouette of ${d.silhouetteOf}, the nearest clade with an image`
+                  : `Silhouette of ${name}`
+              }
+            />
           )}
+          <span className="mark-text" style={{ maxWidth: box?.textMaxWidth }}>
+            <span className="mark-name">
+              <span className={isScientificItalic(n.rank) ? "sci-italic" : undefined}>
+                {name}
+              </span>
+              {age && <span className="mark-age num">{age}</span>}
+            </span>
+            {meta && <span className="mark-meta">{meta}</span>}
+          </span>
         </span>
       )}
     </div>

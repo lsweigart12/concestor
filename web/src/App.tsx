@@ -123,6 +123,23 @@ export default function App() {
     }
   }, [tree.broken, toast, tree]);
 
+  // A key in the URL that resolves to nothing — a mistyped id, or one from a
+  // link made against a different build. Say which, and carry on drawing the
+  // rest of the selection.
+  useEffect(() => {
+    for (const key of tree.unresolved) {
+      toast(
+        <>
+          Nothing in this build matches <span className="mono">{key}</span>. It
+          may be from a link made against an older release; the rest of the
+          selection is unaffected.
+        </>,
+        true,
+      );
+      tree.dismissUnresolved(key);
+    }
+  }, [tree.unresolved, toast, tree]);
+
   const focusedNode = focusedIdx !== null ? tree.nodes.get(focusedIdx) : undefined;
 
   const addHit = useCallback(
@@ -497,7 +514,19 @@ function Detail({
     : null;
   return (
     <aside className="detail" style={{ color: `hsl(${hue} 60% 62%)` }}>
-      {sil && <Silhouette phylopicId={sil.phylopic_id} size={64} />}
+      {sil && (
+        <div className="detail-image">
+          <Silhouette phylopicId={sil.phylopic_id} size={110} />
+          {sil.source_name && sil.source_idx !== detail.idx && (
+            // Watermarked onto the image rather than captioned beside it: the
+            // claim is about *this picture*, and on the canvas the same fact
+            // was wide enough to run across a neighbouring lineage.
+            <span className="detail-watermark" title="The nearest clade with an image">
+              {sil.source_name}
+            </span>
+          )}
+        </div>
+      )}
       <h2
         className={isScientificItalic(detail.rank) ? "sci-italic" : undefined}
         style={{ color: "var(--ink)" }}

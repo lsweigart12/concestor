@@ -37,10 +37,17 @@ import {
   type PathNode,
   type TimescaleInterval,
 } from "../api";
-import { layout, orthPath, symlogFrac, PAD_X, PLOT_W } from "../tree/layout";
+import {
+  layout,
+  orthPath,
+  symlogFrac,
+  PAD_X,
+  PLOT_W,
+  type LabelText,
+} from "../tree/layout";
 import type { Induced } from "../tree/induced";
 import type { AddDelta } from "../tree/induced";
-import { NodeMark, type MarkData, type ZoomTier } from "./NodeMark";
+import { ageLabel, metaLine, NodeMark, type MarkData, type ZoomTier } from "./NodeMark";
 import { TraceEdge, type TraceEdgeData } from "./TraceEdge";
 import { TimeAxis } from "./TimeAxis";
 
@@ -56,13 +63,14 @@ const edgeTypes = { trace: TraceEdge };
 const NODE_BOX = 10;
 
 /**
- * Room the labels need beyond the node boxes, in layout px. Leaf names run to
- * the right of their dot and clade names sit above theirs, so the reserve is
- * deliberately asymmetric — a symmetric fit wastes the left half of the canvas
- * and still clips the right.
+ * Breathing room around the content bounds, in layout px.
+ *
+ * This used to be four asymmetric label reserves, guessed from wherever labels
+ * happened to be pinned. The placement pass now reports where every label
+ * actually landed, so the fit frames measured content and only needs a margin.
  */
-const LABEL_PAD_LEFT = 240;
-const LABEL_PAD_RIGHT = 300;
+const EDGE_PAD = 26;
+
 /**
  * Horizontal room the layout gives itself, before the fit scales it.
  *
@@ -77,8 +85,6 @@ const LABEL_PAD_RIGHT = 300;
  * narrow panel, which is the honest trade.
  */
 const MIN_PLOT_W = 340;
-const LABEL_PAD_TOP = 46;
-const LABEL_PAD_BOTTOM = 34;
 /** The time axis is fixed to the bottom and would otherwise cover a lineage. */
 const AXIS_RESERVE = 104;
 const MAX_FIT_ZOOM = 1.4;
@@ -129,18 +135,53 @@ function Inner(props: GraphProps) {
 
   // Reserve for the leaf labels that hang off the right edge, proportional in
   // a small panel and capped in a large one.
-  const labelPadRight = vw ? Math.min(LABEL_PAD_RIGHT, Math.max(120, vw * 0.3)) : LABEL_PAD_RIGHT;
-  // Clade names hang to the *left* of their node, so this reserve is what
-  // stops the induced root's label running off the edge. Long ones ellipsize
-  // inside it rather than being clipped by the viewport.
-  const labelPadLeft = vw ? Math.min(LABEL_PAD_LEFT, Math.max(150, vw * 0.34)) : LABEL_PAD_LEFT;
+  // Leave roughly a third of the panel for labels, which hang off both sides
+  // of the graph. The exact reserve no longer has to be right — the fit reads
+  // the real bounds afterwards — but the plot must still shrink in a narrow
+  // panel so the fit stays near 1:1 and text stays legible.
   const plotWidth = vw
-    ? Math.max(MIN_PLOT_W, Math.min(PLOT_W, vw - labelPadLeft - labelPadRight - 2 * PAD_X))
+    ? Math.max(MIN_PLOT_W, Math.min(PLOT_W, vw * 0.62 - PAD_X))
     : PLOT_W;
 
+  /**
+   * Semantic zoom tiers. Nodes change what they render, not just their size.
+   */
+  const zoomTier: ZoomTier = zoom < 0.55 ? "point" : zoom < 1.15 ? "label" : "detail";
+
+  /**
+   * What each label will say, handed to the layout so the placement pass can
+   * measure the real strings. Keeping this next to the renderer is what stops
+   * the two drifting — a label measured at one width and drawn at another
+   * collides exactly as badly as no placement pass at all.
+   *
+   * Always measured at the *detail* tier, even when a coarser tier is showing.
+   * Two reasons, and the first is not optional: the fit reads the placement's
+   * bounds and then sets the zoom, so letting placement depend on the zoom
+   * tier closes a feedback loop — layout → fit → zoom → tier → layout — and
+   * React Flow never finishes measuring, leaving every node `visibility:
+   * hidden`. The second is that reserving the largest variant means labels
+   * keep their positions as you zoom through a threshold instead of jumping.
+   */
+  const describeLabel: LabelText = useCallback(
+    (p) => {
+      const srcIdx = p.node.silhouette_source_idx;
+      const src =
+        srcIdx === null || srcIdx === undefined ? undefined : nodeMap.get(srcIdx);
+      const showSil = silhouetteIsInformative(p.node, src?.tip_count);
+      const withSil = showSil && Boolean(p.node.phylopic_id);
+      return {
+        name: p.node.name ?? "unnamed divergence",
+        trailing: ageLabel(p.node.age_ma, p.node.tier) ?? "",
+        meta: metaLine(p.node.rank, true),
+        hasSilhouette: withSil,
+      };
+    },
+    [nodeMap],
+  );
+
   const lay = useMemo(
-    () => layout(ind, nodeMap, { plotWidth }),
-    [ind, nodeMap, plotWidth],
+    () => layout(ind, nodeMap, { plotWidth, label: describeLabel }),
+    [ind, nodeMap, plotWidth, describeLabel],
   );
 
   // The lineage from the focused node to the induced root. `⌘\` isolates it;
@@ -154,11 +195,6 @@ function Inner(props: GraphProps) {
     }
     return out;
   }, [focusedIdx, ind]);
-
-  /**
-   * Semantic zoom tiers. Nodes change what they render, not just their size.
-   */
-  const zoomTier: ZoomTier = zoom < 0.55 ? "point" : zoom < 1.15 ? "label" : "detail";
 
   // Bloom is the first thing to go when frames are tight, and dropping to flat
   // strokes at low zoom is the documented acceptable answer.
@@ -214,6 +250,7 @@ function Inner(props: GraphProps) {
           focused: focusedIdx === p.idx,
           flaring: flaring === p.idx,
           zoom: zoomTier,
+          label: lay.labels.get(p.idx),
           showSilhouette,
           // Only worth naming when the image is of something else. Saying
           // "silhouette: Homo sapiens" on Homo sapiens is noise.
@@ -228,6 +265,16 @@ function Inner(props: GraphProps) {
           draggable: false,
           selectable: true,
           connectable: false,
+          // Declared, not measured. React Flow is fully controlled here, so the
+          // `nodes` array we hand it every render replaces its store — and with
+          // it any dimensions its ResizeObserver had recorded. A node it
+          // believes has no size is rendered `visibility: hidden`, which is how
+          // the entire graph silently disappeared while every element sat at
+          // the right coordinates in the DOM. The box is a fixed 10px square by
+          // design, so telling it the size outright removes the measurement
+          // round-trip and the race with it.
+          width: NODE_BOX,
+          height: NODE_BOX,
         };
       }),
     [lay, focusedIdx, focusLineage, isolate, flaring, zoomTier, nodeMap],
@@ -288,14 +335,14 @@ function Inner(props: GraphProps) {
    */
   const fitToContent = useCallback(
     (duration: number) => {
-      const ps = [...lay.placed.values()];
-      if (ps.length === 0 || !vw || !vh) return;
-      const xs = ps.map((p) => p.x);
-      const ys = ps.map((p) => p.y);
-      const minX = Math.min(...xs) - labelPadLeft;
-      const maxX = Math.max(...xs) + labelPadRight;
-      const minY = Math.min(...ys) - LABEL_PAD_TOP;
-      const maxY = Math.max(...ys) + LABEL_PAD_BOTTOM;
+      const c = lay.content;
+      if (!c || !vw || !vh) return;
+      // The bounds already include every placed label, so the fit frames what
+      // is actually drawn rather than the dots plus a guessed margin.
+      const minX = c.x - EDGE_PAD;
+      const maxX = c.x + c.w + EDGE_PAD;
+      const minY = c.y - EDGE_PAD;
+      const maxY = c.y + c.h + EDGE_PAD;
       // The axis owns the bottom strip; fitting into the full height would
       // slide the lowest lineage underneath it.
       const usableH = Math.max(vh - AXIS_RESERVE, 160);
@@ -313,7 +360,7 @@ function Inner(props: GraphProps) {
         { duration },
       );
     },
-    [lay, vw, vh, rf, labelPadLeft, labelPadRight],
+    [lay, vw, vh, rf],
   );
 
   useEffect(() => {

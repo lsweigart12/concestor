@@ -208,7 +208,9 @@ body {
 
 /*
  * A mark is a small square box whose centre is the node's computed (x, y).
- * The dot fills the box; labels and silhouettes hang off it absolutely.
+ * The dot fills the box; the label hangs off it absolutely, on the side and at
+ * the offset `tree/labels.ts` chose after testing every candidate against the
+ * traces and the labels already placed.
  *
  * Two constraints meet here, and both are load-bearing.
  *
@@ -227,7 +229,6 @@ body {
   position: relative;
   width: 10px;
   height: 10px;
-  white-space: nowrap;
 }
 
 .mark-dot {
@@ -247,71 +248,69 @@ body {
   transform: scale(1.45);
 }
 
+/*
+ * The label. `left`/`right`, `top` and `max-width` are all set inline from the
+ * placement pass — everything here is what those cannot express.
+ *
+ * Note `white-space: normal`: names wrap to a second and third row when the
+ * space available is taller than it is wide, which is the whole point. The
+ * ellipsis fallback only comes into play for a single unbreakable word.
+ */
 .mark-label {
   position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  left: 20px;
   display: flex;
-  align-items: baseline;
-  gap: 8px;
+  align-items: center;
+  gap: 9px;
+  transform: translateY(-50%);
+  white-space: normal;
+  overflow-wrap: break-word;
+  pointer-events: none;
+}
+
+.mark-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.mark-name {
   font-size: 12.5px;
+  line-height: 1.24;
   color: var(--ink-2);
   letter-spacing: 0.005em;
-  max-width: 260px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  /* Labels never rotate. Truncate with ellipsis before you tilt text. */
 }
 
-/*
- * Internal nodes label *above* the point, not beside it.
- *
- * Beside is the obvious choice and it is wrong: an internal node always has a
- * trace arriving horizontally from its parent and leaving horizontally toward
- * its children, so a label on either flank sits directly on top of a line at
- * exactly its own y. Above is the only free side, and it is where phylogenies
- * conventionally put clade names anyway.
- *
- * Above and to the *left*, specifically. Children leave to the right, and when
- * an internal node's y lands close to one child's lane — which happens
- * whenever the midpoint of its children's extent is near one of them — an
- * above-right label lies straight across that child's horizontal run. Nothing
- * is ever routed above-left: the parent arrives horizontally at this node's
- * own y, below the label, and its vertical drop is back at the parent's x.
- */
-.mark-label.leading {
-  left: auto;
-  right: 5px;
-  top: auto;
-  bottom: 12px;
-  transform: none;
-  justify-content: flex-end;
-  text-align: right;
-}
-
-.mark .silhouette {
-  position: absolute;
-  left: 19px;
-  top: 50%;
-  transform: translateY(-50%);
-  margin: 0;
-}
-.mark-label.has-silhouette {
-  left: 60px;
+/* Rank and silhouette provenance, on their own row so they cannot widen the
+   label past its neighbour. */
+.mark-meta {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  line-height: 1.28;
+  letter-spacing: 0.06em;
+  color: var(--ink-4);
 }
 
 .mark-age {
   font-size: 11px;
   color: var(--ink-4);
+  margin-left: 7px;
+  white-space: nowrap;
 }
 
-.mark-rank {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.09em;
-  color: var(--ink-4);
-  margin-left: 8px;
+/*
+ * Sometimes there is genuinely nowhere clear to put a label — enough lineages
+ * converging on one divergence point will always beat any placement search.
+ * When that happens the pass says so and the label takes a faint scrim, so the
+ * thing underneath stays visible and the text stays readable. Hiding the
+ * collision would be worse than admitting it.
+ */
+.mark-label.crowded .mark-text {
+  background: rgba(10, 10, 12, 0.82);
+  border-radius: 4px;
+  padding: 1px 5px;
+  margin: -1px -5px;
 }
 
 .mark.is-leaf .mark-label {
@@ -349,12 +348,6 @@ body {
 
 /* The clade an inherited silhouette actually depicts. Says so rather than
    implying the image is of this species. */
-.silhouette-of {
-  font-size: 10px;
-  color: var(--ink-4);
-  letter-spacing: 0.04em;
-}
-
 /* --------------------------------------------------------- the MRCA flare -- */
 
 @keyframes flare {
@@ -645,11 +638,6 @@ body {
   .hintbar {
     display: none;
   }
-  /* Truncate with ellipsis before you tilt text — and before you let it run
-     off the canvas, which is the same failure with no warning. */
-  .mark-label {
-    max-width: 40vw;
-  }
   .detail {
     width: auto;
     left: var(--s3);
@@ -719,6 +707,33 @@ body {
   padding: var(--s4);
   backdrop-filter: blur(8px);
   scrollbar-width: thin;
+}
+
+.detail-image {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 110px;
+  margin-bottom: var(--s2);
+}
+
+/* Says what the picture is *of*, over the picture. A silhouette represents a
+   clade, so an inherited one is not mislabelled — it is unlabelled, and that
+   is the difference between informing and implying. */
+.detail-watermark {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  background: rgba(10, 10, 12, 0.72);
+  border: 1px solid var(--hairline);
+  border-radius: 4px;
+  padding: 2px 6px;
 }
 
 .detail h2 {

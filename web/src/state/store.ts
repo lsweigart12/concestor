@@ -75,6 +75,8 @@ export interface TreeState {
   loading: boolean;
   /** Selections that resolved to a non-monophyletic taxon and were not added. */
   broken: Broken[];
+  /** Selections the API could not resolve at all — a stale or mistyped id. */
+  unresolved: string[];
   error: string | null;
 }
 
@@ -85,6 +87,7 @@ export function useTree() {
   const [idxOf, setIdxOf] = useState<Map<string, number>>(() => new Map());
   const [loading, setLoading] = useState(false);
   const [broken, setBroken] = useState<Broken[]>([]);
+  const [unresolved, setUnresolved] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [delta, setDelta] = useState<(AddDelta & { token: number }) | null>(null);
   const prevInduced = useRef<Induced | null>(null);
@@ -120,6 +123,16 @@ export function useTree() {
               },
             ],
       );
+      return null;
+    }
+    // A key that resolved to nothing. `/v1/paths` reports these per-key rather
+    // than failing the whole batch, so one bad id in a pasted URL must cost
+    // that one lineage and nothing else — reading `r.path` blindly here threw
+    // a TypeError during render and blanked the entire app, which for a
+    // product whose distribution *is* shared links is the worst possible
+    // failure mode.
+    if (!Array.isArray(r.path)) {
+      setUnresolved((u) => (u.includes(key) ? u : [...u, key]));
       return null;
     }
     setNodes((m) => {
@@ -221,6 +234,10 @@ export function useTree() {
     (key: string) => setBroken((b) => b.filter((x) => x.key !== key)),
     [],
   );
+  const dismissUnresolved = useCallback(
+    (key: string) => setUnresolved((u) => u.filter((x) => x !== key)),
+    [],
+  );
   const consumeDelta = useCallback(() => setDelta(null), []);
 
   return {
@@ -232,6 +249,7 @@ export function useTree() {
     delta,
     loading,
     broken,
+    unresolved,
     error,
     add,
     remove,
@@ -240,6 +258,7 @@ export function useTree() {
     select,
     toggleIsolate,
     dismissBroken,
+    dismissUnresolved,
     consumeDelta,
   };
 }

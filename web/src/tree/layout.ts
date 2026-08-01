@@ -21,6 +21,14 @@
 
 import type { PathNode } from "../api";
 import type { Induced } from "./induced";
+import {
+  labelBounds,
+  placeLabels,
+  type LabelBox,
+  type LabelInput,
+  type Rect,
+  type TraceRun,
+} from "./labels";
 
 /** Below this the axis is linear; above it, logarithmic. */
 export const SYMLOG_T0 = 1.0;
@@ -71,6 +79,10 @@ export interface Layout {
   maxAge: number;
   height: number;
   width: number;
+  /** Where each label goes, after collision resolution. See `labels.ts`. */
+  labels: Map<number, LabelBox>;
+  /** Bounds of nodes *and* labels, which is what the viewport should frame. */
+  content: Rect | null;
 }
 
 /**
@@ -98,13 +110,20 @@ export function laneHue(idx: number): number {
 export function layout(
   ind: Induced,
   nodes: Map<number, PathNode>,
-  opts: { rowHeight?: number; plotWidth?: number } = {},
+  opts: { rowHeight?: number; plotWidth?: number; label?: LabelText } = {},
 ): Layout {
   const rowH = opts.rowHeight ?? ROW_H;
   const plotW = opts.plotWidth ?? PLOT_W;
   const placed = new Map<number, Placed>();
   if (ind.rendered.length === 0) {
-    return { placed, maxAge: 4247, height: 0, width: plotW + PAD_X * 2 };
+    return {
+      placed,
+      maxAge: 4247,
+      height: 0,
+      width: plotW + PAD_X * 2,
+      labels: new Map(),
+      content: null,
+    };
   }
 
   const ageOf = (v: number) => nodes.get(v)?.age_layout ?? 0;
@@ -159,13 +178,64 @@ export function layout(
     });
   }
 
+  // Labels are laid out from the finished node positions, against the traces
+  // those positions imply — so placement knows about every line it could be
+  // drawn through, not just about the other labels.
+  const describe = opts.label ?? defaultLabelText;
+  const inputs: LabelInput[] = [...placed.values()].map((p) => ({
+    idx: p.idx,
+    x: p.x,
+    y: p.y,
+    isLeaf: p.isLeaf,
+    priority: (p.isLeaf ? 1e9 : 0) + (p.isMRCA ? 5e8 : 0) + p.node.tip_count,
+    ...describe(p),
+  }));
+
+  const runs: TraceRun[] = [];
+  for (const [v, seg] of ind.segments) {
+    if (seg.anc === null) continue;
+    const a = placed.get(seg.anc);
+    const b = placed.get(v);
+    if (a && b) runs.push({ ax: a.x, ay: a.y, bx: b.x, by: b.y });
+  }
+
+  const labels = placeLabels(inputs, runs, {
+    rowH,
+    maxTextWidth: Math.max(150, Math.min(300, plotW * 0.3)),
+  });
+
+  const lb = labelBounds(inputs, labels);
+  const xs = [...placed.values()].map((p) => p.x);
+  const ys = [...placed.values()].map((p) => p.y);
+  const minX = Math.min(...xs, lb ? lb.x : Infinity);
+  const maxX = Math.max(...xs, lb ? lb.x + lb.w : -Infinity);
+  const minY = Math.min(...ys, lb ? lb.y : Infinity);
+  const maxY = Math.max(...ys, lb ? lb.y + lb.h : -Infinity);
+
   return {
     placed,
     maxAge,
     height: Math.max(rows.length, 1) * rowH,
     width: plotW + PAD_X * 2,
+    labels,
+    content: { x: minX, y: minY, w: maxX - minX, h: maxY - minY },
   };
 }
+
+/** What a node's label says. Kept here so the layout can measure it. */
+export type LabelText = (p: Placed) => {
+  name: string;
+  trailing: string;
+  meta: string;
+  hasSilhouette: boolean;
+};
+
+const defaultLabelText: LabelText = (p) => ({
+  name: p.node.name ?? "unnamed divergence",
+  trailing: "",
+  meta: "",
+  hasSilhouette: false,
+});
 
 /**
  * Axis ticks that survive a symlog scale.

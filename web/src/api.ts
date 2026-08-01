@@ -192,6 +192,27 @@ function normNode(raw: Record<string, unknown>): PathNode {
   };
 }
 
+/** Accept either a list of strings or a list of `{name, preferred}` records. */
+function toStrings(v: unknown, preferredFirst = false): string[] {
+  if (!Array.isArray(v)) return [];
+  const rows = v
+    .map((x) =>
+      typeof x === "string"
+        ? { name: x, preferred: false }
+        : x && typeof x === "object" && typeof (x as { name?: unknown }).name === "string"
+          ? {
+              name: (x as { name: string }).name,
+              preferred: Boolean((x as { preferred?: unknown }).preferred),
+            }
+          : null,
+    )
+    .filter((x): x is { name: string; preferred: boolean } => x !== null);
+  if (preferredFirst) {
+    rows.sort((a, b) => Number(b.preferred) - Number(a.preferred));
+  }
+  return [...new Set(rows.map((r) => r.name))];
+}
+
 function normalise(url: string, body: unknown): unknown {
   if (!body || typeof body !== "object") return body;
   const b = body as Record<string, unknown>;
@@ -217,8 +238,12 @@ function normalise(url: string, body: unknown): unknown {
       sil.source_idx = sil.source_idx ?? b.silhouette_source_idx ?? b.idx;
       sil.source_name = sil.source_name ?? null;
     }
-    b.synonyms = b.synonyms ?? [];
-    b.vernaculars = b.vernaculars ?? [];
+    b.synonyms = toStrings(b.synonyms);
+    // The server sends `{name, lang, preferred}` objects, which is the more
+    // useful shape and one the UI never templated for — "Also known as [object
+    // Object]" shipped. Flatten at the boundary, preferring the ones marked
+    // preferred, so the card reads as a list of names.
+    b.vernaculars = toStrings(b.vernaculars, true);
   }
   return b;
 }
