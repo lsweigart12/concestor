@@ -1,5 +1,9 @@
 .codex/
 
+# One checkout per parallel Claude Code session. They are real worktrees of
+# this repository, not content of it.
+/.claude/worktrees/
+
 # Immutable upstream snapshot (~500 MB) and derived artifacts. Reproduced by
 # `concestor-build snapshot`; provenance lives in snapshot/manifest.json, which
 # IS tracked.

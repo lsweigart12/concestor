@@ -138,8 +138,14 @@ scripts/serve.sh    # API + built frontend, one process, :8080
 That is the `concestor` configuration in `.claude/launch.json`, so the preview
 browser and any agent start the app the same way. It verifies the artifacts
 exist first and builds `web/dist` if it is missing, rather than serving a blank
-canvas that looks identical to a broken one. `concestor-web-dev` runs Vite on
-:5173 with hot reload, proxying `/v1` to :8080, for frontend iteration.
+canvas that looks identical to a broken one. `scripts/dev.sh` is the
+`concestor-web-dev` configuration: Vite on :5173 with hot reload, backed by an
+API it starts itself on a private port.
+
+Both configurations set `autoPort`, and both scripts run unchanged inside a
+git worktree — see [worktrees.md](worktrees.md). That matters because every
+parallel Claude Code session gets its own worktree, and a worktree has the
+source but none of `build/`, `snapshot/` or `node_modules`.
 
 **Restart it after any pipeline run** — the arrays are mmap'd and SQLite is
 opened at startup, so a running server serves the previous build and the only
@@ -147,7 +153,7 @@ symptom is quietly stale answers.
 
 ```bash
 cd web && npm install && npm run build   # the server picks up web/dist
-npm test                                 # 34 tests
+npm test                                 # 45 tests
 ```
 
 The client owns the topology after first paint (architecture §4): it fetches

@@ -1,0 +1,11 @@
+# Gitignored files copied into every worktree Claude Code creates.
+# .gitignore syntax; only paths that match AND are gitignored are copied.
+#
+# Deliberately empty. The gitignored things a worktree needs are build/
+# (2.9 GB) and snapshot/ (1.7 GB), and copying either per session is absurd —
+# they are read-only pipeline output, identical in every checkout. So
+# scripts/lib/paths.sh borrows them from the main checkout instead, and
+# web/node_modules is cloned copy-on-write on first use.
+#
+# Add a line here if this project ever grows a small local file a worktree
+# genuinely needs, such as a .env.

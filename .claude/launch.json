@@ -1,17 +1,25 @@
 {
   "version": "0.0.1",
   "configurations": [
+    // Both entries set autoPort, so a second session — and every Claude Code
+    // worktree is one — gets a free port instead of colliding with the first.
+    // Claude passes the port it picks in $PORT, which both scripts honour.
     {
+      // What ships: one Go process serving /v1 and web/dist. Start here.
       "name": "concestor",
       "runtimeExecutable": "scripts/serve.sh",
       "runtimeArgs": [],
-      "port": 8080
+      "port": 8080,
+      "autoPort": true
     },
     {
+      // Hot reload. Starts its own API on a private port and proxies to it,
+      // so it does not depend on the entry above already running.
       "name": "concestor-web-dev",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "web", "run", "dev"],
-      "port": 5173
+      "runtimeExecutable": "scripts/dev.sh",
+      "runtimeArgs": [],
+      "port": 5173,
+      "autoPort": true
     }
   ]
 }

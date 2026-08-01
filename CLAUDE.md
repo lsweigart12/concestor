@@ -21,6 +21,7 @@ wrong and these docs record the corrections.
 | [docs/ingest.md](docs/ingest.md) | The six build phases and their validation gates |
 | [docs/phase2-decision.md](docs/phase2-decision.md) | The dating decision — accepted, with the evidence |
 | [docs/phase3-pbdb-path.md](docs/phase3-pbdb-path.md) | How fossils resolve to the tree, measured |
+| [docs/worktrees.md](docs/worktrees.md) | Why the preview works in a parallel session's worktree |
 
 **This product is for curious people interested in evolution, not for evolutionary
 biologists.** Identifying an MRCA, drawing the tree well, and showing useful
@@ -59,9 +60,17 @@ our own; **no dagre, no ELK, no d3-hierarchy**, because a graph-layout engine
 assigns `x` by depth and here `x` is time.
 
 ```bash
-cd web && npm install && npm run build && npm test   # 28 tests
+cd web && npm install && npm run build && npm test   # 45 tests
 cd server && go test ./... && go run . -build ../build
 ```
+
+**Running in a worktree.** `scripts/serve.sh` and `scripts/dev.sh` are the two
+`.claude/launch.json` configurations and work unchanged in a parallel
+session's worktree, which has the source but neither `build/` (2.9 GB) nor
+`snapshot/` (1.7 GB). They borrow both, read-only, from the main checkout.
+Nothing may hardcode a port. `docs/worktrees.md` explains the split; the rule
+to keep is that borrowed paths are pipeline output nobody edits, and `web/`
+always belongs to the worktree.
 
 `web/src/tree/induced.ts` and the Go equivalent are both ports of `render.py`'s
 `induced_subtree`, each pinned to the Python reference by a test built from the
