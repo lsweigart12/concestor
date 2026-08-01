@@ -899,19 +899,21 @@ they will come back if the ranking is refactored: candidates were being cut by
 raw `tip_count` *before* the band was known, and synonym hits were outranking
 current names (`Can` reached Elateroidea via "Cantharoidea").
 
-**The fossil layer is served but not drawn.** All 523,112 rows are attached and
-`/v1/segment` returns them ranked, with both uncollapsed brackets and a
-`fossils_total` for the "showing N of M" cap — but the drill-down lane
-(architecture §7 "Drill-down") is not built, so nothing renders the double
-bracket (faded envelope `fea→lla`, solid bar `fla→lea`) that PBDB's uncertainty
-model requires. **This is the largest single piece of unbuilt product**, and
-the data behind it is ready. ~21% of taxa have no appearance interval at all
-and need an explicit "no range recorded" treatment, not a zero-width bar.
+**The fossil layer is drawn.** Clicking a segment opens a lane beneath the
+chronogram sharing its time axis; Amniota → *Homo sapiens* shows 8 of 2,657
+with Mammalia, Simiiformes and Homininae labelled on the spine. `Bracket.tsx`
+is the only place in the app a stratigraphic range may be drawn or phrased, and
+the `occurrence` age tier goes through it rather than inventing a second
+vocabulary for the same uncertainty. The ~21% with no interval are named in a
+footer as not placed in time, never given a zero-width bar. The cap says
+"showing 8 of 2,657" and says nothing at all when the lane is complete.
 
-Read this together with the entry below. Both are the same unbuilt thing — the
-fossil record as a *time* layer rather than a list — and both turn on how much
-of a PBDB bracket is trustworthy. Doing them separately means answering that
-question twice.
+*What is thin here now.* Ranking by occurrence count guarantees a dull sample:
+along Amniota → *Homo sapiens* all eight rows are nested near-duplicates
+(Mammalia, Cladotheria, Zatheria, Tribosphenida, Theria, Eutheria, Placentalia,
+Boreoeutheria) and seven read "239 Ma – present". Nothing a person would
+recognise appears. A ranking that mixed in rank diversity, or one that
+preferred taxa carrying a vernacular, would make the lane worth opening twice.
 
 **Extinct taxa have no place in time.** Do this with the fossil lane above, not
 after it — they share a data source, an uncertainty model and a caveat, and

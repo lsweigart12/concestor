@@ -83,11 +83,13 @@ The work splits cleanly and the halves have very different risk:
 
 Full evidence and measurements: handoff.md §7.
 
-### 4. The fossil drill-down, alongside the above
+### 4. The fossil drill-down — **done**
 
-The largest unbuilt product surface, and fully de-risked: all 523,112 taxa are attached, and `/v1/segment` already returns them ranked with both uncertainty brackets and a `fossils_total` for the "showing N of M" cap. Architecture §7 "Drill-down" specifies the rendering — spine of intermediates, **double bracket** (faded envelope `fea→lla`, solid bar `fla→lea`), offset lane sharing the time axis. ~21% of taxa have no interval and need an explicit "no range recorded" treatment, not a zero-width bar.
+Built alongside item 3, which was the right call: the bracket is one component and the age tier reuses it, so the two cannot disagree about what PBDB's uncertainty model means. Clicking a segment opens a lane sharing the time axis; Amniota → *Homo sapiens* reads "showing 8 of 2,657" with Mammalia, Simiiformes and Homininae on the spine.
 
-Fossils are still secondary to silhouettes and the palette, so this stays behind items 1 and 2. What has changed is that it is no longer behind item 3 — it *is* item 3, seen from the other end. The double bracket is the same visual vocabulary a fourth age tier would need, so build the bracket first and let the tier reuse it rather than inventing a second way to draw the same uncertainty.
+It also corrected architecture §7, which describes the four bounds as if they chained. They do not: `fla ≥ lea` holds for 39.6% of taxa, so for the other 60.4% there is no certain extent at all and the solid bar must be left undrawn rather than drawn zero-width. Three cases, not two.
+
+**What it needs now is a better sample.** Ranking by occurrence count guarantees nested near-duplicates — seven of those eight rows read "239 Ma – present" and nothing a person would recognise appears. Mixing in rank diversity, or preferring taxa that carry a vernacular, would make the lane worth opening twice.
 
 ### 5. Fix phase 3's cross-kingdom homonyms
 
