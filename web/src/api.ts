@@ -214,6 +214,43 @@ export function hitSilhouette(
   return ok ? (hit.phylopic_id ?? null) : null;
 }
 
+/**
+ * A PBDB taxon attached somewhere on a segment (architecture §3.4).
+ *
+ * The four appearance bounds arrive uncollapsed and must stay that way — they
+ * are two brackets, not a range, and `canvas/bracket.ts` is the only thing
+ * allowed to turn them into marks. They are also **not ages**: an appearance
+ * interval is an observed stratigraphic extent, which is a different and
+ * weaker claim than a divergence time, and nothing here may reach `age_ma`.
+ */
+export interface FossilTaxon {
+  name: string;
+  rank: string | null;
+  /** The tree node it resolves to. Always on the segment we asked about. */
+  attach_idx: number;
+  n_occs: number;
+  is_extant: boolean | null;
+  fea: number | null;
+  fla: number | null;
+  lea: number | null;
+  lla: number | null;
+}
+
+export interface SegmentResponse {
+  upper_idx: number;
+  lower_idx: number;
+  /** The suppressed degree-2 nodes, root-first. Same shape as a path node. */
+  intermediates: PathNode[];
+  fossils: FossilTaxon[];
+  /**
+   * False when the fossil table was never built. An empty list with no flag
+   * reads as "nothing lived along here", which is a different claim.
+   */
+  fossils_available: boolean;
+  /** Distinct taxa on the segment before the server's cap, for "N of M". */
+  fossils_total: number;
+}
+
 export interface About {
   build_id: string;
   generated_at?: string;
@@ -383,11 +420,7 @@ export const api = {
   node: (key: string) => get<NodeDetail>(`/v1/node/${encodeURIComponent(key)}`),
 
   segment: (upper: number, lower: number) =>
-    get<{
-      intermediates: PathNode[];
-      fossils: unknown[];
-      fossils_available: boolean;
-    }>(`/v1/segment/${upper}/${lower}`),
+    get<SegmentResponse>(`/v1/segment/${upper}/${lower}`),
 
   timescale: () => get<{ intervals: TimescaleInterval[] }>("/v1/timescale"),
 

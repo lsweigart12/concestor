@@ -194,20 +194,53 @@ everywhere). Merging the first and third to save 10 MB would put a confident
 number on every dashed node, which is the exact failure this design exists to
 prevent.
 
-**All three tiers describe divergence times from an extant-only chronogram, so
-extinct taxa are a categorical hole rather than a coverage gap.** 1,742 of the
-1,743 extinct-flagged nodes are `structural`; *Homo erectus* and *T. rex* report
-"not estimated" by construction. Worse, the layout fill has no dated descendant
-to anchor them and drags them toward the present — *T. rex* is drawn at 25.9 Ma
-against a last fossil occurrence at 66. Phase 4 already holds the brackets that
-fix the position. A fourth tier, `occurrence`, is **decided and unbuilt**: it
-shows the fossil range so extinct taxa stop reading "not estimated". Two rules
-that hold whatever it looks like — **an appearance interval is not a divergence
-age, lives in its own array, and must never enter `age_ma`**, and it renders as
-a range, never a point. PBDB's `fea` is frequently junk-wide, so trust the
-`lea`/`lla` end. Scope in `docs/handoff.md` §7, shape in `docs/ingest.md` phase 4
-steps 6–7.
+**Four tiers now, and the fourth is not a fourth grade of estimate.**
+`measured`, `interpolated` and `structural` all answer "when did these lineages
+part", from a chronogram of **extant** species — so an extinct taxon has no
+counterpart to join to and is `structural` by construction, not by measurement.
+`occurrence` answers a different and weaker question: when the taxon is observed
+in the rock. 2,133 nodes carry one. It is written by **phase 4**, not phase 2,
+because the `fossil` table does not exist until then, and it lives in the
+`occurrence` table rather than in `age_ma` — a gate checks that on the array
+rather than trusting the code that wrote it. It renders as a range and **never**
+as a point; no midpoint is computed anywhere, so there is no single number to
+reach for.
+
+**Phase 4 also rewrites `age_layout` with the fossil brackets**, which is why
+*T. rex* is drawn at 66.0 Ma rather than 25.9 and Cambrian trilobites are no
+longer in the Neogene. Phase 2's output survives as `age_layout_phase2.npy` and
+`age_tier_phase2.npy` so the two can be diffed and so re-running phase 4 clamps
+the original rather than compounding its own output. Three things that pass will
+cost you if you touch this:
+
+- **PBDB's `fea` is junk-wide and an occurrence-count floor does not fix it.**
+  Measured, the first-appearance bracket *widens* with occurrence count, 5.24 Ma
+  median at one occurrence against 6.20 at fifty or more. The discriminator is
+  which end of the bracket you read: the *latest* end is trustworthy throughout
+  (*Homo erectus* `fea` 5.33 against `fla` 1.80 and a true ~2 Ma). The layout
+  uses `lla` alone and never reads `fea`.
+- **A fossil bound is refused where the node has a dated descendant**, because a
+  last appearance is evidence about a lineage that *ended*. That removed 1,617
+  bogus bounds.
+- **Phase 3's `xref` resolves PBDB to OTT by name and OTT carries homonyms
+  across kingdoms.** PBDB's *Ivesia* is an Ediacaran rangeomorph and OTT's is a
+  rose-family plant. `images.py` refuses an ambiguous name outright and phase 3
+  does not. **Unfixed**, and it affects every `xref` consumer.
+
+**architecture §7's double bracket is wrong in one place.** It reads as a chain
+`fea ≥ fla ≥ lea ≥ lla`; the middle link holds for only **39.6%** of PBDB taxa,
+because a taxon known from one stratigraphic interval has both appearances
+inside it. For the other 60.4% there is **no certain extent at all** and the
+solid bar must be left undrawn — not zero-width, which reads as precision.
+
+**Silhouettes resolve to the closest drawn *relative*, not the nearest drawn
+ancestor**, and `node_image.clade_idx` — the smallest clade holding both the
+node and the drawing — is the size of the claim the picture makes. That is the
+number the gates measure and the UI must render; coverage is 100% and always
+was, and it means nothing. Read `docs/handoff.md` §5 before changing the
+resolution.
 
 `concestor-build package` gates the artifact set as a whole and writes
 `build/manifest.json`, which `/v1/about` serves. It refuses to package while any
-phase's own gates record a failure — so it is currently red, on purpose.
+phase's own gates record a failure. Every phase is green as of this writing, so
+it should be re-run after any pipeline change rather than assumed stale.
