@@ -16,6 +16,7 @@ import {
   TIER_OCCURRENCE,
   TIER_STRUCTURAL,
   type About,
+  type FossilTaxon,
   type NodeDetail,
   type SearchHit,
   type TimescaleInterval,
@@ -59,6 +60,15 @@ export default function App() {
     kind: "all" | "selection";
     token: number;
   } | null>(null);
+  /**
+   * A fossil row the reader clicked in the drill-down lane.
+   *
+   * Kept apart from `focusedIdx` because a fossil is not a node: it has no
+   * ancestor path, so it cannot be selected, added, isolated or linked to, and
+   * pretending otherwise would offer four commands that do nothing. What it
+   * has is an attachment point, and the actions are about that.
+   */
+  const [pickedFossil, setPickedFossil] = useState<FossilTaxon | null>(null);
   const [reachable, setReachable] = useState<boolean | null>(null);
   const [idle, setIdle] = useState(false);
   const toastId = useRef(0);
@@ -341,18 +351,79 @@ export default function App() {
     return base;
   }, [tree, about, focusedNode, toast, share]);
 
+  /**
+   * What a fossil offers, which is short and deliberately so.
+   *
+   * It has no ancestor path, so there is no lineage to draw and nothing to
+   * select. Every honest action is about the node it attaches to — architecture
+   * §3.4's claim is "this taxon belongs somewhere below X", and X is the only
+   * thing on the canvas the reader can act on.
+   */
+  const fossilCommands: Command[] = useMemo(() => {
+    const f = pickedFossil;
+    if (!f) return [];
+    const host = tree.nodes.get(f.attach_idx);
+    const hostName = host?.name ?? "the clade it attaches to";
+    const out: Command[] = [
+      {
+        id: "fossil-host",
+        title: `Show ${hostName}`,
+        subtitle: `${f.name} is known from somewhere below it`,
+        icon: "◎",
+        section: "This fossil",
+        contextual: true,
+        run: () => {
+          if (host) tree.select(host.key);
+          setPaletteOpen(false);
+          setScoped(false);
+        },
+      },
+    ];
+    if (host && !tree.induced.leaves.includes(f.attach_idx)) {
+      out.push({
+        id: "fossil-add-host",
+        title: `Add ${hostName} to the canvas`,
+        subtitle: "Draw the branch this fossil sits on",
+        icon: "+",
+        section: "This fossil",
+        contextual: true,
+        run: () => {
+          tree.add(host.key);
+          setPaletteOpen(false);
+          setScoped(false);
+          toast(<>Added <strong>{hostName}</strong></>);
+        },
+      });
+    }
+    return out;
+  }, [pickedFossil, tree, toast]);
+
   const visibleCommands = useMemo(
-    () => (scoped ? commands.filter((c) => c.contextual) : commands),
-    [commands, scoped],
+    () =>
+      scoped
+        ? pickedFossil
+          ? fossilCommands
+          : commands.filter((c) => c.contextual)
+        : commands,
+    [commands, fossilCommands, pickedFossil, scoped],
   );
 
-  const scope: Scope | null =
-    scoped && focusedNode
+  const scope: Scope | null = !scoped
+    ? null
+    : pickedFossil
       ? {
-          label: focusedNode.name ?? focusedNode.key,
-          onPop: () => setScoped(false),
+          label: pickedFossil.name,
+          onPop: () => {
+            setScoped(false);
+            setPickedFossil(null);
+          },
         }
-      : null;
+      : focusedNode
+        ? {
+            label: focusedNode.name ?? focusedNode.key,
+            onPop: () => setScoped(false),
+          }
+        : null;
 
   // Full keyboard operation: search, add, remove, clear, fit, isolate and step
   // through selection are all bound.
@@ -365,7 +436,10 @@ export default function App() {
 
       if (meta && e.key.toLowerCase() === "k") {
         e.preventDefault();
-        // ⌘K with a node selected opens a contextual actions menu scoped to it.
+        // ⌘K with a node selected opens a contextual actions menu scoped to
+        // it. A fossil scope is per-click and never survives into the next
+        // ⌘K, or the palette answers about a row nobody is looking at.
+        setPickedFossil(null);
         setScoped(e.shiftKey ? false : focusedIdx !== null);
         if (e.shiftKey) {
           tree.clear();
@@ -478,6 +552,11 @@ export default function App() {
         fitSignal={fitSignal}
         drill={tree.view.drill}
         onDrill={tree.setDrill}
+        onPickFossil={(f) => {
+          setPickedFossil(f);
+          setScoped(true);
+          setPaletteOpen(true);
+        }}
       />
 
       {tree.induced.rendered.length === 0 && !paletteOpen && (
@@ -508,6 +587,7 @@ export default function App() {
         onClose={() => {
           setPaletteOpen(false);
           setScoped(false);
+          setPickedFossil(null);
         }}
         commands={visibleCommands}
         scope={scope}

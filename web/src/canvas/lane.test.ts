@@ -48,7 +48,7 @@ describe("laneRows", () => {
     // Ranked by n_occs upstream, so the cap keeps the most-recorded taxa.
     expect(rows.placed[0]!.name).toBe("T0");
     expect(rows.total).toBe(6197);
-    expect(capNote(rows)).toBe("showing 8 of 6,197 · most-recorded first");
+    expect(capNote(rows)).toBe("showing 8 of 6,197 · most notable first");
   });
 
   it("says nothing when the lane is complete", () => {

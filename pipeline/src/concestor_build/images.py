@@ -1060,6 +1060,92 @@ def divergence_witnesses(
 
 
 # --------------------------------------------------------------------------
+# Drawings for fossils, which are not nodes
+# --------------------------------------------------------------------------
+
+
+def link_fossil_images(
+    con: sqlite3.Connection, records: list[ImageRecord]
+) -> tuple[dict[int, int], JsonDict]:
+    """`pbdb accepted_no -> position in records`, by name, refusing ambiguity.
+
+    Everything above resolves images onto *nodes*. The fossil corpus is not
+    nodes — architecture §3.4, only 0.5% of extinct OTT taxa are in synthesis —
+    so *Acanthostega*, *Pakicetus*, *Eohippus* and *Odontochelys* have drawings
+    on PhyloPic, brackets in PBDB, attachment points in the tree, and no way to
+    reach any of it. This is the join that gives them one.
+
+    Matching is by name, which is the only key the two corpora share, so the
+    refusal rule from `_seed_by_name` applies unchanged and matters more here:
+    **PBDB carries homonyms internally**, not merely against OTT. `Scopus` is
+    two accepted taxa in this table, the extant hamerkop at 5.3–0 Ma and an
+    extinct Permian genus at 254–252 Ma, and 1,338 names are like it. A name
+    resolving to more than one `accepted_no` is refused outright rather than
+    resolved to whichever row the query returned first.
+
+    Keyed on `accepted_no` and not on the name, so a consumer joins on the
+    taxon rather than on a string that may mean two things.
+    """
+    by_title: dict[str, int] = {}
+    for i, r in enumerate(records):
+        if not r.node_title or not r.license_url:
+            continue
+        cur = by_title.get(r.node_title)
+        if cur is None or _rank(r) > _rank(records[cur]):
+            by_title[r.node_title] = i
+
+    accepted: dict[str, set[int]] = {}
+    for name, acc in con.execute(
+        "SELECT name, accepted_no FROM fossil WHERE is_primary = 1"
+    ):
+        if name in by_title:
+            accepted.setdefault(name, set()).add(int(acc))
+
+    out: dict[int, int] = {}
+    ambiguous = 0
+    for name, accs in accepted.items():
+        if len(accs) != 1:
+            ambiguous += 1
+            continue
+        out[next(iter(accs))] = by_title[name]
+    return out, {
+        "titles_offered": len(by_title),
+        "fossil_taxa_matched": len(out),
+        "names_ambiguous": ambiguous,
+    }
+
+
+def write_fossil_image(
+    con: sqlite3.Connection, records: list[ImageRecord], links: dict[int, int]
+) -> int:
+    """One row per PBDB taxon that has a drawing.
+
+    Keyed on `accepted_no` because that is the taxon; `fossil.accepted_no` is
+    the join. Deliberately not keyed on `pbdb_taxon_no`, which is one row per
+    *name* including synonyms, so a taxon would appear several times over.
+    """
+    con.executescript(
+        """
+        DROP TABLE IF EXISTS fossil_image;
+        CREATE TABLE fossil_image (
+          accepted_no  INTEGER PRIMARY KEY,  -- PBDB taxon; join fossil.accepted_no
+          phylopic_id  TEXT NOT NULL,
+          matched_name TEXT NOT NULL         -- the name both corpora agreed on
+        );
+        """
+    )
+    con.executemany(
+        "INSERT INTO fossil_image VALUES (?,?,?)",
+        (
+            (acc, records[i].uuid, records[i].node_title or "")
+            for acc, i in sorted(links.items())
+        ),
+    )
+    con.commit()
+    return int(con.execute("SELECT count(*) FROM fossil_image").fetchone()[0])
+
+
+# --------------------------------------------------------------------------
 # The SVG mirror
 # --------------------------------------------------------------------------
 
@@ -1968,7 +2054,25 @@ def run(budget: int = 0, mirror_only: bool = False, log: Log = _log) -> int:
     if witness is not None:
         rows = write_node_divergence_image(con, records, witness)
         log(f"  node_divergence_image: {rows:,} rows")
+    links, link_stats = link_fossil_images(con, records)
+    log(f"  fossil_image: {write_fossil_image(con, records, links):,} rows")
     con.close()
+
+    g.require(
+        "PBDB fossil taxa given a drawing",
+        f"{link_stats['fossil_taxa_matched']:,}",
+        "> 0",
+        ok=link_stats["fossil_taxa_matched"] > 0,
+        note=(
+            "Matched by name — the only key PhyloPic and PBDB share — and keyed "
+            "on `accepted_no`, which is the taxon. This is what makes a fossil "
+            "drawable at all: it is not a node, so nothing above reaches it. "
+            f"{link_stats['names_ambiguous']:,} names refused for resolving to "
+            "more than one accepted taxon; PBDB carries homonyms internally, "
+            "not only against OTT, and `Scopus` is both an extant hamerkop and "
+            "an extinct Permian genus."
+        ),
+    )
     record_mirror(records, have)
 
     licence_gates(g, records, have)

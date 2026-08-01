@@ -1,7 +1,7 @@
 # Raising the divergence witness to its real ceiling
 
-**Status: proposed, measured, not started.** Everything below was measured
-against build `7621312b5760ec1a` on 2026-08-01. Read
+**Status: phase 1 shipped (§3), the rest proposed and measured.** Figures were
+measured against build `7621312b5760ec1a` on 2026-08-01. Read
 [handoff.md](handoff.md) §5 on the witness first; this assumes it.
 
 The witness layer shipped drawing 548 forks. The design caps out at about
@@ -35,7 +35,7 @@ in the data, dated, correctly placed below Whippomorpha, and ineligible.
 | **fossils, every dated one drawn** | 234,746 taxa | **22,808** | 5,187 |
 
 Those last two rows count **extinct taxa only**, and that filter is not
-optional — see §4. Without it they read 5,917 and 33,428, and the difference is
+optional — see §5. Without it they read 5,917 and 33,428, and the difference is
 almost entirely crown groups: PBDB carries *Mammalia* at 239.5–0 Ma,
 *Viverridae* at 56–0 and *Panthera* at 23.04–0. A range running to the present
 contains every split inside it, so an unfiltered rule hands the biggest forks a
@@ -92,7 +92,44 @@ witness that walked eleven is a statement about a family, not a lineage.
 
 ---
 
-## 3. Work, in order
+## 3. Phase 1 — done, and it stands on its own
+
+**Shipped.** The join that makes a fossil drawable was the first step of this
+plan and it pays for itself before any of the rest lands, because the drill-down
+lane needed exactly the same thing. Three changes:
+
+**`fossil_image`** maps a PBDB `accepted_no` to a PhyloPic drawing, matched by
+name — the only key the two corpora share — with `_seed_by_name`'s refusal rule
+applied unchanged. **4,656 PBDB taxa now have a picture**, *Acanthostega*,
+*Pakicetus*, *Odontochelys*, *Purgatorius* and *Diplocaulus* among them. It is
+keyed on the taxon, not the name, because of the `Scopus` case in §5. This is
+step 2 of §4 already built; a witness implementation joins straight onto it.
+
+**The lane's ordering was the same bug in another place.** It ranked on
+`n_occs`, and a clade accumulates every occurrence of everything inside it, so
+the least specific row always won. Measured on Tetrapoda's 623 attached taxa,
+the first eight were Tetrapoda itself (211,065 occurrences, `is_extant` true),
+Anthracosauria, Reptiliomorpha, Amphibiosauria and Cotylosauria — five living
+wastebaskets — and *Acanthostega gunnari* sat at **rank 147**. Ordering is now a
+sum of penalties: extant 8, undrawn 2, broad rank 1, `n_occs` breaking ties
+within a tier. The same lane opens on *Diplocaulus*, *Diadectes*, *Seymouria*
+and *Discosauriscus*, and *Acanthostega* is rank 9. `is_primary` is filtered in
+SQL rather than deduplicated afterwards, so a synonym no longer consumes a lane
+row before the dedup can drop it.
+
+**The rows are interactive.** Each carries its own silhouette — never a borrow,
+since a fossil has no clade to inherit from — and clicking one opens the command
+palette scoped to it. The actions are about the *attachment point*, because that
+is the only honest thing to offer: a fossil has no ancestor path, so it cannot
+be selected, added, isolated or linked to.
+
+What this proves for the rest of the plan: the image link works, the refusal
+discipline holds, and the `is_extant` hazard in §5 is real enough to have been
+silently wrong in two places at once.
+
+---
+
+## 4. Work, in order
 
 1. **Fix `xref`'s homonyms first, before anything depends on this.** Phase 3
    resolves PBDB to OTT **by name**, and OTT carries homonyms across kingdoms:
@@ -120,7 +157,7 @@ witness that walked eleven is a statement about a family, not a lineage.
 
 ---
 
-## 4. Hazards, all of them measured
+## 5. Hazards, all of them measured
 
 - **`fea` stays unread as a position.** The containment test on `[lla, fea]` is
   fine and the narrow-bracket tie-break is what protects it; phase 4's finding
@@ -170,7 +207,7 @@ witness that walked eleven is a statement about a family, not a lineage.
 
 ---
 
-## 5. Where images pay, if sourcing continues in parallel
+## 6. Where images pay, if sourcing continues in parallel
 
 Sourcing helps under either design, but the payoff differs:
 
@@ -189,20 +226,6 @@ Sourcing helps under either design, but the payoff differs:
   case where a mislinked id made the app call *Homo sapiens* "also known as
   Homo floresiensis". Any new corpus needs the same refusal discipline or it
   reintroduces that class of bug silently.
-
----
-
-## 6. What not to do
-
-- **Do not compute a midpoint.** No part of this may collapse a fossil range to
-  a point, in the pipeline or the UI. The whole layer rests on that.
-- **Do not let a witness render without its dates.** The client refuses one
-  today and must keep refusing; the dates are the entire difference between
-  this and an unlabelled silhouette.
-- **Do not merge the tables.** `node_image` and the witness answer different
-  questions and only the client knows which applies. That holds unchanged.
-- **Do not raise `age_layout` to an age.** It picks a picture. It is never
-  shown, and `structural` forks still say "not estimated".
 
 ---
 
@@ -241,3 +264,17 @@ Permian homonym of the hamerkop — Sauria and the turtle/crocodile split a
 chiton family, and human/octopus a Proterozoic stromatolite. Those are data
 faults, not missing drawings, and they must be filtered before the ceiling is
 worth anything.
+
+---
+
+## 8. What not to do
+
+- **Do not compute a midpoint.** No part of this may collapse a fossil range to
+  a point, in the pipeline or the UI. The whole layer rests on that.
+- **Do not let a witness render without its dates.** The client refuses one
+  today and must keep refusing; the dates are the entire difference between
+  this and an unlabelled silhouette.
+- **Do not merge the tables.** `node_image` and the witness answer different
+  questions and only the client knows which applies. That holds unchanged.
+- **Do not raise `age_layout` to an age.** It picks a picture. It is never
+  shown, and `structural` forks still say "not estimated".
