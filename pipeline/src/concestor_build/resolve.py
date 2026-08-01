@@ -12,10 +12,17 @@ resolves to nothing, which is what makes suppression work.
     5. phylopic_resolve           owned by phase 5; consumed here, not crawled
     6. name_exact                 exact string, unique candidate only
 
+Then a **sweep** takes resolutions away again — see `refuse_disagreements`. It
+is not a seventh method: the six above ask "what node is this?" and the sweep
+asks "does anything contradict the answer?", which is why it runs last, over
+every method at once, and can overwrite a row none of them may.
+
 All resolution happens at build time. The runtime never matches names, and
 there is no fuzzy method anywhere: 16% of PBDB genus names are cross-kingdom
 homonyms and a system that silently picks one is worse than one that admits it
-does not know.
+does not know. Being *unique* is not the same as being right, though, which is
+what the sweep is for: OTT has exactly one *Sadleria* and it is a living fern,
+so the Devonian sponge of that name matched it unopposed.
 
 `gbif_checklist.py`'s ~450 covering shards are **superseded for this purpose**.
 That module solves a bulk-export problem this build does not have; the point
@@ -54,7 +61,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Sequence
     from pathlib import Path
 
-    from .typing_ import I64Array, JsonDict, Log
+    from .typing_ import BoolArray, I64Array, JsonDict, Log
 
 # --- locations ---------------------------------------------------------------
 
@@ -89,6 +96,16 @@ METHOD_ORDER = (
     "name_exact",
 )
 UNRESOLVED = "unresolved"
+
+# The sweep in `refuse_disagreements`, which runs *after* all six methods and
+# takes resolutions away. They are methods in the sense the column means — how
+# this row came to say what it says — and they resolve to nothing, so they carry
+# the same zero confidence as `unresolved` and are excluded from `METHOD_ORDER`,
+# which is the precedence order of methods that *find* something.
+REFUSED_EXTANCY = "refused_extancy_disagreement"
+REFUSED_AMBIGUOUS = "refused_name_ambiguous"
+REFUSALS = (REFUSED_EXTANCY, REFUSED_AMBIGUOUS)
+
 CONFIDENCE: dict[str, float] = {
     "manual": 1.00,
     "ott_sourceinfo": 0.99,
@@ -97,6 +114,8 @@ CONFIDENCE: dict[str, float] = {
     "phylopic_resolve": 0.98,
     "name_exact": 0.70,
     UNRESOLVED: 0.00,
+    REFUSED_EXTANCY: 0.00,
+    REFUSED_AMBIGUOUS: 0.00,
 }
 
 # --- measured baselines ------------------------------------------------------
@@ -311,6 +330,32 @@ class Xref:
             self.blocked[method] += 1
             return False
         self._rows[key] = Resolution(idx, method, candidates)
+        self.by_method[method] += 1
+        return True
+
+    def revoke(
+        self, source: str, source_id: str, method: str, candidates: list[int] | None
+    ) -> bool:
+        """Take a resolution away, recording which sweep took it.
+
+        The only writer that may overwrite an existing row, and deliberately so:
+        `add`'s refuse-every-rewrite is what makes `METHOD_ORDER` a precedence
+        order, and a refusal is not another claimant in that order — it is the
+        statement that no claimant was good enough. The candidate list keeps
+        what was withdrawn, so a reader can see what the sweep decided against
+        rather than an unexplained absence.
+
+        `manual` is exempt. Those two rows are somebody's reviewed judgement
+        against the pinned snapshot, and a gate exists purely to fail the build
+        if one stops applying; a sweep quietly overruling one would be the same
+        class of bug that gate was written to catch.
+        """
+        cur = self._rows.get((source, source_id))
+        if cur is None or cur.idx is None or cur.method == "manual":
+            return False
+        keep = candidates if candidates is not None else [cur.idx]
+        self._rows[(source, source_id)] = Resolution(None, method, keep)
+        self.by_method[cur.method] -= 1
         self.by_method[method] += 1
         return True
 
@@ -828,6 +873,278 @@ def scan_backbone(
     )
 
 
+# --- the sweep: refusing what a name cannot decide -----------------------------
+#
+# Every method above answers "what OTT node is this PBDB taxon?" and the last of
+# them answers it with a bare string. A string is only evidence of identity when
+# both corpora mean the same thing by it, and they frequently do not: PBDB's
+# *Ivesia* is an Ediacaran rangeomorph and OTT's is a rose-family plant, PBDB's
+# *Sadleria* is a Devonian sponge and OTT's a Hawaiian fern. Nothing in the name
+# says which, and the resolution was silently confident either way.
+#
+# Phase 4 found this rather than phase 3, because phase 4 is the first place a
+# resolution can be checked against *time*: a taxon last seen before the Permian
+# cannot be a living genus. 1,019 of the 1,048 exact attachments older than
+# 250 Ma landed on a node with living descendants. That is the defect, and this
+# is where it belongs.
+#
+# The check is the one cross-corpus fact both sides record independently:
+# **whether the thing is still alive.** PBDB carries `is_extant` per taxon and
+# OTT flags 313,300 taxa `extinct` in `taxonomy.tsv`. Where PBDB says extinct
+# and OTT's taxon says nothing of the sort, the name has matched two different
+# concepts and the honest answer is no resolution — the same discipline
+# `images.py`'s `_seed_by_name` applies when a title reaches two nodes.
+#
+# Measured against phase 4's own signal (an extinct taxon last seen before
+# 250 Ma resolving onto a lineage the chronogram still dates), 709 suspect and
+# 22 clean:
+#
+#   refuse on the flag alone            704/709 suspect, 3/22 clean, 17,995 rows
+#   refuse only onto a living lineage   704/709 suspect, 0/22 clean, 16,833 rows
+#
+# So the guard is kept: OTT not flagging a taxon extinct is weak evidence on its
+# own — nobody has gone through the fossil record ticking boxes — and it becomes
+# decisive only when the node OTT resolves to still has descendants in a tree of
+# living species. Without the guard 1,162 genuinely extinct genera that OTT
+# simply has not flagged lose an exact attachment: *Neochelys*, *Baptemys* and
+# *Roxochelys*, all fossil turtles, among them. With it *Tyrannosaurus* (which
+# OTT does flag) keeps its node, *Sadleria*'s Devonian sponge moves off the fern
+# and onto Porifera where PBDB always had it, and the extant *Scopus* keeps the
+# hamerkop while the Permian one loses it.
+
+
+def load_ott_extinct(path: Path = TAXONOMY) -> set[int]:
+    """OTT ids whose taxon carries an `extinct` flag. 313,300 of 4,529,570.
+
+    `extinct_inherited` counts too and is the commoner of the two: OTT marks a
+    clade extinct and propagates it downward, so a member of an extinct group is
+    flagged by inheritance rather than in its own right. Both mean the same
+    thing here — OTT does not think this taxon is alive.
+    """
+    out: set[int] = set()
+    if not path.exists():
+        return out
+    with path.open(encoding="utf-8") as fh:
+        header = fh.readline().split("\t|\t")
+        try:
+            i_uid, i_flags = header.index("uid"), header.index("flags")
+        except ValueError:
+            return out
+        for line in fh:
+            f = line.split("\t|\t")
+            if len(f) <= i_flags or "extinct" not in f[i_flags]:
+                continue
+            uid = f[i_uid].strip()
+            if uid.isdigit():
+                out.add(int(uid))
+    return out
+
+
+def living_lineages() -> BoolArray | None:
+    """Per node: does a tree of *living* species still date something below it?
+
+    Phase 2's `age_ma` is finite only where a chronogram of extant taxa reached
+    the node, so "has a finite age at or below it" is the closest thing the
+    build has to "this lineage did not end". Preorder gives `parent[i] < i`, so
+    one reverse pass carries the flag to the root.
+
+    Returns None when phase 2 has not run, which disables the sweep rather than
+    guessing at it — refusing on the flag alone costs 1,162 correct attachments
+    and the guard is the whole reason it does not.
+    """
+    ages = TOPOLOGY / "age_ma.npy"
+    parents = TOPOLOGY / "parent.npy"
+    if not ages.exists() or not parents.exists():
+        return None
+    par = np.load(parents).astype(np.int64).tolist()
+    alive = np.isfinite(np.load(ages)).tolist()
+    for i in range(len(alive) - 1, 0, -1):
+        if alive[i]:
+            alive[par[i]] = True
+    return np.array(alive, dtype=bool)
+
+
+def refuse_disagreements(
+    xref: Xref,
+    taxa: Sequence[PbdbTaxon],
+    idx_to_ott: dict[int, int],
+    extinct_ott: set[int],
+    living: BoolArray | None,
+) -> JsonDict:
+    """Withdraw the resolutions the evidence does not support. Two refusals.
+
+    **Extancy disagreement**, over every method rather than `name_exact` alone.
+    Phase 4 measured that `gbif_backbone_provenance` and `gbif_pbdb_chain`
+    produce these too — the backbone merges a fossil name onto the living genus
+    just as a bare string match does — so trusting id provenance is not the fix.
+    Over every row rather than accepted taxa only: phase 4 gives each
+    `taxon_no` its own attachment from its own resolution and `layout_bounds`
+    reads them without filtering on `is_primary`, so a synonym's bad resolution
+    moves a node on the axis exactly as an accepted one does. PBDB's *Ivesia* is
+    that case — the row carrying the 538.8 Ma bound is a synonym.
+
+    **Residual ambiguity**, `name_exact` only, ported from `_seed_by_name`. PBDB
+    carries homonyms internally: 1,429 names belong to more than one accepted
+    taxon, and each of them matched the same single OTT node, so at most one can
+    be right and nothing says which. Run *after* the extancy sweep on purpose —
+    it decides most of them on evidence, and `Scopus` is the case that shows why
+    order matters. Both PBDB *Scopus* rows resolved to OTT's hamerkop; the sweep
+    takes the Permian one, one claimant is left, and the correct resolution
+    survives. Refusing on ambiguity first would have thrown away both.
+    """
+    stats: JsonDict = {
+        "extancy_refused": 0,
+        "extancy_skipped": living is None,
+        "ambiguous_names": 0,
+        "ambiguous_refused": 0,
+    }
+    if living is not None:
+        for t in taxa:
+            if t.is_extant != 0:
+                continue
+            idx = xref.resolved_idx("pbdb", str(t.taxon_no))
+            if idx is None or not (0 <= idx < living.size) or not bool(living[idx]):
+                continue
+            ott = idx_to_ott.get(idx)
+            if ott is not None and ott in extinct_ott:
+                continue
+            if xref.revoke("pbdb", str(t.taxon_no), REFUSED_EXTANCY, [idx]):
+                stats["extancy_refused"] += 1
+
+    claimants: dict[str, list[int]] = {}
+    for t in taxa:
+        if t.taxon_no != t.accepted_no:
+            continue
+        r = xref.get("pbdb", str(t.taxon_no))
+        if r is None or r.idx is None or r.method != "name_exact":
+            continue
+        claimants.setdefault(t.name, []).append(t.taxon_no)
+    for nos in claimants.values():
+        if len(nos) < 2:
+            continue
+        stats["ambiguous_names"] += 1
+        for no in nos:
+            # `candidates` is a list of node indices everywhere else in this
+            # table, so it stays one here: what was withdrawn, not who claimed
+            # it. The counts below are where the ambiguity itself is recorded.
+            if xref.revoke("pbdb", str(no), REFUSED_AMBIGUOUS, None):
+                stats["ambiguous_refused"] += 1
+    return stats
+
+
+# The cases the sweep exists for, and the ones it must not take with them.
+# Counting refusals is not checking them — a sweep this broad is exactly the
+# shape of change that passes every count while removing the wrong 16,000 rows —
+# so these five are asserted by PBDB taxon number against the pinned snapshot.
+XREF_ANCHORS: tuple[tuple[int, str, bool, str], ...] = (
+    (
+        3277,
+        "Sadleria",
+        False,
+        "a Devonian sponge. OTT's Sadleria is a living Hawaiian fern genus, and "
+        "it carried a 382 Ma bound until this sweep existed.",
+    ),
+    (
+        3296,
+        "Streptosolen",
+        False,
+        "an Ordovician taxon. OTT's is a South American shrub.",
+    ),
+    (
+        57557,
+        "Scopus",
+        False,
+        "the Permian genus, 254-252 Ma. OTT has only the hamerkop under this name.",
+    ),
+    (
+        39639,
+        "Scopus",
+        True,
+        "the hamerkop itself, extant in both corpora. It must survive the sweep "
+        "that takes its Permian homonym, which is why the ambiguity refusal runs "
+        "second: by then one claimant is left and the name is no longer in doubt.",
+    ),
+    (
+        18884,
+        "Hallucigenia",
+        True,
+        "extinct in both corpora, so nothing is in dispute — and reached by "
+        "`name_exact`, which is what makes it the anchor that fails if the "
+        "sweep starts refusing extinct taxa outright rather than extinct taxa "
+        "landing on a living lineage.",
+    ),
+    (
+        38613,
+        "Tyrannosaurus",
+        True,
+        "a `manual` override, and exempt from the sweep by construction. Here "
+        "because a reviewed judgement silently overruled is the failure mode "
+        "`revoke` is written to avoid.",
+    ),
+    (
+        37595,
+        "Neochelys",
+        True,
+        "an Eocene turtle genus OTT simply has not flagged extinct. It has 11 "
+        "tips and no dated descendant, so the living-lineage guard keeps it — "
+        "and without that guard 1,162 like it lose an exact attachment.",
+    ),
+)
+
+
+def _refusal_gates(g: GateSet, refused: JsonDict, con: sqlite3.Connection) -> None:
+    """Report the sweep, then check the six cases it was written for."""
+    g.require(
+        "the extancy sweep ran",
+        "skipped" if refused["extancy_skipped"] else "ran",
+        "ran",
+        ok=not refused["extancy_skipped"],
+        note=(
+            "It needs phase 2's `age_ma.npy` to tell a lineage that ended from "
+            "one that did not. Refusing on OTT's extinct flag alone costs 1,162 "
+            "correct attachments — Neochelys, Baptemys and Roxochelys among "
+            "them — so with no guard the sweep does not run at all."
+        ),
+    )
+    g.observe(
+        "resolutions withdrawn on an extancy disagreement",
+        f"{refused['extancy_refused']:,}",
+        note=(
+            "PBDB says extinct, OTT's taxon carries no extinct flag, and the "
+            "node still has a chronogram-dated descendant. Measured against "
+            "phase 4's own signal this catches 704 of 709 suspect resolutions "
+            "and 0 of 22 clean ones. Not confined to `name_exact`: "
+            "`gbif_backbone_provenance` supplies 7,191 of them, because the "
+            "backbone merges a fossil name onto the living genus too."
+        ),
+    )
+    g.observe(
+        "name_exact rows withdrawn as still ambiguous",
+        f"{refused['ambiguous_refused']:,} over {refused['ambiguous_names']:,} names",
+        note=(
+            "A name claimed by two accepted PBDB taxa that both matched the "
+            "same single OTT node. At most one can be right and the string "
+            "says nothing about which, so both go — `_seed_by_name`'s rule, "
+            "in the other direction."
+        ),
+    )
+    for taxon_no, name, resolves, why in XREF_ANCHORS:
+        row = con.execute(
+            "SELECT idx, method FROM xref WHERE source='pbdb' AND source_id=?",
+            (str(taxon_no),),
+        ).fetchone()
+        got = row is not None and row[0] is not None
+        g.require(
+            f"pbdb {taxon_no} ({name}) {'keeps' if resolves else 'loses'} its node",
+            f"{'idx ' + str(row[0]) if got else 'unresolved'} via {row[1]}"
+            if row
+            else "absent",
+            "resolved" if resolves else "unresolved",
+            ok=got == resolves,
+            note=why,
+        )
+
+
 # --- the phase ----------------------------------------------------------------
 
 
@@ -1153,6 +1470,19 @@ def run(budget: int = 25_000, use_api: bool = True) -> int:
         f"  {name_resolved:,} unique matches, {ambiguous_rows:,} ambiguous", flush=True
     )
 
+    # --- the sweep: withdraw what the evidence does not support ---------------
+    print("\n--- refusing disagreements ---", flush=True)
+    extinct_ott = load_ott_extinct()
+    living = living_lineages()
+    refused = refuse_disagreements(
+        xref, taxa, {i: o for o, i in ott_to_idx.items()}, extinct_ott, living
+    )
+    print(
+        f"  {refused['extancy_refused']:,} withdrawn on an extancy disagreement, "
+        f"{refused['ambiguous_refused']:,} on a name still claimed twice",
+        flush=True,
+    )
+
     # --- every remaining PBDB taxon is deliberately unresolved ----------------
     for t in taxa:
         xref.add("pbdb", str(t.taxon_no), None, UNRESOLVED)
@@ -1204,18 +1534,30 @@ def run(budget: int = 25_000, use_api: bool = True) -> int:
         ),
         0,
     )
+    known = (*METHOD_ORDER, UNRESOLVED, *REFUSALS)
     g.require(
         "rows carrying a method outside the precedence order",
         con.execute(
             "SELECT count(*) FROM xref WHERE method NOT IN "
-            "(" + ",".join("?" * (len(METHOD_ORDER) + 1)) + ")",
-            (*METHOD_ORDER, UNRESOLVED),
+            "(" + ",".join("?" * len(known)) + ")",
+            known,
         ).fetchone()[0],
         0,
     )
+    # A refusal that kept its idx would be the worst of both: the row reads as
+    # withdrawn and every consumer joining on `idx` still follows it.
+    g.require(
+        "refusals that still carry a resolution",
+        con.execute(
+            "SELECT count(*) FROM xref WHERE idx IS NOT NULL AND method IN (?,?)",
+            REFUSALS,
+        ).fetchone()[0],
+        0,
+    )
+    _refusal_gates(g, refused, con)
 
     print("\n--- method gates ---", flush=True)
-    for method in (*METHOD_ORDER, UNRESOLVED):
+    for method in known:
         n = con.execute(
             "SELECT count(*) FROM xref WHERE method = ?", (method,)
         ).fetchone()[0]
@@ -1397,7 +1739,20 @@ def run(budget: int = 25_000, use_api: bool = True) -> int:
         )
     }
     acknowledged = load_acknowledged()
-    regressions = sorted(prev_resolved - now_resolved - acknowledged)
+    # A row the sweep withdrew is not a regression. A regression is something
+    # that used to resolve and now quietly does not; a refusal is a decision
+    # this build made on stated evidence, counted by its own gates and anchored
+    # on six named taxa. Signing 17,068 of them off one line at a time in
+    # `acknowledged_regressions.tsv` would bury the reviewed exceptions that
+    # file exists for under a systematic change, and the file is the record of
+    # what somebody *looked at*.
+    withdrawn = {
+        (s, i)
+        for s, i in con.execute(
+            "SELECT source, source_id FROM xref WHERE method IN (?,?)", REFUSALS
+        )
+    }
+    regressions = sorted(prev_resolved - now_resolved - acknowledged - withdrawn)
     new_ambiguities = sorted(now_ambiguous - prev_ambiguous)
 
     g.require(
@@ -1408,7 +1763,8 @@ def run(budget: int = 25_000, use_api: bool = True) -> int:
         if not prev_resolved
         else f"e.g. {regressions[:5]}"
         if regressions
-        else "",
+        else f"{len(prev_resolved & withdrawn):,} further rows were withdrawn by "
+        "the disagreement sweep and are excluded here; see its own gates.",
     )
     g.observe(
         "new ambiguities since the last build",
@@ -1487,6 +1843,7 @@ def run(budget: int = 25_000, use_api: bool = True) -> int:
         },
         "phylopic_resolve": {"rows": phylopic_rows, "note": phylopic_note},
         "name_exact": {"unique": name_resolved, "ambiguous": ambiguous_rows},
+        "refusals": refused,
         "manual": {
             "overrides": len(overrides),
             "unresolvable": override_failures,

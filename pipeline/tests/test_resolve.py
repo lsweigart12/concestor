@@ -8,7 +8,9 @@ the real files; these cover the logic that decides what the gates measure.
 import gzip
 import json
 import sqlite3
+from typing import TYPE_CHECKING
 
+import numpy as np
 import pytest
 
 from concestor_build import resolve
@@ -21,6 +23,9 @@ from concestor_build.resolve import (
     IdMap,
     Xref,
 )
+
+if TYPE_CHECKING:
+    from concestor_build.typing_ import BoolArray, JsonDict
 
 # --- sourceinfo ---------------------------------------------------------------
 
@@ -72,8 +77,6 @@ def test_parse_sourceinfo_recovers_the_space_prefixed_entry():
 
 
 def test_idmap_lookup_reports_misses_as_minus_one():
-    import numpy as np
-
     m = IdMap([10, 3, 7], [100, 30, 70])
     got = m.lookup(np.array([3, 7, 10, 11], dtype=np.int64)).tolist()
     assert got == [30, 70, 100, -1]
@@ -89,8 +92,6 @@ def test_idmap_keeps_the_first_value_for_a_duplicated_key():
 
 
 def test_idmap_tolerates_being_empty():
-    import numpy as np
-
     m = IdMap([], [])
     assert m.lookup(np.array([1], dtype=np.int64)).tolist() == [-1]
 
@@ -340,3 +341,215 @@ def test_forwarded_ott_ids_are_chased_and_counted():
 def test_a_self_forward_does_not_loop():
     r = resolve.OttResolver({}, {7: 7})
     assert r.idx_for(7) is None
+
+
+# --- the disagreement sweep ---------------------------------------------------
+
+
+def _taxon(
+    taxon_no: int, name: str, is_extant: int | None, accepted_no: int | None = None
+) -> resolve.PbdbTaxon:
+    """A PbdbTaxon carrying only the fields the sweep reads."""
+    return resolve.PbdbTaxon(
+        taxon_no=taxon_no,
+        orig_no=taxon_no,
+        rank="genus",
+        name=name,
+        accepted_no=accepted_no if accepted_no is not None else taxon_no,
+        accepted_rank="genus",
+        accepted_name=name,
+        parent_no=0,
+        n_occs=1,
+        is_extant=is_extant,
+        difference="",
+        fea=None,
+        fla=None,
+        lea=None,
+        lla=None,
+    )
+
+
+def _sweep(
+    taxa: list[resolve.PbdbTaxon],
+    resolutions: list[tuple[str, int | None, str]],
+    *,
+    extinct_ott: tuple[int, ...] = (),
+    living: BoolArray | None = None,
+    idx_to_ott: dict[int, int] | None = None,
+) -> tuple[Xref, JsonDict]:
+    x = Xref()
+    for source_id, idx, method in resolutions:
+        x.add("pbdb", source_id, idx, method)
+    stats = resolve.refuse_disagreements(
+        x,
+        taxa,
+        idx_to_ott if idx_to_ott is not None else {5: 500, 6: 600},
+        set(extinct_ott),
+        living,
+    )
+    return x, stats
+
+
+def test_revoke_takes_the_resolution_but_keeps_what_it_withdrew():
+    x = Xref()
+    x.add("pbdb", "1", 42, "name_exact")
+    assert x.revoke("pbdb", "1", resolve.REFUSED_EXTANCY, None)
+    row = x.get("pbdb", "1")
+    assert row is not None
+    assert row.idx is None
+    assert row.method == resolve.REFUSED_EXTANCY
+    assert row.candidates == [42], "the withdrawn node stays visible"
+    assert x.by_method["name_exact"] == 0
+    assert x.by_method[resolve.REFUSED_EXTANCY] == 1
+
+
+def test_revoke_does_not_invent_a_row_or_re_refuse_one():
+    x = Xref()
+    x.add("pbdb", "1", None, resolve.UNRESOLVED)
+    assert not x.revoke("pbdb", "1", resolve.REFUSED_EXTANCY, None)
+    assert not x.revoke("pbdb", "nobody", resolve.REFUSED_EXTANCY, None)
+
+
+def test_an_extinct_taxon_landing_on_a_living_lineage_is_refused():
+    """PBDB's Sadleria is a Devonian sponge; OTT's is a living Hawaiian fern."""
+    living = np.array([True, True, True, True, True, True], dtype=bool)
+    x, stats = _sweep(
+        [_taxon(3277, "Sadleria", 0)], [("3277", 5, "name_exact")], living=living
+    )
+    assert stats["extancy_refused"] == 1
+    row = x.get("pbdb", "3277")
+    assert row is not None and row.idx is None
+    assert row.method == resolve.REFUSED_EXTANCY
+
+
+def test_a_taxon_ott_also_calls_extinct_keeps_its_node():
+    """Tyrannosaurus. The corpora agree, so the name is not in dispute."""
+    living = np.array([True] * 6, dtype=bool)
+    x, stats = _sweep(
+        [_taxon(38613, "Tyrannosaurus", 0)],
+        [("38613", 5, "name_exact")],
+        extinct_ott=(500,),
+        living=living,
+    )
+    assert stats["extancy_refused"] == 0
+    assert x.resolved_idx("pbdb", "38613") == 5
+
+
+def test_an_unflagged_extinct_genus_on_a_dead_lineage_keeps_its_node():
+    """Neochelys, and the 1,162 like it. OTT has not flagged them; the
+    chronogram has nothing below them either, which is the guard."""
+    living = np.array([True, True, True, True, True, False], dtype=bool)
+    x, stats = _sweep(
+        [_taxon(37595, "Neochelys", 0)], [("37595", 5, "name_exact")], living=living
+    )
+    assert stats["extancy_refused"] == 0, "index 5 has no dated descendant"
+    assert x.resolved_idx("pbdb", "37595") == 5
+    # And the same taxon on a living lineage does lose it, so the guard is what
+    # made the difference rather than something else in the row.
+    living[5] = True
+    x2, stats2 = _sweep(
+        [_taxon(37595, "Neochelys", 0)], [("37595", 5, "name_exact")], living=living
+    )
+    assert stats2["extancy_refused"] == 1
+    assert x2.resolved_idx("pbdb", "37595") is None
+
+
+def test_the_sweep_reaches_every_method_not_just_name_exact():
+    """gbif_backbone_provenance supplies 7,191 of these. Id provenance is not
+    a defence: the backbone merges the fossil name onto the living genus too."""
+    living = np.array([True] * 6, dtype=bool)
+    x, stats = _sweep(
+        [_taxon(1, "A", 0), _taxon(2, "B", 0)],
+        [("1", 5, "gbif_backbone_provenance"), ("2", 5, "gbif_pbdb_chain")],
+        living=living,
+    )
+    assert stats["extancy_refused"] == 2
+    assert x.resolved_idx("pbdb", "1") is None
+    assert x.resolved_idx("pbdb", "2") is None
+
+
+def test_an_extant_or_unknown_taxon_is_never_swept():
+    """`is_extant` is nullable for a reason — 1.7% are genuinely unknown, and
+    unknown is not a claim that the thing is dead."""
+    living = np.array([True] * 6, dtype=bool)
+    x, stats = _sweep(
+        [_taxon(1, "A", 1), _taxon(2, "B", None)],
+        [("1", 5, "name_exact"), ("2", 5, "name_exact")],
+        living=living,
+    )
+    assert stats["extancy_refused"] == 0
+    assert x.resolved_idx("pbdb", "1") == 5
+    assert x.resolved_idx("pbdb", "2") == 5
+
+
+def test_a_synonym_row_is_swept_too():
+    """Ivesia's 538.8 Ma bound rides on a synonym, and `layout_bounds` reads
+    every row's attachment without filtering on `is_primary`."""
+    living = np.array([True] * 6, dtype=bool)
+    x, stats = _sweep(
+        [_taxon(121434, "Ivesia", 0, accepted_no=999)],
+        [("121434", 5, "name_exact")],
+        living=living,
+    )
+    assert stats["extancy_refused"] == 1
+    assert x.resolved_idx("pbdb", "121434") is None
+
+
+def test_the_sweep_does_nothing_without_phase_2():
+    """No `age_ma`, no way to tell a lineage that ended from one that did not.
+    Refusing on OTT's flag alone would cost 1,162 correct attachments."""
+    x, stats = _sweep(
+        [_taxon(3277, "Sadleria", 0)], [("3277", 5, "name_exact")], living=None
+    )
+    assert stats["extancy_skipped"]
+    assert stats["extancy_refused"] == 0
+    assert x.resolved_idx("pbdb", "3277") == 5
+
+
+def test_two_accepted_taxa_of_one_name_both_lose_it():
+    """PBDB carries homonyms internally — 1,429 names — and each matched the
+    same single OTT node. At most one can be right and nothing says which."""
+    living = np.array([True] * 6, dtype=bool)
+    x, stats = _sweep(
+        [_taxon(1, "Anomalina", None), _taxon(2, "Anomalina", None)],
+        [("1", 5, "name_exact"), ("2", 5, "name_exact")],
+        living=living,
+    )
+    assert stats["ambiguous_names"] == 1
+    assert stats["ambiguous_refused"] == 2
+    assert x.resolved_idx("pbdb", "1") is None
+    second = x.get("pbdb", "2")
+    assert second is not None and second.method == resolve.REFUSED_AMBIGUOUS
+
+
+def test_the_extancy_sweep_runs_first_so_scopus_keeps_its_hamerkop():
+    """The order is the whole reason the correct resolution survives. Both
+    PBDB `Scopus` rows matched OTT's hamerkop; the extancy sweep takes the
+    Permian one, one claimant is left, and the ambiguity refusal has nothing
+    to refuse. Reversed, it would have thrown away both."""
+    living = np.array([True] * 6, dtype=bool)
+    x, stats = _sweep(
+        [_taxon(39639, "Scopus", 1), _taxon(57557, "Scopus", 0)],
+        [("39639", 5, "name_exact"), ("57557", 5, "name_exact")],
+        living=living,
+    )
+    assert stats["extancy_refused"] == 1
+    assert stats["ambiguous_refused"] == 0
+    assert x.resolved_idx("pbdb", "39639") == 5, "the hamerkop"
+    assert x.resolved_idx("pbdb", "57557") is None, "the Permian genus"
+
+
+def test_a_refusal_carries_a_confidence_and_resolves_to_nothing():
+    for m in resolve.REFUSALS:
+        assert CONFIDENCE[m] == 0.0
+        assert m not in METHOD_ORDER, "a refusal is not a claimant in precedence"
+
+
+def test_a_manual_override_is_exempt_from_the_sweep():
+    """Two rows in this build are somebody's reviewed judgement, and a gate
+    fails the build if one stops applying. A sweep overruling one quietly is
+    the same class of bug that gate was written to catch."""
+    living = np.array([True] * 6, dtype=bool)
+    x, stats = _sweep([_taxon(1, "A", 0)], [("1", 5, "manual")], living=living)
+    assert stats["extancy_refused"] == 0
+    assert x.resolved_idx("pbdb", "1") == 5

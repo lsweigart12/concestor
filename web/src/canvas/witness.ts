@@ -21,16 +21,15 @@
  * said otherwise.
  *
  * So a witness-less divergence draws nothing, and that is the point rather
- * So a witness-less divergence draws nothing, and that is the point rather
- * than a shortfall. 548 nodes have a witness — the rule shipped capped at a
- * 25% gap and gave 66, which left the canvas too bare to be worth looking at,
- * so the cap came off and undated forks fell back to their drawn position.
- * Forks below that still draw nothing, and Caniformia is the case to hold in
- * mind for why the coverage is what it is: its oldest drawn *and* dated member
- * is Archaeocyon at 31.8 Ma, 25 Ma adrift, and the stem carnivorans that would
+ * than a shortfall. 885 forks have one — a witness is a *fossil* attached below
+ * the fork rather than a node inside it, which is what took the layer past the
+ * 2,552 the node-only design could ever reach, and *Acanthostega gunnari* now
+ * stands at the fish/tetrapod split. Caniformia is still the case to hold in
+ * mind for why the coverage is what it is: dated 57 Ma, its best candidate is
+ * Hesperocyon gregarius at 39.7–18.5 Ma, and the stem carnivorans that would
  * fit (Vulpavus, 56–45.9 Ma) sit inside Carnivora but outside Caniformia, so
- * they are not eligible. Uncapped it draws Archaeocyon anyway, with both
- * ranges on screen so the reader can see the stretch.
+ * they are not eligible. Uncapped it draws Hesperocyon anyway, with both ranges
+ * on screen so the reader can see the stretch.
  */
 
 import { witnessFor, silhouetteIsInformative, type PathNode, type Witness } from "../api";

@@ -177,12 +177,12 @@ type Entry struct {
 	// A client must render it as a range and never as a point.
 	Occurrence *store.Occurrence `json:"occurrence,omitempty"`
 
-	// The divergence witness: a second silhouette for an internal node, of a
-	// drawn taxon inside the clade whose fossil record puts it at this node's
-	// split. Present on 548 nodes, and never on a node that carries its own
-	// image. Where the fork itself is undated the match was made against where
-	// it is *drawn* — 319 of the 548 — so a client must not caption those as a
-	// date. Tier says which: age_ma is null on exactly those nodes.
+	// The divergence witness: a second silhouette for a fork, of a **fossil
+	// taxon from below it** whose stratigraphic bracket puts it at the split.
+	// Never on a node that carries its own image. Where the fork itself is
+	// undated the match was made against where it is *drawn*, so a client must
+	// not caption those as a date; Tier says which, since age_ma is null on
+	// exactly those nodes.
 	//
 	// A client must not draw it *instead of* PhylopicID everywhere. The two
 	// answer different questions and which one applies depends on how the
@@ -190,17 +190,32 @@ type Entry struct {
 	// exemplar, a node they arrived at by splitting wants the witness. Only
 	// the client knows which.
 	//
-	// DivergenceRange is the witness taxon's own fossil bracket and is what
-	// makes the picture legible — "Sahelanthropus, 7.2–5.3 Ma" beside a split
-	// dated 6.7 Ma is a statement a reader can check. Drawing the silhouette
-	// without it restates the problem this replaced, an unexplained shape.
-	// It is a range and never a point, exactly as Occurrence is.
-	DivergencePhylopicID *string           `json:"divergence_phylopic_id,omitempty"`
-	DivergenceSourceIdx  *int              `json:"divergence_source_idx,omitempty"`
-	DivergenceSourceName *string           `json:"divergence_source_name,omitempty"`
-	DivergenceSourceRank *string           `json:"divergence_source_rank,omitempty"`
-	DivergenceGapMa      *float64          `json:"divergence_gap_ma,omitempty"`
-	DivergenceRange      *store.Occurrence `json:"divergence_range,omitempty"`
+	// **The claim is weaker than it used to be and the wording must be too.** A
+	// witness was once a node inside the clade, so the picture could say "a
+	// member of this group". It is now a PBDB taxon attached below the fork,
+	// and architecture §3.4 fixes the honest phrasing for that: *this taxon
+	// belongs somewhere below node X, and existed between these dates.* Not
+	// *this taxon is the sister of that one.* DivergenceAttachWalk is how loose
+	// the placement is — how many PBDB `parent_no` hops it took to reach a node
+	// in the synthesis tree. Zero means PBDB's own taxon is in the tree;
+	// eleven is a statement about a family rather than a lineage.
+	//
+	// DivergenceRange is the taxon's own bracket and is what makes the picture
+	// legible — "Sahelanthropus, 7.2–5.3 Ma" beside a split dated 6.7 Ma is a
+	// statement a reader can check. Drawing the silhouette without it restates
+	// the problem this replaced, an unexplained shape. It is a range and never
+	// a point, exactly as Occurrence is.
+	DivergencePhylopicID *string  `json:"divergence_phylopic_id,omitempty"`
+	DivergenceTaxonNo    *int     `json:"divergence_pbdb_taxon_no,omitempty"`
+	DivergenceSourceName *string  `json:"divergence_source_name,omitempty"`
+	DivergenceSourceRank *string  `json:"divergence_source_rank,omitempty"`
+	DivergenceAttachIdx  *int     `json:"divergence_attach_idx,omitempty"`
+	DivergenceAttachWalk *int     `json:"divergence_attach_walk,omitempty"`
+	DivergenceGapMa      *float64 `json:"divergence_gap_ma,omitempty"`
+	// Only fea and lla are populated: the witness is chosen by a containment
+	// test on the outer bracket, so the inner pair is not what decided it and
+	// would invite a reader to draw a certainty the choice never used.
+	DivergenceRange *store.Occurrence `json:"divergence_range,omitempty"`
 }
 
 // entries turns a list of indices into API entries, preserving order.
@@ -230,15 +245,19 @@ func (s *Server) entries(r *http.Request, idxs []int) ([]Entry, error) {
 			want = append(want, *c)
 		}
 	}
-	// The witness taxon's own fossil range is the caption, so it is fetched
-	// alongside the nodes' own occurrences rather than in a second pass.
+	// A witness is a fossil and carries its own name and bracket, so it needs
+	// no lookup at all. A build predating the rename still names a node, and
+	// there the name and the range are two more rows to fetch.
 	wantOcc := append([]int(nil), idxs...)
 	for _, w := range witnesses {
-		if !seen[w.SourceIdx] {
-			seen[w.SourceIdx] = true
-			want = append(want, w.SourceIdx)
+		if w.SourceIdx == nil {
+			continue
 		}
-		wantOcc = append(wantOcc, w.SourceIdx)
+		if !seen[*w.SourceIdx] {
+			seen[*w.SourceIdx] = true
+			want = append(want, *w.SourceIdx)
+		}
+		wantOcc = append(wantOcc, *w.SourceIdx)
 	}
 	occs, err := s.St.Occurrences(ctx, wantOcc)
 	if err != nil {
@@ -302,15 +321,27 @@ func (s *Server) entries(r *http.Request, idxs []int) ([]Entry, error) {
 			}
 		}
 		if w, ok := witnesses[idx]; ok {
-			id, src := w.PhylopicID, w.SourceIdx
+			id := w.PhylopicID
 			e.DivergencePhylopicID = &id
-			e.DivergenceSourceIdx = &src
-			e.DivergenceSourceName = metas[src].Name
-			e.DivergenceSourceRank = metas[src].Rank
 			e.DivergenceGapMa = w.GapMa
-			if o, ok := occs[src]; ok {
-				v := o
-				e.DivergenceRange = &v
+			if src := w.SourceIdx; src != nil {
+				// A pre-rename build: the witness is a node, so its name and
+				// its range come from the tables the node lives in.
+				e.DivergenceSourceName = metas[*src].Name
+				e.DivergenceSourceRank = metas[*src].Rank
+				if o, ok := occs[*src]; ok {
+					v := o
+					e.DivergenceRange = &v
+				}
+			} else {
+				taxonNo, attach, walk := w.PbdbTaxonNo, w.AttachIdx, w.AttachWalk
+				name := w.Name
+				e.DivergenceTaxonNo = &taxonNo
+				e.DivergenceSourceName = &name
+				e.DivergenceSourceRank = w.Rank
+				e.DivergenceAttachIdx = &attach
+				e.DivergenceAttachWalk = &walk
+				e.DivergenceRange = &store.Occurrence{Fea: w.Oldest, Lla: w.Youngest}
 			}
 		}
 		out = append(out, e)
@@ -664,12 +695,17 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request) {
 			s.Log.Warn("witness attribution", "idx", idx, "err", err)
 		}
 		if witAttrib != nil {
-			witAttrib.SourceIdx = entries[0].DivergenceSourceIdx
+			// SourceIdx stays nil for a fossil witness. On this struct it means
+			// "the node the picture is of", and a fossil is not a node — its
+			// attachment point is where it *hangs*, which is a different claim,
+			// and putting one in the other's field would address a node cleanly
+			// and wrongly. The credit line needs the name, and the name travels
+			// with the witness row.
 			witAttrib.SourceName = entries[0].DivergenceSourceName
 			witAttrib.SourceRank = entries[0].DivergenceSourceRank
-			// No clade: a witness is inside the node's own clade, so the node
-			// is the whole of what the picture speaks for and there is nothing
-			// wider to report.
+			// No clade: the fork is the whole of what the picture speaks for,
+			// and how far below it the taxon sits is DivergenceAttachWalk's
+			// business rather than a clade's.
 		}
 	}
 
