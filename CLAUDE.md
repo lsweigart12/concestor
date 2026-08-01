@@ -21,7 +21,7 @@ wrong and these docs record the corrections.
 | [docs/ingest.md](docs/ingest.md) | The six build phases and their validation gates |
 | [docs/phase2-decision.md](docs/phase2-decision.md) | The dating decision — accepted, with the evidence |
 | [docs/phase3-pbdb-path.md](docs/phase3-pbdb-path.md) | How fossils resolve to the tree, measured |
-| [docs/witness-ceiling.md](docs/witness-ceiling.md) | Proposed: raising the divergence witness from 548 forks to 33,428. Measured, not started |
+| [docs/witness-ceiling.md](docs/witness-ceiling.md) | Proposed: raising the divergence witness from 548 forks to 22,808, with worked before/after. Measured, not started |
 | [docs/worktrees.md](docs/worktrees.md) | Why the preview works in a parallel session's worktree |
 
 **This product is for curious people interested in evolution, not for evolutionary

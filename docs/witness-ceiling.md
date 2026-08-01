@@ -6,8 +6,8 @@ against build `7621312b5760ec1a` on 2026-08-01. Read
 
 The witness layer shipped drawing 548 forks. The design caps out at about
 2,552 however many images anyone sources, and the cap is not the corpus — it is
-one line in the data model. Changing that line reaches **33,428**, and reaches
-**5,917 with no new images at all**.
+one line in the data model. Changing that line reaches **22,808**, and reaches
+**1,416 with no new images at all**, on the forks readers actually visit.
 
 ---
 
@@ -31,15 +31,27 @@ in the data, dated, correctly placed below Whippomorpha, and ineligible.
 |---|---:|---:|---:|
 | today — nodes, drawn, dated | 398 | **548** | 207 |
 | nodes, **every** dated one drawn | 2,133 | 2,552 | 607 |
-| **fossils, drawn with today's images** | 1,903 attach nodes | **5,917** | 854 |
-| **fossils, every dated one drawn** | 28,831 attach nodes | **33,428** | 10,434 |
+| **fossils, drawn with today's images** | 2,267 taxa | **1,416** | 242 |
+| **fossils, every dated one drawn** | 234,746 taxa | **22,808** | 5,187 |
+
+Those last two rows count **extinct taxa only**, and that filter is not
+optional — see §4. Without it they read 5,917 and 33,428, and the difference is
+almost entirely crown groups: PBDB carries *Mammalia* at 239.5–0 Ma,
+*Viverridae* at 56–0 and *Panthera* at 23.04–0. A range running to the present
+contains every split inside it, so an unfiltered rule hands the biggest forks a
+picture of the living group — the exact failure the witness exists to correct,
+arriving with a fossil's label on. Every figure below excludes `is_extant = 1`.
 
 Two readings of that table matter more than the totals.
 
-**Row 3 costs no images.** 2,194 PhyloPic titles already name a dated PBDB
-taxon that is not an OTT node — *Phenacodontidae*, *Goniatitida*, Orthocerida,
-*Ammonitina*. They are mirrored, licensed and sitting on disk unused. Changing
-the join is worth **11× the current coverage** before anyone draws anything.
+**Row 3 costs no images.** 2,267 already-mirrored PhyloPic drawings name a
+dated extinct PBDB taxon. Changing the join alone is worth **2.6× the current
+coverage**, and what it buys is not spread evenly — it lands on the forks a
+reader actually visits. Tetrapoda stops drawing a Triassic archosaur 110 Ma
+adrift and draws *Acanthostega gunnari*, 372–359 Ma against a 360 Ma split.
+Perissodactyla stops drawing nothing and draws *Eohippus*. The turtle/crocodile
+split draws *Odontochelys*, the half-shelled stem turtle. Worked examples in
+§7.
 
 **Row 2 is the ceiling of the current design.** An unlimited image budget on
 the present model tops out at 2,552 forks. That is the number to weigh a
@@ -93,7 +105,7 @@ witness that walked eleven is a statement about a family, not a lineage.
 2. **Link images to fossils.** Two paths, both already half-built: PhyloPic's
    own node sometimes resolves in the PBDB namespace (1,783 images cite no OTT
    id at all and are exactly these), and `node_title` name-matching reaches
-   2,194 dated PBDB taxa today. Reuse `_seed_by_name`'s discipline verbatim —
+   2,267 dated extinct PBDB taxa today. Reuse `_seed_by_name`'s discipline verbatim —
    a name resolving to more than one taxon is refused, not guessed.
 3. **Rewrite `divergence_witnesses` over attachment points.** Candidates become
    `(attach_idx, fea, lla, attach_walk, image)` rather than node indices. Cost
@@ -114,6 +126,29 @@ witness that walked eleven is a statement about a family, not a lineage.
   fine and the narrow-bracket tie-break is what protects it; phase 4's finding
   that the first-appearance bracket *widens* with occurrence count still holds
   and still forbids drawing anything at `fea`.
+- **An extant taxon's range runs to the present and so spans every split
+  inside it.** This is the one that will quietly undo the feature: unfiltered,
+  the biggest forks take *Mammalia* (239.5–0 Ma) or *Viverridae* (56–0) at gap
+  zero, which is the crown-group failure again in a fossil's clothes. Exclude
+  `is_extant = 1`; 234,746 of 275,082 dated primaries survive. The 4,538 rows
+  where `is_extant` is null are genuinely unknown — exclude those too, since a
+  wrong include is a silent regression and a wrong exclude is one missing
+  picture.
+- **PBDB carries homonyms internally, not only against OTT.** `Scopus` is two
+  taxa in the fossil table: the extant hamerkop genus at 5.3–0 Ma and an
+  extinct Permian genus at 254–252 Ma. Aggregating rows by *name* merges them
+  into a 254–0 envelope, and an image matched by name lands on whichever the
+  query returned. Key on `pbdb_taxon_no`, never on name, and refuse an
+  ambiguous name exactly as `_seed_by_name` already does.
+- **Individual rows carry junk-wide `fea`.** *Psammophis*, an extant sand snake
+  genus, has a row reading 323.4–5.3 Ma — a 318 Ma envelope on a Neogene
+  animal. Uncapped it wins any fork it contains. The narrow-bracket tie-break
+  demotes it only when something better exists; consider refusing a bracket
+  wider than some multiple of the fork's own age.
+- **Attachment is wrong sometimes, and wrong loudly.** Helminthochitonidae, a
+  chiton family, wins both Sauria and the turtle/crocodile split at
+  `attach_walk` 1. Ranking on `attach_walk` does not catch it, because the walk
+  is short; only a sanity check on the attachment would.
 - **High-rank fossil taxa will try to win everything.** *Ammonitina* spans
   249.9–56 Ma with 43,884 occurrences and would contain a great many forks.
   The narrow-bracket tie-break already demotes it — verify that it does, on
@@ -168,3 +203,41 @@ Sourcing helps under either design, but the payoff differs:
   questions and only the client knows which applies. That holds unchanged.
 - **Do not raise `age_layout` to an age.** It picks a picture. It is never
   shown, and `structural` forks still say "not estimated".
+
+---
+
+## 7. What it looks like on real forks
+
+Measured on the same build. "Already mirrored" needs no new images; "best
+possible" is the ceiling with the whole corpus drawn, and is shown partly to
+prove §4's hazards are real rather than theoretical.
+
+| divergence | age | today | already mirrored | best possible |
+|---|---:|---|---|---|
+| human / frog — **Tetrapoda** | 360 Ma | Ctenosauriscidae, **110 Ma adrift** | ***Acanthostega gunnari*** 372–359, spans it | *Molophyllum* 365–359 |
+| horse / rhino — **Perissodactyla** | 56 Ma | *nothing* (Equidae borrow refused) | ***Eohippus angustidens*** 56–51, spans it | *Teilhardimys* 59–56 |
+| sea turtle / crocodile | 262 Ma | *Epidendrosaurus*, 96 Ma adrift | ***Odontochelys semitestacea*** 234–227, the half-shelled stem turtle | — |
+| blue whale / hippo — **Whippomorpha** | 52 Ma | *Basilosaurus*, spans it | ***Pakicetus*** 56–41, spans it | *Hapalodectes* 56–48 |
+| human / chicken — **Amniota** | 323 Ma | Ctenosauriscidae, 73 Ma adrift | *Leiocephalikon* 319–317, 4 Ma off | *Dromopus* 323–299, spans it |
+| python / anole | 173 Ma | *Aigialosaurus*, 72 Ma adrift | ***Tetrapodophis amplectus***, the four-legged snake | — |
+| human / mouse — **Euarchontoglires** | 83 Ma | Notharctidae, 23 Ma adrift | ***Purgatorius*** 66–58 | *Pandemonium* 66–63 |
+| dog / cat | 67 Ma | *Archaeocyon*, 35 Ma adrift | *Maofelis*, 19 Ma adrift | *Ictidopappus* 63–61, 4 Ma off |
+| polar bear / dog — **Caniformia** | 57 Ma | *Archaeocyon*, 25 Ma adrift | *Hesperocyon gregarius*, 17 Ma adrift | *Chailicyon* 56–38, 1 Ma off |
+| lion / tiger — **Panthera** | 6.6 Ma | *nothing* (own borrow) | *P. gombaszoegensis*, 1 Ma off | *P. blytheae* 12–4 |
+
+*Acanthostega* at the fish/tetrapod split and *Eohippus* at the horse/rhino
+split are the two to judge this by: both are the textbook animal for that
+divergence, both are already drawn and mirrored, and both are unreachable today
+purely because they are not nodes.
+
+**Where it does not help.** The chicken/crocodile split (245 Ma) moves from 119
+Ma adrift to 119 Ma adrift — the archosaur stem is drawn badly at every source.
+Gnathostomata improves from 108 to 52 Ma adrift and is still wrong. Those need
+sourcing, not a join.
+
+**And the "best possible" column is not achievable by sourcing**, which is the
+point of §4. Unfiltered it hands the bird/crocodile split `Scopus` — the
+Permian homonym of the hamerkop — Sauria and the turtle/crocodile split a
+chiton family, and human/octopus a Proterozoic stromatolite. Those are data
+faults, not missing drawings, and they must be filtered before the ceiling is
+worth anything.
