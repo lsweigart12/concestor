@@ -265,7 +265,7 @@ earlier ones.
    into a single range; they are two uncertainty brackets and the UI renders both.
 5. Carry `n_occs` as the notability ranking signal, and `is_extant` as **nullable** —
    1.7% (9,059 records) are genuinely unknown, not false.
-6. **Not built: rewrite `age_layout` with the brackets this phase just produced.** This
+6. **Built. Rewrites `age_layout` with the brackets this phase just produced.** This
    is the phase that owns it, because it is the first point in the build where a fossil
    bound exists at all — phase 2 fixed the layout before the `fossil` table did. Clamp
    each undated node into the bracket of a fossil attaching at the node itself
@@ -276,9 +276,16 @@ earlier ones.
    that a position and a displayable age can disagree. Scope: 5,640 structural nodes have
    a bracket available. Rationale and the numbers in handoff.md §7.
    - Use the `lea`/`lla` end. **`fea` is frequently junk-wide** — *Homo erectus* carries
-     `fea = 5.333`, the base of the Zanclean, off one badly-dated occurrence against a
-     true first appearance near 2 Ma. An occurrence-count floor or an outlier rule is a
-     prerequisite, not a refinement.
+     `fea = 5.333`, the base of the Zanclean, against a true first appearance near 2 Ma.
+     ~~An occurrence-count floor or an outlier rule is a prerequisite.~~ **Measured, a
+     count floor does not work**: the first-appearance bracket *widens* with occurrence
+     count, 5.24 Ma median at one occurrence against 6.20 at fifty or more. The
+     discriminator is which end of the bracket is read, not how many occurrences back
+     it. The implementation uses `lla` alone and never reads `fea`; see
+     `_pick_bracket_end` in `fossils.py`. A second rule was needed and is not in this
+     doc: **refuse a bound where the node has a dated descendant**, because a last
+     appearance is evidence about a lineage that ended. That removed 1,617 bogus bounds
+     arising from cross-kingdom homonyms in phase 3's `xref`.
 7. **Not built: emit the `occurrence` age tier.** Decided; see handoff.md §7. Same
    brackets, same exact-attach rule, but this one is *displayed* rather than only drawn,
    so it carries the constraints that make it safe: the interval goes in **its own
@@ -296,11 +303,12 @@ earlier ones.
   the previous build fails.
 - Spot checks: *Tyrannosaurus* `fea=83.6, fla=72.2, lea=72.2, lla=66`, attaching at or
   below Dinosauria.
-- **When step 6 exists:** no undated node is laid out younger than the last fossil
-  occurrence attaching at it. Currently violated **1,078** times across the
-  extinct-flagged nodes alone — *T. rex* is drawn at 25.9 Ma against a last appearance of
-  66 — so this gate is the measurement of whether the step worked, and it should be added
-  as an `observe` beforehand so the baseline is on the record.
+- **Step 6's gate, as built:** every undated node is pushed back as far as its fossil
+  bound allows. It is phrased against what the pass can reach rather than against the raw
+  bound, because a node cannot be drawn older than a *dated* parent without either
+  inverting the tree or moving that parent away from the figure printed on its card.
+  1,920 undated nodes moved; 393 remain younger than their own last fossil, all capped
+  that way, and both are reported. *T. rex* is drawn at 66.0 Ma rather than 25.9.
 
 ---
 

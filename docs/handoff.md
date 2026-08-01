@@ -841,13 +841,49 @@ phase 4.
 
 *Two changes, separable, in this order:*
 
-1. **Bound `age_layout` by the fossil record.** Clamp an undated node into its
-   own exact-attach bracket, propagate the bound to ancestors, re-run the
-   existing monotonicity sweep. This does not touch the honesty rule at all —
-   the three arrays are separate precisely so "where to draw" and "what may be
-   shown" can differ — and **nothing gains a number**. *T. rex* moves from
-   25.9 Ma into its own 83.6–66 Ma envelope. This is the change with the visible
-   payoff and it is not large.
+1. ~~**Bound `age_layout` by the fossil record.**~~ **Done.** *T. rex* is drawn
+   at 66.0 Ma, *Gorgosaurus* at 72.2, *Allosaurus fragilis* at 129.6, and
+   `age_ma` is still NaN on all three — nothing gained a number. 1,920 undated
+   nodes moved back. The pass lives in `fossils.py` because phase 4 is the
+   first point in the build where a fossil bound exists; phase 2's output is
+   kept as `age_layout_phase2.npy` so the two can be diffed and so re-running
+   the phase clamps the original rather than compounding its own output.
+
+   Three things it turned up that the plan did not anticipate:
+
+   - **The `fea` prerequisite is not the one the docs specify.** An
+     occurrence-count floor does *not* work: measured, the first-appearance
+     bracket **widens** as occurrences accumulate, from a median 5.24 Ma at one
+     occurrence to 6.20 Ma at fifty or more. The "one badly-dated record"
+     theory is wrong; `fea` is wide because it is a conservative earliest
+     bound. What discriminates is *which end* of the bracket is read — the
+     latest end is trustworthy throughout (*Homo erectus* `fea` 5.33 vs `fla`
+     1.80 against a true ~2 Ma; Trilobita 538.8 vs 521.0; *Dimetrodon* 298.9 vs
+     293.5). The layout uses `lla` alone and never reads `fea`, and `lla`'s
+     error direction is what makes it safe: a spuriously young occurrence only
+     weakens the bound.
+
+   - **A last appearance is only evidence about a lineage that ended**, so a
+     bound is refused where the node has a dated descendant. This is not a
+     plausibility threshold — there is no defensible one — but it is what makes
+     the bound mean anything, and it removed 1,617 bogus bounds and cut the
+     apparent chronogram-versus-rock conflicts from 24,415 to **452**.
+
+   - **Phase 3's `xref` resolves PBDB to OTT by name, and OTT carries homonyms
+     across kingdoms.** PBDB's *Ivesia* is an Ediacaran rangeomorph and OTT's is
+     a rose-family plant, so a 538.8 Ma bound reached a living genus; PBDB's
+     *Heraultia* is the Cambrian mollusc *Watsonella*. `images.py` refuses an
+     ambiguous name outright and phase 3 does not. **This is an unfixed phase 3
+     defect**, found only because the layout pass surfaced it, and it will be
+     affecting `xref` consumers other than this one.
+
+   *What is still wrong.* 393 undated nodes remain younger than their own last
+   fossil, median gap 20.0 Ma, every one capped by a dated ancestor.
+   *Allosaurus fragilis* is the shape of them: 18.5 Ma before, 129.6 after,
+   against a last fossil at 143.1 — the remainder is its nearest dated ancestor
+   refusing to be older. Reaching those means either inverting the tree or
+   moving a dated node away from its own printed figure, so the fix is upstream
+   in whatever attaches a stem fossil to a crown node.
 2. **Add the fourth tier, `occurrence`.** Decided; build it. This is the one
    that makes *Homo erectus* show something. Refusing to display a sourced
    observation is not honesty — it is the app implying nothing is known about

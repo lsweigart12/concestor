@@ -48,10 +48,22 @@ if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
 
     from .resolve import PbdbTaxon
-    from .typing_ import JsonDict, Log, U32Array
+    from .typing_ import F32Array, F64Array, JsonDict, Log, U32Array
 
 TOPOLOGY = BUILD / "topology"
 BASELINE = BUILD / "phase4_baseline.json"
+LAYOUT_BASELINE = BUILD / "phase4_layout.json"
+# Phase 2's un-fossil-informed layout, kept so the two can be diffed and so a
+# re-run of this phase clamps the original rather than compounding its own
+# output. Without it, running phase 4 twice would be indistinguishable from
+# running it once — which is exactly the class of silent bug this repo keeps
+# finding.
+LAYOUT_PHASE2 = TOPOLOGY / "age_layout_phase2.npy"
+
+# Float32 positions and REAL bounds do not compare exactly, and a violation of
+# a few thousand years is a rounding artefact rather than a trilobite in the
+# Neogene. 0.01 Ma is well below the resolution of any PBDB interval.
+LAYOUT_TOLERANCE_MA = 0.01
 
 PBDB_SINGLE = "https://paleobiodb.org/data1.2/taxa/list.json"
 
@@ -613,6 +625,24 @@ def run(use_api: bool = True) -> int:
     else:
         g.observe("oracle — appearance brackets", "skipped (--no-api)")
 
+    print("\n--- bounding age_layout by the fossil record ---", flush=True)
+    parent = np.load(TOPOLOGY / "parent.npy")
+    age_ma = np.load(TOPOLOGY / "age_ma.npy")
+    # Re-run safe: clamp phase 2's output, never this phase's own.
+    if LAYOUT_PHASE2.exists():
+        before = np.load(LAYOUT_PHASE2)
+    else:
+        before = np.load(TOPOLOGY / "age_layout.npy")
+        np.save(LAYOUT_PHASE2, before)
+    bound, direct, refused = layout_bounds(con, parent, age_ma)
+    after, moved, conflicts = bound_layout(before, age_ma, parent, bound)
+    np.save(TOPOLOGY / "age_layout.npy", after)
+    layout_report = layout_gates(
+        g, parent, age_ma, before, after, bound, direct, refused, moved, conflicts
+    )
+    LAYOUT_BASELINE.write_text(json.dumps(layout_report, indent=2) + "\n")
+    print(f"  {moved:,} undated nodes moved back", flush=True)
+
     BASELINE.write_text(
         json.dumps(
             {
@@ -638,3 +668,277 @@ def run(use_api: bool = True) -> int:
     g.write(BUILD / "phase4_gates.json")
     g.exit_if_failed()
     return 0
+
+
+# ------------------------------------------------------------------------------
+# Bounding the layout by the fossil record
+# ------------------------------------------------------------------------------
+#
+# `age_layout` is finite everywhere so that undated nodes can be drawn at all,
+# and phase 2 fills an undated run by spreading it between the nearest dated
+# ancestor and the *deepest dated descendant*. An extinct lineage has no dated
+# descendant — every age in the artifact set comes from a chronogram of extant
+# species — so the fill drags it toward the present. Measured: *T. rex* is drawn
+# at 25.9 Ma against a last occurrence at 66, 1,078 undated nodes sit younger
+# than their own last fossil, and Cambrian trilobites land in the Neogene.
+#
+# The dashed spine says the position is ordinal. It does not say the position is
+# wrong by 450 Ma, and a reader has no way to tell those apart.
+#
+# This runs here because phase 4 is the first point in the build where a fossil
+# bound exists at all — hence a rewrite of `age_layout.npy` rather than an edit
+# to `layout_ages`, which runs four phases earlier. **`age_ma` is not touched
+# and no node gains a number.** The three arrays are separate precisely so a
+# position and a displayable age can disagree.
+
+
+def _pick_bracket_end() -> str:
+    """Documentation of a decision, in the one place it is applied.
+
+    ingest.md phase 4 step 6 calls for "an occurrence-count floor or an outlier
+    rule" as a prerequisite, because `fea` is frequently junk-wide — *Homo
+    erectus* carries `fea = 5.333`, the base of the Zanclean, against a true
+    first appearance near 2 Ma. **Measured, an occurrence-count floor does not
+    work**: the first-appearance bracket does not narrow as occurrences
+    accumulate, it widens, from a median 5.24 Ma at one occurrence to 6.20 Ma
+    at fifty or more. The "one bad record" theory is wrong. `fea` is wide
+    because it is a genuinely conservative earliest bound, and more occurrences
+    mean more chances to include a poorly resolved one.
+
+    What does discriminate is *which end of the bracket* is read. PBDB gives
+    two per appearance — earliest and latest possible — and the latest end is
+    the trustworthy one throughout:
+
+        Homo erectus   fea   5.33  ->  fla   1.80   (true ~2 Ma)
+        Trilobita      fea 538.80   ->  fla 521.00   (true ~521 Ma)
+        Dimetrodon     fea 298.90   ->  fla 293.52   (true ~295 Ma)
+
+    So no floor is applied and `fea` is never read. The layout bound uses
+    `lla` alone — the *latest* possible last appearance, the weakest and safest
+    of the four numbers. Its error direction is what makes it safe: a
+    spuriously young occurrence makes `lla` more recent, which only weakens the
+    bound, while a spuriously old one moves `fea` and is therefore not read.
+    """
+    return "lla"
+
+
+def layout_bounds(
+    con: sqlite3.Connection, parent: U32Array, age_ma: F32Array
+) -> tuple[F64Array, int, int]:
+    """Oldest last-appearance a node must be drawn at or before, per node.
+
+    A taxon observed in the rock at `lla` was alive then, so the node standing
+    for it cannot be drawn younger than that — and neither can any ancestor,
+    since a lineage's origin precedes its occurrences. That is the propagation.
+
+    Exact attachments only (`attach_walk = 0`). A bracket attached at a parent
+    belongs to *some* taxon below that parent and records no clue which, so it
+    constrains no particular child; borrowing it would put a Neanderthal range
+    on any undated sibling. handoff.md §7 records why the apparent fix for that
+    is an `xref` rank-resolution gap and not a relaxed walk.
+    """
+    n = parent.size
+    bound = np.zeros(n, dtype=np.float64)
+    rows = con.execute(
+        f"SELECT attach_idx, max({_pick_bracket_end()}) FROM fossil "
+        f"WHERE attach_walk = 0 AND {_pick_bracket_end()} IS NOT NULL "
+        "GROUP BY attach_idx"
+    ).fetchall()
+    for idx, val in rows:
+        if 0 <= idx < n and val is not None:
+            bound[idx] = float(val)
+
+    # A last-appearance bound is only ever evidence about a lineage that
+    # *ended*. Where a node has a dated descendant its position is already
+    # pinned by something still alive, and a bound saying it last appeared in
+    # the Ediacaran is not a conflict to resolve — it is a bad attachment.
+    #
+    # Measured, and worth recording because it is a phase 3 defect this pass
+    # only happened to surface: `xref` resolves PBDB to OTT by name, and OTT
+    # carries **homonyms across kingdoms**. PBDB's *Ivesia* is a rangeomorph
+    # and OTT's is a rose-family plant, so a 538.8 Ma bound landed on a living
+    # genus. PBDB's *Heraultia* is the Cambrian mollusc *Watsonella*; OTT's is
+    # not. `images.py` refuses an ambiguous name outright for exactly this
+    # reason and phase 3 does not.
+    #
+    # So this is not a plausibility threshold — there is no defensible one —
+    # but the statement that makes the bound meaningful at all. It also happens
+    # to catch every homonym whose OTT node is extant, which is most of them.
+    p_l = parent.astype(np.int64).tolist()
+    d_l = np.isfinite(age_ma).tolist()
+    for i in range(n - 1, 0, -1):
+        if d_l[i]:
+            d_l[p_l[i]] = True
+    dated_below = np.array(d_l, dtype=bool)
+    refused = int(((bound > 0) & dated_below).sum())
+    bound[dated_below] = 0.0
+    direct = int((bound > 0).sum())
+
+    # Preorder gives parent[i] < i, so one reverse pass carries every bound to
+    # the root.
+    b = bound.tolist()
+    for i in range(n - 1, 0, -1):
+        if b[i] > b[p_l[i]]:
+            b[p_l[i]] = b[i]
+    return np.array(b, dtype=np.float64), direct, refused
+
+
+def bound_layout(
+    layout: F32Array, age_ma: F32Array, parent: U32Array, bound: F64Array
+) -> tuple[F32Array, int, int]:
+    """Push undated nodes back to their fossil bound, then restore monotonicity.
+
+    Only undated nodes move. A dated node's position *is* its displayed number,
+    and moving one would make the figure on the card disagree with where the
+    reader sees it — a worse failure than the one being fixed, and a different
+    kind. Where a dated ancestor is younger than a fossil beneath it, the
+    monotonicity sweep pulls the descendant back down and the conflict is
+    counted rather than silently resolved: it is a real disagreement between
+    the chronogram and the rock, and the number of them is worth knowing.
+    """
+    out = layout.astype(np.float64).copy()
+    undated = ~np.isfinite(age_ma)
+    moved = int((undated & (bound > out)).sum())
+    out = np.where(undated & (bound > out), bound, out)
+
+    par = parent.astype(np.int64).tolist()
+    o = out.tolist()
+    conflicts = 0
+    for i in range(1, len(o)):
+        if o[i] > o[par[i]]:
+            if bound[i] > 0:
+                conflicts += 1
+            o[i] = o[par[i]]
+    return np.array(o, dtype=np.float32), moved, conflicts
+
+
+def layout_gates(
+    g: GateSet,
+    parent: U32Array,
+    age_ma: F32Array,
+    before: F32Array,
+    after: F32Array,
+    bound: F64Array,
+    direct: int,
+    refused: int,
+    moved: int,
+    conflicts: int,
+) -> JsonDict:
+    """The gate ingest.md phase 4 names, over the population it can act on.
+
+    The claim is "no **undated** node is laid out younger than its own last
+    fossil". Written over *every* bounded node instead, it reads 27,951 before
+    and 25,843 after and looks like a failure — but 24,415 of those are dated
+    nodes, and this pass deliberately does not move a dated node, because its
+    layout position *is* the figure printed on its card. Blocking on a number
+    the step is not allowed to change would be a gate measuring the wrong
+    thing, which this project has now done twice.
+
+    So the requirement is the undated population and the dated one is an
+    observation — and a substantial finding in its own right: PBDB attaching a
+    stem fossil to a crown node older than the chronogram dates it is common,
+    not exceptional.
+    """
+    has = bound > 0
+    undated = ~np.isfinite(age_ma)
+    late_before = before < bound - LAYOUT_TOLERANCE_MA
+    late_after = after < bound - LAYOUT_TOLERANCE_MA
+
+    viol_before = int((has & undated & late_before).sum())
+    viol_after = int((has & undated & late_after).sum())
+    dated_before = int((has & ~undated & late_before).sum())
+
+    # What the pass can actually reach. A node cannot be drawn older than its
+    # parent without inverting the tree, and a *dated* parent does not move,
+    # because its position is the figure printed on its card. So the achievable
+    # target is the fossil bound capped by the parent's final position, and
+    # that — not the raw bound — is the blocking claim. The gap between the two
+    # is reported below rather than absorbed, because it is a real conflict
+    # between the chronogram and the rock and not a shortfall in this pass.
+    par = parent.astype(np.int64)
+    par[0] = 0  # the root's parent is the NO_PARENT sentinel, not an index
+    reach = np.minimum(bound, after[par])
+    reach[0] = bound[0]
+    short = int((has & undated & (after < reach - LAYOUT_TOLERANCE_MA)).sum())
+
+    capped = has & undated & late_after
+    residual = (bound - after)[capped]
+
+    g.observe(
+        "nodes carrying an exact-attach fossil bound",
+        f"{direct:,} directly, {int(has.sum()):,} including ancestors",
+        note=(
+            "Exact attachments only. A bracket at a parent belongs to some "
+            "taxon below it and names no child, so it constrains none."
+        ),
+    )
+    g.observe(
+        "fossil bounds refused because the node has a living descendant",
+        f"{refused:,}",
+        note=(
+            "A last appearance is evidence about a lineage that ended. Most of "
+            "these are cross-kingdom homonyms out of phase 3's name-based "
+            "`xref`: PBDB's *Ivesia* is an Ediacaran rangeomorph and OTT's is a "
+            "rose-family plant, so a 538.8 Ma bound reached a living genus. "
+            "`images.py` refuses an ambiguous name outright; phase 3 does not, "
+            "and that is worth fixing there rather than guarding against here."
+        ),
+    )
+    g.observe("undated nodes pushed back to their fossil bound", f"{moved:,}")
+    g.require(
+        "every undated node is pushed back as far as its fossil bound allows",
+        f"{short:,} short of reachable",
+        "0 short",
+        ok=short == 0,
+        note=(
+            f"{viol_before:,} before this pass. Uses `lla`, the latest possible "
+            "last appearance — the weakest of PBDB's four bounds and the only "
+            "one whose error direction is safe, since a spuriously young "
+            "occurrence only weakens the bound. `fea` is never read: measured, "
+            "its bracket widens with occurrence count rather than narrowing "
+            "(5.24 Ma median at one occurrence, 6.20 at fifty or more), so the "
+            "occurrence-count floor ingest.md proposes as a prerequisite does "
+            "not address what it was meant to. See `_pick_bracket_end`."
+        ),
+    )
+    g.observe(
+        "dated nodes younger than a fossil attaching at or below them",
+        f"{dated_before:,}",
+        note=(
+            "Not fixed here and not a defect in this pass: a dated node's "
+            "layout position is the figure on its card, and moving it would "
+            "make the number and the picture disagree — a worse failure than "
+            "the one being repaired, and a different kind. Mostly PBDB "
+            "attaching a stem fossil to a crown node the chronogram dates "
+            "younger. Worth a look if the drill-down ever renders these "
+            "side by side, because there the disagreement becomes visible."
+        ),
+    )
+    g.observe(
+        "undated nodes still younger than their own last fossil",
+        f"{viol_after:,} of {viol_before:,}, all capped by a dated ancestor"
+        + (
+            f"; median remaining gap {float(np.median(residual)):,.1f} Ma"
+            if residual.size
+            else ""
+        ),
+        note=(
+            "Not reachable without either inverting the tree or moving a dated "
+            "node away from its own printed figure. *Allosaurus fragilis* is "
+            "the shape of these: drawn at 18.5 Ma before this pass, 129.6 Ma "
+            "after, against a last fossil at 143.1 — the remaining 13.5 Ma is "
+            "its nearest dated ancestor refusing to be older. The fix for the "
+            "residual is upstream, in whatever attaches a stem fossil to a "
+            "crown node, not here."
+        ),
+    )
+    return {
+        "undated_violations_before": viol_before,
+        "undated_violations_after": viol_after,
+        "dated_violations": dated_before,
+        "nodes_bounded_directly": direct,
+        "nodes_bounded_including_ancestors": int(has.sum()),
+        "undated_nodes_moved": moved,
+        "short_of_reachable": short,
+        "pulled_back_by_dated_ancestor": conflicts,
+    }
