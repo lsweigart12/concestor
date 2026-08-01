@@ -123,28 +123,53 @@ export interface NodeDetail extends PathNode {
 }
 
 /**
- * Is an inherited silhouette informative enough to draw?
+ * When may a node draw an image it did not earn?
  *
  * Resolution climbs to the nearest ancestor that has an image, which gives
  * near-total coverage — and at the top of the climb that means a species can
  * inherit the picture attached to "cellular organisms". Architecture §7 is
- * blunt about why that is worse than nothing: rendering a mole for "Mammalia"
- * misinforms, where an empty space merely withholds. A silhouette earns its
- * place by representing a clade the viewer would recognise as related, so an
- * image borrowed from a kingdom-sized ancestor is suppressed.
+ * blunt about why that can be worse than nothing: rendering a mole for
+ * "Mammalia" misinforms, where an empty space merely withholds.
+ *
+ * The two knobs below are that argument's dial. `maxSourceTips` is how large a
+ * clade may be and still lend its picture; `allowRootSource` is whether the
+ * root — whose subject is literally everything — may lend one at all.
  */
-export const SILHOUETTE_MAX_SOURCE_TIPS = 250_000;
+export interface SilhouettePolicy {
+  maxSourceTips: number;
+  allowRootSource: boolean;
+}
+
+/**
+ * **Dialled to maximum**: every node with a resolved image draws it, however
+ * far up the climb it came from.
+ *
+ * This is deliberately the permissive end of the dial and it is an experiment,
+ * not a settled answer. It trades architecture §7's caution for coverage, and
+ * it only holds together because the borrow is *labelled* everywhere it
+ * appears — `NodeMark` captions what the picture actually depicts and the
+ * detail card names the source clade. If that labelling ever weakens, this
+ * setting becomes the misinformation §7 describes.
+ *
+ * The previous setting, and the one to return to, was
+ * `{ maxSourceTips: 250_000, allowRootSource: false }`.
+ */
+export const SILHOUETTE_POLICY: SilhouettePolicy = {
+  maxSourceTips: Number.POSITIVE_INFINITY,
+  allowRootSource: true,
+};
 
 export function silhouetteIsInformative(
   node: Pick<PathNode, "idx" | "phylopic_id" | "silhouette_source_idx">,
   sourceTipCount: number | undefined,
+  policy: SilhouettePolicy = SILHOUETTE_POLICY,
 ): boolean {
   if (!node.phylopic_id) return false;
   const src = node.silhouette_source_idx;
   if (src === null || src === undefined || src === node.idx) return true;
-  if (src === 0) return false; // the root's image describes nothing
+  if (src === 0) return policy.allowRootSource;
   if (sourceTipCount === undefined) return true;
-  return sourceTipCount <= SILHOUETTE_MAX_SOURCE_TIPS;
+  return sourceTipCount <= policy.maxSourceTips;
 }
 
 /**
@@ -154,7 +179,10 @@ export function silhouetteIsInformative(
  * and is judged by the same rule — one function, so the palette and the canvas
  * cannot drift into disagreeing about whether a given picture is honest.
  */
-export function hitSilhouette(hit: SearchHit): string | null {
+export function hitSilhouette(
+  hit: SearchHit,
+  policy: SilhouettePolicy = SILHOUETTE_POLICY,
+): string | null {
   const ok = silhouetteIsInformative(
     {
       idx: hit.idx,
@@ -162,6 +190,7 @@ export function hitSilhouette(hit: SearchHit): string | null {
       silhouette_source_idx: hit.silhouette_source_idx ?? null,
     },
     hit.silhouette_source_tips ?? undefined,
+    policy,
   );
   return ok ? (hit.phylopic_id ?? null) : null;
 }
