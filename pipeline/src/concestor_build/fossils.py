@@ -38,6 +38,7 @@ from typing import TYPE_CHECKING, NamedTuple
 import httpx
 import numpy as np
 
+from .dates import TIER_OCCURRENCE, TIER_STRUCTURAL
 from .gates import GateSet
 from .paths import BUILD
 from .provenance import USER_AGENT
@@ -48,7 +49,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
 
     from .resolve import PbdbTaxon
-    from .typing_ import F32Array, F64Array, JsonDict, Log, U32Array
+    from .typing_ import F32Array, F64Array, JsonDict, Log, U8Array, U32Array
 
 TOPOLOGY = BUILD / "topology"
 BASELINE = BUILD / "phase4_baseline.json"
@@ -640,8 +641,24 @@ def run(use_api: bool = True) -> int:
     layout_report = layout_gates(
         g, parent, age_ma, before, after, bound, direct, refused, moved, conflicts
     )
-    LAYOUT_BASELINE.write_text(json.dumps(layout_report, indent=2) + "\n")
     print(f"  {moved:,} undated nodes moved back", flush=True)
+
+    print("\n--- the occurrence age tier ---", flush=True)
+    # Re-run safe for the same reason the layout is: promote phase 2's tiers,
+    # never this phase's own, so running twice differs from running once only
+    # in the log.
+    if TIER_PHASE2.exists():
+        tier_before = np.load(TIER_PHASE2)
+    else:
+        tier_before = np.load(TOPOLOGY / "age_tier.npy")
+        np.save(TIER_PHASE2, tier_before)
+    ranges, tier_after, occ_stats = occurrence_ranges(con, parent, age_ma, tier_before)
+    occ_report = occurrence_gates(g, ranges, age_ma, tier_after, occ_stats)
+    write_occurrence(con, ranges, tier_after)
+    np.save(TOPOLOGY / "age_tier.npy", tier_after)
+    layout_report["occurrence"] = occ_report
+    LAYOUT_BASELINE.write_text(json.dumps(layout_report, indent=2) + "\n")
+    print(f"  {occ_report['nodes']:,} nodes gained a fossil range", flush=True)
 
     BASELINE.write_text(
         json.dumps(
@@ -942,3 +959,235 @@ def layout_gates(
         "short_of_reachable": short,
         "pulled_back_by_dated_ancestor": conflicts,
     }
+
+
+# ------------------------------------------------------------------------------
+# The fourth age tier
+# ------------------------------------------------------------------------------
+#
+# All three of phase 2's tiers describe *divergence times*, and all three derive
+# from a chronogram containing only extant species. An extinct taxon has no
+# counterpart to join to, so it is `structural` by construction — 1,742 of the
+# 1,743 extinct-flagged nodes — and reads "not estimated". That is true and it
+# is a poor answer to give someone who came to ask about dinosaurs.
+#
+# `occurrence` is a different and weaker claim in the same units: not when
+# lineages parted, but when this taxon is observed in the rock. Refusing to
+# show a sourced observation is not honesty. The honesty rule was always "never
+# a confident divergence figure where nobody estimated one", and a stratigraphic
+# range does not trip it.
+#
+# Four constraints, none of them negotiable, and each is enforced structurally
+# rather than by discipline:
+#
+#   1. It never enters `age_ma`. It gets its own array, so nothing downstream
+#      can mistake a range for a divergence age.
+#   2. It is a range and never a point. The array carries all four PBDB bounds
+#      and no midpoint is computed anywhere, so there is no single number for a
+#      caller to reach for.
+#   3. It is labelled as fossil occurrences, not as an age.
+#   4. Exact attachments only. A bracket at a parent belongs to some taxon
+#      below it and names no child.
+
+# fea, fla, lea, lla — architecture §7's double bracket, uncollapsed. The
+# envelope is fea→lla and the solid bar fla→lea; collapsing them into one range
+# is a different and wrong claim about what PBDB knows.
+OCCURRENCE_BOUNDS = ("fea", "fla", "lea", "lla")
+TIER_PHASE2 = TOPOLOGY / "age_tier_phase2.npy"
+
+# handoff §7 says the range "gets its own array, so nothing downstream can
+# mistake a range for a divergence age". It gets its own **table** instead, and
+# the constraint is met identically: what matters is that it is not `age_ma`
+# and cannot be reached by anything reading `age_ma`. A dense (n, 4) float32
+# array would be 43.6 MB to carry 2,133 useful rows, against an artifact set
+# already 2 GB over its estimate, and the Go reader is 1-D only — so it would
+# also have been four files. The dense array is still built in memory and every
+# gate below runs against *it* rather than against the rows written, because
+# the array is where a transposed column or a stray finite value would show.
+
+
+def occurrence_ranges(
+    con: sqlite3.Connection, parent: U32Array, age_ma: F32Array, tier: U8Array
+) -> tuple[F32Array, U8Array, JsonDict]:
+    """The best-attested fossil range for each node that has one, and the tier.
+
+    "Best-attested" is the single PBDB taxon with the most occurrences
+    attaching exactly here, **not** a union across several. A union would
+    produce a bracket no source asserts — the envelope of two taxa is not a
+    taxon's envelope — and inventing a range is the one thing this tier exists
+    not to do. Where PBDB itself aggregates, as it does for a genus, its own
+    aggregate row is the one with the most occurrences and wins on its own.
+
+    Only `structural` nodes are eligible. A node with a real divergence
+    estimate keeps it; this tier answers the question asked of taxa nobody
+    estimated, and overwriting a measured age with a stratigraphic range would
+    be a strictly worse answer.
+    """
+    n = parent.size
+    out = np.full((n, 4), np.nan, dtype=np.float32)
+    new_tier = tier.copy()
+
+    # The same rule the layout bound uses: a fossil range is evidence about a
+    # lineage that ended. A node with a dated descendant is still alive, and
+    # "last seen in the Ediacaran" said of a living plant genus is a phase 3
+    # homonym, not an observation. See `layout_bounds`.
+    p_l = parent.astype(np.int64).tolist()
+    d_l = np.isfinite(age_ma).tolist()
+    for i in range(n - 1, 0, -1):
+        if d_l[i]:
+            d_l[p_l[i]] = True
+    alive = np.array(d_l, dtype=bool)
+
+    cols = ", ".join(OCCURRENCE_BOUNDS)
+    rows = con.execute(
+        f"SELECT attach_idx, {cols}, n_occs, name FROM fossil "
+        "WHERE attach_walk = 0 AND (is_extant IS NULL OR is_extant = 0) "
+        "AND (fea IS NOT NULL OR fla IS NOT NULL "
+        "     OR lea IS NOT NULL OR lla IS NOT NULL) "
+        "ORDER BY attach_idx, n_occs DESC, name"
+    ).fetchall()
+
+    eligible = 0
+    seen: set[int] = set()
+    for idx, fea, fla, lea, lla, _n_occs, _name in rows:
+        if idx in seen or not (0 <= idx < n):
+            continue
+        seen.add(idx)  # ORDER BY put the best-attested row first
+        if alive[idx] or new_tier[idx] != TIER_STRUCTURAL:
+            continue
+        out[idx] = [np.nan if v is None else float(v) for v in (fea, fla, lea, lla)]
+        new_tier[idx] = TIER_OCCURRENCE
+        eligible += 1
+
+    return (
+        out,
+        new_tier,
+        {
+            "nodes_with_a_range": eligible,
+            "candidates_seen": len(seen),
+        },
+    )
+
+
+def occurrence_gates(
+    g: GateSet,
+    ranges: F32Array,
+    age_ma: F32Array,
+    tier: U8Array,
+    stats: JsonDict,
+) -> JsonDict:
+    """The constraints, checked against the arrays rather than the code."""
+    has = tier == TIER_OCCURRENCE
+
+    g.observe(
+        "nodes gaining the occurrence tier",
+        f"{int(has.sum()):,}",
+        note=(
+            "Extinct taxa read 'not estimated' before this, by construction "
+            "rather than by measurement: every age in the artifact set comes "
+            "from a chronogram of extant species. This is a different and "
+            "weaker claim in the same units — when a taxon is observed in the "
+            "rock, not when lineages parted."
+        ),
+    )
+    g.require(
+        "no occurrence node carries a divergence age",
+        int((has & np.isfinite(age_ma)).sum()),
+        0,
+        note=(
+            "The first constraint, checked on the array rather than trusted to "
+            "the code that wrote it. A stratigraphic range is not a divergence "
+            "age and `age_ma` is where a confident number lives."
+        ),
+    )
+    g.require(
+        "every occurrence node carries at least one bound",
+        int((has & ~np.isfinite(ranges).any(axis=1)).sum()),
+        0,
+        note="A tier promising a range must have one; otherwise it says less "
+        "than `structural` did while looking like it says more.",
+    )
+    g.require(
+        "no node outside the tier carries a range",
+        int((~has & np.isfinite(ranges).any(axis=1)).sum()),
+        0,
+        note="The array and the tier are one statement; they cannot disagree.",
+    )
+
+    # What PBDB actually guarantees, checked rather than assumed.
+    #
+    # The chain `fea >= fla >= lea >= lla` is the obvious reading of
+    # architecture §7's "faded envelope fea→lla, solid bar fla→lea", and the
+    # middle link of it is **false**. Measured over all 410,615 rows carrying
+    # four bounds: the four invariants below hold for every single one, and
+    # `fla >= lea` holds for only 39.6%.
+    #
+    # It is not a data defect. A taxon known from one stratigraphic interval has
+    # its first appearance and its last appearance in that same interval, so
+    # `fla` sits at the interval's young end and `lea` at its old end and the
+    # two cross. What that means is worth stating plainly, because the renderer
+    # has to: **for 60.4% of PBDB taxa there is no certain extent at all**. The
+    # solid bar is empty and must not be drawn, rather than drawn zero-width or
+    # drawn inverted.
+    r = ranges[has]
+    bad = 0
+    if r.size:
+        f = np.isfinite(r)
+        for a, b in ((0, 1), (2, 3), (0, 2), (1, 3)):
+            both = f[:, a] & f[:, b]
+            bad += int((both & (r[:, a] < r[:, b] - 1e-6)).sum())
+    g.require(
+        "occurrence bounds satisfy PBDB's four orderings",
+        bad,
+        0,
+        note=(
+            "fea >= fla, lea >= lla, fea >= lea, fla >= lla — all four hold for "
+            "every row in the corpus. `fla >= lea` is deliberately NOT among "
+            "them: it holds for 39.6% of rows, because a taxon known from one "
+            "interval has both appearances inside it. A failure here means the "
+            "columns were transposed and a bracket would render inside out."
+        ),
+    )
+    empty = 0
+    if r.size:
+        both = np.isfinite(r[:, 1]) & np.isfinite(r[:, 2])
+        empty = int((both & (r[:, 1] < r[:, 2] - 1e-6)).sum())
+    g.observe(
+        "occurrence nodes whose certain extent is empty",
+        f"{empty:,} of {int(has.sum()):,}",
+        note=(
+            "architecture §7's solid bar is fla→lea and for these it does not "
+            "exist: everything known about the taxon comes from a single "
+            "interval. It must be left undrawn, not drawn zero-width — a "
+            "hairline at one date reads as precision, which is the opposite of "
+            "what it means. Across the whole fossil table this is 60.4%."
+        ),
+    )
+    return {"nodes": int(has.sum()), "empty_certain_extent": empty, **stats}
+
+
+def write_occurrence(con: sqlite3.Connection, ranges: F32Array, tier: U8Array) -> int:
+    """One row per node carrying a fossil range.
+
+    Deliberately not a column on `node`: that table has 2.7M rows and other
+    phases write it, and 2,133 of those rows would carry a value. The four
+    bounds stay four columns — a single `range` column would have to collapse
+    two brackets into one, which is the claim architecture §7 says never to
+    make.
+    """
+    con.executescript(
+        """
+        DROP TABLE IF EXISTS occurrence;
+        CREATE TABLE occurrence (
+          idx INTEGER PRIMARY KEY,
+          fea REAL, fla REAL, lea REAL, lla REAL  -- uncollapsed, per §7
+        );
+        """
+    )
+    rows = [
+        (int(i), *(None if not np.isfinite(v) else float(v) for v in ranges[i]))
+        for i in np.flatnonzero(tier == TIER_OCCURRENCE)
+    ]
+    con.executemany("INSERT INTO occurrence VALUES (?,?,?,?,?)", rows)
+    con.commit()
+    return len(rows)

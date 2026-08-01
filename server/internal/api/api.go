@@ -170,12 +170,22 @@ type Entry struct {
 	// unseeded genus holding a drawn species sits at 0. Mean is 4.24.
 	SilhouetteClimb  *int   `json:"silhouette_climb,omitempty"`
 	SilhouetteMethod string `json:"silhouette_method,omitempty"`
+
+	// The fossil range, present only on the `occurrence` tier. It is not an
+	// age: AgeMa stays null on these nodes, by construction in the pipeline
+	// and checked there against the array rather than the code that wrote it.
+	// A client must render it as a range and never as a point.
+	Occurrence *store.Occurrence `json:"occurrence,omitempty"`
 }
 
 // entries turns a list of indices into API entries, preserving order.
 func (s *Server) entries(r *http.Request, idxs []int) ([]Entry, error) {
 	ctx := r.Context()
 	images, err := s.St.Images(ctx, idxs)
+	if err != nil {
+		return nil, err
+	}
+	occs, err := s.St.Occurrences(ctx, idxs)
 	if err != nil {
 		return nil, err
 	}
@@ -231,6 +241,10 @@ func (s *Server) entries(r *http.Request, idxs []int) ([]Entry, error) {
 		if a.AgeTier != nil && a.Valid(idx) {
 			t := topo.TierName(a.AgeTier[idx])
 			e.Tier = &t
+		}
+		if o, ok := occs[idx]; ok {
+			v := o
+			e.Occurrence = &v
 		}
 		if img, ok := images[idx]; ok {
 			id := img.PhylopicID

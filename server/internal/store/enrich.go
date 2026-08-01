@@ -368,3 +368,74 @@ func (s *Store) allVernacularNames(ctx context.Context, idxs []int) (map[int][]s
 	}
 	return out, nil
 }
+
+// Occurrence is the fossil range shown for a node in the `occurrence` age
+// tier. It is not an age and must never be rendered as one.
+//
+// All four bounds travel, uncollapsed. The *envelope* is Fea→Lla, the maximal
+// possible extent; the *certain extent* is Fla→Lea. Two things a caller must
+// know before drawing it:
+//
+//   - There is no midpoint and none may be computed. A single number would be
+//     a fabricated estimate wearing an observation's clothes, which is the one
+//     thing this tier exists not to produce.
+//   - **Fla >= Lea does not hold.** It is true of only 39.6% of PBDB taxa,
+//     because a taxon known from one stratigraphic interval has both of its
+//     appearances inside it and the two cross. For the other 60.4% the certain
+//     extent is empty and the solid bar must be left undrawn rather than drawn
+//     zero-width — a hairline at one date reads as precision.
+type Occurrence struct {
+	Fea *float64 `json:"fea"`
+	Fla *float64 `json:"fla"`
+	Lea *float64 `json:"lea"`
+	Lla *float64 `json:"lla"`
+}
+
+// Occurrences resolves fossil ranges for a batch of node indices. Returns an
+// empty map when no occurrence table exists yet.
+func (s *Store) Occurrences(ctx context.Context, idxs []int) (map[int]Occurrence, error) {
+	out := map[int]Occurrence{}
+	oc := s.Schema.Occurrence
+	if oc == nil || len(idxs) == 0 {
+		return out, nil
+	}
+	for start := 0; start < len(idxs); start += metaChunk {
+		end := min(start+metaChunk, len(idxs))
+		chunk := idxs[start:end]
+		q := fmt.Sprintf("SELECT %q, %s, %s, %s, %s FROM %q WHERE %q IN (%s)",
+			oc.Idx, colOrNull(oc.Fea), colOrNull(oc.Fla), colOrNull(oc.Lea),
+			colOrNull(oc.Lla), oc.Table, oc.Idx, placeholders(len(chunk)))
+		args := make([]any, len(chunk))
+		for i, v := range chunk {
+			args[i] = v
+		}
+		rows, err := s.DB.QueryContext(ctx, q, args...)
+		if err != nil {
+			return out, err
+		}
+		for rows.Next() {
+			var idx int
+			var fea, fla, lea, lla sql.NullFloat64
+			if err := rows.Scan(&idx, &fea, &fla, &lea, &lla); err != nil {
+				_ = rows.Close()
+				return out, err
+			}
+			o := Occurrence{}
+			for dst, src := range map[**float64]sql.NullFloat64{
+				&o.Fea: fea, &o.Fla: fla, &o.Lea: lea, &o.Lla: lla,
+			} {
+				if src.Valid {
+					v := src.Float64
+					*dst = &v
+				}
+			}
+			out[idx] = o
+		}
+		err = rows.Err()
+		_ = rows.Close()
+		if err != nil {
+			return out, err
+		}
+	}
+	return out, nil
+}

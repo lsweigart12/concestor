@@ -258,7 +258,8 @@ transcription of theirs would have:
 |---|---|---:|---|
 | `measured` | our clade is exactly Duke's clade over shared tips (148,867 internal), or the node sits at the present — being extant is an observation, not an estimate | 2,441,927 | solid, age shown |
 | `interpolated` | our clade is a strict **subset** of the dated one | 95,310 | fine dash, age shown as **`≤ N Ma`** |
-| `structural` | no match, or Duke contradicts our clade | 188,445 | dashed, **no number at all** |
+| `structural` | no match, or Duke contradicts our clade | 186,312 | dashed, **no number at all** |
+| `occurrence` | extinct, and PBDB has a range for it — written by phase 4, not phase 2 | 2,133 | the double bracket, **no number at all** |
 
 The middle tier gained a stronger claim than the design anticipated. If our
 clade is a strict subset of Duke's, their node is the MRCA of a *superset* of
@@ -279,15 +280,25 @@ on every dashed node. `tests/test_dates_tiers.py` guards that specifically.
 
 **What the three tiers do not cover, and it is a whole kingdom of taxa.** All
 three describe *divergence times*, and all three derive from a single source
-that contains only **extant** species. So the tiers say nothing about anything
-extinct — not "we are unsure", but "this question was never asked". 1,742 of the
-1,743 extinct-flagged nodes in the tree are `structural`, and that is by
-construction rather than by measurement. A fossil appearance interval is a
-different kind of claim in the same units, and a fourth tier — `occurrence` —
-is **decided and unbuilt**; §7 has the scope, the evidence and the trap. The
-rule it must respect, then and now: **a stratigraphic range is not a divergence
-age and must never be written into `age_ma`.** It gets its own array precisely
-so that rule needs no discipline to hold.
+that contains only **extant** species. So the first three tiers say nothing
+about anything extinct — not "we are unsure", but "this question was never
+asked". 1,742 of the 1,743 extinct-flagged nodes are `structural`, by
+construction rather than by measurement.
+
+**The fourth tier is built.** `occurrence` is a different and weaker claim in
+the same units: not when lineages parted, but when the taxon is observed in the
+rock. 2,133 nodes carry one, *T. rex* and *Homo erectus* among them, and the
+rule it respects is unchanged — **a stratigraphic range is not a divergence age
+and is never written into `age_ma`.** A gate checks that on the array rather
+than trusting the code that wrote it.
+
+It lives in its own **table**, not its own array. handoff said array; the
+constraint is that it is not `age_ma` and cannot be reached by anything reading
+`age_ma`, and a table meets that identically. A dense `(n, 4)` float32 array
+would have been 43.6 MB to carry 2,133 useful rows, against an artifact set
+already 2 GB over its estimate, and the Go reader is 1-D so it would have been
+four files. The dense array is still built in memory and every gate runs
+against *it*, because that is where a transposed column would show.
 
 **Watch this one:** the headline tier counts flatter us badly. 89.6% `measured`
 sounds like a well-dated tree, but 2,271,190 of those are extant tips sitting at
@@ -508,6 +519,18 @@ file; `package.py`'s docstring records the reasoning.
 attribution-required figure is of `primaryImage` *results*; across the corpus it
 is 5,432 images, 42.2%. Both numbers are right and the denominators differ,
 which is worth stating because they get compared.
+
+**architecture.md §7 — the double bracket's "solid bar" does not exist for most
+taxa.** §7 says "faded envelope `fea→lla`, solid bar `fla→lea`", and the obvious
+reading is that the four bounds form a chain `fea ≥ fla ≥ lea ≥ lla`. **The
+middle link is false.** Measured over all 410,615 rows carrying four bounds,
+`fea ≥ fla`, `lea ≥ lla`, `fea ≥ lea` and `fla ≥ lla` each hold for 100% — and
+`fla ≥ lea` holds for **39.6%**. It is not a data defect: a taxon known from one
+stratigraphic interval has both appearances inside it, so `fla` sits at that
+interval's young end and `lea` at its old end and the two cross. So for **60.4%
+of PBDB taxa there is no certain extent at all**, and the solid bar must be left
+undrawn rather than drawn zero-width — a hairline at a single date reads as
+precision, which is the opposite of what it means.
 
 **architecture.md §6 — "keep the official hue relationships" cannot fully hold,
 and the doc should say so.** ICS separates the four Paleoproterozoic periods
@@ -884,23 +907,33 @@ phase 4.
    refusing to be older. Reaching those means either inverting the tree or
    moving a dated node away from its own printed figure, so the fix is upstream
    in whatever attaches a stem fossil to a crown node.
-2. **Add the fourth tier, `occurrence`.** Decided; build it. This is the one
-   that makes *Homo erectus* show something. Refusing to display a sourced
-   observation is not honesty — it is the app implying nothing is known about
-   dinosaurs, to an audience that came to ask about dinosaurs. The honesty rule
-   was always "never a confident divergence figure where nobody estimated one",
-   and an observed stratigraphic range is a different, weaker, fully sourced
-   claim that does not trip it.
+2. ~~**Add the fourth tier, `occurrence`.**~~ **Built in the pipeline and the
+   server.** 2,133 nodes carry a range; *T. rex* reports 83.6–66 and *Homo
+   erectus* 5.33–0.012, and both still report no age. Written by phase 4
+   alongside the layout bound, because they read the same table under the same
+   rule and answering the uncertainty question twice is how the two ship
+   disagreeing.
 
-   Four constraints, none negotiable. It **never enters `age_ma`** — it gets its
-   own array, so nothing downstream can mistake a range for a divergence age. It
-   renders as a **range and never a point**; no midpoint, ever, because a
-   midpoint is a fabricated estimate wearing an observation's clothes. It is
-   **labelled as fossil occurrences**, not as an age — the card says what is
-   known from the rock, not when lineages parted. And it uses **exact
-   attachments only** (`attach_walk = 0`), for the reason in the Neanderthal
-   entry below. The dash channel (architecture §7) needs a treatment that reads
-   as *bounded but not pinned* rather than a fourth dash density.
+   All four constraints hold and three of them are gated on the arrays rather
+   than trusted to the code: it **never enters `age_ma`** (0 violations of
+   2,133); every tiered node **carries at least one bound**; and no node outside
+   the tier carries a range. It is a **range and never a point** structurally —
+   the array carries four bounds and no midpoint is computed anywhere, so there
+   is no single number for a caller to reach for. **Exact attachments only.**
+
+   Two choices worth knowing. The range for a node is the **best-attested
+   single PBDB taxon** attaching there, never a union across several: the
+   envelope of two taxa is not a taxon's envelope, and inventing a range is the
+   one thing this tier exists not to do. Where PBDB aggregates itself, as it
+   does for a genus, its own aggregate row wins on occurrence count anyway. And
+   only `structural` nodes are eligible, so a real divergence estimate is never
+   overwritten with a stratigraphic range.
+
+   **Still to do: the UI.** The tier reaches the client (`tier: "occurrence"`
+   plus an `occurrence` object on the entry) and nothing renders it yet. The
+   dash channel needs a treatment reading as *bounded but not pinned* rather
+   than a fourth dash density, and the bracket must reuse the drill-down's
+   component rather than inventing a second way to draw the same uncertainty.
 
 *The caveat that constrains both:* **PBDB's `fea` is frequently junk-wide.**
 *Homo erectus* carries `fea = 5.333` — the base of the Zanclean — off a single

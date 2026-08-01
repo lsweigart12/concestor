@@ -92,11 +92,27 @@ MAX_MONOTONICITY_VIOLATION = 0.001
 TIER_MEASURED = 0
 TIER_INTERPOLATED = 1
 TIER_STRUCTURAL = 2
+# Written by phase 4, not here — the `fossil` table does not exist yet at this
+# point in the build. It is declared alongside the others because it shares the
+# array, and because a reader of `age_tier` needs to know the value can appear.
+#
+# It is not a fourth grade of divergence estimate. The first three all answer
+# "when did these lineages part", from a chronogram of extant species, and an
+# extinct taxon has no counterpart there — the question was never asked of it,
+# which is why 1,742 of the 1,743 extinct-flagged nodes are `structural` by
+# construction. `occurrence` answers a different and weaker question: when is
+# this taxon observed in the rock. That is why it never enters `age_ma`.
+TIER_OCCURRENCE = 3
 TIER_NAMES = {
     TIER_MEASURED: "measured",
     TIER_INTERPOLATED: "interpolated",
     TIER_STRUCTURAL: "structural",
+    TIER_OCCURRENCE: "occurrence",
 }
+# The tiers that may carry a number in `age_ma`. `structural` and `occurrence`
+# both mean "no divergence age was estimated"; they differ in whether anything
+# else is known, not in whether a figure may be shown.
+TIERS_WITH_AN_AGE = frozenset({TIER_MEASURED, TIER_INTERPOLATED})
 
 # Duke's chronogram is ultrametric to 2.7e-5 Ma, so "at the present" needs a
 # tolerance rather than an equality test.

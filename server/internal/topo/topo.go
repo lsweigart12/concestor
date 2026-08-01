@@ -30,6 +30,14 @@ const (
 	TierMeasured     = uint8(0)
 	TierInterpolated = uint8(1)
 	TierStructural   = uint8(2)
+	// TierOccurrence is written by phase 4, not phase 2, and it is not a
+	// fourth grade of divergence estimate. The first three all answer "when
+	// did these lineages part", from a chronogram of extant species, and an
+	// extinct taxon has no counterpart there — which is why 1,742 of the 1,743
+	// extinct-flagged nodes are structural by construction. This answers a
+	// different and weaker question: when the taxon is observed in the rock.
+	// It never carries an age_ma, and its range lives in the occurrence table.
+	TierOccurrence = uint8(3)
 )
 
 // TierName maps a tier byte to the string the API emits.
@@ -41,6 +49,8 @@ func TierName(t uint8) string {
 		return "interpolated"
 	case TierStructural:
 		return "structural"
+	case TierOccurrence:
+		return "occurrence"
 	default:
 		return "unknown"
 	}

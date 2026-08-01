@@ -3,8 +3,11 @@ package store
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 	"testing"
+
+	"github.com/lsweigart12/concestor/server/internal/topo"
 )
 
 // node_fts.rowid is a search_name.id, not a node.idx. Joining it straight to
@@ -376,4 +379,75 @@ func TestAbbreviateBinomial(t *testing.T) {
 			t.Errorf("abbreviateBinomial(%q) = %q, want %q", name, got, want)
 		}
 	}
+}
+
+// The fourth age tier's constraints, checked at the boundary the client sees.
+//
+// handoff §7 makes four of them non-negotiable, and two are checkable here:
+// a range never enters age_ma, and it is a range rather than a point. The
+// pipeline gates the arrays; this gates what leaves the process, because the
+// two are separate programs sharing only files.
+func TestAnOccurrenceRangeIsNeverAnAge(t *testing.T) {
+	st := open(t)
+	if st.Schema.Occurrence == nil {
+		t.Skip("occurrence table not in this build")
+	}
+	ctx := t.Context()
+
+	var idxs []int
+	rows, err := st.DB.QueryContext(ctx, "SELECT idx FROM occurrence LIMIT 500")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var i int
+		if err := rows.Scan(&i); err != nil {
+			t.Fatal(err)
+		}
+		idxs = append(idxs, i)
+	}
+	_ = rows.Close()
+	if len(idxs) == 0 {
+		t.Fatal("occurrence table is empty")
+	}
+
+	occs, err := st.Occurrences(ctx, idxs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := st.Arrays
+	empty := 0
+	for _, idx := range idxs {
+		o, ok := occs[idx]
+		if !ok {
+			t.Errorf("idx %d has an occurrence row but no range came back", idx)
+			continue
+		}
+		if a.AgeTier != nil && a.AgeTier[idx] != topo.TierOccurrence {
+			t.Errorf("idx %d carries a range at tier %d", idx, a.AgeTier[idx])
+		}
+		// The constraint that matters most: no confident number.
+		if a.AgeMa != nil && !math.IsNaN(float64(a.AgeMa[idx])) {
+			t.Errorf("idx %d carries both a fossil range and an age_ma of %v",
+				idx, a.AgeMa[idx])
+		}
+		if o.Fea == nil || o.Lla == nil {
+			t.Errorf("idx %d has no envelope", idx)
+			continue
+		}
+		if *o.Fea < *o.Lla {
+			t.Errorf("idx %d envelope runs backwards: %v -> %v", idx, *o.Fea, *o.Lla)
+		}
+		if o.Fla != nil && o.Lea != nil && *o.Fla < *o.Lea {
+			empty++
+		}
+	}
+	// Not an error — the point of asserting it. For 60.4% of PBDB taxa the
+	// certain extent is empty, because everything known comes from a single
+	// interval, and a renderer that assumes fla >= lea draws those inverted.
+	if empty == 0 {
+		t.Error("no sampled node had an empty certain extent; expected most of " +
+			"them to, so either the sample or the assumption is wrong")
+	}
+	t.Logf("%d of %d sampled nodes have no certain extent", empty, len(idxs))
 }

@@ -286,13 +286,15 @@ earlier ones.
      doc: **refuse a bound where the node has a dated descendant**, because a last
      appearance is evidence about a lineage that ended. That removed 1,617 bogus bounds
      arising from cross-kingdom homonyms in phase 3's `xref`.
-7. **Not built: emit the `occurrence` age tier.** Decided; see handoff.md §7. Same
+7. **Built. Emits the `occurrence` age tier.** See handoff.md §7. Same
    brackets, same exact-attach rule, but this one is *displayed* rather than only drawn,
-   so it carries the constraints that make it safe: the interval goes in **its own
-   array**, never `age_ma`; it renders as a **range and never a point** — no midpoint, no
-   "≈", nothing that could be read as an estimate; and the label says fossil occurrences,
-   not age. Tier value 3, alongside the three in `dates.py`. `/v1` and the legend gain a
-   case. This is the step that makes *Homo erectus* and *T. rex* stop reading "not
+   so it carries the constraints that make it safe: the interval goes in its **own
+   table** — handoff.md §7 says why a table rather than the array this doc specified —
+   never `age_ma`; it renders as a **range and never a point**, with no midpoint computed
+   anywhere; and the label says fossil occurrences, not age. Tier value 3, declared in
+   `dates.py` and written by this phase. 2,133 nodes carry one. `/v1` emits `tier:
+   "occurrence"` and an `occurrence` object; **the legend and the renderer are still to
+   do.** This is the step that makes *Homo erectus* and *T. rex* stop reading "not
    estimated", which is the reason the fourth tier exists at all.
 
 ### Gates

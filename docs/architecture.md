@@ -592,6 +592,13 @@ axis so everything stays comparable:
   with the **double bracket**: faded envelope `fea→lla` (maximal possible extent), solid
   bar `fla→lea` (minimal certain extent). Anything else misrepresents PBDB's uncertainty
   model.
+
+  > **Amended by the build.** The four bounds do *not* form a chain. `fea ≥ fla`,
+  > `lea ≥ lla`, `fea ≥ lea` and `fla ≥ lla` each hold for all 410,615 rows carrying
+  > four bounds; **`fla ≥ lea` holds for 39.6%**. A taxon known from one stratigraphic
+  > interval has both appearances inside it, so the two cross. For the other **60.4%
+  > there is no certain extent at all** and the solid bar must be left *undrawn* — not
+  > zero-width, which reads as precision, and not inverted. Three cases, not two.
 - Visually distinct from the spine, because they are annotations on a segment, not
   resolved positions within it. Offset lane, different mark, no connecting edges to
   siblings.

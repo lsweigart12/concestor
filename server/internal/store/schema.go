@@ -28,6 +28,7 @@ type Schema struct {
 	Synonym    *SynonymSchema    `json:"synonym,omitempty"`
 	Ranking    *RankingSchema    `json:"search_ranking,omitempty"`
 	Fossil     *FossilSchema     `json:"fossil,omitempty"`
+	Occurrence *OccurrenceSchema `json:"occurrence,omitempty"`
 
 	// Skipped records tables that exist but could not be wired up, with why.
 	Skipped map[string]string `json:"skipped,omitempty"`
@@ -153,6 +154,7 @@ func detectSchema(ctx context.Context, db *sql.DB) (*Schema, error) {
 	s.resolveVernacular()
 	s.resolveSilhouette()
 	s.resolveNodeImage()
+	s.resolveOccurrence()
 	s.resolveSynonym()
 	s.resolveRanking()
 	s.resolveFossil()
@@ -295,6 +297,44 @@ func (s *Schema) resolveNodeImage() {
 		CladeIdx:  s.col(t, "clade_idx", "silhouette_clade_idx", "shared_clade_idx"),
 		Climb:     s.col(t, "climb", "hops", "distance"),
 		Method:    s.col(t, "method", "match_method"),
+	}
+}
+
+// OccurrenceSchema names the fossil range shown for a node in the fourth age
+// tier. The four bounds stay four columns: `fea`/`fla` and `lea`/`lla` are two
+// separate uncertainty brackets and collapsing them into one range is a
+// different and wrong claim about what PBDB knows (architecture §7).
+type OccurrenceSchema struct {
+	Table string `json:"table"`
+	Idx   string `json:"idx"`
+	Fea   string `json:"fea,omitempty"`
+	Fla   string `json:"fla,omitempty"`
+	Lea   string `json:"lea,omitempty"`
+	Lla   string `json:"lla,omitempty"`
+}
+
+func (s *Schema) resolveOccurrence() {
+	t := s.firstTable("occurrence", "node_occurrence")
+	if t == "" {
+		return
+	}
+	idx := s.col(t, "idx", "node_idx")
+	fea := s.col(t, "fea", "firstapp_max_ma")
+	lla := s.col(t, "lla", "lastapp_min_ma")
+	// Both ends of the *envelope* are required. A tier that promises a range
+	// and can only produce one end of it says less than `structural` did while
+	// looking like it says more.
+	if idx == "" || fea == "" || lla == "" {
+		s.Skipped[t] = "no idx/fea/lla columns could be resolved"
+		return
+	}
+	s.Occurrence = &OccurrenceSchema{
+		Table: t,
+		Idx:   idx,
+		Fea:   fea,
+		Fla:   s.col(t, "fla", "firstapp_min_ma"),
+		Lea:   s.col(t, "lea", "lastapp_max_ma"),
+		Lla:   lla,
 	}
 }
 

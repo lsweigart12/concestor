@@ -267,7 +267,7 @@ func TestIsAncestor(t *testing.T) {
 }
 
 func TestTierName(t *testing.T) {
-	for tier, want := range map[uint8]string{0: "measured", 1: "interpolated", 2: "structural", 9: "unknown"} {
+	for tier, want := range map[uint8]string{0: "measured", 1: "interpolated", 2: "structural", 3: "occurrence", 9: "unknown"} {
 		if got := TierName(tier); got != want {
 			t.Errorf("TierName(%d) = %q, want %q", tier, got, want)
 		}
