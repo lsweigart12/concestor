@@ -14,12 +14,14 @@ import {
   api,
   ping,
   silhouetteIsInformative,
+  TIER_OCCURRENCE,
   TIER_STRUCTURAL,
   type About,
   type NodeDetail,
   type SearchHit,
   type TimescaleInterval,
 } from "./api";
+import { bracketGeom, bracketTitle, spanLabel } from "./canvas/Bracket";
 import { Graph } from "./canvas/Graph";
 import { Silhouette } from "./canvas/Silhouette";
 import { ageLabel, DerivedName, isScientificItalic } from "./canvas/NodeMark";
@@ -553,6 +555,14 @@ function Detail({
   nested: string[];
 }) {
   const age = ageLabel(detail.age_ma, detail.tier);
+  // Geometry is not wanted here — the card states the span in words — but
+  // `bracketGeom` is what decides `absent` from `range`, and having one place
+  // make that call keeps the card and the drill-down lane from disagreeing
+  // about what a partial row means.
+  const occurrence =
+    detail.tier === TIER_OCCURRENCE && detail.occurrence
+      ? bracketGeom(detail.occurrence, () => 0)
+      : null;
   const sil = silhouetteIsInformative(detail, cladeTips) ? detail.silhouette : null;
   // A picture that is not of this node is a picture of something inside the
   // clade, and the card is where that gets said in full rather than in a
@@ -610,6 +620,21 @@ function Detail({
       <dl>
         <dt>age</dt>
         <dd className="num">{age ?? "not estimated"}</dd>
+        {occurrence && (
+          // Its own row, below the age and never in place of it. The two are
+          // different kinds of claim — one is when lineages parted, the other
+          // is what is in the rock — and putting a range in the `age` slot
+          // would say they are the same kind, which is what this tier exists
+          // not to say.
+          <>
+            <dt>fossils</dt>
+            <dd className="num" title={bracketTitle(detail.name ?? "This taxon", occurrence)}>
+              {occurrence.kind === "range"
+                ? spanLabel(occurrence.oldest, occurrence.youngest)
+                : "no range recorded"}
+            </dd>
+          </>
+        )}
         <dt>species below</dt>
         <dd className="num">{detail.tip_count.toLocaleString()}</dd>
         <dt>depth</dt>
@@ -645,6 +670,15 @@ function Detail({
           position on the axis is ordinal — it sits between its nearest dated
           ancestor and descendant, and in this region the horizontal axis means
           nesting depth rather than time.
+        </p>
+      )}
+      {detail.tier === TIER_OCCURRENCE && (
+        <p className="note">
+          No age is shown because none has been estimated for this node: every
+          age here comes from a tree of <em>living</em> species, and this taxon
+          has no counterpart in one. What is known instead is where it turns up
+          in the rock, which is an observation rather than an estimate — a
+          range, and deliberately never a single date.
         </p>
       )}
       {detail.tier === 1 && age && (

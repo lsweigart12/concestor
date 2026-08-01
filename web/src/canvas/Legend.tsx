@@ -36,7 +36,13 @@
  */
 
 import { useMemo } from "react";
-import { TIER_INTERPOLATED, TIER_MEASURED, TIER_STRUCTURAL, type Tier } from "../api";
+import {
+  TIER_INTERPOLATED,
+  TIER_MEASURED,
+  TIER_OCCURRENCE,
+  TIER_STRUCTURAL,
+  type Tier,
+} from "../api";
 import { traceStroke, TIER_CLASS, type TraceEdgeData } from "./TraceEdge";
 
 /** Just enough of an edge to say which patterns are on screen. */
@@ -74,6 +80,17 @@ const ALL_ROWS: readonly LegendRow[] = [
   },
   { id: "structural", tier: TIER_STRUCTURAL, unbounded: false, text: "no age" },
   { id: "unbounded", tier: TIER_STRUCTURAL, unbounded: true, text: "guessed" },
+  // Same dash as `structural`, because it is the same statement about the age:
+  // nobody estimated one. The difference is that something else is known, and
+  // that shows as a figure on the node rather than as a fourth dash density —
+  // a reader cannot be asked to tell four dash patterns apart, and the channel
+  // is already carrying as much as it can.
+  {
+    id: "occurrence",
+    tier: TIER_OCCURRENCE,
+    unbounded: false,
+    text: "no age · fossils dated",
+  },
 ];
 
 /**
@@ -87,9 +104,15 @@ export function legendRows(edges: readonly TracePattern[]): LegendRow[] {
   for (const e of edges) {
     if (e.tier === TIER_MEASURED) present.add("measured");
     else if (e.tier === TIER_INTERPOLATED) present.add("interpolated");
+    else if (e.tier === TIER_OCCURRENCE) present.add("occurrence");
     else present.add(e.unbounded ? "unbounded" : "structural");
   }
-  if (!present.has("interpolated") && !present.has("structural") && !present.has("unbounded")) {
+  if (
+    !present.has("interpolated") &&
+    !present.has("structural") &&
+    !present.has("unbounded") &&
+    !present.has("occurrence")
+  ) {
     return [];
   }
   return ALL_ROWS.filter((r) => present.has(r.id));

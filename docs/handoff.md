@@ -989,11 +989,30 @@ phase 4.
    but a range *ending* at 50 Ma reads as an extinction and no caption inside a
    bracket undoes that.
 
-   **Still to do: the UI.** The tier reaches the client (`tier: "occurrence"`
-   plus an `occurrence` object on the entry) and nothing renders it yet. The
-   dash channel needs a treatment reading as *bounded but not pinned* rather
-   than a fourth dash density, and the bracket must reuse the drill-down's
-   component rather than inventing a second way to draw the same uncertainty.
+   **The UI is built.** *T. rex* reads `fossils 84–66 Ma` on the canvas where
+   it read nothing, and the card carries `age — not estimated` above a separate
+   `fossils — 84–66 Ma` row, with a note saying why in the reader's language.
+
+   Three decisions inside it. The canvas figure is **prefixed with the word
+   "fossils"**, because in the slot an age occupies a bare "84–66 Ma" beside a
+   node drawn at 66 Ma is indistinguishable from that node's age — one word
+   costs a little label width and removes the ambiguity entirely. The card puts
+   the range in **its own row rather than in the `age` slot**, for the same
+   reason at more length. And the trace keeps the **structural dash**, not a
+   fourth density: the dash channel answers one question, *has anyone estimated
+   an age*, and the answer here is still no. Four dash patterns is more than the
+   channel can carry and more than a reader can tell apart, so the difference
+   shows as a figure on the node instead. The legend reads
+   `no age · fossils dated`.
+
+   *A visible artefact worth knowing about.* The 393 nodes the layout bound
+   could not fully reach now show it: *Allosaurus fragilis* is drawn at 129.6 Ma
+   and labelled `fossils 155–143 Ma`, so the node sits slightly to the *right*
+   of the range it claims. It is honest — the trace is dashed and the position
+   is ordinal — but it reads as a contradiction, and it did not exist before the
+   figure was on screen to contradict. Roughly 18% of the tier. The fix is the
+   same one as for the residual itself: upstream, in whatever attaches a stem
+   fossil to a crown node younger than it.
 
 *The caveat that constrains both:* **PBDB's `fea` is frequently junk-wide.**
 *Homo erectus* carries `fea = 5.333` — the base of the Zanclean — off a single

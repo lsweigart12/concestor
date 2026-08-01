@@ -50,6 +50,7 @@ import type { AddDelta } from "../tree/induced";
 import { divergenceFor, UNNAMED } from "../tree/naming";
 import {
   ageLabel,
+  occurrenceLabel,
   DIVERGENCE_META,
   isScientificItalic,
   metaLine,
@@ -186,7 +187,13 @@ function Inner(props: GraphProps) {
       const div = divergenceFor(p.idx, ind, nodeMap);
       return {
         name: p.node.name ?? div?.text ?? UNNAMED,
-        trailing: ageLabel(p.node.age_ma, p.node.tier) ?? "",
+        // The same string NodeMark renders, or the collision pass reserves a
+        // box the label does not fit. "fossils 84–66 Ma" is materially wider
+        // than the age it stands in for.
+        trailing:
+          ageLabel(p.node.age_ma, p.node.tier) ??
+          occurrenceLabel(p.node.tier, p.node.occurrence) ??
+          "",
         // A derived name says so where a rank would otherwise go. Without it
         // "Homo / Pan" sits in the same position as every real taxon name and
         // reads as one.

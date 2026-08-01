@@ -20,6 +20,7 @@ import type { EdgeProps } from "@xyflow/react";
 import {
   TIER_INTERPOLATED,
   TIER_MEASURED,
+  TIER_OCCURRENCE,
   TIER_STRUCTURAL,
   type Tier,
 } from "../api";
@@ -51,6 +52,13 @@ export const TIER_CLASS: Record<number, string> = {
   [TIER_MEASURED]: "tier-measured",
   [TIER_INTERPOLATED]: "tier-interpolated",
   [TIER_STRUCTURAL]: "tier-structural",
+  // Deliberately the structural dash, not a fourth pattern. The dash channel
+  // answers one question — has anyone estimated an age for this node — and the
+  // answer for an occurrence node is no, exactly as for a structural one. What
+  // it has instead is a fossil range, and that shows as a figure on the node,
+  // where a reader can read it. Four dash densities is more than the channel
+  // can carry and more than anyone can tell apart.
+  [TIER_OCCURRENCE]: "tier-structural",
 };
 
 /**
@@ -65,8 +73,9 @@ export const TIER_CLASS: Record<number, string> = {
  * hue would imply the row was about that lineage.
  */
 export function traceStroke(hue: number | string, tier: Tier): string {
-  const sat = tier === TIER_STRUCTURAL ? 22 : tier === TIER_INTERPOLATED ? 42 : 68;
-  const light = tier === TIER_STRUCTURAL ? 52 : 62;
+  const undated = tier === TIER_STRUCTURAL || tier === TIER_OCCURRENCE;
+  const sat = undated ? 22 : tier === TIER_INTERPOLATED ? 42 : 68;
+  const light = undated ? 52 : 62;
   return `hsl(${hue} ${sat}% ${light}%)`;
 }
 

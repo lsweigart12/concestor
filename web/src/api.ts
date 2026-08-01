@@ -13,7 +13,24 @@
 export const TIER_MEASURED = 0;
 export const TIER_INTERPOLATED = 1;
 export const TIER_STRUCTURAL = 2;
-export type Tier = 0 | 1 | 2;
+/**
+ * Extinct, and the rock has something to say. Written by phase 4, not phase 2.
+ *
+ * Not a fourth grade of divergence estimate. The other three all answer "when
+ * did these lineages part", from a chronogram of extant species, and an
+ * extinct taxon has no counterpart there — which is why 1,742 of the 1,743
+ * extinct-flagged nodes are structural by construction rather than by
+ * measurement. This answers a weaker question in the same units: when the
+ * taxon is observed in the rock. It therefore carries **no `age_ma`**, exactly
+ * like structural, and everything that guards structural must guard it too.
+ */
+export const TIER_OCCURRENCE = 3;
+export type Tier = 0 | 1 | 2 | 3;
+
+/** The tiers that may show a number. The other two mean "nobody estimated one". */
+export function tierHasAge(t: Tier): boolean {
+  return t === TIER_MEASURED || t === TIER_INTERPOLATED;
+}
 
 export interface PathNode {
   idx: number;
@@ -21,8 +38,25 @@ export interface PathNode {
   ott_id: number | null;
   name: string | null;
   rank: string | null;
-  /** NULL wherever no numeric age may be shown. Structural is always null. */
+  /**
+   * NULL wherever no numeric age may be shown. Structural and occurrence are
+   * both always null: neither means "we are unsure", they mean nobody
+   * estimated one.
+   */
   age_ma: number | null;
+  /**
+   * The fossil range, present only on the `occurrence` tier. Not an age — an
+   * observed stratigraphic extent, which is a weaker and differently-shaped
+   * claim. It renders as a range and never as a point, and no midpoint may be
+   * computed from it: a midpoint is a fabricated estimate wearing an
+   * observation's clothes.
+   */
+  occurrence?: {
+    fea: number | null;
+    fla: number | null;
+    lea: number | null;
+    lla: number | null;
+  } | null;
   /** Finite everywhere, monotone root-to-tip. x-position only — never a label. */
   age_layout: number;
   tier: Tier;
@@ -303,10 +337,11 @@ const TIER_BY_NAME: Record<string, Tier> = {
   measured: TIER_MEASURED,
   interpolated: TIER_INTERPOLATED,
   structural: TIER_STRUCTURAL,
+  occurrence: TIER_OCCURRENCE,
 };
 
 function normTier(v: unknown): Tier {
-  if (typeof v === "number" && v >= 0 && v <= 2) return v as Tier;
+  if (typeof v === "number" && v >= 0 && v <= 3) return v as Tier;
   if (typeof v === "string" && v in TIER_BY_NAME) return TIER_BY_NAME[v]!;
   // Unknown provenance is not an excuse to show a confident number.
   return TIER_STRUCTURAL;
@@ -321,7 +356,7 @@ function normNode(raw: Record<string, unknown>): PathNode {
     // Belt and braces on the hard requirement: even if a future server build
     // sends a number alongside a structural tier, it does not reach the UI.
     age_ma:
-      tier === TIER_STRUCTURAL || typeof age !== "number" || !Number.isFinite(age)
+      !tierHasAge(tier) || typeof age !== "number" || !Number.isFinite(age)
         ? null
         : age,
   };

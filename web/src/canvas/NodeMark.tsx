@@ -26,7 +26,15 @@
 
 import { memo } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { TIER_INTERPOLATED, TIER_STRUCTURAL, type PathNode, type Tier } from "../api";
+import {
+  TIER_INTERPOLATED,
+  TIER_OCCURRENCE,
+  TIER_STRUCTURAL,
+  tierHasAge,
+  type PathNode,
+  type Tier,
+} from "../api";
+import { spanLabel } from "./Bracket";
 import type { LabelBox } from "../tree/labels";
 import { branchProse, UNNAMED, type Divergence } from "../tree/naming";
 import { Silhouette } from "./Silhouette";
@@ -74,12 +82,41 @@ export function isScientificItalic(rank: string | null): boolean {
  *   structural    null        — no number, ever. A dashed spine and an absent
  *                               figure, never a confident age where nobody
  *                               has estimated one.
+ *   occurrence    null        — also no age. It has a fossil *range*, which is
+ *                               a different kind of claim and is written by
+ *                               `occurrenceLabel` below, never here.
  */
 export function ageLabel(age: number | null, tier: Tier): string | null {
-  if (tier === TIER_STRUCTURAL || age === null || !Number.isFinite(age)) return null;
+  if (!tierHasAge(tier) || age === null || !Number.isFinite(age)) return null;
   if (age < 0.05) return "present";
   const n = age >= 100 ? Math.round(age) : age >= 10 ? age.toFixed(0) : age.toFixed(1);
   return `${tier === TIER_INTERPOLATED ? "≤ " : ""}${n} Ma`;
+}
+
+/**
+ * What the rock says, for a node nobody has dated.
+ *
+ * *T. rex* read as nothing at all before this — no number, because none has
+ * been estimated, and that is a poor answer to give someone who came to ask
+ * about dinosaurs. This is the weaker claim: not when lineages parted, but
+ * when the taxon is observed in the rock.
+ *
+ * **It is prefixed, and that is not decoration.** In the slot an age occupies,
+ * a bare "84–66 Ma" beside a node drawn at 66 Ma reads as that node's age,
+ * which is the exact thing the tier is built not to imply. One word costs a
+ * little width and removes the ambiguity entirely. It is a range and never a
+ * point; no midpoint is computed anywhere, here or in the pipeline.
+ */
+export function occurrenceLabel(
+  tier: Tier,
+  occ: PathNode["occurrence"],
+): string | null {
+  if (tier !== TIER_OCCURRENCE || !occ) return null;
+  const bounds = [occ.fea, occ.fla, occ.lea, occ.lla].filter(
+    (v): v is number => typeof v === "number" && Number.isFinite(v),
+  );
+  if (bounds.length === 0) return null;
+  return `fossils ${spanLabel(Math.max(...bounds), Math.min(...bounds))}`;
 }
 
 /**
@@ -166,7 +203,7 @@ export const NodeMark = memo(function NodeMark({ data }: NodeProps) {
   const d = data as unknown as MarkData;
   const n = d.node;
   const color = `hsl(${d.hue} ${n.tier === TIER_STRUCTURAL ? 24 : 70}% ${d.focused || d.isMRCA ? 74 : 60}%)`;
-  const age = ageLabel(n.age_ma, n.tier);
+  const age = ageLabel(n.age_ma, n.tier) ?? occurrenceLabel(n.tier, n.occurrence);
   const showText = d.zoom !== "point";
   const showDetail = d.zoom === "detail";
   const div = d.divergence;
