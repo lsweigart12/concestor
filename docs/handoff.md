@@ -726,6 +726,15 @@ it cannot deliver.
   because it was never a borrow; without that exemption Cetacea, Felidae and
   Homo went blank as forks, which is the rule failing rather than withholding.
 
+  **The ceiling of this design is 2,552 forks and no image budget passes it**,
+  because a witness must be a *node* and only 0.5% of extinct OTT taxa are in
+  synthesis at all. Moving witnesses onto phase 4's fossil attachment points
+  instead reaches 33,428 — and 5,917 with the images already mirrored, since
+  2,194 PhyloPic titles already name a dated PBDB taxon that is not a node.
+  Measured, with the work and the hazards, in
+  [witness-ceiling.md](witness-ceiling.md). Fix `xref`'s homonyms before
+  starting: this makes the witness layer an `xref` consumer.
+
   Caniformia is the case that shows the coverage limit honestly, and it is why
   both knobs came off. Its oldest drawn *and* dated member is *Archaeocyon* at
   31.8 Ma — 44% adrift of the 57 Ma split — and the stem carnivorans that would
