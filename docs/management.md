@@ -122,13 +122,13 @@ An outside design review of the running app (see below; it happened, and the rep
 
 Full measurements in handoff §7. **The fix is implemented and the crawl that activates it was running when this was written** — the P9157 query now fetches each item's own `wdt:P225` and refuses any contribution whose taxon name disagrees with OTT's. Three cheaper rules were tried against the real data first and all three fail; handoff §7 has the table, and one of them fails by taking "Dog" off *Canis lupus familiaris*, which the `dog` spot check caught.
 
-**What is left is to confirm it landed.** Check `build/vernaculars/wikidata/page_00001.jsonl` carries an `"s"` field, then:
+**What is left is to confirm it landed.** `search` and `package` are chained to run automatically when the crawl finishes, so in the ordinary case there is nothing to run. Confirm it by checking that `build/vernaculars/wikidata/page_00001.jsonl` carries an `"s"` field and that phase 6 reports names dropped for a P225 mismatch; if the chain did not fire:
 
 ```bash
 cd pipeline && uv run concestor-build vernaculars && uv run concestor-build search
 ```
 
-`search` must follow, because it indexes the vernacular table. Then verify the two cases by hand — the *Homo sapiens* card must not say "Homo floresiensis", and `frog` must not return Archaea — and re-run `concestor-build package` so `/v1/about` reports the new build. If the crawl was interrupted, the old names are still in place (the phase rewrites the database only on a completed crawl) and the pre-P225 checkpoint is at `build/vernaculars/wikidata_pre_p225/`.
+`search` must follow, because it indexes the vernacular table and would otherwise keep serving the old names from a stale index. Then verify the two cases by hand — the *Homo sapiens* card must not say "Homo floresiensis", and `frog` must not return Archaea — and re-run `concestor-build package` so `/v1/about` reports the new build. If the crawl was interrupted, the old names are still in place (the phase rewrites the database only on a completed crawl) and the pre-P225 checkpoint is at `build/vernaculars/wikidata_pre_p225/`.
 
 **Everything else on this list is depth. This one is correctness, and it is at the front door.**
 
