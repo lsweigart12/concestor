@@ -21,7 +21,8 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, type AnyHit, type BrokenHit, type SearchHit } from "../api";
+import { api, hitSilhouette, type AnyHit, type BrokenHit, type SearchHit } from "../api";
+import { Silhouette } from "../canvas/Silhouette";
 import { fuzzy, highlight, litRanges, recordUse, sessionBoost } from "./fuzzy";
 
 export interface Command {
@@ -322,6 +323,11 @@ function RowView({
   const h = row.hit;
   const already = present.has(h.idx);
   const italic = h.rank === "species" || h.rank === "genus";
+  // A shape is recognised faster than a name is read, and it is the same shape
+  // the node will wear once it lands — so the row previews the result rather
+  // than merely naming it. Suppression is the canvas rule, unchanged: a picture
+  // borrowed from a kingdom-sized ancestor is worse than none.
+  const sil = hitSilhouette(h);
 
   return (
     <div
@@ -329,7 +335,13 @@ function RowView({
       onMouseMove={onHover}
       onClick={onClick}
     >
-      <span className="row-icon">◦</span>
+      <span className="row-icon">
+        {sil ? (
+          <Silhouette phylopicId={sil} size={20} fallback="◦" />
+        ) : (
+          "◦"
+        )}
+      </span>
       <span className="row-body">
         <span className={`row-title${italic ? " sci-italic" : ""}`}>
           {parts(h.name ?? h.key, row.ranges)}

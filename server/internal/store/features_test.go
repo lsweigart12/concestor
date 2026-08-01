@@ -268,6 +268,23 @@ func TestSearchUsesFTSAndImageSignalWhenPresent(t *testing.T) {
 	if res[0].Vernacular == nil || *res[0].Vernacular != "human" {
 		t.Errorf("vernacular = %v", res[0].Vernacular)
 	}
+	// has_image ranks a row; these draw it. The palette shows a silhouette per
+	// hit, and without the id it can only know that one exists.
+	if res[0].PhylopicID == nil || *res[0].PhylopicID != "abc-123" {
+		t.Errorf("phylopic_id = %v, want abc-123", res[0].PhylopicID)
+	}
+	if res[0].SilhouetteSourceIdx == nil || *res[0].SilhouetteSourceIdx != 588427 {
+		t.Errorf("silhouette_source_idx = %v, want 588427", res[0].SilhouetteSourceIdx)
+	}
+	// The borrowed-image suppression rule is a comparison against the source
+	// clade's size, and the client has no other way to learn it — the source is
+	// an ancestor and is not itself in the result set.
+	if res[0].SilhouetteSourceTips == nil {
+		t.Fatal("silhouette_source_tips is nil; the client cannot judge the borrow")
+	}
+	if got := *res[0].SilhouetteSourceTips; got != int64(st.Arrays.TipCount[588427]) {
+		t.Errorf("silhouette_source_tips = %d, want %d", got, st.Arrays.TipCount[588427])
+	}
 }
 
 // A table that exists but whose columns cannot be resolved is reported, not

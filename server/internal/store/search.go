@@ -34,6 +34,21 @@ type SearchResult struct {
 	HasImage   bool    `json:"has_image"`
 	MatchedOn  string  `json:"matched_on"` // "name" | "vernacular" | "fts"
 
+	// The silhouette, for callers that draw one. HasImage on its own is a
+	// ranking signal; these three are what it takes to *show* the thing, and
+	// resolution has already happened by the time HasImage is set, so sending
+	// them costs nothing beyond the bytes.
+	//
+	// SourceTips is the deciding field, not a detail. Silhouettes resolve by
+	// climbing to the nearest ancestor with an image, so a beetle can inherit
+	// the picture attached to a kingdom — and drawing that misinforms where
+	// blank merely withholds (architecture §7). The caller cannot judge that
+	// without knowing how big the clade it borrowed from is, and it has no
+	// other way to learn: the source is usually not itself in the result set.
+	PhylopicID           *string `json:"phylopic_id,omitempty"`
+	SilhouetteSourceIdx  *int    `json:"silhouette_source_idx,omitempty"`
+	SilhouetteSourceTips *int64  `json:"silhouette_source_tips,omitempty"`
+
 	// Broken taxa are not nodes, so idx and tip_count are null for them. These
 	// two extra fields give the UI something to act on.
 	MRCAIdx           *int `json:"mrca_idx,omitempty"`
@@ -861,8 +876,18 @@ func (s *Store) decorate(ctx context.Context, results []SearchResult, qFold stri
 		if r.Idx == nil {
 			continue
 		}
-		if _, ok := images[*r.Idx]; ok {
+		if img, ok := images[*r.Idx]; ok {
 			r.HasImage = true
+			id := img.PhylopicID
+			r.PhylopicID = &id
+			if src := img.SourceIdx; src != nil {
+				v := *src
+				r.SilhouetteSourceIdx = &v
+				if s.Arrays.TipCount != nil && s.Arrays.Valid(v) {
+					t := int64(s.Arrays.TipCount[v])
+					r.SilhouetteSourceTips = &t
+				}
+			}
 		}
 		if v, ok := scores[*r.Idx]; ok {
 			r.score = v

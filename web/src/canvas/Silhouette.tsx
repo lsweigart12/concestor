@@ -65,10 +65,22 @@ export function Silhouette({
   phylopicId,
   size = 34,
   title,
+  fallback = null,
 }: {
   phylopicId: string;
   size?: number;
   title?: string | undefined;
+  /**
+   * What to render before the markup arrives, and if it never does — the
+   * mirror is populated in the background, so "known but not yet on disk" is
+   * an ordinary state and a 404 has to look like something.
+   *
+   * Defaults to nothing, which is what the canvas wants: a placeholder box
+   * there would be chrome, and the canvas is the page. A palette row wants the
+   * opposite, because its icon sits in a fixed slot that would otherwise blink
+   * empty and shift the rows below it.
+   */
+  fallback?: React.ReactNode;
 }) {
   const [markup, setMarkup] = useState<string | null>(null);
 
@@ -82,9 +94,7 @@ export function Silhouette({
     };
   }, [phylopicId]);
 
-  // Render nothing until it arrives. A placeholder box would be chrome, and
-  // the canvas is the page.
-  if (!markup) return null;
+  if (!markup) return <>{fallback}</>;
 
   return (
     <span

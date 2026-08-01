@@ -55,6 +55,14 @@ filter tween on the same element.
 - Every action has a command. Mouse is a convenience path, never required.
 - Palette rows follow Raycast anatomy: icon · title · subtitle ·
   right-aligned accessory metadata.
+- **A species row's icon is its silhouette**, the same one the node will wear
+  once it lands — so the row previews the result rather than only naming it. A
+  shape is recognised before a name is read, which matters most where the names
+  are unfamiliar, and that is the whole corpus for this audience.
+  The canvas's suppression rule applies unchanged: an image borrowed from a
+  kingdom-sized ancestor is worse than none, so those rows keep the plain `◦`.
+  So does a row whose silhouette has not been mirrored yet — the slot never
+  blinks empty, because rows must not shift under a moving cursor.
 - Fuzzy search with highlighted match ranges. Results rank on recency and
   frequency, not alphabetically.
 - Commands accept typed arguments inline (species name, clade, node id).
