@@ -89,6 +89,14 @@ The largest unbuilt product surface, and fully de-risked: all 523,112 taxa are a
 
 Fossils are still secondary to silhouettes and the palette, so this stays behind items 1 and 2. What has changed is that it is no longer behind item 3 — it *is* item 3, seen from the other end. The double bracket is the same visual vocabulary a fourth age tier would need, so build the bracket first and let the tier reuse it rather than inventing a second way to draw the same uncertainty.
 
+### 5. Fix phase 3's cross-kingdom homonyms
+
+Found while doing item 3 and previously unrecorded. `xref` resolves PBDB to OTT **by name**, and OTT carries the same genus name in unrelated kingdoms, so a Cambrian fossil lands on a living plant. Measured with a test that needs no new data — a taxon last seen before the Permian cannot be a living genus: **1,380 of the 1,416** exact-attach fossils with `lla > 250 Ma` land on an OTT node with living descendants. *Sadleria* is a Hawaiian fern with a Devonian fossil on it; *Streptosolen* is a South American shrub with an Ordovician one.
+
+It is not confined to the naive path — `name_exact` 991, `gbif_backbone_provenance` 221, `gbif_pbdb_chain` 168 — so 389 survived a route meant to be evidence-based.
+
+The fix is a lineage comparison in phase 3: PBDB has its own `parent_no` hierarchy and OTT has the tree, so refuse a resolution where the two disagree above family level. Put the test in as an `observe` gate *before* the fix so the baseline is recorded. Phase 4 already guards itself by refusing a fossil bound on any node with a living descendant, which is right for phase 4 and does nothing for every other `xref` consumer — and `xref` is 270 MB of this database.
+
 ## Decisions already taken — implement, don't relitigate
 
 Everything settled in the previous brief still holds, and is now implemented rather than pending. In particular:

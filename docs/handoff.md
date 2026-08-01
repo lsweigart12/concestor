@@ -528,6 +528,39 @@ attribution-required figure is of `primaryImage` *results*; across the corpus it
 is 5,432 images, 42.2%. Both numbers are right and the denominators differ,
 which is worth stating because they get compared.
 
+**phase 3's `xref` resolves PBDB to OTT across kingdom homonyms, and nothing
+had recorded it.** OTT carries the same genus name in unrelated kingdoms and
+`xref` matches on the name, so a Cambrian fossil lands on a living plant. Found
+while bounding the layout by the fossil record, which is the only reason it
+surfaced at all — nothing else was comparing a resolution against time.
+
+A cheap decisive test, because a taxon last seen before the Permian cannot be a
+living genus: of the **1,416** exact-attach fossils with `lla > 250 Ma` and not
+flagged extant, **1,380 land on an OTT node that has living descendants**.
+
+| PBDB taxon | last seen | resolved onto |
+|---|---:|---|
+| *Sadleria* | 372 Ma | *Sadleria*, a living Hawaiian fern genus |
+| *Streptosolen* | 457 Ma | *Streptosolen*, a living South American shrub |
+| *Lewinia* | 443 Ma | *Lewinia*, a living genus of rails |
+| *Ivesia* | 539 Ma | *Ivesia*, a rose-family plant |
+
+**It is not confined to the naive path.** By method: `name_exact` 991,
+`gbif_backbone_provenance` 221, `gbif_pbdb_chain` 168 — so 389 of them survived
+a route that was supposed to be evidence-based, and "only trust the backbone"
+is not the fix.
+
+*Decided, scoped, not started.* The fix belongs in phase 3 and it is a lineage
+comparison: PBDB carries its own hierarchy in `parent_no` and OTT carries the
+tree, so a resolution can be refused when the two disagree above family level.
+`images.py` already refuses an ambiguous name outright, but that machinery does
+*not* help here — these names resolve to exactly one OTT node; it is simply the
+wrong taxon. The test above is a ready-made `observe` gate: it needs no new
+data and it should go in before the fix so the baseline is on the record.
+Phase 4 currently guards itself by refusing any fossil bound on a node with a
+living descendant, which is correct for phase 4 and does nothing for the other
+`xref` consumers.
+
 **architecture.md §7 — the double bracket's "solid bar" does not exist for most
 taxa.** §7 says "faded envelope `fea→lla`, solid bar `fla→lea`", and the obvious
 reading is that the four bounds form a chain `fea ≥ fla ≥ lea ≥ lla`. **The
