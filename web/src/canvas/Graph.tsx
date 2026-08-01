@@ -12,10 +12,14 @@
  *
  *   t=0    existing nodes begin spring reflow to their new positions
  *   t=80   the MRCA flares — the connection beat, and the subject
- *   t=120  the new trace draws from the MRCA *outward*, ~350ms ease-out
- *   t=470  it decays from flare-bright to steady over ~800ms
+ *   t=120  the new traces draw from the MRCA *outward*, ~613ms ease-out,
+ *          one wave of branches at a time and a wave every 96ms
+ *   t=733  each decays from flare-bright to steady over ~1400ms
  *
  * Reflow and draw overlap. Sequential feels laggy; overlapping feels alive.
+ * Siblings share a wave: two lineages that parted at the same node leave it
+ * together, so a whole restored tree opens outward from its root rather than
+ * unspooling along one route to one leaf.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -40,19 +44,20 @@ import {
   type Witness,
 } from "../api";
 import {
+  ageFrac,
+  fracToAgeIn,
   layout,
   orthPath,
-  symlogFrac,
   PAD_X,
   PLOT_W,
+  type AxisMode,
   type LabelText,
 } from "../tree/layout";
 import type { Induced } from "../tree/induced";
 import type { AddDelta } from "../tree/induced";
 import { divergenceFor, UNNAMED } from "../tree/naming";
 import {
-  ageLabel,
-  occurrenceLabel,
+  markAge,
   DIVERGENCE_META,
   isScientificItalic,
   metaLine,
@@ -60,7 +65,7 @@ import {
   type MarkData,
   type ZoomTier,
 } from "./NodeMark";
-import { TraceEdge, type TraceEdgeData } from "./TraceEdge";
+import { DECAY_MS, DRAW_MS, TraceEdge, type TraceEdgeData } from "./TraceEdge";
 import { TimeAxis } from "./TimeAxis";
 import { Legend, type TracePattern } from "./Legend";
 import { DrillLane, useSegment, type Drill, type LaneEndpoint } from "./DrillLane";
@@ -104,10 +109,16 @@ const MIN_PLOT_W = 340;
 const AXIS_RESERVE = 104;
 const MAX_FIT_ZOOM = 1.4;
 
-/** Per design-reference.md's signature sequence, in ms. */
+/**
+ * Per design-reference.md's signature sequence, in ms. `T_FLARE` and `T_DRAW`
+ * are the lead-in beats — when the sequence starts — while the pace of the
+ * drawing itself is `STAGGER` here plus `DRAW_MS` and `DECAY_MS` in
+ * `TraceEdge`. Those three move together: stretching the draw without
+ * stretching the gap between waves collapses the travel into a fade-in.
+ */
 const T_FLARE = 80;
 const T_DRAW = 120;
-const STAGGER = 55;
+const STAGGER = 96;
 
 export interface GraphProps {
   induced: Induced;
@@ -117,7 +128,7 @@ export interface GraphProps {
   focusedIdx: number | null;
   onFocus: (idx: number | null) => void;
   isolate: boolean;
-  axisMode: "log" | "linear";
+  axisMode: AxisMode;
   intervals: TimescaleInterval[] | null;
   fitSignal: { kind: "all" | "selection"; token: number } | null;
   /** The segment whose drill-down lane is open. Lives in the URL. */
@@ -204,15 +215,14 @@ function Inner(props: GraphProps) {
       const withSil =
         witnessOn(p) !== null || (showSil && Boolean(p.node.phylopic_id));
       const div = divergenceFor(p.idx, ind, nodeMap);
+      // The same parts NodeMark renders, or the collision pass reserves a box
+      // the label does not fit. A fossil range with its glyph is materially
+      // wider than the age it stands in for.
+      const age = markAge(p.node.age_ma, p.node.tier, p.node.occurrence);
       return {
         name: p.node.name ?? div?.text ?? UNNAMED,
-        // The same string NodeMark renders, or the collision pass reserves a
-        // box the label does not fit. "fossils 84–66 Ma" is materially wider
-        // than the age it stands in for.
-        trailing:
-          ageLabel(p.node.age_ma, p.node.tier) ??
-          occurrenceLabel(p.node.tier, p.node.occurrence) ??
-          "",
+        trailing: age?.text ?? "",
+        trailingGlyph: age?.glyph != null,
         // A derived name says so where a rank would otherwise go. Without it
         // "Homo / Pan" sits in the same position as every real taxon name and
         // reads as one.
@@ -224,8 +234,8 @@ function Inner(props: GraphProps) {
   );
 
   const lay = useMemo(
-    () => layout(ind, nodeMap, { plotWidth, label: describeLabel }),
-    [ind, nodeMap, plotWidth, describeLabel],
+    () => layout(ind, nodeMap, { plotWidth, label: describeLabel, axis: axisMode }),
+    [ind, nodeMap, plotWidth, describeLabel, axisMode],
   );
 
   /**
@@ -299,8 +309,12 @@ function Inner(props: GraphProps) {
     const m = new Map<number, number>();
     if (!delta) return m;
     // Root-ward → leaf-ward, lightly staggered. All-at-once reads as a
-    // fade-in; staggered reads as travel.
-    delta.drawOrder.forEach((v, i) => m.set(v, T_DRAW + i * STAGGER));
+    // fade-in; staggered reads as travel. The stagger is per *wave*, so
+    // sibling branches leave their shared ancestor together rather than the
+    // tree unspooling along one route.
+    delta.drawOrder.forEach((wave, i) => {
+      for (const v of wave) m.set(v, T_DRAW + i * STAGGER);
+    });
     return m;
   }, [delta]);
 
@@ -319,7 +333,9 @@ function Inner(props: GraphProps) {
         setFlaring(null);
         onDeltaPlayed();
       },
-      reduced ? 60 : T_DRAW + delta.drawOrder.length * STAGGER + 1250,
+      // The last wave starts latest and still has to draw and then settle, so
+      // the tail is both durations plus a frame or two of slack.
+      reduced ? 60 : T_DRAW + delta.drawOrder.length * STAGGER + DRAW_MS + DECAY_MS + 100,
     );
     return () => {
       window.clearTimeout(flareAt);
@@ -537,10 +553,37 @@ function Inner(props: GraphProps) {
     return () => window.clearTimeout(t);
   }, [ind.rendered.length, fitToContent, reduced]);
 
+  // Switching scales moves every node in x, and by a lot — the point of linear
+  // is that it collapses the recent past against the present. Reframing is what
+  // makes that legible as a change rather than as the tree wandering off-screen.
+  const lastAxis = useRef(axisMode);
+  useEffect(() => {
+    if (lastAxis.current === axisMode) return;
+    lastAxis.current = axisMode;
+    const t = window.setTimeout(() => fitToContent(reduced ? 0 : 420), 20);
+    return () => window.clearTimeout(t);
+  }, [axisMode, fitToContent, reduced]);
+
   const toScreenX = useCallback(
     (age: number) =>
-      (PAD_X + plotWidth * (1 - symlogFrac(age, lay.maxAge))) * zoom + tx,
-    [lay.maxAge, zoom, tx, plotWidth],
+      (PAD_X + plotWidth * (1 - ageFrac(age, lay.maxAge, axisMode))) * zoom + tx,
+    [lay.maxAge, zoom, tx, plotWidth, axisMode],
+  );
+
+  /**
+   * The inverse, so the axis can ask what is under the viewport rather than
+   * assume it is showing the whole tree. Without it the ticks are a fixed set
+   * generated from `maxAge` and every one of them leaves the screen on the
+   * first zoom.
+   */
+  const toAge = useCallback(
+    (x: number) =>
+      fracToAgeIn(
+        1 - ((x - tx) / zoom - PAD_X) / plotWidth,
+        lay.maxAge,
+        axisMode,
+      ),
+    [lay.maxAge, zoom, tx, plotWidth, axisMode],
   );
 
   const onNodeClick = useCallback(
@@ -612,6 +655,7 @@ function Inner(props: GraphProps) {
         maxAge={lay.maxAge}
         width={vw || window.innerWidth}
         toScreenX={toScreenX}
+        toAge={toAge}
         intervals={intervals}
         axisMode={axisMode}
         legend={<Legend edges={patterns} />}

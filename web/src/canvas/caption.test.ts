@@ -14,7 +14,7 @@ import {
   TIER_OCCURRENCE,
   TIER_STRUCTURAL,
 } from "../api";
-import { ageLabel, borrowedTitle, occurrenceLabel } from "./NodeMark";
+import { ageLabel, borrowedTitle, markAge, occurrenceSpan } from "./NodeMark";
 
 describe("borrowedTitle", () => {
   it("says nothing extra about a node's own portrait", () => {
@@ -62,12 +62,24 @@ describe("the occurrence tier never becomes an age", () => {
     expect(ageLabel(null, TIER_OCCURRENCE)).toBeNull();
   });
 
-  it("states a range and prefixes it so it cannot read as an age", () => {
-    const l = occurrenceLabel(TIER_OCCURRENCE, RANGE);
-    expect(l).toBe("fossils 84–66 Ma");
+  it("states a range, and never without the mark that says what it is", () => {
+    const a = markAge(null, TIER_OCCURRENCE, RANGE);
+    expect(a).toEqual({
+      glyph: "fossil",
+      text: "84–66 Ma",
+      title: expect.stringContaining("84–66 Ma"),
+    });
     // The whole point: beside a node drawn at 66 Ma, a bare "84–66 Ma" is
-    // indistinguishable from that node's age.
-    expect(l).toMatch(/^fossils /);
+    // indistinguishable from that node's age. The glyph carries the word the
+    // label used to spell out, so the range may never arrive without one.
+    expect(occurrenceSpan(TIER_OCCURRENCE, RANGE)).toBe("84–66 Ma");
+  });
+
+  it("says what the mark means, for anyone who cannot see it", () => {
+    // The mark is the only thing distinguishing a range from an age on the
+    // canvas, so the distinction cannot be available to sighted readers alone.
+    const a = markAge(null, TIER_OCCURRENCE, RANGE);
+    expect(a?.title).toMatch(/not an estimate/i);
   });
 
   it("never emits a single date", () => {
@@ -77,21 +89,25 @@ describe("the occurrence tier never becomes an age", () => {
       { fea: 5.333, fla: 1.8, lea: 0.129, lla: 0.0117 },
       { fea: 83.6, fla: null, lea: null, lla: 66 },
     ]) {
-      expect(occurrenceLabel(TIER_OCCURRENCE, occ)).toMatch(/–/);
+      expect(occurrenceSpan(TIER_OCCURRENCE, occ)).toMatch(/–/);
     }
   });
 
   it("says nothing for a node that is not on the tier", () => {
-    expect(occurrenceLabel(TIER_STRUCTURAL, RANGE)).toBeNull();
-    expect(occurrenceLabel(TIER_MEASURED, RANGE)).toBeNull();
+    expect(occurrenceSpan(TIER_STRUCTURAL, RANGE)).toBeNull();
+    expect(occurrenceSpan(TIER_MEASURED, RANGE)).toBeNull();
+    // And a structural node with a range attached still shows nothing at all,
+    // rather than falling through to a glyph with no figure beside it.
+    expect(markAge(null, TIER_STRUCTURAL, RANGE)).toBeNull();
   });
 
   it("says nothing when the tier arrives without a range", () => {
     // Better silent than a label promising a span it cannot state.
-    expect(occurrenceLabel(TIER_OCCURRENCE, null)).toBeNull();
+    expect(occurrenceSpan(TIER_OCCURRENCE, null)).toBeNull();
     expect(
-      occurrenceLabel(TIER_OCCURRENCE, { fea: null, fla: null, lea: null, lla: null }),
+      occurrenceSpan(TIER_OCCURRENCE, { fea: null, fla: null, lea: null, lla: null }),
     ).toBeNull();
+    expect(markAge(66, TIER_OCCURRENCE, null)).toBeNull();
   });
 
   it("never says the taxon is present, because the tier means it ended", () => {
@@ -99,13 +115,37 @@ describe("the occurrence tier never becomes an age", () => {
     // renders anything under 0.05 as "present", which is right there and a
     // plain falsehood here — the tier is only applied where nothing below the
     // node is alive.
-    const l = occurrenceLabel(TIER_OCCURRENCE, {
+    const a = markAge(null, TIER_OCCURRENCE, {
       fea: 5.333,
       fla: 1.8,
       lea: 0.129,
       lla: 0.0117,
     });
-    expect(l).not.toContain("present");
-    expect(l).toBe("fossils 5.3–0.01 Ma");
+    expect(a?.glyph).toBe("fossil");
+    expect(a?.text).toBe("5.3–0.01 Ma");
+  });
+});
+
+describe("the age slot's marks", () => {
+  it("stands the clock in for the word, and gives no figure with it", () => {
+    // "present" is a position, not a quantity. A figure beside the clock would
+    // be one — and "0 Ma" is a precision nobody has claimed.
+    const a = markAge(0.01, TIER_MEASURED, null);
+    expect(a).toEqual({ glyph: "present", text: "", title: expect.any(String) });
+    expect(a?.title).not.toBe("");
+  });
+
+  it("leaves an ordinary age unmarked", () => {
+    // Every other value in the slot is a figure that reads on its own. A glyph
+    // on all of them would be decoration, and decoration here costs label width.
+    expect(markAge(96, TIER_MEASURED, null)).toEqual({
+      glyph: null,
+      text: "96 Ma",
+      title: "",
+    });
+  });
+
+  it("shows nothing where no age may be shown", () => {
+    expect(markAge(96, TIER_STRUCTURAL, null)).toBeNull();
   });
 });

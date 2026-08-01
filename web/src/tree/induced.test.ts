@@ -110,16 +110,65 @@ describe("the add delta — the signature interaction's input", () => {
     // flare must land on a node that was already on screen.
     expect(before.rendered).toContain(d.flare);
     // ...and the drawn chain must terminate at the new leaf.
-    expect(d.drawOrder[d.drawOrder.length - 1]).toBe(added);
+    expect(d.drawOrder[d.drawOrder.length - 1]).toContain(added);
     // Root-ward first: staggering in this order reads as travel.
     expect(d.drawOrder.length).toBeGreaterThan(0);
-    for (const v of d.drawOrder) expect(before.rendered).not.toContain(v);
+    for (const v of d.drawOrder.flat()) expect(before.rendered).not.toContain(v);
   });
 
   it("treats the very first selection as its own subject", () => {
     const one = fixture.selection[0]!;
     const after = induced([one], pathOf);
     expect(addDelta(null, after, one).flare).toBe(after.mrca);
+  });
+
+  it("draws every new segment, not one route to the newest leaf", () => {
+    // The page-load case: nothing was on screen, so the whole subtree is new
+    // and every branch of it has to be drawn. Tracing the added leaf's own
+    // ancestry left the rest of the tree to appear without an animation.
+    const after = induced(fixture.selection, pathOf);
+    const d = addDelta(null, after, fixture.selection[0]!);
+    // Every rendered node but the root, which is the point the first wave
+    // leaves from and has no segment above it to draw.
+    expect([...d.drawOrder.flat()].sort((a, b) => a - b)).toEqual(
+      after.rendered.filter((v) => v !== after.mrca),
+    );
+    expect(d.drawOrder.flat()).not.toContain(after.mrca);
+    expect(d.reflowing).toEqual([]);
+  });
+
+  it("puts siblings in the same wave and children in the next one", () => {
+    const after = induced(fixture.selection, pathOf);
+    const d = addDelta(null, after, fixture.selection[0]!);
+
+    // The first wave is everything hanging directly off the MRCA: the
+    // animation starts at one point and opens outward from it.
+    for (const v of d.drawOrder[0]!) {
+      expect(after.segments.get(v)?.anc).toBe(after.mrca);
+    }
+    // And each later wave holds exactly the nodes whose nearest rendered
+    // ancestor was in the wave before it, which is what makes sibling branches
+    // leave their shared ancestor together.
+    for (let w = 1; w < d.drawOrder.length; w++) {
+      for (const v of d.drawOrder[w]!) {
+        expect(d.drawOrder[w - 1]).toContain(after.segments.get(v)?.anc);
+      }
+    }
+    // A tree several nodes deep must take several waves, or the stagger has
+    // collapsed back into a single frame.
+    expect(d.drawOrder.length).toBeGreaterThan(1);
+  });
+
+  it("starts an incremental add on the very first beat", () => {
+    // Wave 0 is the stagger's first beat. A node joining an on-screen ancestor
+    // belongs there — if it slipped to wave 1 the whole sequence would sit
+    // idle through a beat before anything moved.
+    const first = fixture.selection.slice(0, 3);
+    const before = induced(first, pathOf);
+    const added = fixture.selection[3]!;
+    const after = induced([...first, added], pathOf);
+    const d = addDelta(before, after, added);
+    expect(d.drawOrder[0]!.length).toBeGreaterThan(0);
   });
 
   it("reports the nodes that merely move", () => {

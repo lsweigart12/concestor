@@ -35,6 +35,18 @@ export const SYMLOG_T0 = 1.0;
 /** Share of the axis given to the linear stretch. */
 export const LIN_SHARE = 0.07;
 
+/**
+ * Which scale the axis is on.
+ *
+ * The toggle is a real change of scale and not a caption: `linear` maps age to
+ * position proportionally, which squashes every hominin divergence against the
+ * present and is exactly the comparison the toggle exists to let a reader
+ * make. It once changed only the footer word and the knee marker, so the
+ * "linear" view was the symlog view with its warning removed — the one
+ * arrangement that is worse than either scale.
+ */
+export type AxisMode = "log" | "linear";
+
 export const ROW_H = 74;
 export const PLOT_W = 1240;
 export const PAD_X = 150;
@@ -60,6 +72,34 @@ export function fracToAge(frac: number, maxAge: number): number {
   if (frac <= LIN_SHARE) return (frac / LIN_SHARE) * SYMLOG_T0;
   const span = Math.log10(Math.max(maxAge, SYMLOG_T0 * 10) / SYMLOG_T0);
   return SYMLOG_T0 * 10 ** (((frac - LIN_SHARE) / (1 - LIN_SHARE)) * span);
+}
+
+/**
+ * Proportional time: the deepest node at the far edge, the present at 0.
+ *
+ * Unclamped on purpose, so it stays invertible either side of the plot — the
+ * axis asks what age sits under screen x, and that x is routinely off the ends
+ * once the view is panned.
+ */
+export function linearFrac(age: number, maxAge: number): number {
+  if (!Number.isFinite(age)) return 0;
+  return age / Math.max(maxAge, SYMLOG_T0);
+}
+
+/** The scale in force, given the mode. Everything drawn against time uses it. */
+export function ageFrac(age: number, maxAge: number, mode: AxisMode): number {
+  return mode === "linear" ? linearFrac(age, maxAge) : symlogFrac(age, maxAge);
+}
+
+/** Inverse of {@link ageFrac}. */
+export function fracToAgeIn(
+  frac: number,
+  maxAge: number,
+  mode: AxisMode,
+): number {
+  return mode === "linear"
+    ? frac * Math.max(maxAge, SYMLOG_T0)
+    : fracToAge(frac, maxAge);
 }
 
 export interface Placed {
@@ -110,10 +150,16 @@ export function laneHue(idx: number): number {
 export function layout(
   ind: Induced,
   nodes: Map<number, PathNode>,
-  opts: { rowHeight?: number; plotWidth?: number; label?: LabelText } = {},
+  opts: {
+    rowHeight?: number;
+    plotWidth?: number;
+    label?: LabelText;
+    axis?: AxisMode;
+  } = {},
 ): Layout {
   const rowH = opts.rowHeight ?? ROW_H;
   const plotW = opts.plotWidth ?? PLOT_W;
+  const mode = opts.axis ?? "log";
   const placed = new Map<number, Placed>();
   if (ind.rendered.length === 0) {
     return {
@@ -131,7 +177,8 @@ export function layout(
 
   // The present sits at the right edge and deep time runs left, so an older
   // node is further from the reader's starting point rather than closer.
-  const xOf = (v: number) => PAD_X + plotW * (1 - symlogFrac(ageOf(v), maxAge));
+  const xOf = (v: number) =>
+    PAD_X + plotW * (1 - ageFrac(ageOf(v), maxAge, mode));
 
   // y: one row per rendered leaf in preorder order, internal nodes at the
   // midpoint of their children's extent. Rendered leaves are the selections
@@ -245,6 +292,7 @@ export function layout(
 export type LabelText = (p: Placed) => {
   name: string;
   trailing: string;
+  trailingGlyph: boolean;
   meta: string;
   hasSilhouette: boolean;
 };
@@ -252,18 +300,25 @@ export type LabelText = (p: Placed) => {
 const defaultLabelText: LabelText = (p) => ({
   name: p.node.name ?? "unnamed divergence",
   trailing: "",
+  trailingGlyph: false,
   meta: "",
   hasSilhouette: false,
 });
 
 /**
- * Axis ticks that survive a symlog scale.
+ * Boundaries a reader is likely to recognise, offered ahead of round numbers.
  *
- * Chosen as round numbers plus the boundaries a reader is likely to recognise
- * — 66 Ma is the K–Pg, 252 the end-Permian, 541 the base of the Cambrian —
- * because on a log axis evenly-spaced ticks are neither even nor meaningful.
+ * 66 Ma is the K–Pg, 252 the end-Permian, 541 the base of the Cambrian. They
+ * are not a tick *set* — the axis generates its ladder from the range actually
+ * on screen (see `TimeAxis.tsx`) — but where one of these lands close to a
+ * round number, the recognisable one is the better label.
+ *
+ * A fixed set was the whole tick supply once, and the failure was not subtle:
+ * nothing between 1 and 10 meant that human-and-chimp, whose entire tree lives
+ * inside 7 Ma, drew an axis with the single number `0` on it, and any zoom past
+ * the fit pushed all ten off-screen and left the axis blank.
  */
-export const AXIS_TICKS = [0, 1, 10, 66, 100, 252, 541, 1000, 2500, 4000];
+export const LANDMARK_TICKS = [66, 252, 541];
 
 /**
  * Orthogonal edge path with a small consistent corner radius.

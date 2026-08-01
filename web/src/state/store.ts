@@ -13,8 +13,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, type PathNode, type Resolved } from "../api";
 import { addDelta, induced, type AddDelta, type Induced } from "../tree/induced";
+import type { AxisMode } from "../tree/layout";
 
-export type AxisMode = "log" | "linear";
+// One definition, in the module that does the mapping. The axis mode is view
+// state, but it is *also* the scale the layout is computed on, and two copies
+// of the union is how the toggle became a caption in the first place.
+export type { AxisMode };
 
 export interface ViewState {
   /** OTT ids or node keys, in selection order (which is *not* render order). */

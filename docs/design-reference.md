@@ -34,13 +34,28 @@ Sequence, overlapping not sequential:
 
 1. `t=0` — Existing nodes begin spring reflow to new positions.
 2. `t=80` — MRCA node flares. Brief bright pulse. The connection beat.
-3. `t=120` — New trace draws from MRCA outward, ~350ms, ease-out.
-4. `t=470` — Trace decays from flare-bright to steady state over ~800ms.
+3. `t=120` — New traces draw from MRCA outward, ~613ms, ease-out.
+4. `t=733` — Each decays from flare-bright to steady state over ~1400ms.
 
 Reflow and draw must overlap. Sequential feels laggy; overlapping feels
 alive. If the new path spans multiple segments, draw them in order
-root-ward → leaf-ward, lightly staggered. All-at-once reads as a fade-in;
-staggered reads as travel.
+root-ward → leaf-ward, lightly staggered, a wave every ~96ms. All-at-once
+reads as a fade-in; staggered reads as travel.
+
+**A wave, not a route.** Everything the same number of segments from the
+MRCA draws together. Two lineages that parted at one node have to leave it
+at the same moment, because that is what the node *says*. Staggering by
+distance-along-one-path instead is invisible while a single species is being
+added — the new segments are a chain then — but on a restored selection,
+where every segment is new, it picks one arbitrary leaf, unspools the tree
+down its ancestry, and leaves every other branch to appear beside it with no
+animation at all. Breadth-first is the general case; the chain is a special
+case of it.
+
+The MRCA itself is not drawn on. A segment belongs to the node *below* it,
+and the MRCA has nothing above it inside the subtree — it is where the first
+wave leaves from. Giving it a wave of its own spends the first beat of the
+sequence on nothing and delays the whole draw past `t=120`.
 
 Implementation: React Flow edges are SVG paths — use `getTotalLength()` with
 `stroke-dasharray` / `stroke-dashoffset`. Decay is a separate opacity or
@@ -97,6 +112,68 @@ filter tween on the same element.
   drafts made it one, a card and then a pill, and both were a third floating
   object on an edge that already had two. The line it belongs on existed.
 
+## Hit targets
+
+**The pointer follows the ink.** What is painted is what can be clicked; a gap
+between painted things belongs to whatever is drawn underneath it. Everything
+below is that one rule applied to the three things that overlap on the canvas.
+
+- **A label selects its node — the whole label, not the dot.** The name, the
+  rank row and the silhouette are what a reader aims at; the dot is 10px, which
+  is below every pointing guideline there is, and for a long time it was the
+  only target a node had. `onNodeClick` fires for any descendant of the React
+  Flow node wrapper that takes pointer events, so this is a CSS reach and not
+  new wiring.
+- **The transparent parts of a label box do not take the pointer.** The box
+  carries an explicit width from the placement pass and is mostly empty; a
+  one-word name in a 168px box would otherwise cover 140px of canvas with
+  nothing. `pointer-events` is granted to `.mark-text` and the silhouette, never
+  to `.mark-label`. `.mark-text` is also exactly the rectangle the crowded scrim
+  paints, so the scrim and its target are the same box by construction.
+- **A label may cover a trace, and where it does, the label wins.** The loss is
+  not symmetric: a trace is a long run and keeps every other point along it,
+  while a label is one small box and, having lost it, its node is back to a
+  10px dot. In practice the case is rare — the placement pass tests every
+  candidate against the traces, so it only arises when nothing is clear, which
+  is the same condition that draws the scrim. Measured on a twelve-carnivoran
+  canvas at the lowest zoom tier, 2,249 points sampled along every drawn trace:
+  **no point of any trace was taken by a label**, and 92.9% of trace centreline
+  stayed reachable both before and after labels became clickable. The 7.1% that
+  is not reachable is covered by the node dots at the segment endpoints, which
+  has always been true.
+- **The placement pass reserves 5px either side of a trace; the click target is
+  8px.** So a label placed legitimately clear of a trace can still sit inside
+  its hit stroke — measured worst case, a label came within 3px of a centreline
+  and took 5 of the 8px on that side. It narrows the segment there and never
+  blocks it. Widening the model to 8px would push labels around to buy back
+  three pixels of a sixteen-pixel target, which is not a trade worth making.
+- **A silhouette's target is the box the layout reserved, not the box the
+  transform paints.** `--icon-scale` grows the drawing as the canvas pulls back,
+  and a transform moves hit-testing with it: at the 1.6 cap the picture claims
+  54.4px where the placement pass reserved 34, and those extra 10.2px on every
+  side have been tested against nothing, because the model does not know they
+  exist. Letting them take the pointer cost one segment 45% of its clickable
+  length and made one label answer for a *different* node. A counter-scaled
+  overlay pins the target back to the reserved box. **At every zoom of 1:1 or
+  closer the scale is 1, so the drawing and its target are the same box** — the
+  two only diverge as you pull back, which is a survey view, not an aiming one.
+- **Every target belongs to exactly one node.** That is the property to hold on
+  to, and the one worth re-measuring after any change here: sampled on a grid
+  over all 42 targets of a crowded canvas at the lowest tier, 1,841 points, none
+  resolved to the wrong node and none to nothing. Selecting a neighbour is worse
+  than a missed click, because a missed click is visibly nothing and a wrong
+  selection looks like an answer.
+- **Dimmed is not disabled.** Unselected lineages recede to 0.26 opacity, and
+  clicking one is how a reader focuses it. Opacity, the crowded scrim and the
+  hover bloom all leave the target alone.
+- **Both silhouette and name carry a tooltip, and both were unreachable until
+  the label took the pointer.** The silhouette's says what an inherited drawing
+  actually depicts — the smallest clade holding both the node and the picture,
+  and its size. That claim is the whole justification for keeping the provenance
+  text off the canvas label, so a label that cannot be hovered silently deletes
+  it. The name's explains a derived `Homo / Pan` divergence name, which is the
+  only place on the canvas that construction is spelled out.
+
 ## Layout
 
 - Deterministic hierarchical layout. Positions computed, never simulated.
@@ -134,6 +211,24 @@ filter tween on the same element.
 - Two weights maximum. Hierarchy from size, opacity, and glow — not weight.
 - Labels never rotate. Truncate with ellipsis before you tilt text.
 - Numerics are tabular-figure mono. Confident, unapologetic.
+- **The age slot holds figures. Its two non-figures are marks, not words.** A
+  node label says "96 Ma", "≤ 96 Ma", a fossil range, or nothing; the two cases
+  that were spelled out — `fossils` before a range and `present` where there is
+  no number — set a word in the widest slot of a label whose whole placement
+  problem is width, and read as part of the quantity rather than as a change of
+  register. They are an ammonite and a clock, stroked at 13px, defined in
+  `web/src/canvas/AgeGlyph.tsx`.
+  - Stroked, never filled: a *filled* shape beside a node is a silhouette on
+    this canvas, and a silhouette is a claim about what a taxon looks like.
+  - The fossil mark is load-bearing, not decoration. Beside a node drawn at
+    66 Ma a bare "84–66 Ma" reads as that node's age, which is the one thing the
+    `occurrence` tier exists not to imply, so the range never renders without
+    it. `markAge` is the single place that guarantees this.
+  - The words survive as each mark's accessible name and its tooltip, and the
+    node card still spells both out in full. A distinction available only to
+    someone who can see it is not a distinction the product has made.
+  - Running prose is unaffected: the drill-down lane still writes "382 Ma –
+    present", where the word is one end of a range rather than a label.
 
 ## Color
 

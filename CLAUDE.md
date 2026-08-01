@@ -60,7 +60,7 @@ our own; **no dagre, no ELK, no d3-hierarchy**, because a graph-layout engine
 assigns `x` by depth and here `x` is time.
 
 ```bash
-cd web && npm install && npm run build && npm test   # 106 tests
+cd web && npm install && npm run build && npm test   # 135 tests
 cd server && go test ./... && go run . -build ../build
 ```
 

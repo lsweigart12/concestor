@@ -133,20 +133,34 @@ export function induced(
 }
 
 /**
- * Which rendered nodes are new relative to a previous induced subtree, and
- * which segment chain leads to them.
+ * Which rendered nodes are new relative to a previous induced subtree, and in
+ * what order they should be drawn on.
  *
- * The signature interaction draws *from the MRCA outward to the new leaf*, not
- * from the root and not inward from the leaf, because the point of the
- * animation is to show where the new species joins. That makes "which MRCA"
- * and "which segments are new" the two facts the animation needs, and both are
- * cheap set differences over data already in memory.
+ * The signature interaction draws *from the MRCA outward*, not from the root
+ * of life and not inward from the leaf, because the point of the animation is
+ * to show where the new species joins. That makes "which MRCA" and "which
+ * segments are new" the two facts the animation needs, and both are cheap set
+ * differences over data already in memory.
+ *
+ * The draw is **breadth-first**, in waves. A depth-first chain to one leaf was
+ * indistinguishable from it while a single species was being added — the new
+ * nodes form a single chain then — but on a restored selection every node is
+ * new, and tracing one leaf's ancestry made the tree appear to grow down one
+ * arbitrary route while every other branch simply materialised beside it.
+ * Siblings share a wave, so the whole subtree grows outward from the MRCA at
+ * once, which is what the topology actually claims: those lineages parted at
+ * the same node, at the same moment.
  */
 export interface AddDelta {
   /** The node that flares at t=80. The subject. */
   flare: number;
-  /** New rendered nodes, ordered root-ward → leaf-ward for the stagger. */
-  drawOrder: number[];
+  /**
+   * New rendered nodes in waves, root-ward first. Everything in one wave draws
+   * simultaneously; the stagger is between waves. A node stands for the
+   * segment *above* it, so the subtree root is not here: it is where the first
+   * wave leaves from, not something that is drawn.
+   */
+  drawOrder: number[][];
   /** Rendered nodes that existed before and are simply moving. */
   reflowing: number[];
 }
@@ -157,23 +171,47 @@ export function addDelta(
   addedLeaf: number,
 ): AddDelta {
   const prior = new Set(before?.rendered ?? []);
-  const chain: number[] = [];
-  let cur: number | undefined = addedLeaf;
-  while (cur !== undefined && !prior.has(cur)) {
-    chain.push(cur);
-    const seg: Segment | undefined = after.segments.get(cur);
-    cur = seg?.anc ?? undefined;
-  }
-  chain.reverse(); // root-ward first: "staggered reads as travel"
 
   // The flare belongs on the node the new lineage joins at — the nearest
-  // already-present ancestor. On the very first selection there is none, so
-  // the MRCA of the new subtree is the honest subject.
-  const flare = cur !== undefined && prior.has(cur) ? cur : after.mrca;
+  // already-present ancestor of the leaf that was just added. On the very
+  // first selection there is none, so the MRCA of the new subtree is the
+  // honest subject.
+  let join: number | undefined = addedLeaf;
+  while (join !== undefined && !prior.has(join)) {
+    const seg: Segment | undefined = after.segments.get(join);
+    join = seg?.anc ?? undefined;
+  }
+  const flare = join !== undefined ? join : after.mrca;
+
+  // Hops from the join point. What a node contributes to the animation is the
+  // segment *above* it, so the subtree root is not drawn at all — it has no
+  // ancestor here to be drawn from, and giving it a wave of its own spent a
+  // beat of the sequence on nothing. It is the point the first wave leaves
+  // from, which is why it gets ROOT and its children get 0, exactly as an
+  // already-on-screen join point would.
+  const ROOT = -1;
+  const wave = new Map<number, number>();
+  const waveOf = (v: number): number => {
+    const seen = wave.get(v);
+    if (seen !== undefined) return seen;
+    const anc = after.segments.get(v)?.anc ?? null;
+    const w = anc === null ? ROOT : prior.has(anc) ? 0 : Math.max(waveOf(anc) + 1, 0);
+    wave.set(v, w);
+    return w;
+  };
+
+  const waves: number[][] = [];
+  for (const v of after.rendered) {
+    if (prior.has(v)) continue;
+    const w = waveOf(v);
+    if (w !== ROOT) (waves[w] ??= []).push(v);
+  }
 
   return {
     flare,
-    drawOrder: chain,
+    // A wave can only exist if its parent wave does, so there are no holes —
+    // but an empty array is a cheaper contract than a caller that has to know.
+    drawOrder: waves.map((w) => w ?? []),
     reflowing: after.rendered.filter((v) => prior.has(v)),
   };
 }
