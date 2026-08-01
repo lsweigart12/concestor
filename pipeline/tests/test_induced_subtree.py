@@ -6,8 +6,6 @@ chain of unary ancestors above the MRCA still *draws*, it just quietly breaks
 the bound the rendering budget is derived from.
 """
 
-import numpy as np
-
 from concestor_build.newick import parse
 from concestor_build.render import induced_subtree, path_to_root
 
@@ -77,7 +75,7 @@ def test_selection_order_does_not_change_the_result():
 def test_preorder_sort_gives_a_stable_vertical_order():
     # Adding a leaf must insert it in place, never permute the others —
     # this is what makes reflow animate rather than reshuffle (§3.1).
-    t, by = build(b"((((A,B)C,D)E,F)G,(H,(I,J)K)L)R;")
+    _, by = build(b"((((A,B)C,D)E,F)G,(H,(I,J)K)L)R;")
     first = sorted([by[b"A"], by[b"J"]])
     second = sorted([by[b"A"], by[b"J"], by[b"D"]])
     assert [x for x in second if x in first] == first

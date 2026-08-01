@@ -12,7 +12,11 @@ dependencies = [
 concestor-build = "concestor_build.cli:main"
 
 [dependency-groups]
-dev = ["pytest>=8.4"]
+dev = [
+    "pytest>=8.4",
+    "ruff>=0.16.1",
+    "ty>=0.0.65",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -23,3 +27,65 @@ packages = ["src/concestor_build"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py314"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",      # pycodestyle
+    "F",           # pyflakes
+    "I",           # import sorting
+    "UP",          # pyupgrade
+    "B",           # bugbear
+    "SIM",         # simplify
+    "C4",          # comprehensions
+    "RUF",         # ruff-specific
+    "ANN",         # missing annotations — the strict-typing gate
+    "TC",          # type-checking imports
+    "PTH",         # pathlib over os.path
+    "RET",         # return simplification
+    "ARG",         # unused arguments
+    "N",           # pep8-naming
+]
+ignore = [
+    "E501",    # line length is ruff-format's job
+    "ANN401",  # explicit Any is sometimes the honest type for JSON payloads
+    "RUF001",  # en dashes and × in prose and taxon names are deliberate
+    "RUF002",
+    "RUF003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests document behaviour; return annotations on every test add noise
+# without adding information.
+"tests/**" = ["ANN201", "ANN001"]
+
+[tool.ruff.lint.flake8-type-checking]
+runtime-evaluated-base-classes = ["dataclasses.dataclass"]
+
+[tool.ty.environment]
+python-version = "3.14"
+root = ["./src", "./tests"]
+
+[tool.ty.rules]
+# Everything ty can prove, it must. These are the checks that would otherwise
+# be warnings.
+possibly-missing-attribute = "error"
+possibly-missing-import = "error"
+possibly-unresolved-reference = "error"
+unresolved-attribute = "error"
+unresolved-import = "error"
+invalid-argument-type = "error"
+invalid-assignment = "error"
+invalid-return-type = "error"
+missing-argument = "error"
+no-matching-overload = "error"
+not-iterable = "error"
+call-non-callable = "error"
+unsupported-operator = "error"
+too-many-positional-arguments = "error"
+unknown-argument = "error"
+index-out-of-bounds = "error"

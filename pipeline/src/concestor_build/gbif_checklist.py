@@ -14,21 +14,26 @@ that cap (`status` leaves 197k accepted species; `origin` and `nameType` are
 degenerate; `highertaxonKey` matches every ancestor and so does not partition
 at all).
 
-So this builds a *covering* set of shards rather than a partition: recursively
-descend the checklist hierarchy until every shard is under the cap, accepting
-overlap, then deduplicate by GBIF key. Coverage is proven afterwards by
-counting distinct keys against the API's own total — which is a stronger check
-than trusting the shard arithmetic.
+So this builds a *covering* set of shards rather than a partition — cutting on
+rank, then status, then phylum — accepts the resulting overlap, and
+deduplicates by GBIF key. Coverage is proven afterwards by counting distinct
+keys against the API's own total, which is a stronger check than trusting the
+shard arithmetic.
 """
 
 from __future__ import annotations
 
 import json
 import time
-from pathlib import Path
-from typing import Any, Iterator
+from typing import TYPE_CHECKING
 
 import httpx
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+    from pathlib import Path
+
+    from .typing_ import JsonDict, Log
 
 PBDB_DATASET_KEY = "c33ce2f2-c3cc-43a5-a380-fe4526d63650"
 SEARCH = "https://api.gbif.org/v1/species/search"
@@ -56,23 +61,23 @@ KEEP = (
 )
 
 
-def _get(client: httpx.Client, url: str, params: dict) -> dict:
+def _get(client: httpx.Client, url: str, params: JsonDict) -> JsonDict:
     for attempt in range(5):
         try:
             r = client.get(url, params=params)
             if r.status_code == 429 or r.status_code >= 500:
-                time.sleep(2 ** attempt)
+                time.sleep(2**attempt)
                 continue
             r.raise_for_status()
             return r.json()
         except httpx.TransportError:
             if attempt == 4:
                 raise
-            time.sleep(2 ** attempt)
+            time.sleep(2**attempt)
     raise RuntimeError(f"giving up on {url} {params}")
 
 
-def count(client: httpx.Client, filters: dict) -> int:
+def count(client: httpx.Client, filters: JsonDict) -> int:
     p = {"datasetKey": PBDB_DATASET_KEY, "limit": 0} | filters
     return _get(client, SEARCH, p)["count"]
 
@@ -113,17 +118,24 @@ STATUSES = (
 )
 
 
-def _facet(client: httpx.Client, filters: dict, field: str, limit: int = 400):
+def _facet(
+    client: httpx.Client, filters: JsonDict, field: str, limit: int = 400
+) -> list[tuple[str, int]]:
     d = _get(
         client,
         SEARCH,
-        {"datasetKey": PBDB_DATASET_KEY, "limit": 0, "facet": field,
-         "facetLimit": limit} | filters,
+        {
+            "datasetKey": PBDB_DATASET_KEY,
+            "limit": 0,
+            "facet": field,
+            "facetLimit": limit,
+        }
+        | filters,
     )
     return [(c["name"], c["count"]) for f in d["facets"] for c in f["counts"]]
 
 
-def plan_shards(client: httpx.Client, log=print) -> list[dict]:
+def plan_shards(client: httpx.Client, log: Log = print) -> list[JsonDict]:
     """Build a covering set of shards, each under GBIF's offset cap.
 
     Three fixed cuts, deepening only where needed:
@@ -137,7 +149,7 @@ def plan_shards(client: httpx.Client, log=print) -> list[dict]:
     fixed phylum-level cut buys the same coverage in ~200 requests, and the
     duplicate records it produces are removed by the dedup-by-key step.
     """
-    shards: list[dict] = []
+    shards: list[JsonDict] = []
     log(f"  checklist total: {count(client, {}):,}")
 
     phyla: list[str] | None = None
@@ -162,29 +174,29 @@ def plan_shards(client: httpx.Client, log=print) -> list[dict]:
                     for r in _get(
                         client,
                         SEARCH,
-                        {"datasetKey": PBDB_DATASET_KEY, "rank": "PHYLUM",
-                         "limit": PAGE},
+                        {
+                            "datasetKey": PBDB_DATASET_KEY,
+                            "rank": "PHYLUM",
+                            "limit": PAGE,
+                        },
                     )["results"]
                 ]
                 log(f"  using {len(phyla)} phylum-level shards where needed")
             log(f"  splitting rank={rank} status={status} ({n:,}) by phylum")
             for p in phyla:
-                shards.append(
-                    {"rank": rank, "status": status, "highertaxonKey": p}
-                )
+                shards.append({"rank": rank, "status": status, "highertaxonKey": p})
 
     log(f"  planned {len(shards)} shards")
     return shards
 
 
-def fetch_shard(client: httpx.Client, filters: dict) -> Iterator[dict]:
+def fetch_shard(client: httpx.Client, filters: JsonDict) -> Iterator[JsonDict]:
     offset = 0
     while True:
         d = _get(
             client,
             SEARCH,
-            {"datasetKey": PBDB_DATASET_KEY, "limit": PAGE, "offset": offset}
-            | filters,
+            {"datasetKey": PBDB_DATASET_KEY, "limit": PAGE, "offset": offset} | filters,
         )
         results = d.get("results", [])
         yield from results
@@ -193,14 +205,13 @@ def fetch_shard(client: httpx.Client, filters: dict) -> Iterator[dict]:
         offset += PAGE
 
 
-def export(client: httpx.Client, dest: Path, log=print) -> dict[str, Any]:
+def export(client: httpx.Client, dest: Path, log: Log = print) -> JsonDict:
     """Write newline-delimited JSON of the checklist; return a coverage report."""
     total = count(client, {})
     shards = plan_shards(client, log=log)
 
-    seen: dict[int, dict] = {}
+    seen: dict[int, JsonDict] = {}
     for i, filters in enumerate(shards, 1):
-        n_before = len(seen)
         for rec in fetch_shard(client, filters):
             seen[rec["key"]] = {k: rec.get(k) for k in KEEP}
         if i % 25 == 0 or i == len(shards):

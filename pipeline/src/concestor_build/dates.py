@@ -24,15 +24,19 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from . import newick
 from .gates import GateSet
-from .newick import NO_OTT, NO_PARENT
+from .newick import NO_OTT
 from .paths import BUILD, SNAPSHOT
-from .topology import OUT as TOPO_OUT, DB, load_forwards
+from .topology import DB, load_forwards
+from .topology import OUT as TOPO_OUT
+
+if TYPE_CHECKING:
+    from .typing_ import BoolArray, F64Array, I64Array, Json, Log, U32Array, U64Array
 
 TREES = {
     "equal_splits": SNAPSHOT / "duke2026" / "equal_splits_median_tree.tre",
@@ -61,8 +65,8 @@ CLADE_SEED = 20260731
 
 
 def node_ages_from_lengths(
-    parent: np.ndarray, blen: np.ndarray, is_tip: np.ndarray
-) -> tuple[np.ndarray, np.ndarray]:
+    parent: U32Array, blen: F64Array, is_tip: BoolArray
+) -> tuple[F64Array, F64Array]:
     """Age of each node as its distance down to a descendant tip.
 
     Returns (max_age, min_age) over descendant paths. The two coincide exactly
@@ -85,18 +89,16 @@ def node_ages_from_lengths(
     for i in range(n - 1, 0, -1):
         p = par_l[i]
         c = hi_l[i] + bl_l[i]
-        if c > hi_l[p]:
-            hi_l[p] = c
+        hi_l[p] = max(hi_l[p], c)
         c = lo_l[i] + bl_l[i]
-        if c < lo_l[p]:
-            lo_l[p] = c
+        lo_l[p] = min(lo_l[p], c)
 
     return np.array(hi_l), np.array(lo_l)
 
 
 def _fingerprint(
-    parent: np.ndarray, n: int, leaf_idx: np.ndarray, leaf_hash: np.ndarray
-) -> tuple[np.ndarray, np.ndarray]:
+    parent: U32Array, n: int, leaf_idx: I64Array, leaf_hash: U64Array
+) -> tuple[U64Array, I64Array]:
     """XOR set-hash and count of shared tips beneath every node.
 
     Two nodes subtend the same set of shared tips iff their (hash, count)
@@ -134,14 +136,10 @@ def run(tree: str = "equal_splits", provisional: bool = False) -> int:
     con = sqlite3.connect(DB)
     our_key_to_idx = {
         k: i
-        for i, k in con.execute(
-            "SELECT idx, node_key FROM node WHERE ott_id IS NULL"
-        )
+        for i, k in con.execute("SELECT idx, node_key FROM node WHERE ott_id IS NULL")
     }
     con.close()
-    our_ott_to_idx = {
-        int(o): i for i, o in enumerate(our_ott.tolist()) if o != NO_OTT
-    }
+    our_ott_to_idx = {int(o): i for i, o in enumerate(our_ott.tolist()) if o != NO_OTT}
     forwards = load_forwards()
     print(
         f"  ours: {n_ours:,} nodes, {int(our_is_tip.sum()):,} tips, "
@@ -153,6 +151,11 @@ def run(tree: str = "equal_splits", provisional: bool = False) -> int:
     print(f"\n--- parsing {path.name} ({path.stat().st_size:,} B) ---", flush=True)
     t0 = time.monotonic()
     dk = newick.parse(path.read_bytes(), want_branch_lengths=True)
+    if dk.branch_length is None:
+        raise RuntimeError(
+            f"{path.name} parsed without branch lengths; there are no ages to validate"
+        )
+    blen: F64Array = dk.branch_length
     dk_topo = newick.derive(dk.parent)
     print(f"  parsed {dk.n_nodes:,} nodes in {time.monotonic() - t0:,.1f}s", flush=True)
 
@@ -161,7 +164,9 @@ def run(tree: str = "equal_splits", provisional: bool = False) -> int:
     g.observe("dated tree nodes", f"{dk.n_nodes:,}", f"ours: {n_ours:,}")
     g.observe("dated tree tips", f"{dk_tips:,}", f"ours: {int(our_is_tip.sum()):,}")
     g.observe(
-        "dated tree internal nodes", f"{dk_internal:,}", f"ours: {n_ours - int(our_is_tip.sum()):,}"
+        "dated tree internal nodes",
+        f"{dk_internal:,}",
+        f"ours: {n_ours - int(our_is_tip.sum()):,}",
     )
     g.observe(
         "dated tree max branching factor",
@@ -172,7 +177,7 @@ def run(tree: str = "equal_splits", provisional: bool = False) -> int:
 
     # ---- ages ------------------------------------------------------------
     print("\n--- ages ---", flush=True)
-    hi, lo = node_ages_from_lengths(dk.parent, dk.branch_length, dk_topo.is_tip)
+    hi, lo = node_ages_from_lengths(dk.parent, blen, dk_topo.is_tip)
     root_age = float(hi[0])
     residual = float(np.nanmax(hi - lo))
     g.require(
@@ -186,7 +191,7 @@ def run(tree: str = "equal_splits", provisional: bool = False) -> int:
         round(residual, 6),
         "0 for a strictly ultrametric chronogram",
     )
-    neg = int((np.nan_to_num(dk.branch_length, nan=0.0) < 0).sum())
+    neg = int((np.nan_to_num(blen, nan=0.0) < 0).sum())
     g.require(
         "negative branch lengths (monotonicity violations)",
         f"{neg:,} ({100 * neg / dk.n_nodes:.4f}%)",
@@ -282,10 +287,18 @@ def run(tree: str = "equal_splits", provisional: bool = False) -> int:
     unmatched_labels: dict[str, int] = {}
     for i in np.flatnonzero(~joined):
         lbl = dk.labels[i]
-        pre = "mrcaimp" if lbl.startswith(b"mrcaimp") else (
-            "mrcapoly" if lbl.startswith(b"mrcapoly") else
-            "mrcaott*" if lbl.startswith(b"mrcaott") else
-            "<empty>" if not lbl else "other"
+        pre = (
+            "mrcaimp"
+            if lbl.startswith(b"mrcaimp")
+            else (
+                "mrcapoly"
+                if lbl.startswith(b"mrcapoly")
+                else "mrcaott*"
+                if lbl.startswith(b"mrcaott")
+                else "<empty>"
+                if not lbl
+                else "other"
+            )
         )
         unmatched_labels[pre] = unmatched_labels.get(pre, 0) + 1
     g.observe("unmatched dated-tree labels by kind", unmatched_labels)
@@ -305,16 +318,16 @@ def run(tree: str = "equal_splits", provisional: bool = False) -> int:
         names,
         log=print,
     )
-    g.observe("tips shared by both trees", f'{cong["shared_tips"]:,}')
+    g.observe("tips shared by both trees", f"{cong['shared_tips']:,}")
     g.observe(
         "matched nodes subtending an identical clade",
-        f'{cong["identical"]:,} / {cong["testable_matched_nodes"]:,} '
-        f'({cong["identical_pct"]}%)',
+        f"{cong['identical']:,} / {cong['testable_matched_nodes']:,} "
+        f"({cong['identical_pct']}%)",
     )
     g.require(
         "matched nodes whose phase-1 clade is compatible with the dated tree",
-        f'{cong["compatible_subset"]:,} / {cong["testable_matched_nodes"]:,} '
-        f'({cong["compatible_pct"]}%)',
+        f"{cong['compatible_subset']:,} / {cong['testable_matched_nodes']:,} "
+        f"({cong['compatible_pct']}%)",
         f">= {MIN_INTERNAL_CORRESPONDENCE:.1%}",
         ok=cong["compatible_pct"] / 100 >= MIN_INTERNAL_CORRESPONDENCE,
         note=(
@@ -325,7 +338,7 @@ def run(tree: str = "equal_splits", provisional: bool = False) -> int:
     )
     g.require(
         "matched nodes the dated tree actively contradicts",
-        f'{cong["conflicting"]:,} ({cong["conflicting_pct"]}%)',
+        f"{cong['conflicting']:,} ({cong['conflicting_pct']}%)",
         f"< {100 * (1 - MIN_INTERNAL_CORRESPONDENCE):.1f}%",
         ok=cong["conflicting_pct"] / 100 <= (1 - MIN_INTERNAL_CORRESPONDENCE),
     )
@@ -377,8 +390,13 @@ def run(tree: str = "equal_splits", provisional: bool = False) -> int:
         "spot_checks": spot,
         "accepted": g.ok,
         "gates": [
-            {"name": x.name, "passed": x.passed, "blocking": x.blocking,
-             "expected": str(x.expected), "actual": str(x.actual)}
+            {
+                "name": x.name,
+                "passed": x.passed,
+                "blocking": x.blocking,
+                "expected": str(x.expected),
+                "actual": str(x.actual),
+            }
             for x in g.gates
         ],
     }
@@ -411,15 +429,15 @@ def run(tree: str = "equal_splits", provisional: bool = False) -> int:
 
 
 def congruence(
-    our_parent,
-    our_subtree_out,
-    our_is_tip,
-    dk,
-    dk_topo,
-    dk_to_ours,
+    our_parent: U32Array,
+    our_subtree_out: U32Array,
+    our_is_tip: BoolArray,
+    dk: newick.ParsedTree,
+    dk_topo: newick.Topology,
+    dk_to_ours: I64Array,
     names: dict[int, str],
-    log=print,
-) -> dict:
+    log: Log = print,
+) -> dict[str, Json]:
     """Compare the two topologies exactly, over the tips they share.
 
     Three distinct questions, deliberately kept apart because they give very
@@ -481,7 +499,7 @@ def congruence(
 
     n = len(md)
     return {
-        "shared_tips": int(len(so)),
+        "shared_tips": len(so),
         "testable_matched_nodes": n,
         "identical": int(identical.sum()),
         "identical_pct": round(100 * float(identical.mean()), 4),
@@ -493,7 +511,9 @@ def congruence(
     }
 
 
-def _write_ages(hi, dk_to_ours, n_ours, tree: str, *, accepted: bool) -> None:
+def _write_ages(
+    hi: F64Array, dk_to_ours: I64Array, n_ours: int, tree: str, *, accepted: bool
+) -> None:
     """Write per-idx ages, plus a sidecar recording whether the gate passed.
 
     The sidecar exists so nothing downstream can consume these ages without

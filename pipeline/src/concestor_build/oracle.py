@@ -18,19 +18,22 @@ from __future__ import annotations
 
 import random
 import time
-from typing import Any
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from . import newick, provenance
 from .newick import NO_OTT
 
+if TYPE_CHECKING:
+    from .typing_ import Json, Log, U32Array
+
 ENDPOINT = "https://api.opentreeoflife.org/v3/tree_of_life/induced_subtree"
 PACE_SECONDS = 0.34
 
 
 def _our_clades(
-    parent: np.ndarray, idx_of: dict[int, int], query: list[int]
+    parent: U32Array, idx_of: dict[int, int], query: list[int]
 ) -> set[frozenset[int]]:
     """Clades of the induced subtree, as sets of query OTT ids."""
     below: dict[int, set[int]] = {}
@@ -45,7 +48,7 @@ def _our_clades(
     return {frozenset(s) for s in below.values()}
 
 
-def _api_clades(nwk: bytes) -> tuple[set[frozenset[int]], int]:
+def _api_clades(nwk: bytes) -> set[frozenset[int]]:
     """Clades of the API's returned Newick, as sets of query OTT ids."""
     t = newick.parse(nwk)
     topo = newick.derive(t.parent)
@@ -61,7 +64,7 @@ def _api_clades(nwk: bytes) -> tuple[set[frozenset[int]], int]:
         p = par[i]
         if p != int(newick.NO_PARENT):
             below[p] |= below[i]
-    return {frozenset(s) for s in below if s}, int(topo.is_tip.sum())
+    return {frozenset(s) for s in below if s}
 
 
 def check_induced_subtrees(
@@ -70,15 +73,15 @@ def check_induced_subtrees(
     *,
     samples: int = 200,
     seed: int = 20260731,
-    log=print,
-) -> dict[str, Any]:
+    log: Log = print,
+) -> dict[str, Json]:
     rng = random.Random(seed)
 
     tip_idx = np.flatnonzero(topo.is_tip & (tree.ott_id != NO_OTT))
     ott_of_tip = tree.ott_id[tip_idx]
     idx_of = {
         int(o): int(i)
-        for o, i in zip(tree.ott_id.tolist(), range(tree.n_nodes))
+        for o, i in zip(tree.ott_id.tolist(), range(tree.n_nodes), strict=False)
         if o != NO_OTT
     }
     log(f"  {len(tip_idx):,} tips carry an OTT id and are sampleable")
@@ -90,9 +93,7 @@ def check_induced_subtrees(
     with provenance.client(timeout=180.0) as client:
         for s in range(samples):
             k = rng.randint(2, 20)
-            picks = [
-                int(ott_of_tip[rng.randrange(len(ott_of_tip))]) for _ in range(k)
-            ]
+            picks = [int(ott_of_tip[rng.randrange(len(ott_of_tip))]) for _ in range(k)]
             picks = sorted(set(picks))
             if len(picks) < 2:
                 continue
@@ -102,10 +103,8 @@ def check_induced_subtrees(
                 # labels, matching our node_key convention exactly. The
                 # default format interpolates names, which can contain
                 # apostrophes and so arrive Newick-quoted.
-                r = client.post(
-                    ENDPOINT, json={"ott_ids": picks, "label_format": "id"}
-                )
-            except Exception as e:  # noqa: BLE001
+                r = client.post(ENDPOINT, json={"ott_ids": picks, "label_format": "id"})
+            except Exception:
                 skipped += 1
                 skips["transport"] = skips.get("transport", 0) + 1
                 continue
@@ -113,7 +112,7 @@ def check_induced_subtrees(
 
             if r.status_code != 200:
                 skipped += 1
-                reason = "http_%d" % r.status_code
+                reason = f"http_{r.status_code}"
                 skips[reason] = skips.get(reason, 0) + 1
                 continue
             d = r.json()
@@ -136,7 +135,7 @@ def check_induced_subtrees(
                 skips["no_newick"] = skips.get("no_newick", 0) + 1
                 continue
 
-            theirs, n_api_tips = _api_clades(nwk.encode())
+            theirs = _api_clades(nwk.encode())
             api_tips = set().union(*theirs) if theirs else set()
             if api_tips != set(picks):
                 skipped += 1
@@ -153,8 +152,12 @@ def check_induced_subtrees(
                     failures.append(
                         {
                             "ott_ids": picks,
-                            "only_ours": [sorted(c) for c in sorted(ours - theirs, key=sorted)][:4],
-                            "only_theirs": [sorted(c) for c in sorted(theirs - ours, key=sorted)][:4],
+                            "only_ours": [
+                                sorted(c) for c in sorted(ours - theirs, key=sorted)
+                            ][:4],
+                            "only_theirs": [
+                                sorted(c) for c in sorted(theirs - ours, key=sorted)
+                            ][:4],
                         }
                     )
 

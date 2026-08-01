@@ -39,9 +39,8 @@ def test_unnamed_internal_nodes_keep_their_slot():
 def test_branch_lengths_split_off_the_label():
     t = parse(b"((A:1.5,B:2)X:0.25,C:3)Y;", want_branch_lengths=True)
     assert t.labels == [b"Y", b"X", b"A", b"B", b"C"]
-    np.testing.assert_allclose(
-        t.branch_length, [np.nan, 0.25, 1.5, 2.0, 3.0]
-    )
+    assert t.branch_length is not None
+    np.testing.assert_allclose(t.branch_length, [np.nan, 0.25, 1.5, 2.0, 3.0])
 
 
 def test_ott_id_extraction_covers_every_synthesis_label_form():

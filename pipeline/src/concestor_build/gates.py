@@ -14,9 +14,11 @@ from __future__ import annotations
 
 import json
 import sys
-from dataclasses import dataclass, field, asdict
-from pathlib import Path
-from typing import Any
+from dataclasses import asdict, dataclass, field
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 @dataclass(slots=True)
@@ -29,10 +31,7 @@ class Gate:
     note: str = ""
 
     def line(self) -> str:
-        if self.passed:
-            mark = "PASS"
-        else:
-            mark = "FAIL" if self.blocking else "WARN"
+        mark = "PASS" if self.passed else ("FAIL" if self.blocking else "WARN")
         body = f"[{mark}] {self.name}"
         if self.expected is not None:
             body += f"\n         expected: {self.expected}"

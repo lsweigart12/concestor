@@ -12,13 +12,17 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-
-import httpx
+from typing import TYPE_CHECKING
 
 from . import gbif_checklist, provenance
 from .gates import GateSet
 from .paths import SNAPSHOT
 from .provenance import Manifest, fetch, record_local
+
+if TYPE_CHECKING:
+    import httpx
+
+    from .typing_ import JsonDict
 
 OTT_SYNTH = "https://files.opentreeoflife.org/synthesis/opentree16.1"
 OTT_TAX = "https://files.opentreeoflife.org/ott/ott3.7.3"
@@ -27,87 +31,87 @@ ZENODO_RECORD = "19049120"
 
 # Sizes measured 2026-07-31 (docs/data-sources.md). A mismatch is reported but
 # does not fail the phase on its own — the SHA-256 is the real identity.
-DOWNLOADS: list[dict] = [
+DOWNLOADS: list[JsonDict] = [
     # --- decaying sources, captured first -------------------------------
-    dict(
-        name="gbif_legacy_backbone_simple",
-        url=f"{GBIF_BACKBONE}/simple.txt.gz",
-        rel="gbif_legacy_backbone/simple.txt.gz",
-        note=(
+    {
+        "name": "gbif_legacy_backbone_simple",
+        "url": f"{GBIF_BACKBONE}/simple.txt.gz",
+        "rel": "gbif_legacy_backbone/simple.txt.gz",
+        "note": (
             "GBIF backbone frozen 2023-08-28, never to be updated. Headerless "
             "TSV. The only identifier path from PBDB to OTT runs through this."
         ),
-    ),
-    dict(
-        name="gbif_legacy_backbone_readme",
-        url=f"{GBIF_BACKBONE}/README.html",
-        rel="gbif_legacy_backbone/README.html",
-        note="Release notes for the frozen backbone; records its CoL July 2023 basis.",
-    ),
-    dict(
-        name="gbif_pbdb_checklist_dwca",
-        url="https://hosted-datasets.gbif.org/datasets/pbdb.zip",
-        rel="gbif_pbdb_checklist/pbdb.zip",
-        note=(
+    },
+    {
+        "name": "gbif_legacy_backbone_readme",
+        "url": f"{GBIF_BACKBONE}/README.html",
+        "rel": "gbif_legacy_backbone/README.html",
+        "note": "Release notes for the frozen backbone; records its CoL July 2023 basis.",
+    },
+    {
+        "name": "gbif_pbdb_checklist_dwca",
+        "url": "https://hosted-datasets.gbif.org/datasets/pbdb.zip",
+        "rel": "gbif_pbdb_checklist/pbdb.zip",
+        "note": (
             "PBDB checklist Darwin Core archive. Preserves PBDB taxon_no "
             "verbatim in taxonID. Carries no nubKey — see the API export."
         ),
-    ),
+    },
     # --- Open Tree ------------------------------------------------------
-    dict(
-        name="opentree16.1_tree",
-        url=f"{OTT_SYNTH}/opentree16.1_tree.tgz",
-        rel="opentree/opentree16.1_tree.tgz",
-        expect_bytes=41_608_973,
-        note="labelled_supertree.tre and friends. Phase 1 input.",
-    ),
-    dict(
-        name="opentree16.1_output",
-        url=f"{OTT_SYNTH}/opentree16.1_output.tgz",
-        rel="opentree/opentree16.1_output.tgz",
-        note="Full synthesis output; carries broken_taxa.json (259 MB) for phase 1 step 7.",
-    ),
-    dict(
-        name="ott3.7.3",
-        url=f"{OTT_TAX}/ott3.7.3.tgz",
-        rel="opentree/ott3.7.3.tgz",
-        expect_bytes=111_278_327,
-        note="taxonomy.tsv, synonyms.tsv, forwards.tsv (297,070 entries).",
-    ),
-    dict(
-        name="ott3.7.3_properties",
-        url=f"{OTT_TAX}/properties.json",
-        rel="opentree/ott3.7.3_properties.json",
-        note='Declares "legal": "cc0" and the upstream source versions.',
-    ),
+    {
+        "name": "opentree16.1_tree",
+        "url": f"{OTT_SYNTH}/opentree16.1_tree.tgz",
+        "rel": "opentree/opentree16.1_tree.tgz",
+        "expect_bytes": 41_608_973,
+        "note": "labelled_supertree.tre and friends. Phase 1 input.",
+    },
+    {
+        "name": "opentree16.1_output",
+        "url": f"{OTT_SYNTH}/opentree16.1_output.tgz",
+        "rel": "opentree/opentree16.1_output.tgz",
+        "note": "Full synthesis output; carries broken_taxa.json (259 MB) for phase 1 step 7.",
+    },
+    {
+        "name": "ott3.7.3",
+        "url": f"{OTT_TAX}/ott3.7.3.tgz",
+        "rel": "opentree/ott3.7.3.tgz",
+        "expect_bytes": 111_278_327,
+        "note": "taxonomy.tsv, synonyms.tsv, forwards.tsv (297,070 entries).",
+    },
+    {
+        "name": "ott3.7.3_properties",
+        "url": f"{OTT_TAX}/properties.json",
+        "rel": "opentree/ott3.7.3_properties.json",
+        "note": 'Declares "legal": "cc0" and the upstream source versions.',
+    },
     # --- Duke et al. dated trees (phase 2 decision gate) ----------------
-    dict(
-        name="duke_equal_splits_median_tree",
-        url=(
+    {
+        "name": "duke_equal_splits_median_tree",
+        "url": (
             "https://zenodo.org/api/records/"
             f"{ZENODO_RECORD}/files/equal_splits_median_tree.tre/content"
         ),
-        rel="duke2026/equal_splits_median_tree.tre",
-        expect_bytes=145_750_830,
-        note="Zenodo 10.5281/zenodo.19049120, CC-BY-4.0. md5:8c667dc557b17bbd8e33d9867c347e9a",
-    ),
-    dict(
-        name="duke_birth_model_median_tree",
-        url=(
+        "rel": "duke2026/equal_splits_median_tree.tre",
+        "expect_bytes": 145_750_830,
+        "note": "Zenodo 10.5281/zenodo.19049120, CC-BY-4.0. md5:8c667dc557b17bbd8e33d9867c347e9a",
+    },
+    {
+        "name": "duke_birth_model_median_tree",
+        "url": (
             "https://zenodo.org/api/records/"
             f"{ZENODO_RECORD}/files/birth_model_median_tree.tre/content"
         ),
-        rel="duke2026/birth_model_median_tree.tre",
-        expect_bytes=146_184_627,
-        note="Comparison layer. md5:a01b2f8290bc10c750a74c9a33eb02fa",
-    ),
+        "rel": "duke2026/birth_model_median_tree.tre",
+        "expect_bytes": 146_184_627,
+        "note": "Comparison layer. md5:a01b2f8290bc10c750a74c9a33eb02fa",
+    },
     # --- timescale ------------------------------------------------------
-    dict(
-        name="ics_chart_ttl",
-        url="https://raw.githubusercontent.com/i-c-stratigraphy/chart/main/chart.ttl",
-        rel="ics/chart.ttl",
-        note="ICS v2026/06, CC-BY-4.0. Cite Cohen et al., Episodes 2025;48:105-115.",
-    ),
+    {
+        "name": "ics_chart_ttl",
+        "url": "https://raw.githubusercontent.com/i-c-stratigraphy/chart/main/chart.ttl",
+        "rel": "ics/chart.ttl",
+        "note": "ICS v2026/06, CC-BY-4.0. Cite Cohen et al., Episodes 2025;48:105-115.",
+    },
 ]
 
 PBDB_TAXA_URL = (
@@ -115,12 +119,11 @@ PBDB_TAXA_URL = (
     "?all_records&show=app,attr,parent,size,seq&limit=all"
 )
 PBDB_DATAINFO_URL = (
-    "https://paleobiodb.org/data1.2/taxa/list.json"
-    "?all_records&limit=1&datainfo"
+    "https://paleobiodb.org/data1.2/taxa/list.json?all_records&limit=1&datainfo"
 )
 
 
-def _zenodo_metadata(client: httpx.Client, dest: Path) -> dict:
+def _zenodo_metadata(client: httpx.Client, dest: Path) -> JsonDict:
     r = client.get(f"https://zenodo.org/api/records/{ZENODO_RECORD}")
     r.raise_for_status()
     d = r.json()
@@ -207,9 +210,6 @@ def run(skip_checklist: bool = False, force: bool = False) -> int:
                 "data_url. This block IS the citation PBDB asks for."
             ),
         )
-        lic = (di.json().get("data_license") or "") or json.dumps(
-            di.json()
-        )[:0]
         g.observe(
             "PBDB declared license",
             di.json().get("data_license", "<absent>"),
@@ -242,7 +242,7 @@ def run(skip_checklist: bool = False, force: bool = False) -> int:
             )
             g.observe(
                 "GBIF checklist rows carrying nubKey",
-                f'{report["with_nub_key"]:,} ({report["nub_key_pct"]}%)',
+                f"{report['with_nub_key']:,} ({report['nub_key_pct']}%)",
                 "~88% reach a nubKey (docs §4)",
             )
 

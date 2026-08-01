@@ -20,16 +20,22 @@ stack.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from .typing_ import BoolArray, DepthArray, F64Array, I64Array, U32Array
 
 LPAREN = ord("(")
 RPAREN = ord(")")
 COMMA = ord(",")
 SEMI = ord(";")
 
-NO_PARENT = np.iinfo(np.uint32).max
-NO_OTT = -1
+NO_PARENT: int = int(np.iinfo(np.uint32).max)
+NO_OTT: int = -1
 
 
 class NewickError(RuntimeError):
@@ -38,10 +44,10 @@ class NewickError(RuntimeError):
 
 @dataclass(slots=True)
 class ParsedTree:
-    parent: np.ndarray  # uint32, NO_PARENT at the root
-    ott_id: np.ndarray  # int64, NO_OTT where the label carries none
+    parent: U32Array  # NO_PARENT at the root
+    ott_id: I64Array  # NO_OTT where the label carries none
     labels: list[bytes]
-    branch_length: np.ndarray | None  # float64, NaN where absent
+    branch_length: F64Array | None  # NaN where absent
 
     @property
     def n_nodes(self) -> int:
@@ -85,7 +91,10 @@ def parse_ott_id(label: bytes) -> int:
 
 
 def parse(
-    data: bytes, *, want_branch_lengths: bool = False, progress=None
+    data: bytes,
+    *,
+    want_branch_lengths: bool = False,
+    progress: Callable[[int, int], None] | None = None,
 ) -> ParsedTree:
     """Parse one Newick tree, assigning `idx` by preorder traversal."""
     buf = np.frombuffer(data, dtype=np.uint8)
@@ -97,9 +106,7 @@ def parse(
             "would mis-split on delimiters inside quotes"
         )
 
-    is_delim = (
-        (buf == LPAREN) | (buf == RPAREN) | (buf == COMMA) | (buf == SEMI)
-    )
+    is_delim = (buf == LPAREN) | (buf == RPAREN) | (buf == COMMA) | (buf == SEMI)
     positions = np.flatnonzero(is_delim)
     if positions.size == 0:
         raise NewickError("no Newick structure found")
@@ -186,15 +193,15 @@ def parse(
 
 @dataclass(slots=True)
 class Topology:
-    parent: np.ndarray  # uint32
-    depth: np.ndarray  # uint8
-    subtree_out: np.ndarray  # uint32, exclusive end of the preorder interval
-    tip_count: np.ndarray  # uint32
-    child_count: np.ndarray  # uint32
-    is_tip: np.ndarray  # bool
+    parent: U32Array
+    depth: DepthArray
+    subtree_out: U32Array  # exclusive end of the preorder interval
+    tip_count: U32Array
+    child_count: U32Array
+    is_tip: BoolArray
 
 
-def derive(parent: np.ndarray) -> Topology:
+def derive(parent: U32Array) -> Topology:
     """Compute depth, subtree extent and tip counts from the parent array.
 
     Every quantity here is a single pass, forward or reverse, because preorder

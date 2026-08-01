@@ -14,18 +14,27 @@ failure mode the whole design is organised around.
 
 from __future__ import annotations
 
+import itertools
 import json
 import math
 import sqlite3
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from .newick import NO_OTT, NO_PARENT
 from .paths import BUILD
-from .topology import OUT as TOPO_OUT, DB
+from .topology import DB
+from .topology import OUT as TOPO_OUT
+
+if TYPE_CHECKING:
+    from .typing_ import F32Array, JsonDict, U32Array
 
 OUT_SVG = BUILD / "skeleton.svg"
+
+# For each rendered node: its nearest rendered ancestor (None at the induced
+# root) and the degree-2 nodes suppressed between them.
+type Segments = dict[int, tuple[int | None, list[int]]]
 
 # A deliberately awkward set: two primates, a rodent, a bird, one of the 1,129
 # extinct taxa that do survive into the synthesis tree, a fish, a mollusc, an
@@ -50,7 +59,7 @@ MARGIN_L, MARGIN_R, MARGIN_T, MARGIN_B = 260, 300, 96, 96
 SYMLOG_T0 = 1.0  # Ma; below this the axis is linear, above it logarithmic
 
 
-def path_to_root(parent: np.ndarray, idx: int) -> list[int]:
+def path_to_root(parent: U32Array, idx: int) -> list[int]:
     """The load-bearing primitive. Root-first ancestor chain."""
     out = [idx]
     cur = idx
@@ -65,7 +74,9 @@ def path_to_root(parent: np.ndarray, idx: int) -> list[int]:
     return out
 
 
-def induced_subtree(parent: np.ndarray, selection: list[int]):
+def induced_subtree(
+    parent: U32Array, selection: list[int]
+) -> tuple[set[int], Segments]:
     """Marked set, rendered set and segments, per architecture §2."""
     paths = {leaf: path_to_root(parent, leaf) for leaf in selection}
 
@@ -75,7 +86,9 @@ def induced_subtree(parent: np.ndarray, selection: list[int]):
     mrca_depth = min(len(p) for p in paths.values())
     while mrca_depth > 0:
         cand = first[mrca_depth - 1]
-        if all(len(p) >= mrca_depth and p[mrca_depth - 1] == cand for p in paths.values()):
+        if all(
+            len(p) >= mrca_depth and p[mrca_depth - 1] == cand for p in paths.values()
+        ):
             break
         mrca_depth -= 1
     mrca = first[mrca_depth - 1]
@@ -90,21 +103,19 @@ def induced_subtree(parent: np.ndarray, selection: list[int]):
 
     children_in_marked: dict[int, set[int]] = {}
     for p in paths.values():
-        for a, b in zip(p, p[1:]):
+        for a, b in itertools.pairwise(p):
             children_in_marked.setdefault(a, set()).add(b)
 
     chosen = set(selection)
     rendered = {
-        v
-        for v in marked
-        if v in chosen or len(children_in_marked.get(v, ())) >= 2
+        v for v in marked if v in chosen or len(children_in_marked.get(v, ())) >= 2
     }
     rendered.add(mrca)
 
     # Each rendered node's nearest rendered ancestor, plus the suppressed nodes
     # between them. Those intermediates are interaction 3's content — already
     # computed, already ordered, and dropped by the suppression rule.
-    segments: dict[int, tuple[int | None, list[int]]] = {}
+    segments: Segments = {}
     for v in rendered:
         chain: list[int] = []
         for p in paths.values():
@@ -141,7 +152,6 @@ _LIN_SHARE = 0.06
 def run() -> int:
     parent = np.load(TOPO_OUT / "parent.npy")
     ott = np.load(TOPO_OUT / "ott_id.npy")
-    tip_count = np.load(TOPO_OUT / "tip_count.npy")
 
     age_path = TOPO_OUT / "age_ma.npy"
     if not age_path.exists():
@@ -156,10 +166,10 @@ def run() -> int:
 
     ott_to_idx = {int(o): i for i, o in enumerate(ott.tolist()) if o != NO_OTT}
     con = sqlite3.connect(DB)
-    names = {}
+    names: dict[int, tuple[str | None, str | None]] = {}
 
-    selection = []
-    labels = {}
+    selection: list[int] = []
+    labels: dict[int, str] = {}
     for label, ott_id in DEFAULT_SELECTION:
         idx = ott_to_idx.get(ott_id)
         if idx is None:
@@ -178,17 +188,27 @@ def run() -> int:
     con.close()
 
     print(f"selection: {len(selection)} tips")
-    print(f"marked -> rendered: {len(rendered)} nodes "
-          f"(2n-1 bound = {2 * len(selection) - 1})")
+    print(
+        f"marked -> rendered: {len(rendered)} nodes "
+        f"(2n-1 bound = {2 * len(selection) - 1})"
+    )
 
-    svg = _draw(parent, age, tip_count, rendered, segments, selection, labels, names, prov)
+    svg = _draw(age, rendered, segments, selection, labels, names, prov)
     OUT_SVG.parent.mkdir(parents=True, exist_ok=True)
     OUT_SVG.write_text(svg)
     print(f"wrote {OUT_SVG}")
     return 0
 
 
-def _draw(parent, age, tip_count, rendered, segments, selection, labels, names, prov):
+def _draw(
+    age: F32Array,
+    rendered: set[int],
+    segments: Segments,
+    selection: list[int],
+    labels: dict[int, str],
+    names: dict[int, tuple[str | None, str | None]],
+    prov: JsonDict,
+) -> str:
     # y: one slot per selected tip, internal nodes at the midpoint of their
     # children's extent.
     row_h = 46
@@ -244,8 +264,10 @@ def _draw(parent, age, tip_count, rendered, segments, selection, labels, names, 
 
     p: list[str] = []
     add = p.append
-    add(f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{height}" '
-        f'viewBox="0 0 {W} {height}" font-family="Georgia,serif">')
+    add(
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{height}" '
+        f'viewBox="0 0 {W} {height}" font-family="Georgia,serif">'
+    )
     add(f'<rect width="{W}" height="{height}" fill="#fbfaf7"/>')
 
     banner = (
@@ -253,37 +275,53 @@ def _draw(parent, age, tip_count, rendered, segments, selection, labels, names, 
         if not prov.get("phase2_accepted")
         else "phase 2 accepted"
     )
-    add(f'<text x="{MARGIN_L}" y="28" font-size="15" fill="#a3320b" '
-        f'font-weight="bold">{banner}</text>')
-    add(f'<text x="{MARGIN_L}" y="50" font-size="12" fill="#555">'
-        f'ugly walking skeleton · source: {prov.get("source_tree")} · '
-        f'{prov.get("nodes_with_age"):,} of {prov.get("nodes_total"):,} nodes carry a '
-        f'matched age</text>')
+    add(
+        f'<text x="{MARGIN_L}" y="28" font-size="15" fill="#a3320b" '
+        f'font-weight="bold">{banner}</text>'
+    )
+    add(
+        f'<text x="{MARGIN_L}" y="50" font-size="12" fill="#555">'
+        f"ugly walking skeleton · source: {prov.get('source_tree')} · "
+        f"{prov.get('nodes_with_age'):,} of {prov.get('nodes_total'):,} nodes carry a "
+        f"matched age</text>"
+    )
 
     # --- time axis (symlog) ---
     ticks = [0, 1, 10, 66, 100, 252, 541, 1000, 2500, 4000]
     axis_y = height - MARGIN_B + 34
-    add(f'<line x1="{MARGIN_L}" y1="{axis_y}" x2="{MARGIN_L + plot_w}" '
-        f'y2="{axis_y}" stroke="#333"/>')
+    add(
+        f'<line x1="{MARGIN_L}" y1="{axis_y}" x2="{MARGIN_L + plot_w}" '
+        f'y2="{axis_y}" stroke="#333"/>'
+    )
     for t in ticks:
         if t > max_age:
             continue
         x = MARGIN_L + plot_w * (1 - symlog(float(t), max_age))
-        add(f'<line x1="{x}" y1="{MARGIN_T - 24}" x2="{x}" y2="{axis_y}" '
-            f'stroke="#ddd"/>')
+        add(
+            f'<line x1="{x}" y1="{MARGIN_T - 24}" x2="{x}" y2="{axis_y}" '
+            f'stroke="#ddd"/>'
+        )
         add(f'<line x1="{x}" y1="{axis_y}" x2="{x}" y2="{axis_y + 6}" stroke="#333"/>')
-        add(f'<text x="{x}" y="{axis_y + 22}" font-size="12" fill="#333" '
-            f'text-anchor="middle">{t}</text>')
+        add(
+            f'<text x="{x}" y="{axis_y + 22}" font-size="12" fill="#333" '
+            f'text-anchor="middle">{t}</text>'
+        )
     # The axis changes character at t0; a scale that bends without saying so
     # misleads.
     xb = MARGIN_L + plot_w * (1 - _LIN_SHARE)
-    add(f'<line x1="{xb}" y1="{MARGIN_T - 30}" x2="{xb}" y2="{axis_y + 6}" '
-        f'stroke="#a3320b" stroke-width="1.5" stroke-dasharray="2 3"/>')
-    add(f'<text x="{xb - 6}" y="{MARGIN_T - 36}" font-size="11" fill="#a3320b" '
-        f'text-anchor="end">symlog knee ({SYMLOG_T0:g} Ma)</text>')
-    add(f'<text x="{MARGIN_L + plot_w / 2}" y="{axis_y + 44}" font-size="13" '
+    add(
+        f'<line x1="{xb}" y1="{MARGIN_T - 30}" x2="{xb}" y2="{axis_y + 6}" '
+        f'stroke="#a3320b" stroke-width="1.5" stroke-dasharray="2 3"/>'
+    )
+    add(
+        f'<text x="{xb - 6}" y="{MARGIN_T - 36}" font-size="11" fill="#a3320b" '
+        f'text-anchor="end">symlog knee ({SYMLOG_T0:g} Ma)</text>'
+    )
+    add(
+        f'<text x="{MARGIN_L + plot_w / 2}" y="{axis_y + 44}" font-size="13" '
         f'fill="#333" text-anchor="middle">millions of years before present '
-        f'(symlog)</text>')
+        f"(symlog)</text>"
+    )
 
     # --- edges ---
     for v, (anc, suppressed) in segments.items():
@@ -293,13 +331,17 @@ def _draw(parent, age, tip_count, rendered, segments, selection, labels, names, 
         x2, y2 = px(v), y_of[v]
         dashed = not math.isfinite(x_of(v)) or not math.isfinite(x_of(anc))
         style = ' stroke-dasharray="5 4"' if dashed else ""
-        add(f'<path d="M {x1} {y1} L {x1} {y2} L {x2} {y2}" fill="none" '
-            f'stroke="#555" stroke-width="1.6"{style}/>')
+        add(
+            f'<path d="M {x1} {y1} L {x1} {y2} L {x2} {y2}" fill="none" '
+            f'stroke="#555" stroke-width="1.6"{style}/>'
+        )
         # Below the edge, because node labels sit above it.
         n_sup = len(suppressed)
         if n_sup and abs(x2 - x1) > 70:
-            add(f'<text x="{x1 + (x2 - x1) * 0.35}" y="{y2 + 13}" font-size="10" '
-                f'fill="#8a2b6b" text-anchor="middle">{n_sup} suppressed</text>')
+            add(
+                f'<text x="{x1 + (x2 - x1) * 0.35}" y="{y2 + 13}" font-size="10" '
+                f'fill="#8a2b6b" text-anchor="middle">{n_sup} suppressed</text>'
+            )
 
     # --- nodes ---
     for v in sorted(rendered):
@@ -308,28 +350,31 @@ def _draw(parent, age, tip_count, rendered, segments, selection, labels, names, 
         dated = math.isfinite(x_of(v))
         if is_leaf:
             add(f'<circle cx="{x}" cy="{y}" r="4.5" fill="#1b3a5c"/>')
-            add(f'<text x="{x + 10}" y="{y + 4}" font-size="14" '
-                f'font-style="italic" fill="#111">{labels[v]}</text>')
+            add(
+                f'<text x="{x + 10}" y="{y + 4}" font-size="14" '
+                f'font-style="italic" fill="#111">{labels[v]}</text>'
+            )
         else:
-            nm, rank = names.get(v, (None, None))
+            nm, _rank = names.get(v, (None, None))
             fill = "#1b3a5c" if dated else "#fff"
-            add(f'<circle cx="{x}" cy="{y}" r="3.6" fill="{fill}" '
-                f'stroke="#1b3a5c" stroke-width="1.4"/>')
+            add(
+                f'<circle cx="{x}" cy="{y}" r="3.6" fill="{fill}" '
+                f'stroke="#1b3a5c" stroke-width="1.4"/>'
+            )
             lab = nm or "(unnamed divergence)"
             a = ages.get(v, float("nan"))
             # A structural-tier node never shows a numeric age.
             suffix = f" · {a:,.0f} Ma" if dated and math.isfinite(a) else " · undated"
             anchor = "end"
-            add(f'<text x="{x - 8}" y="{y - 7}" font-size="12" '
+            add(
+                f'<text x="{x - 8}" y="{y - 7}" font-size="12" '
                 f'text-anchor="{anchor}" fill="#333">{_esc(lab)}'
-                f'<tspan fill="#888">{suffix}</tspan></text>')
+                f'<tspan fill="#888">{suffix}</tspan></text>'
+            )
 
     add("</svg>")
     return "\n".join(p)
 
 
-
 def _esc(s: str) -> str:
-    return (
-        s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-    )
+    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")

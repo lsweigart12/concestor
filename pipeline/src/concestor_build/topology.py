@@ -13,20 +13,23 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from . import newick
 from . import oracle as oracle_mod
 from .gates import GateSet
-from .newick import NO_OTT, NO_PARENT
+from .newick import NO_OTT, NO_PARENT, parse_ott_id
 from .paths import BUILD
 
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
+    from .typing_ import JsonDict
+
 EXTRACT = BUILD / "extracted"
-TREE = (
-    EXTRACT / "opentree16.1_tree" / "labelled_supertree" / "labelled_supertree.tre"
-)
+TREE = EXTRACT / "opentree16.1_tree" / "labelled_supertree" / "labelled_supertree.tre"
 TAXONOMY = EXTRACT / "ott3.7.3" / "taxonomy.tsv"
 SYNONYMS = EXTRACT / "ott3.7.3" / "synonyms.tsv"
 FORWARDS = EXTRACT / "ott3.7.3" / "forwards.tsv"
@@ -34,6 +37,11 @@ BROKEN = EXTRACT / "opentree16.1" / "labelled_supertree" / "broken_taxa.json"
 
 OUT = BUILD / "topology"
 DB = BUILD / "concestor.db"
+
+# idx, ott_id, node_key, name, rank, flags, tip_count, depth
+type NodeRow = tuple[int, int | None, str, str | None, str | None, str | None, int, int]
+# ott_id, node_key, name, mrca_node_key, mrca_idx, n_points, points, intruders
+type BrokenRow = tuple[int, str, str | None, str, int | None, int, str, str]
 
 # Measured 2026-07-31; corroborated by OTT's own out-degree distribution and
 # input_output_stats.json shipped in the synthesis output tarball.
@@ -104,7 +112,7 @@ def load_taxonomy() -> tuple[dict[int, tuple[str, str, str]], int]:
     return out, len(out)
 
 
-def load_broken() -> dict[str, dict]:
+def load_broken() -> dict[str, JsonDict]:
     with BROKEN.open() as fh:
         return json.load(fh)["non_monophyletic_taxa"]
 
@@ -117,7 +125,9 @@ def run(oracle: bool = True, oracle_samples: int = 200) -> int:
     t0 = time.monotonic()
     data = TREE.read_bytes()
     tree = newick.parse(data)
-    print(f"  parsed {tree.n_nodes:,} nodes in {time.monotonic() - t0:,.1f}s", flush=True)
+    print(
+        f"  parsed {tree.n_nodes:,} nodes in {time.monotonic() - t0:,.1f}s", flush=True
+    )
 
     t1 = time.monotonic()
     topo = newick.derive(tree.parent)
@@ -218,6 +228,30 @@ def run(oracle: bool = True, oracle_samples: int = 200) -> int:
     np.save(OUT / "ott_to_idx.npy", order.astype(np.uint32))
 
     write_db(tree, topo, taxonomy, broken, forwards)
+
+    # Structural gates count nodes; they say nothing about whether the columns
+    # carry data. A rename once emptied `rank` and every gate still passed.
+    con = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
+    n_named, n_ranked = con.execute(
+        "SELECT count(*), count(rank) FROM node WHERE ott_id IS NOT NULL"
+    ).fetchone()
+    n_broken_rows, n_broken_resolved = con.execute(
+        "SELECT count(*), count(mrca_idx) FROM broken_taxon"
+    ).fetchone()
+    con.close()
+
+    g.require("node rows carrying a rank", n_ranked, n_named)
+    g.require("broken_taxon rows", n_broken_rows, EXPECT_BROKEN)
+    g.require(
+        "broken taxa whose substitute MRCA resolves to a node",
+        n_broken_resolved,
+        EXPECT_BROKEN,
+        note=(
+            "Broken taxa are rejected from synthesis and so are not nodes "
+            "themselves; the MRCA is what the live API silently substitutes."
+        ),
+    )
+
     total_bytes = sum(p.stat().st_size for p in OUT.glob("*.npy"))
     g.observe("topology arrays on disk", f"{total_bytes / 1e6:,.1f} MB")
     g.observe("concestor.db", f"{DB.stat().st_size / 1e6:,.1f} MB")
@@ -231,7 +265,7 @@ def run(oracle: bool = True, oracle_samples: int = 200) -> int:
         (BUILD / "phase1_oracle.json").write_text(json.dumps(rep, indent=2))
         g.require(
             "oracle induced-subtree agreement",
-            f'{rep["matched"]}/{rep["compared"]}',
+            f"{rep['matched']}/{rep['compared']}",
             "all",
             ok=rep["compared"] > 0 and rep["mismatched"] == 0,
             note=rep.get("note", ""),
@@ -244,7 +278,13 @@ def run(oracle: bool = True, oracle_samples: int = 200) -> int:
     return 0
 
 
-def write_db(tree, topo, taxonomy, broken, forwards) -> None:
+def write_db(
+    tree: newick.ParsedTree,
+    topo: newick.Topology,
+    taxonomy: dict[int, tuple[str, str, str]],
+    broken: dict[str, JsonDict],
+    forwards: dict[int, int],
+) -> None:
     DB.unlink(missing_ok=True)
     con = sqlite3.connect(DB)
     con.executescript(
@@ -258,9 +298,26 @@ def write_db(tree, topo, taxonomy, broken, forwards) -> None:
           name       TEXT,
           rank       TEXT,
           flags      TEXT,
-          is_broken  INTEGER NOT NULL DEFAULT 0,
           tip_count  INTEGER NOT NULL,
           depth      INTEGER NOT NULL
+        );
+
+        -- Broken taxa are NOT nodes. A non-monophyletic taxon is rejected from
+        -- synthesis outright — `input_output_stats.json` calls it
+        -- `num_taxa_rejected` — so none of the 9,839 appears as a node_key and
+        -- an `is_broken` flag on `node` would be permanently zero.
+        -- They need their own table: the UI's job is to explain that the taxon
+        -- has no single position and offer the attachment points, rather than
+        -- silently answering about `mrca_node_key` the way the live API does.
+        CREATE TABLE broken_taxon (
+          ott_id            INTEGER PRIMARY KEY,
+          node_key          TEXT NOT NULL,
+          name              TEXT,
+          mrca_node_key     TEXT NOT NULL,
+          mrca_idx          INTEGER,
+          n_attachment_points INTEGER NOT NULL,
+          attachment_points TEXT NOT NULL,   -- JSON
+          intruding_taxa    TEXT NOT NULL    -- JSON
         );
         """
     )
@@ -269,7 +326,7 @@ def write_db(tree, topo, taxonomy, broken, forwards) -> None:
     tipc = topo.tip_count.tolist()
     dep = topo.depth.tolist()
 
-    def rows():
+    def rows() -> Iterator[NodeRow]:
         for i, lbl in enumerate(tree.labels):
             key = lbl.decode("utf-8", "replace")
             o = ott[i]
@@ -285,12 +342,11 @@ def write_db(tree, topo, taxonomy, broken, forwards) -> None:
                 name,
                 rank,
                 flags,
-                1 if key in broken else 0,
                 tipc[i],
                 dep[i],
             )
 
-    con.executemany("INSERT INTO node VALUES (?,?,?,?,?,?,?,?,?)", rows())
+    con.executemany("INSERT INTO node VALUES (?,?,?,?,?,?,?,?)", rows())
     con.executescript(
         """
         CREATE UNIQUE INDEX node_ott ON node(ott_id) WHERE ott_id IS NOT NULL;
@@ -300,5 +356,26 @@ def write_db(tree, topo, taxonomy, broken, forwards) -> None:
         """
     )
     con.executemany("INSERT INTO forward VALUES (?,?)", forwards.items())
+
+    key_to_idx = {k: i for i, k in con.execute("SELECT idx, node_key FROM node")}
+
+    def broken_rows() -> Iterator[BrokenRow]:
+        for key, entry in broken.items():
+            ott_id = parse_ott_id(key.encode())
+            name = taxonomy.get(ott_id, (None, None, None))[0]
+            points = entry["attachment_points"]
+            yield (
+                ott_id,
+                key,
+                name,
+                entry["mrca"],
+                key_to_idx.get(entry["mrca"]),
+                len(points),
+                json.dumps(points, separators=(",", ":")),
+                json.dumps(entry["intruding_taxa"], separators=(",", ":")),
+            )
+
+    con.executemany("INSERT INTO broken_taxon VALUES (?,?,?,?,?,?,?,?)", broken_rows())
+    con.execute("CREATE INDEX broken_mrca ON broken_taxon(mrca_idx)")
     con.commit()
     con.close()

@@ -56,9 +56,7 @@ def main(argv: list[str] | None = None) -> int:
         case "snapshot":
             from . import snapshot
 
-            return snapshot.run(
-                skip_checklist=args.skip_checklist, force=args.force
-            )
+            return snapshot.run(skip_checklist=args.skip_checklist, force=args.force)
         case "topology":
             from . import topology
 

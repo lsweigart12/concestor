@@ -13,16 +13,17 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import time
-from dataclasses import dataclass, asdict
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import Iterator
+from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 import httpx
 
 from .paths import SNAPSHOT, SNAPSHOT_MANIFEST
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 USER_AGENT = (
     "concestor-build/0.1 (+https://github.com/lsweigart12/concestor) "
@@ -45,7 +46,7 @@ class Artifact:
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 def _human(n: float) -> str:
@@ -89,9 +90,7 @@ class Manifest:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "meta": self.meta | {"written_at": _now()},
-            "artifacts": [
-                asdict(self.artifacts[k]) for k in sorted(self.artifacts)
-            ],
+            "artifacts": [asdict(self.artifacts[k]) for k in sorted(self.artifacts)],
         }
         self.path.write_text(json.dumps(payload, indent=2) + "\n")
 
@@ -162,7 +161,7 @@ def fetch(
     print(flush=True)
 
     digest, size = sha256_file(part)
-    os.replace(part, dest)
+    part.replace(dest)
     elapsed = time.monotonic() - t0
 
     art = Artifact(
@@ -182,8 +181,7 @@ def fetch(
     )
     if expect_bytes is not None and size != expect_bytes:
         print(
-            f"  !! size mismatch for {name}: expected {expect_bytes:,}, "
-            f"got {size:,}",
+            f"  !! size mismatch for {name}: expected {expect_bytes:,}, got {size:,}",
             flush=True,
         )
     return art
