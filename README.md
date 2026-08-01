@@ -10,22 +10,27 @@ looking backward.
 ## Status
 
 Build pipeline phases 0–2 are implemented and green, plus a throwaway renderer
-that proves the premise end to end. Phases 3–5 are not started.
+that proves the premise end to end. Phase 3 is measured and designed but not
+built; phases 4–6, the serving binary and the real UI are not started.
 
-**One decision is open.** Phase 2 did not accept the Duke et al. dated tree: the
-ages are excellent — root age within 0.008% of the expected 4247 Ma, zero
-monotonicity violations, every literature spot check in range — but clade
-compatibility measured 99.6036% against a 99.9% threshold, with 947 nodes
-genuinely contradicted. The recommendation is to accept anyway and restate the
-criterion; the 4–6 week fallback is documented and deliberately not started.
-See **[phase2-decision.md](docs/phase2-decision.md)**.
+**This is for curious people interested in evolution, not for evolutionary
+biologists.** Identifying an MRCA, drawing the tree well, and showing useful
+silhouettes are the priorities; the time axis and the fossil layer are secondary.
+That reorders the phases as numbered — see [handoff.md](docs/handoff.md) §1.
+
+Two decisions are settled. The Duke et al. dated tree is **accepted** despite
+missing its gate by 0.30 points, because the ages are excellent and the shortfall
+is a criterion that assumed an impossible node-for-node identity. Fossil
+resolution will use a **GBIF point lookup** rather than the bulk export that
+appeared to be blocked, with the offline backbone map kept as a free second
+method.
 
 ## Documents
 
-- **[handoff.md](docs/handoff.md)** — current state, how to reproduce it, and what
-  the design docs got wrong. Start here.
-- **[phase2-decision.md](docs/phase2-decision.md)** — the open decision, with the
-  evidence behind it.
+- **[handoff.md](docs/handoff.md)** — current state, priorities, decisions taken,
+  and what the design docs got wrong. Start here.
+- **[phase2-decision.md](docs/phase2-decision.md)** — the dating decision and its evidence.
+- **[phase3-pbdb-path.md](docs/phase3-pbdb-path.md)** — how fossils resolve to the tree, measured.
 - **[architecture.md](docs/architecture.md)** — data model, storage, backend, rendering,
   and the four core interactions end to end.
 - **[ingest.md](docs/ingest.md)** — six-phase build pipeline with validation gates.

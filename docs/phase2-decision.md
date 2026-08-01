@@ -1,7 +1,17 @@
 # Phase 2 decision: the Duke et al. dated tree
 
-**Status: NOT ACCEPTED by the gate as written. Recommendation: accept anyway,
-with the criterion restated and 947 nodes demoted to `structural`.**
+**Status: ACCEPTED, 2026-07-31.** It failed the gate as written — 99.6036%
+compatibility against a 99.9% threshold — and was accepted anyway, with the
+criterion restated and the 947 conflicting nodes demoted to `structural`. The
+reasoning below is what the decision was made on; it is kept as the record.
+
+The project's priorities were also settled at the same time, and they reinforce
+it: the time axis is **secondary** to identifying an MRCA, drawing the tree and
+showing silhouettes. Delaying a secondary feature by 4–6 weeks to chase 0.30
+points on a criterion that assumed an impossible identity would have been the
+wrong trade twice over.
+
+**The fallback congruification pipeline is not to be built.**
 
 Measured 2026-07-31 against phase-1 topology (OTT synthesis v16.1). Reproduce
 with `concestor-build dates --tree equal_splits`; full numbers in
