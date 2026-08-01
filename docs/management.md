@@ -114,11 +114,21 @@ Everything settled in the previous brief still holds, and is now implemented rat
 - Do not optimise the artifact set yet. It is 2,048 MB against architecture §11's 700 MB estimate, which means §11's cost paragraph needs re-deriving before anyone sizes a machine — but nothing is broken by it, and trimming `xref` before the product is finished is optimising the wrong thing.
 - Do not reintroduce a fixed layout width in the frontend. It follows the viewport so the fit stays near 1:1; at a fixed 1240px a narrow panel fits at ~0.45 zoom and semantic zoom correctly drops every label.
 
+### 6. The vernacular join is producing false statements — do this first
+
+An outside design review of the running app (see below; it happened, and the report is worth reading in full) found the product **lying**, which is the one thing this codebase's culture exists to refuse. *Homo sapiens* is "also known as Homo floresiensis". Typing `frog` returns Archaea, captioned "Giant Bullfrog", above the actual frogs. 4,262 nodes have vernaculars claimed by two or more Wikidata items, and one taxon has one item.
+
+Full measurements in handoff §7. The decisive fix is one extra triple in the P9157 SPARQL — fetch each item's own `wdt:P225` and refuse any contribution whose taxon name disagrees with OTT's. It costs no extra requests and invalidates the page cache, so budget a fresh 3.5-hour crawl.
+
+**Everything else on this list is depth. This one is correctness, and it is at the front door.**
+
 ## The risk nobody has touched
 
 **No curious non-specialist has ever opened this.** Every judgement call so far was made by reading the design documents very carefully, which is not the same thing as watching someone use the product. This is yours to close, and it does not need anyone's permission: recruit two or three people from the audience it is for, watch what they type into the palette, and record what they typed. Their second and third guesses are the real test of vernacular coverage, and no percentage substitutes for it. If you genuinely cannot get people in front of it, say so in `handoff.md` §7 and treat every coverage number in this document as unvalidated — do not quietly let the gap stay invisible.
 
-Related: **get a critical design pass from someone other than whoever wrote the UI.** It implements `design-reference.md` faithfully — phosphor persistence, the MRCA flare at `t=80`, orthogonal traces, semantic zoom, dash-not-luminance for provenance. Whether it actually *reads* that way on screen is a different question, and its author is the wrong person to answer it. A fresh agent instance with no memory of building it is an acceptable substitute; the author re-reading their own work is not.
+**The design pass has happened** and its findings are folded into this list and into handoff §7. The headline ones, beyond the vernacular defect above: the MRCA had no bloom at all and was the dimmest filled mark on the canvas (fixed); `design-reference.md` promises a spring reflow on add and **no code implements one** — the tree jump-cuts and only the trace draws, which contradicts priority 2 as stated; labels can land more than two rows from their own node with no leader line, so a whole right-hand stack reads off by one; the time axis carries a single numeric tick on shallow selections, which is most first queries; `dinosaur`, `oak` and `ape` all dead-end on a broken-taxon note that names nothing clickable; and there is no way into the app but a keyboard shortcut, which makes it unusable on touch. Still outstanding, still worth reading in full.
+
+Related, and still true: **get a critical design pass from someone other than whoever wrote the UI.** It implements `design-reference.md` faithfully — phosphor persistence, the MRCA flare at `t=80`, orthogonal traces, semantic zoom, dash-not-luminance for provenance. Whether it actually *reads* that way on screen is a different question, and its author is the wrong person to answer it. A fresh agent instance with no memory of building it is an acceptable substitute; the author re-reading their own work is not.
 
 ## The culture of this codebase, which matters more than the schedule
 

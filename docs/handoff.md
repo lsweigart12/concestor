@@ -772,6 +772,41 @@ boundary.
 Everything in `ingest.md` is implemented, so this is the honest list of where
 the depth is not yet there. Roughly in priority order.
 
+**Vernacular names are not merely thin — some of them are false.** An outside
+design review of the running app found this and it is the most serious open
+defect in the product. Measured:
+
+- **4,262 nodes have their Wikidata vernaculars claimed by two or more distinct
+  QIDs.** One taxon has one Wikidata item, so every one of those is a conflict.
+  *Homo sapiens* is claimed by Q15978631 (`Human`, `man`, `men`, `humans`, …)
+  **and by Q186266, *Homo floresiensis***, which contributes `Homo floresiensis`
+  and `Flores Man`. So the card reads *"Also known as Human, Homo floresiensis,
+  man, men, humans, Flores Man."*
+- It reaches search. **Typing `frog` returns Archaea — "Giant Bullfrog" — as
+  the second result**, above Hylidae and Ranidae, because Q387319
+  (*Pyxicephalus adspersus*) claims Archaea's OTT id. A curious person can add
+  a domain of 2,080 archaea to the canvas believing they added a bullfrog.
+- **`is_primary` picks the wrong name**, apparently favouring the highest QID —
+  the most recently created and most obscure item. Archaea headlines "Giant
+  Bullfrog"; Bacteria headlines "Actinoplanaceae".
+- **527 of the 2,074 clades with ≥ 100 tips (25%) have a "common name" that is
+  the Latin name in English clothing** — *Hylidae* → "hylid", *Canidae* →
+  "canid", *Neoteleostei* → "Neoteleost". Worse, the good name is often present
+  and not chosen: Lepidoptera shows "lepidopteran" when "Butterflies and Moths"
+  is in the same row set.
+
+`test_no_wikidata_name_shadows_another_taxons_scientific_name` was meant to
+catch the first of these and cannot: it only refuses a name that is *in the
+tree*, and *Homo floresiensis* is extinct and so is not a node.
+
+*The real fix is one extra triple.* The P9157 pass does not fetch the item's own
+`wdt:P225` (taxon name), so nothing can compare what Wikidata thinks the item is
+against what OTT says the node is. Adding `?q wdt:P225 ?sci` to `_sparql` costs
+no extra requests and makes the check decisive — refuse any contribution whose
+P225 disagrees with the node's scientific name. It does invalidate the page
+cache, so it costs a fresh 3.5-hour crawl, which is why it was not done in the
+same pass as the cheaper filters.
+
 **Vernacular coverage: the front door works, the tail is missing.** 148,515
 names, of which 142,071 come from Wikidata P9157 (OTT id join, no name
 matching), 5,884 from the PBDB ColDP archive and 560 from a bounded `wdt:P225`
