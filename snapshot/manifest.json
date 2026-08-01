@@ -1,0 +1,143 @@
+{
+  "meta": {
+    "synth_id": "opentree16.1",
+    "taxonomy_version": "3.7draft3",
+    "synth_date_created": "2025-12-20 00:55:58",
+    "num_source_studies": 1931,
+    "num_source_trees": 2064,
+    "phase0_gates_ok": true,
+    "written_at": "2026-08-01T01:08:29+00:00"
+  },
+  "artifacts": [
+    {
+      "name": "duke_birth_model_median_tree",
+      "url": "https://zenodo.org/api/records/19049120/files/birth_model_median_tree.tre/content",
+      "path": "snapshot/duke2026/birth_model_median_tree.tre",
+      "bytes": 146184627,
+      "sha256": "40663df1a7c3bce19e7abe352b5d9b5a08234dd4599bb5eb9be1dfc5c0684ef7",
+      "fetched_at": "2026-08-01T00:45:37+00:00",
+      "content_length": 146184627,
+      "note": "Comparison layer. md5:a01b2f8290bc10c750a74c9a33eb02fa"
+    },
+    {
+      "name": "duke_equal_splits_median_tree",
+      "url": "https://zenodo.org/api/records/19049120/files/equal_splits_median_tree.tre/content",
+      "path": "snapshot/duke2026/equal_splits_median_tree.tre",
+      "bytes": 145750830,
+      "sha256": "e34d426feeb76aa87918321d1096f1b17413add627979976f987c817c95f7a11",
+      "fetched_at": "2026-08-01T00:45:28+00:00",
+      "content_length": 145750830,
+      "note": "Zenodo 10.5281/zenodo.19049120, CC-BY-4.0. md5:8c667dc557b17bbd8e33d9867c347e9a"
+    },
+    {
+      "name": "duke_zenodo_record",
+      "url": "https://zenodo.org/api/records/19049120",
+      "path": "snapshot/duke2026/zenodo_record.json",
+      "bytes": 11365,
+      "sha256": "496979c40f515d4a79f8be9fccbbf04df0d2ba67ad05885e2cf5e1ba73f637c8",
+      "fetched_at": "2026-08-01T01:08:29+00:00",
+      "content_length": null,
+      "note": "Deposit metadata incl. per-file md5 and license."
+    },
+    {
+      "name": "gbif_legacy_backbone_readme",
+      "url": "https://hosted-datasets.gbif.org/datasets/backbone/2023-08-28/README.html",
+      "path": "snapshot/gbif_legacy_backbone/README.html",
+      "bytes": 3035,
+      "sha256": "82a70f4481061a75e8e7ec8ddf76c95bd171ef5b6917c34e3f8dee19d88df021",
+      "fetched_at": "2026-08-01T00:45:00+00:00",
+      "content_length": 1373,
+      "note": "Release notes for the frozen backbone; records its CoL July 2023 basis."
+    },
+    {
+      "name": "gbif_legacy_backbone_simple",
+      "url": "https://hosted-datasets.gbif.org/datasets/backbone/2023-08-28/simple.txt.gz",
+      "path": "snapshot/gbif_legacy_backbone/simple.txt.gz",
+      "bytes": 488591022,
+      "sha256": "fde017e1315b4ae6fc1e1bae79f9cfd234b8ba40f6f4fb5ac031084a3b1763f0",
+      "fetched_at": "2026-08-01T00:45:00+00:00",
+      "content_length": 488591022,
+      "note": "GBIF backbone frozen 2023-08-28, never to be updated. Headerless TSV. The only identifier path from PBDB to OTT runs through this."
+    },
+    {
+      "name": "gbif_pbdb_checklist_dwca",
+      "url": "https://hosted-datasets.gbif.org/datasets/pbdb.zip",
+      "path": "snapshot/gbif_pbdb_checklist/pbdb.zip",
+      "bytes": 35359886,
+      "sha256": "2b90a4365e0a0e6a5a05f727c03d248d956c0ad47234a49fc2c19b0040989b41",
+      "fetched_at": "2026-08-01T00:45:01+00:00",
+      "content_length": 35359886,
+      "note": "PBDB checklist Darwin Core archive. Preserves PBDB taxon_no verbatim in taxonID. Carries no nubKey \u2014 see the API export."
+    },
+    {
+      "name": "ics_chart_ttl",
+      "url": "https://raw.githubusercontent.com/i-c-stratigraphy/chart/main/chart.ttl",
+      "path": "snapshot/ics/chart.ttl",
+      "bytes": 642198,
+      "sha256": "8548707d66c383460b3bddc20afb7070cb5f3ea187ea1262418dc3a6f2d6e9f7",
+      "fetched_at": "2026-08-01T00:45:37+00:00",
+      "content_length": 96385,
+      "note": "ICS v2026/06, CC-BY-4.0. Cite Cohen et al., Episodes 2025;48:105-115."
+    },
+    {
+      "name": "opentree16.1_output",
+      "url": "https://files.opentreeoflife.org/synthesis/opentree16.1/opentree16.1_output.tgz",
+      "path": "snapshot/opentree/opentree16.1_output.tgz",
+      "bytes": 542468167,
+      "sha256": "51a77b84c894eef67187f7e0e5d6e07c55b76d7dafbec5c9e86e11bb7148a4b1",
+      "fetched_at": "2026-08-01T00:45:16+00:00",
+      "content_length": 542468167,
+      "note": "Full synthesis output; carries broken_taxa.json (259 MB) for phase 1 step 7."
+    },
+    {
+      "name": "opentree16.1_tree",
+      "url": "https://files.opentreeoflife.org/synthesis/opentree16.1/opentree16.1_tree.tgz",
+      "path": "snapshot/opentree/opentree16.1_tree.tgz",
+      "bytes": 41608973,
+      "sha256": "c447c83e49f0cf61fa96d9a02c6135b809abf315ad384fdb26b88359a28da12c",
+      "fetched_at": "2026-08-01T00:45:03+00:00",
+      "content_length": 41608973,
+      "note": "labelled_supertree.tre and friends. Phase 1 input."
+    },
+    {
+      "name": "ott3.7.3",
+      "url": "https://files.opentreeoflife.org/ott/ott3.7.3/ott3.7.3.tgz",
+      "path": "snapshot/opentree/ott3.7.3.tgz",
+      "bytes": 111278327,
+      "sha256": "7603aeb68ff45749773b4885811b1280d057f8c178b93bd903849fb7f237dfb3",
+      "fetched_at": "2026-08-01T00:45:18+00:00",
+      "content_length": 111278327,
+      "note": "taxonomy.tsv, synonyms.tsv, forwards.tsv (297,070 entries)."
+    },
+    {
+      "name": "ott3.7.3_properties",
+      "url": "https://files.opentreeoflife.org/ott/ott3.7.3/properties.json",
+      "path": "snapshot/opentree/ott3.7.3_properties.json",
+      "bytes": 618,
+      "sha256": "c6e3e9c4122e85cda111a6e46f148b786cec00d26920d2bb7f79fa71d9726f66",
+      "fetched_at": "2026-08-01T00:45:18+00:00",
+      "content_length": 618,
+      "note": "Declares \"legal\": \"cc0\" and the upstream source versions."
+    },
+    {
+      "name": "pbdb_datainfo",
+      "url": "https://paleobiodb.org/data1.2/taxa/list.json?all_records&limit=1&datainfo",
+      "path": "snapshot/pbdb/datainfo.json",
+      "bytes": 817,
+      "sha256": "71529245cc18f8807ef580d4ab7306ba166ead1dab7cfdc8dce1dca6cb3037a2",
+      "fetched_at": "2026-08-01T01:08:29+00:00",
+      "content_length": null,
+      "note": "Embeds access timestamp, license declaration and a re-runnable data_url. This block IS the citation PBDB asks for."
+    },
+    {
+      "name": "pbdb_taxa",
+      "url": "https://paleobiodb.org/data1.2/taxa/list.csv?all_records&show=app,attr,parent,size,seq&limit=all",
+      "path": "snapshot/pbdb/pbdb_taxa.csv",
+      "bytes": 127182834,
+      "sha256": "45c4f1d6f5db15df369923f5dcc57d8cb761bb9e80a7da88211961e5a6d26fcb",
+      "fetched_at": "2026-08-01T00:46:44+00:00",
+      "content_length": null,
+      "note": "523,113 rows. show=seq adds lft/rgt nested-set bounds."
+    }
+  ]
+}

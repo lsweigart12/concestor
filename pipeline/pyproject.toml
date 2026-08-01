@@ -1,0 +1,25 @@
+[project]
+name = "concestor-build"
+version = "0.1.0"
+description = "Offline build pipeline producing Concestor's immutable artifact set"
+requires-python = ">=3.14"
+dependencies = [
+    "numpy>=2.3",
+    "httpx>=0.28",
+]
+
+[project.scripts]
+concestor-build = "concestor_build.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8.4"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/concestor_build"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
