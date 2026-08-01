@@ -39,7 +39,12 @@ API_PORT="$(concestor_free_port 8090)"
 echo "Building the read API…" >&2
 go build -C server -o concestor-serve .
 
-api_args=(-addr "127.0.0.1:${API_PORT}" -build "$CONCESTOR_BUILD" -immutable=false)
+# `-web` is passed even though Vite is the frontend in this mode, because the
+# server otherwise infers it from `-build`'s parent — the main checkout, once
+# build/ is borrowed. Anyone hitting the API port directly would then get
+# another checkout's app.
+api_args=(-addr "127.0.0.1:${API_PORT}" -build "$CONCESTOR_BUILD"
+  -web "$ROOT/web/dist" -immutable=false)
 [ -n "$CONCESTOR_SILHOUETTES" ] && api_args+=(-silhouettes "$CONCESTOR_SILHOUETTES")
 
 "$ROOT/server/concestor-serve" "${api_args[@]}" &

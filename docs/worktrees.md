@@ -33,11 +33,13 @@ scripts borrow instead, and `.worktreeinclude` copies nothing.
   install cannot reach through and rewrite the main checkout's tree.
 
 The server derives both the frontend path and the silhouette root from
-`-build`'s parent directory. That is right in the main checkout and the wrong
-repository once `build/` is borrowed, so `serve.sh` passes `-web` and
-`-silhouettes` explicitly. Getting the second one wrong is quiet: the app
-renders, and every silhouette is missing, which reads as a regression in the
-renderer rather than an unset path.
+`-build`'s parent directory, so once `build/` is borrowed they both follow it
+to the main checkout. That is right for the silhouette mirror and wrong for the
+frontend, which is the thing under development. Both scripts therefore pass
+`-web` and `-silhouettes` explicitly: it fixes the frontend, and it makes the
+mirror deliberate rather than a lucky consequence of where `build/` came from.
+Getting the mirror wrong is quiet — the app renders and every silhouette is
+missing, which reads as a regression in the renderer rather than an unset path.
 
 ## Ports
 
@@ -62,3 +64,19 @@ The one prerequisite is that **the main checkout has been built at least
 once**. If no checkout on the machine has `build/topology` and
 `build/concestor.db`, both scripts refuse to start and point at
 `handoff.md` §2, which is the same failure the main checkout has always had.
+
+## One thing that does not work, and is not ours to fix
+
+The preview server runs in **the folder the session started in**, not the
+folder the session is currently in. A session launched in a worktree — which is
+every parallel session, and `claude --worktree <name>` — is therefore fine, and
+that is the case this page is about.
+
+But calling `EnterWorktree` *mid-session* moves the session's working directory
+and leaves the preview behind: it goes on running the original checkout's
+`scripts/serve.sh` against the original checkout's files, with no error, and
+the preview browser shows that code rather than the worktree's. Measured, not
+inferred — the launched process receives `$PORT` and nothing identifying the
+session's directory, so no change to these scripts could detect it.
+
+Start the session in the worktree if you need the preview to follow.

@@ -46,11 +46,12 @@ fi
 
 # --- serve ------------------------------------------------------------------
 # `-C server` because the Go module lives there. Every path is passed
-# absolute rather than left to its default: the server derives both the
-# frontend and the silhouette root from `-build`'s parent directory, which is
-# right in the main checkout and the wrong repository once build/ is borrowed.
-# The frontend in particular must come from *this* checkout — it is the thing
-# being worked on.
+# absolute rather than left to its default. The server derives both the
+# frontend and the silhouette root from `-build`'s parent directory, so once
+# build/ is borrowed they both follow it to the main checkout: right for the
+# silhouette mirror, wrong for the frontend, which must come from *this*
+# checkout because it is the thing being worked on. Passing both explicitly
+# makes the first deliberate rather than lucky, and fixes the second.
 #
 # `-immutable=false` drops `Cache-Control: immutable` from /v1 responses. That
 # header is correct in production — the data genuinely cannot change within a
