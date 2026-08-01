@@ -35,12 +35,14 @@ from concestor_build.images import (
     M_NONE,
     NO_IMAGE,
     ImageRecord,
+    name_candidates,
     ott_ids_from_node,
     pick_per_ott,
     propagate,
     record_from_item,
     seed_nodes,
     svg_rel_path,
+    taxonomy_index,
 )
 from concestor_build.newick import NO_OTT, NO_PARENT, derive
 
@@ -278,6 +280,223 @@ def test_lift_only_walks_one_hop():
     )
     assert seed.tolist() == [NO_IMAGE, NO_IMAGE]
     assert stats["ott_ids_lifted_one_hop"] == 0
+
+
+# --------------------------------------------------------------------------
+# Seeding by name — the images that carry no OTT id at all
+# --------------------------------------------------------------------------
+
+
+def test_name_match_reaches_an_image_with_no_ott_id():
+    """1,783 images resolve only in GBIF/PBDB. Their node still has a name."""
+    ott = np.array([NO_OTT, 100], dtype=np.int64)
+    tips = np.array([9, 1], dtype=np.uint32)
+    seed, stats = seed_nodes(
+        ott,
+        tips,
+        {},
+        {},
+        titles=["Chlamydiae"],
+        name_uids={"Chlamydiae": [100]},
+    )
+    assert seed.tolist() == [NO_IMAGE, 0]
+    assert stats["names_matched"] == 1
+    assert stats["names_matched_truncated"] == 0
+    # No OTT id reaches node 1, so the name pass is what put an image on it.
+    assert stats["nodes_from_name"] == 1
+
+
+def test_an_exact_name_match_carries_no_tip_bound():
+    """The image is *of* that taxon however broad it is, so climb 0 is honest."""
+    ott = np.array([NO_OTT, 100], dtype=np.int64)
+    tips = np.array([90_000, 90_000], dtype=np.uint32)
+    seed, stats = seed_nodes(
+        ott, tips, {}, {}, titles=["Mollusca"], name_uids={"Mollusca": [100]}
+    )
+    assert seed[1] == 0
+    assert stats["names_matched"] == 1
+
+
+def test_a_title_truncates_to_its_genus():
+    """`Phoca caspica` is not in synthesis; `Phoca` is, and is narrow enough."""
+    ott = np.array([NO_OTT, 100], dtype=np.int64)
+    tips = np.array([9, 4], dtype=np.uint32)
+    seed, stats = seed_nodes(
+        ott,
+        tips,
+        {},
+        {},
+        titles=["Phoca caspica"],
+        name_uids={"Phoca": [100]},
+        lift_max_tips=100,
+    )
+    assert seed.tolist() == [NO_IMAGE, 0]
+    assert stats["names_matched_truncated"] == 1
+    assert stats["nodes_from_name_truncated"] == 1
+
+
+def test_truncation_prefers_the_species_over_the_genus():
+    """A subspecies image belongs on the species when the species exists."""
+    ott = np.array([NO_OTT, 100, 200], dtype=np.int64)
+    tips = np.array([9, 2, 4], dtype=np.uint32)
+    seed, _ = seed_nodes(
+        ott,
+        tips,
+        {},
+        {},
+        titles=["Equus quagga chapmani"],
+        name_uids={"Equus quagga": [100], "Equus": [200]},
+    )
+    assert seed.tolist() == [NO_IMAGE, 0, NO_IMAGE]
+
+
+def test_truncation_refuses_a_genus_that_is_too_broad():
+    """Same bound as the one-hop lift, for the same reason."""
+    ott = np.array([NO_OTT, 100], dtype=np.int64)
+    tips = np.array([10_018, 10_018], dtype=np.uint32)
+    seed, stats = seed_nodes(
+        ott,
+        tips,
+        {},
+        {},
+        titles=["Ichthyostega stensioei"],
+        name_uids={"Ichthyostega": [100]},
+        lift_max_tips=100,
+    )
+    assert seed.tolist() == [NO_IMAGE, NO_IMAGE]
+    assert stats["names_matched_truncated"] == 0
+
+
+def test_a_homonym_seeds_nothing():
+    """OTT carries `Prunella` twice. Nothing in the title says which was drawn."""
+    ott = np.array([NO_OTT, 100, 200], dtype=np.int64)
+    tips = np.array([9, 1, 1], dtype=np.uint32)
+    seed, stats = seed_nodes(
+        ott, tips, {}, {}, titles=["Prunella"], name_uids={"Prunella": [100, 200]}
+    )
+    assert seed.tolist() == [NO_IMAGE, NO_IMAGE, NO_IMAGE]
+    assert stats["names_ambiguous"] == 1
+    assert stats["names_matched"] == 0
+
+
+def test_a_name_never_displaces_an_ott_id():
+    """Passes 1-3 are evidence about identity; a name is evidence about a label."""
+    ott = np.array([NO_OTT, 100], dtype=np.int64)
+    tips = np.array([9, 1], dtype=np.uint32)
+    # Record 0 lands by id on node 1; record 1's title names the same node.
+    seed, _ = seed_nodes(
+        ott,
+        tips,
+        {100: 0},
+        {},
+        titles=["Something else", "Canis lupus"],
+        name_uids={"Canis lupus": [100]},
+    )
+    assert seed[1] == 0
+
+
+def test_a_name_match_an_ott_id_also_reaches_is_not_credited_as_a_recovery():
+    """Counting matches instead of surviving seeds is the flattering-gate bug.
+
+    Record 1's title names node 1 correctly — but record 0 already claimed it
+    by OTT id, so the name pass changed nothing there and must not say it did.
+    """
+    ott = np.array([NO_OTT, 100], dtype=np.int64)
+    tips = np.array([9, 1], dtype=np.uint32)
+    _, stats = seed_nodes(
+        ott,
+        tips,
+        {100: 0},
+        {},
+        titles=["Something else", "Canis lupus"],
+        name_uids={"Canis lupus": [100]},
+    )
+    assert stats["names_matched"] == 1
+    assert stats["nodes_from_name"] == 0
+
+
+def test_an_image_that_already_seeded_is_not_reconsidered_by_name():
+    ott = np.array([NO_OTT, 100, 200], dtype=np.int64)
+    tips = np.array([9, 1, 1], dtype=np.uint32)
+    seed, stats = seed_nodes(
+        ott,
+        tips,
+        {100: 0},
+        {},
+        titles=["Bos taurus"],
+        name_uids={"Bos taurus": [200]},
+    )
+    assert seed.tolist() == [NO_IMAGE, 0, NO_IMAGE]
+    assert stats["names_matched"] == 0
+
+
+def test_name_match_chases_a_forward_like_the_id_passes_do():
+    ott = np.array([NO_OTT, 200], dtype=np.int64)
+    tips = np.array([9, 1], dtype=np.uint32)
+    seed, stats = seed_nodes(
+        ott,
+        tips,
+        {},
+        {999: 200},
+        titles=["Felis bieti"],
+        name_uids={"Felis bieti": [999]},
+    )
+    assert seed.tolist() == [NO_IMAGE, 0]
+    assert stats["names_matched"] == 1
+
+
+def test_seeding_by_name_is_off_without_a_name_index():
+    """`taxonomy.tsv` is optional; its absence must not fail the phase."""
+    ott = np.array([NO_OTT, 100], dtype=np.int64)
+    seed, stats = seed_nodes(ott, TIPS[:2], {}, {}, titles=["Chlamydiae"])
+    assert seed.tolist() == [NO_IMAGE, NO_IMAGE]
+    assert stats["names_matched"] == 0
+
+
+def test_name_candidates_collects_the_title_and_its_truncations():
+    recs = [_rec_named("Equus quagga chapmani"), _rec_named("Orthocerida")]
+    assert name_candidates(recs) == {
+        "Equus quagga chapmani",
+        "Equus quagga",
+        "Equus",
+        "Orthocerida",
+    }
+
+
+def test_taxonomy_index_reads_names_and_parents_in_one_pass(tmp_path, monkeypatch):
+    tsv = tmp_path / "taxonomy.tsv"
+    tsv.write_text(
+        "uid\t|\tparent_uid\t|\tname\t|\trank\t|\n"
+        "100\t|\t50\t|\tPhoca\t|\tgenus\t|\n"
+        "200\t|\t100\t|\tPhoca caspica\t|\tspecies\t|\n"
+        "300\t|\t60\t|\tPrunella\t|\tgenus\t|\n"
+        "400\t|\t70\t|\tPrunella\t|\tgenus\t|\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(images, "TAXONOMY", tsv)
+    parents, names = taxonomy_index({"Phoca", "Prunella"})
+    assert parents == {100: 50, 200: 100, 300: 60, 400: 70}
+    # Filtered to what was asked for, and homonyms kept as a list so the
+    # caller can see there are two.
+    assert names == {"Phoca": [100], "Prunella": [300, 400]}
+
+
+def test_taxonomy_index_without_an_extracted_taxonomy(tmp_path, monkeypatch):
+    monkeypatch.setattr(images, "TAXONOMY", tmp_path / "absent.tsv")
+    assert taxonomy_index({"Phoca"}) == ({}, {})
+
+
+def _rec_named(title) -> ImageRecord:
+    return ImageRecord(
+        uuid="u",
+        license_url="https://creativecommons.org/publicdomain/zero/1.0/",
+        attribution="A",
+        contributor="A",
+        modified="2020-01-01",
+        node_uuid="n",
+        node_title=title,
+        node_primary_image=None,
+    )
 
 
 def _rec(uuid, ott_ids, primary=None, modified="2020-01-01") -> ImageRecord:

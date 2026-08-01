@@ -171,7 +171,7 @@ and take item 0, which reproduces primaryImage's proximity ordering while stayin
 (93.7% coverage); walk `/lineage` upward for the remainder.
 
 Corpus: 12,863 images, 24,007 nodes, 883 contributors. Mean SVG 10.3 KB → **~136 MB to
-mirror the entire corpus**; mean 192px PNG 4.0 KB → ~53 MB. Mirroring is cheap and
+mirror the entire corpus**; the real mirror came out at 149.8 MB. Mirroring is cheap and
 removes a runtime dependency.
 
 License distribution (full corpus, enumerated not sampled):

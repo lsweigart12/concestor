@@ -69,6 +69,12 @@ interface HitBase {
   has_age: boolean;
   has_image: boolean;
   matched_on: string;
+  /** Present when the server resolved a silhouette for this hit. */
+  phylopic_id?: string | null;
+  /** The node the image is actually of — often an ancestor clade. */
+  silhouette_source_idx?: number | null;
+  /** That ancestor's subtree size, which is what decides whether to draw it. */
+  silhouette_source_tips?: number | null;
 }
 
 /**
@@ -139,6 +145,25 @@ export function silhouetteIsInformative(
   if (src === 0) return false; // the root's image describes nothing
   if (sourceTipCount === undefined) return true;
   return sourceTipCount <= SILHOUETTE_MAX_SOURCE_TIPS;
+}
+
+/**
+ * The silhouette to draw for a search hit, or null to draw none.
+ *
+ * A search hit carries the same borrowed-image problem as a node on the canvas
+ * and is judged by the same rule — one function, so the palette and the canvas
+ * cannot drift into disagreeing about whether a given picture is honest.
+ */
+export function hitSilhouette(hit: SearchHit): string | null {
+  const ok = silhouetteIsInformative(
+    {
+      idx: hit.idx,
+      phylopic_id: hit.phylopic_id ?? null,
+      silhouette_source_idx: hit.silhouette_source_idx ?? null,
+    },
+    hit.silhouette_source_tips ?? undefined,
+  );
+  return ok ? (hit.phylopic_id ?? null) : null;
 }
 
 export interface About {
