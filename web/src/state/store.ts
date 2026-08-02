@@ -47,9 +47,33 @@ export interface ViewState {
   fossils: number[];
 }
 
+/**
+ * `axis: "linear"` is the default, and it is an audience decision rather than a
+ * technical one.
+ *
+ * The symlog scale is the better *instrument* — it is the only way a tree
+ * spanning 6.7 Ma and 1.3 Ga puts both divergences somewhere readable, and
+ * `symlogFrac` exists for exactly that. But this app is for curious people
+ * rather than systematists (handoff.md §1), and two things follow.
+ *
+ * A log axis is a specialist convention that a layman does not read natively,
+ * and — the part that matters more — **linear is the honest one about scale.**
+ * Log flatters recent divergences: it gives human-and-chimp a share of the
+ * width comparable to eukaryotes, when the true ratio is nearer 1:200. Deep
+ * time being genuinely that vast is the thing this app is for, and the crushing
+ * is the message rather than a defect.
+ *
+ * It also suits what the reader now arrives through. Every opening in
+ * `openings.ts` is a comparison, and a comparison is only interesting when its
+ * two ages are close — which is precisely when symlog collapses them. The fish
+ * rungs at 409/455/491 Ma span 2.9% of the log portion and 16.7% linear.
+ *
+ * `L` still switches, one opening asks for symlog by name, and nothing about
+ * the scale itself changed.
+ */
 const DEFAULT: ViewState = {
   keys: [],
-  axis: "log",
+  axis: "linear",
   selected: null,
   isolate: false,
   drill: null,
@@ -66,7 +90,9 @@ export function decode(search: string): ViewState {
     .filter((n) => Number.isInteger(n) && n > 0);
   return {
     keys: raw ? raw.split(",").filter(Boolean) : [],
-    axis: p.get("axis") === "linear" ? "linear" : "log",
+    // Both directions name the non-default explicitly, so the pair stays
+    // reversible: an absent `axis` is the default, whatever the default is.
+    axis: p.get("axis") === "log" ? "log" : "linear",
     selected: p.get("sel"),
     isolate: p.get("iso") === "1",
     drill:
@@ -82,7 +108,7 @@ export function decode(search: string): ViewState {
 export function encode(v: ViewState): string {
   const p = new URLSearchParams();
   if (v.keys.length) p.set("n", v.keys.join(","));
-  if (v.axis !== "log") p.set("axis", v.axis);
+  if (v.axis !== "linear") p.set("axis", v.axis);
   if (v.selected) p.set("sel", v.selected);
   if (v.isolate) p.set("iso", "1");
   if (v.drill) p.set("seg", `${v.drill.upper}-${v.drill.lower}`);
@@ -320,6 +346,44 @@ export function useTree() {
   }, []);
 
   /**
+   * Draw a whole selection at once — an *opening*, not a sequence of adds.
+   *
+   * Replaces rather than appends, and resets the rest of the view with it. An
+   * opening is a claim about a specific set of taxa ("a coelacanth is closer to
+   * you than to a shark"), and it is only true of that set: added on top of a
+   * canvas already holding a mushroom, the MRCA moves and the picture stops
+   * showing what the copy promised. `DEFAULT` also clears `isolate` and `drill`,
+   * either of which would hide the very branch the opening exists to display.
+   *
+   * Not expressible as repeated `add`: that would leave whatever was there,
+   * and would fire {@link addDelta} once per key, so the signature animation
+   * would play from a different MRCA three times instead of framing one tree.
+   */
+  const open = useCallback((keys: readonly string[], axis?: AxisMode) => {
+    // Reset the animation baseline with the view, and this is load-bearing
+    // rather than tidy. The signature draw is an *add*: `addDelta` splits the
+    // new tree into waves by how far each node sits from the branch the added
+    // leaf joined, and everything already on screen is excluded as `prior`.
+    //
+    // An opening shares no leaf with what it replaces, and its paths arrive
+    // from the API one at a time — so leaving these refs pointing at the old
+    // tree makes every intermediate delta compute waves against a baseline
+    // that is neither the old tree nor the new one. Nodes land in waves whose
+    // turn never comes and their traces stay at zero opacity: the marks and
+    // labels draw, the branches connecting them do not.
+    //
+    // Nulling both puts this on exactly the path a cold load with `?n=…` takes,
+    // which is the one that renders correctly.
+    prevInduced.current = null;
+    lastCount.current = 0;
+    setView({
+      ...DEFAULT,
+      keys: [...new Set(keys.map(toUrlKey))],
+      ...(axis ? { axis } : {}),
+    });
+  }, []);
+
+  /**
    * Draw a fossil against the tree, or stop drawing it.
    *
    * Additive like `add`, and pointedly *not* a selection: `keys` is untouched,
@@ -375,6 +439,7 @@ export function useTree() {
     unresolved,
     error,
     add,
+    open,
     remove,
     clear,
     setAxis,

@@ -630,8 +630,8 @@ body {
   pointer-events: auto;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 3px 8px 3px 5px;
+  gap: 4px;
+  padding: 3px 4px 3px 5px;
   border: 1px solid var(--hairline);
   border-radius: 6px;
   background: var(--void-3);
@@ -640,25 +640,80 @@ body {
   letter-spacing: 0.04em;
   white-space: nowrap;
   color: var(--ink-2);
-  cursor: pointer;
   transition:
-    background 120ms ease,
-    color 120ms ease,
-    border-color 120ms ease;
+    background 140ms ease,
+    border-color 140ms ease,
+    box-shadow 140ms ease;
 }
 
 .axis-mode:hover {
   border-color: var(--hairline-strong);
-  color: var(--ink);
 }
 .axis-mode:hover .kbd {
   border-color: var(--hairline-strong);
   color: var(--accent);
 }
 
-.axis-mode:focus-visible {
+/* One segment per scale. Both are always readable; only the live one is lit,
+   so the control states where you are and what else there is at the same time
+   and neither can be mistaken for the other. */
+.axis-seg {
+  appearance: none;
+  padding: 2px 7px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  font: inherit;
+  letter-spacing: inherit;
+  color: var(--ink-4);
+  cursor: pointer;
+  transition:
+    background 140ms ease,
+    color 140ms ease,
+    border-color 140ms ease;
+}
+.axis-seg:hover {
+  color: var(--ink-2);
+}
+.axis-seg:focus-visible {
   outline: none;
   border-color: var(--accent-dim);
+  color: var(--ink);
+}
+
+/* Lit, at the default: plain ink on a raised chip. Says which one is live and
+   nothing more, because nothing more has happened. */
+.axis-seg.is-on {
+  background: var(--void);
+  border-color: var(--hairline);
+  color: var(--ink);
+  cursor: default;
+}
+
+/*
+ * Lit, away from the default: the same chip in the accent.
+ *
+ * This is the whole point of the `is-modified` class. A reader arriving on a
+ * shared `axis=log` link did not choose that scale and has no way to know the
+ * view was set for them — and a log axis flatters recent divergences, so it is
+ * the reading that most deserves to announce itself. Restraint still applies:
+ * the accent is carried at low alpha on the chip, and the canvas keeps every
+ * bright pixel it had.
+ */
+.axis-mode.is-modified {
+  border-color: hsl(var(--accent-h) 40% 44% / 0.5);
+  background: hsl(var(--accent-h) 40% 30% / 0.16);
+}
+.axis-mode.is-modified .axis-seg.is-on {
+  background: hsl(var(--accent-h) 60% 50% / 0.18);
+  border-color: hsl(var(--accent-h) 45% 50% / 0.45);
+  color: var(--accent);
+}
+/* The way back out, and it has to stay legible or the state is a trap. */
+.axis-mode.is-modified .axis-seg:not(.is-on) {
+  color: var(--ink-3);
+}
+.axis-mode.is-modified .axis-seg:not(.is-on):hover {
   color: var(--ink);
 }
 
@@ -1985,10 +2040,16 @@ body {
   pointer-events: none;
 }
 .boot-inner {
-  max-width: 520px;
+  max-width: 560px;
   line-height: 1.6;
   color: var(--ink-3);
   font-size: 13.5px;
+}
+/* One line under the wordmark, and it promises a payoff rather than describing
+   a mechanism. The openings below it carry the actual invitation. */
+.boot-lede {
+  margin: 0 0 var(--s4);
+  color: var(--ink-3);
 }
 .boot-inner h1 {
   font-size: 15px;
@@ -2011,6 +2072,324 @@ body {
   background: var(--void-3);
   padding: 2px 6px;
   border-radius: 4px;
+}
+
+/* ------------------------------------------------------------- carousel -- */
+
+/*
+ * One opening at a time on the empty canvas. `.boot` is `pointer-events: none`
+ * so the empty canvas does not swallow presses aimed at the axis behind it;
+ * everything pressable in here takes that back explicitly.
+ */
+.carousel {
+  pointer-events: auto;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 28px;
+  align-items: center;
+  gap: var(--s1, 4px);
+  margin: 0 0 var(--s3);
+}
+
+.carousel-arrow {
+  justify-self: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  background: transparent;
+  font-family: var(--sans);
+  font-size: 17px;
+  line-height: 1;
+  color: var(--ink-4);
+  cursor: pointer;
+  transition:
+    color 120ms ease,
+    background 120ms ease,
+    border-color 120ms ease;
+}
+.carousel-arrow:hover {
+  color: var(--ink);
+  background: var(--void-3);
+  border-color: var(--hairline);
+}
+.carousel-arrow:focus-visible {
+  outline: none;
+  border-color: var(--accent-dim);
+  color: var(--ink);
+}
+
+/* The card is one big target: the whole thing draws the tree. */
+.carousel-card {
+  display: block;
+  width: 100%;
+  min-height: 152px;
+  padding: var(--s3) var(--s2);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  font-family: var(--sans);
+  text-align: center;
+  color: inherit;
+  cursor: pointer;
+  animation: carousel-in 420ms ease-out;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease;
+}
+.carousel-card:hover,
+.carousel-card:focus-visible {
+  background: var(--void-3);
+  border-color: var(--hairline);
+  outline: none;
+}
+
+@keyframes carousel-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/*
+ * The silhouettes, which are the reason the card can carry less prose: they
+ * say what is about to be drawn without a word. Quiet at rest and lit on
+ * hover, so the row reads as part of the invitation rather than as decoration.
+ */
+.carousel-art {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: var(--s3);
+  min-height: 34px;
+  margin-bottom: var(--s2);
+  color: var(--ink-4);
+  transition: color 160ms ease;
+}
+.carousel-card:hover .carousel-art,
+.carousel-card:focus-visible .carousel-art {
+  color: var(--ink-2);
+}
+
+.carousel-q {
+  display: block;
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--ink-2);
+}
+.carousel-card:hover .carousel-q,
+.carousel-card:focus-visible .carousel-q {
+  color: var(--ink);
+}
+
+.carousel-a {
+  display: block;
+  max-width: 46ch;
+  margin: 5px auto 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ink-4);
+}
+.carousel-card:hover .carousel-a,
+.carousel-card:focus-visible .carousel-a {
+  color: var(--ink-3);
+}
+
+.carousel-dots {
+  grid-column: 2;
+  display: flex;
+  justify-content: center;
+  gap: 7px;
+  margin-top: var(--s2);
+}
+.carousel-dot {
+  width: 5px;
+  height: 5px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--ink-4);
+  opacity: 0.5;
+  cursor: pointer;
+  transition:
+    opacity 140ms ease,
+    background 140ms ease;
+}
+.carousel-dot:hover {
+  opacity: 1;
+}
+.carousel-dot.is-on {
+  background: var(--accent-dim);
+  opacity: 1;
+}
+.carousel-dot:focus-visible {
+  outline: 1px solid var(--accent-dim);
+  outline-offset: 2px;
+}
+
+/* -------------------------------------------------------------- openings -- */
+
+/*
+ * The ways in. Shared by the empty canvas and the about panel, because they
+ * are the same offer made in two places and a reader who learns the shape in
+ * one should recognise it in the other.
+ *
+ * `.boot` is `pointer-events: none` so the empty canvas does not swallow
+ * presses aimed at the axis footer behind it. These rows are the exception and
+ * have to take it back explicitly — without this the list renders perfectly and
+ * cannot be clicked, which looks like a dead link rather than a bug.
+ */
+.openings {
+  list-style: none;
+  margin: 0 0 var(--s4);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  pointer-events: auto;
+  text-align: left;
+}
+
+/*
+ * `text-align` is set here and not on the list, because a `button` carries
+ * `center` from the user-agent sheet and inherits nothing — the first cut set
+ * it on `.openings` and every row still rendered centred, which read as six
+ * paragraphs of prose rather than as a menu.
+ */
+.opening {
+  display: grid;
+  grid-template-columns: 12px 1fr;
+  column-gap: var(--s2);
+  width: 100%;
+  padding: 7px var(--s3) 7px var(--s2);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  font-family: var(--sans);
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease;
+}
+.opening:hover,
+.opening:focus-visible {
+  background: var(--void-3);
+  border-color: var(--hairline);
+  outline: none;
+}
+
+/*
+ * The one mark that says these are pressable. Without it the rows are legible
+ * and inert-looking, and a reader who does not hover — which is every reader on
+ * a touch screen — has no reason to believe the list does anything.
+ *
+ * On the button rather than on the question, and spanning both rows: as a
+ * `::before` inside `.opening-q` it would need subgrid to line up with the
+ * answer beneath it, and the question's own text node would be competing with
+ * it for the same cell.
+ */
+.opening::before {
+  content: "›";
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  color: var(--ink-5, var(--ink-4));
+  transition: color 120ms ease;
+}
+.opening:hover::before,
+.opening:focus-visible::before {
+  color: var(--accent);
+}
+
+.opening-q {
+  display: block;
+  grid-column: 2;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.opening:hover .opening-q,
+.opening:focus-visible .opening-q {
+  color: var(--ink);
+}
+
+/*
+ * The answer, and it is deliberately legible rather than a hover affordance.
+ * An earlier cut revealed it only on hover, which reads well on a desktop and
+ * hides the entire pitch on a touch screen — where there is no hover at all and
+ * the reader would be choosing between six unexplained questions.
+ */
+.opening-a {
+  display: block;
+  grid-column: 2;
+  margin-top: 1px;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--ink-4);
+}
+.opening:hover .opening-a,
+.opening:focus-visible .opening-a {
+  color: var(--ink-3);
+}
+
+/* ----------------------------------------------------------------- about -- */
+
+.modal-wide {
+  width: min(560px, 92vw);
+  max-height: 76vh;
+  overflow-y: auto;
+}
+
+.about-lede {
+  margin: 0 0 var(--s4);
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ink-3);
+}
+.about-lede em {
+  font-style: italic;
+  color: var(--ink-2);
+}
+
+.about-h {
+  margin: 0 0 var(--s2);
+  font-size: 10.5px;
+  font-weight: var(--w-med);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+}
+
+.about-p {
+  margin: 0 0 var(--s4);
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--ink-3);
+}
+.about-p strong {
+  font-weight: var(--w-med);
+  color: var(--ink-2);
+}
+
+/* The openings inside the panel sit flush with its text column. */
+.about .openings {
+  margin-left: calc(var(--s3) * -1);
+  margin-right: calc(var(--s3) * -1);
+}
+
+.about-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  padding-top: var(--s3);
+  border-top: 1px solid var(--hairline);
+}
+.about-foot .mono {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-5, var(--ink-4));
 }
 
 /* ------------------------------------------------------------- reduced -- */

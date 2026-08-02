@@ -37,6 +37,9 @@ import {
   type GraftRefusal,
 } from "./tree/graft";
 import { Palette, type Command, type PaletteFilter, type Scope } from "./palette/Palette";
+import { About as AboutPanel } from "./chrome/About";
+import { OpeningCarousel } from "./chrome/OpeningCarousel";
+import { OPENINGS, keysOf, type Opening } from "./openings";
 import { Confirm } from "./chrome/Confirm";
 import { Controls, type ControlAction } from "./chrome/Controls";
 import { kbd, matchKey } from "./chrome/bindings";
@@ -79,6 +82,7 @@ export default function App() {
   /** Non-null when the palette is answering about one corpus only. */
   const [filter, setFilter] = useState<PaletteFilter | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [about, setAbout] = useState<About | null>(null);
   const [timescale, setTimescale] = useState<TimescaleInterval[] | null>(null);
@@ -317,6 +321,25 @@ export default function App() {
     [tree, toast],
   );
 
+  /**
+   * Draw an opening, and get out of its way.
+   *
+   * Both surfaces that offer one — the empty canvas and the about panel — close
+   * on the press, and the toast names the claim rather than the taxa. "Added
+   * Human, Gombessa, Great White Shark" is a list of what was pressed; the
+   * reader pressed it to find out whether they are a fish, and that is the
+   * sentence worth leaving on screen while the tree draws itself.
+   */
+  const openOpening = useCallback(
+    (o: Opening) => {
+      tree.open(keysOf(o), o.axis);
+      setAboutOpen(false);
+      setPaletteOpen(false);
+      toast(o.reveal);
+    },
+    [tree, toast],
+  );
+
   const share = useCallback(() => {
     const url = window.location.href;
     navigator.clipboard
@@ -490,10 +513,14 @@ export default function App() {
       {
         id: "axis",
         title: `Switch time axis to ${tree.view.axis === "log" ? "linear" : "logarithmic"}`,
+        // Each names what you would be switching *to*, and neither disparages
+        // the other. The old copy called linear the one that "puts every recent
+        // divergence in one pixel", which was a fair warning while symlog was
+        // the default and is a poor way to describe the default now.
         subtitle:
           tree.view.axis === "log"
-            ? "Linear puts every recent divergence in one pixel"
-            : "Symlog: linear to 1 Ma, logarithmic above",
+            ? "True proportions; recent splits crowd the present"
+            : "Symlog: linear to 1 Ma, logarithmic above — room for recent splits",
         icon: "⇄",
         keys: kbd("axis"),
         section: "View",
@@ -558,26 +585,28 @@ export default function App() {
           setConfirmClear(true);
         },
       },
-      {
-        id: "credits",
-        title: "Credits and sources",
-        subtitle: "Silhouette artists, data provenance, licences",
-        icon: "©",
-        section: "About",
-        run: () => {
-          setPaletteOpen(false);
-          showCredits(about, toast);
-        },
-      },
+      // The openings are commands as well as an empty-state list, so a reader
+      // who has already drawn something can still reach them — and so the
+      // palette answers "mushroom" with the question about mushrooms, not only
+      // with 300 fungi. They sit above the corpus for that reason.
+      ...OPENINGS.map((o) => ({
+        id: `opening-${o.id}`,
+        title: o.question,
+        subtitle: o.reveal,
+        hint: o.reveal,
+        icon: "◇",
+        section: "Start here",
+        run: () => openOpening(o),
+      })),
       {
         id: "about",
-        title: "What this is made of",
-        subtitle: about ? `build ${about.build_id}` : "Build provenance",
+        title: "About Concestor",
+        subtitle: "What this is, where the data comes from, what the dashes mean",
         icon: "i",
         section: "About",
         run: () => {
           setPaletteOpen(false);
-          showAbout(about, toast);
+          setAboutOpen(true);
         },
       },
       {
@@ -665,7 +694,7 @@ export default function App() {
       }
     }
     return base;
-  }, [tree, about, focusedNode, toast, share, randomSpecies, randomFossil]);
+  }, [tree, about, focusedNode, toast, share, randomSpecies, randomFossil, openOpening]);
 
   /**
    * What a fossil offers, which is short and deliberately so.
@@ -955,6 +984,16 @@ export default function App() {
         }
         return;
       }
+      // Same shape as the dialog above it, and for the same reason: while a
+      // modal owns the screen every bare letter belongs to the focus ring
+      // inside it, so `c` must not open a clear confirmation behind the panel.
+      if (aboutOpen) {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          setAboutOpen(false);
+        }
+        return;
+      }
       if (paletteOpen) {
         if (e.key === "Escape") {
           e.preventDefault();
@@ -1042,6 +1081,7 @@ export default function App() {
     stepSelection,
     paletteOpen,
     confirmClear,
+    aboutOpen,
     empty,
   ]);
 
@@ -1171,19 +1211,35 @@ export default function App() {
         }}
       />
 
+      {/*
+        The empty canvas asks a question rather than giving an instruction.
+
+        It used to say "press S and search for two species", which needs the one
+        thing a curious reader has not got — two species, chosen, for a reason —
+        and then described the mechanism rather than the payoff. Nobody wants a
+        minimal subtree. They want to find out they are a fish.
+
+        Each row draws a *triple*, and `openings.ts` explains why that is the
+        whole design: a pair yields a number, a triple yields an argument you
+        can see. Search and the random pick stay, demoted to the line below,
+        because they are now the second and third ways in rather than the first.
+      */}
       {tree.induced.rendered.length === 0 && !paletteOpen && (
         <div className="boot">
           <div className="boot-inner">
             <h1>Concestor</h1>
-            <p>
-              Press <span className="kbd">{kbd("species")}</span> and search for
-              two species. You will get the smallest tree that connects them
-              through their common ancestor.
+            <p className="boot-lede">
+              Pick any two species; see where their lineages meet, in deep time.
             </p>
+            <OpeningCarousel onOpen={openOpening} />
             <p className="boot-alt">
-              Or press <span className="kbd">{kbd("random-species")}</span> for a
-              species picked for you — every key here is also a button along the
-              top.
+              Or press <span className="kbd">{kbd("species")}</span> to search
+              2.4 million species, <span className="kbd">
+                {kbd("random-species")}
+              </span>{" "}
+              for one picked at random, or{" "}
+              <span className="kbd">{kbd("palette")}</span> for everything this
+              can do.
             </p>
           </div>
         </div>
@@ -1263,6 +1319,14 @@ export default function App() {
         presentFossils={presentFossils}
       />
 
+      {aboutOpen && (
+        <AboutPanel
+          about={about}
+          onOpen={openOpening}
+          onClose={() => setAboutOpen(false)}
+        />
+      )}
+
       {confirmClear && (
         <Confirm
           title="Clear the canvas?"
@@ -1300,40 +1364,5 @@ export default function App() {
   );
 }
 
-/** The credits view is a command, not a settings panel. */
-function showCredits(about: About | null, toast: (b: React.ReactNode) => void) {
-  toast(
-    <>
-      <strong>Sources.</strong> Topology from the Open Tree of Life synthesis
-      v16.1 and OTT 3.7.3. Ages from Duke et al. 2026 (CC-BY, Zenodo
-      10.5281/zenodo.19049120). Silhouettes from PhyloPic, credited per image in
-      the node card. Geologic timescale from ICS. Fossil occurrences from the
-      Paleobiology Database. Descriptions from Wikipedia (CC BY-SA), fetched as
-      you open a card and credited on it.
-      {about?.build_id ? (
-        <>
-          {" "}
-          Build <span className="mono">{about.build_id}</span>.
-        </>
-      ) : null}
-    </>,
-  );
-}
-
-function showAbout(about: About | null, toast: (b: React.ReactNode, warn?: boolean) => void) {
-  if (!about) {
-    toast("Build provenance is unavailable — the API did not answer.", true);
-    return;
-  }
-  toast(
-    <>
-      <strong>Build {about.build_id}.</strong>{" "}
-      {about.age?.headline ??
-        `${(about.counts.nodes ?? 0).toLocaleString()} nodes.`}{" "}
-      Ages come from {about.age?.source_tree ?? "an unrecorded tree"}
-      {about.age?.phase2_accepted === false
-        ? " and have NOT passed validation — they are provisional."
-        : "."}
-    </>,
-  );
-}
+// `showCredits` and `showAbout` used to live here as five-second toasts. Both
+// are now `chrome/About.tsx`, which says why one panel replaced two notices.

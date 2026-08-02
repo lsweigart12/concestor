@@ -111,9 +111,12 @@ filter tween on the same element.
   *Sus* and *Salmo* are never intercepted. It pops with backspace like any
   other chip.
 - **There is a way in that does not require having thought of a species.**
-  `R` adds a random one, `⇧R` draws a random fossil. The empty canvas is a
-  command list, and every other command on it assumes you already have a name
-  in mind; nobody browses 2.4 million of them. Both draw only from taxa that
+  The empty canvas is an **openings carousel** — one question at a time, its
+  taxa previewed as silhouettes, arrows and dots to move, auto-advancing until
+  the reader hovers or takes control. Every other way in assumes you already
+  have a name in mind, and nobody browses 2.4 million of them. `R` adds a
+  random species and `⇧R` draws a random fossil, for a reader who wants the
+  corpus rather than a curated question. Both draw only from taxa that
   carry **a silhouette of their own**, which is the whole of the design — a
   uniform draw returns an unnamed `mrcaott…` clade or an undescribed mite, and
   a surprise that is usually nothing to look at is one a reader stops pressing.
@@ -167,18 +170,39 @@ filter tween on the same element.
   overlays", not a licence for more chrome — and it is **not** a panel. Two
   drafts made it one, a card and then a pill, and both were a third floating
   object on an edge that already had two. The line it belongs on existed.
-- **The right end of that line is one word and its key, and it is the switch.**
-  It reads `L logarithmic` or `L linear` — the state, in the reader's word,
-  clicking to toggle. It replaced "millions of years before present · symlog",
-  which spent the line on a unit every tick and node label already carries and
-  buried the two facts that matter: that there is a second scale, and that you
-  can have it. `symlog` is the name of a transform, not of anything on screen;
-  the knee is labelled on the axis where it happens, and the tooltip carries
-  the units. It wears the control bar's anatomy — badge, then word — because it
-  is the one binding not drawn on the bar, and this is where the thing it
-  changes lives. A first pass styled it as flat text on the "no third floating
-  object" argument above; that argument is about panels, and reading as prose
-  cost a 60-pixel control the only job it has, which is to look pressable.
+- **The right end of that line is both scales and their key, and it is the
+  switch.** It reads `L | linear | log` as a segmented control: both options
+  always legible, the live one lit. It replaced "millions of years before
+  present · symlog", which spent the line on a unit every tick and node label
+  already carries and buried the two facts that matter — that there is a second
+  scale, and that you can have it. A middle draft named only the live scale,
+  which fixed the first fact and not the second: `linear` alone never says an
+  alternative exists, and one word on a button cannot distinguish *what you are
+  on* from *what you would get*. Showing both answers all of it, and going back
+  is pressing the one you want rather than knowing the button reverses.
+
+  `symlog` stays out of it — the name of a transform, not of anything on
+  screen; the knee is labelled on the axis where it happens, and the tooltip
+  carries the units and the full word "logarithmic". It wears the control bar's
+  anatomy — badge, then the control — because it is the one binding not drawn
+  on the bar, and this is where the thing it changes lives. The badge sits
+  outside both segments because `L` toggles rather than selects. A first pass
+  styled the whole thing as flat text on the "no third floating object"
+  argument above; that argument is about panels, and reading as prose cost a
+  small control the only job it has, which is to look pressable.
+
+- **Quiet at the default, accented away from it.** Linear is the default scale,
+  so on linear the lit segment is plain ink and the control announces nothing.
+  Logarithmic is a departure — pressed, or arrived at through a link carrying
+  `axis=log`, or asked for by an opening — and the whole control takes the
+  accent at low alpha. This is ordinary filter-chip grammar, and it earns its
+  place here for a specific reason: **a reader who followed someone else's link
+  did not choose that scale and would otherwise have no way to know the view
+  was set for them**, and a log axis is the reading that most flatters recent
+  divergences. The segment that is *not* lit stays legible in that state, or
+  the accent marks a trap rather than a state. This is the one place chrome may
+  carry the accent for something other than hover or focus; the canvas keeps
+  every bright pixel it had.
 
 ## Hit targets
 
@@ -381,8 +405,11 @@ Wikipedia and the licence — leave the app, and look different because they do.
 - Not Mermaid. Not a static diagram renderer.
 - No glassmorphism, no gradient meshes, no ambient background animation.
   The glow comes from the data, nowhere else.
-- No onboarding overlays or empty-state illustrations — the palette is the
-  empty state.
+- No onboarding overlays, and no *decorative* empty state. The bar this sets is
+  that everything on an empty canvas must be a live control over real data —
+  which the openings carousel meets and a spot illustration would not. It
+  replaced "the palette is the empty state", which was true while the empty
+  canvas was a command list and stopped being true when the openings landed.
 - No settings panel that duplicates something a command already does.
 - No warm-orange heatmap palette.
 

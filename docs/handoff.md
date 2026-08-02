@@ -234,6 +234,132 @@ uv run ruff format src tests && uv run ruff check src tests && uv run ty check &
 
 ## 3. Decisions taken
 
+### The empty canvas asks a question, and every opening is a triple
+
+`web/src/openings.ts` is six pre-built selections, offered by the empty canvas,
+by the about panel and as a `Start here` section in the palette. It replaced
+*"press S and search for two species"*, which asked for the one thing a curious
+reader does not have — two species, chosen, for a reason — and then described
+the mechanism (*the smallest tree that connects them*) rather than the payoff.
+
+**No opening is a pair, and that is the design rather than a preference.** A
+pair draws one number; three or more draw an *argument*, because the nesting is
+the proof and needs no reading. "Are you a fish?" seeds you, a salmon, a shark,
+a sea star and a jellyfish, joining in four rungs outward — Euteleostomi ≤ 455,
+Gnathostomata ≤ 491, Deuterostomia ≤ 628, and Bilateria / Cnidaria ≤ 719 Ma.
+You meet the salmon before the shark meets either of you, so any group holding
+both fish holds you.
+
+**An earlier cut ran this through a coelacanth**, which is the cleaner
+cladistics and the worse hook: it is a fish almost nobody can picture, and OTT
+headlines it *Gombessa*, so the canvas captioned the crux of the argument with a
+word the reader has never seen. Salmon and shark carry it unaided.
+
+**The two invertebrates are a ruler, not decoration.** Without them the picture
+is one tight cluster with nothing to be tight against, and 455 against 491 Ma
+does not read as *near*. They are not free: the deepest sets `maxAge`, so on the
+linear axis the rung that matters is 5.0% of the plot width with both against
+7.3% with neither, and the four gaps run 5.0 / 19.2 / 12.6%. Fifty-odd pixels is
+worth the contrast; **re-measure before adding a fifth rung.** Neither outgroup
+is named in the copy — a thing visibly alone on the canvas needs no caption.
+
+**Pick a silhouette by looking at it at 30px, not by picking the species.** The
+jelly was *Aurelia aurita* and is now *Pelagia noctiluca*; both are Scyphozoa
+and both give the identical MRCA, so nothing measured above moved. PhyloPic
+draws *Aurelia* from **above** — a radial starburst that reads as a flower at
+the size these are actually shown, and reads as a *second sea star* beside the
+one already in that opening. Most of the corpus is drawn to be read large:
+*Cyanea* and both other *Chrysaora* are profile views hanging on hairline
+tentacles that dissolve to grey fuzz. The mauve stinger has a solid bell and
+four thick separated tentacles, which is the whole of why it was chosen.
+
+Four things not to redo:
+
+- **The copy claims relationships, never dates**, and `openings.test.ts`
+  enforces it with a regex. Ages are tiered, so prose promising "1.1 billion
+  years" beside a canvas drawing `≤ 1314.8 Ma` would make the app contradict
+  itself on the one axis it exists to be careful about. Branching order is
+  exact; let the axis carry the figures.
+- **Every claim was checked against the baked arrays, and one popular candidate
+  failed.** *"T. rex lived closer to us than to Stegosaurus"* is **false as this
+  app draws it**: PBDB's last appearance for *Stegosaurus* is `lla` 93.9 Ma, not
+  the textbook ~150, so the gap is 27.9 Ma against 66. Do not restore it without
+  re-reading `fossil.lla`.
+- **`tree.open()` nulls `prevInduced` and `lastCount`.** An opening replaces the
+  canvas and its paths arrive one at a time, so leaving those refs on the old
+  tree makes each intermediate `addDelta` compute draw-waves against a baseline
+  that is neither tree. Nodes land in waves whose turn never comes and their
+  traces stay at zero opacity — marks and labels draw, branches do not. Nulling
+  both puts it on the cold-load path, which is the one that renders.
+- **`text-align` belongs on `.opening`, not `.openings`.** A `button` takes
+  `center` from the user-agent sheet and inherits nothing, so the first cut left
+  six centred paragraphs that read as prose rather than as a menu.
+
+`showAbout` and `showCredits` were two five-second toasts — one printing a build
+id, one a licence paragraph too long to finish before it vanished. They are now
+one `chrome/About.tsx`, which leads with the openings, because the honest answer
+to *what is this* is a drawn tree rather than a description of one.
+
+**The canvas shows one opening at a time; the about panel still lists all six.**
+That split is deliberate — the canvas is an attract surface and the panel is a
+reference one — and it is why `chrome/OpeningCarousel.tsx` and the `.openings`
+list both exist. Six questions and six answers at once was a wall of prose on a
+surface whose whole argument is that the graph is the only thing worth looking
+at. The silhouettes carry what the deleted text was carrying: `OpeningTaxon.art`
+is a PhyloPic id rendered straight off `/v1/silhouette/{id}.svg`, so the preview
+needs no API round trip before the canvas holds anything.
+
+**Auto-rotation is the part that needed care**, because rotating banners are
+normally a defect. Four rules make this one defensible and none is optional:
+hover or focus anywhere in the card stops it; any manual press stops it *for
+good* rather than on a timer; `prefers-reduced-motion` disables it and the fade
+outright; and it is never the only route, since all six are palette commands
+under `Start here` and all six are listed in the about panel. Nothing is
+reachable only by waiting.
+
+Two structural notes. **`Opening.taxa` is one list of `{key, art, label}`, not
+parallel arrays** — a drifted pair shows a salmon captioned as a shark and
+nothing throws, and `openings.test.ts` additionally refuses a repeated drawing
+inside one opening. And **the carousel card is keyed on `opening.id`**, so React
+swaps the subtree rather than mutating it; without the key the outgoing
+silhouettes linger under the incoming text for a frame and read as a glitch.
+
+This put `design-reference.md`'s "no onboarding overlays or empty-state
+illustrations — the palette is the empty state" out of date, and that line has
+been rewritten rather than quietly broken: the bar it now sets is that
+everything on an empty canvas must be a live control over real data.
+
+### The time axis defaults to linear
+
+Symlog is still the better *instrument* and `symlogFrac` is unchanged — it
+remains the only scale that can hold 6.7 Ma and 1.3 Ga on one canvas. It is no
+longer the default, and the reason is the audience rather than the geometry.
+
+**Linear is the honest one about scale.** Log flatters recent divergences: it
+gives human-and-chimp a share of the width comparable to eukaryotes when the
+true ratio is nearer 1:200. Deep time being genuinely that vast is what this app
+is for, so the crushing is the message and not a defect. A log axis is also a
+specialist convention, and this is a product for curious people (§1).
+
+It suits the openings too, and for a structural reason worth keeping: **a
+comparison is only interesting when its two ages are close, which is exactly
+when symlog collapses them.** The fish rungs at 409/455/491 Ma span 2.9% of the
+log portion against 16.7% linear.
+
+Three things to know before touching it:
+
+- **`encode` and `decode` each name the non-default axis, in opposite
+  directions.** Flipping the default means editing both, and getting one is
+  silent: every shared link either carries a redundant `axis=` or drops the
+  caller's choice. `state/store.test.ts` pins the pair.
+- **`Opening.axis` overrides per opening**, and exactly one uses it. The
+  chimp-and-rat comparison is the only one whose ages span an order of magnitude
+  — 6.7, 21.7, and ~83 where the two pairs join — so linear sets the axis by
+  that last number and crushes both comparisons into the right quarter.
+- **The axis command's copy was rewritten.** It used to sell symlog by warning
+  that "linear puts every recent divergence in one pixel", which is a fair
+  warning about an alternative and a poor description of a default.
+
 ### Dating: the Duke et al. tree is accepted
 
 Phase 2 failed the gate **as written** — clade compatibility 99.6036% against a
