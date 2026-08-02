@@ -28,6 +28,38 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The version is a function of the commit log, so the commit log is an
+  # input to the build and gets checked like one. `.commitlintrc.json` turns
+  # off everything the default config asks for beyond the type prefix — the
+  # subject stays a sentence in this project's own voice.
+  commits:
+    name: commits (conventional)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Both endpoints of the range have to be present, and the default
+          # single-commit checkout has neither.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Only this pull request's commits. Running over the whole history
+      # would fail on everything written before the convention existed, which
+      # is not a thing anyone can fix.
+      # No @commitlint/config-conventional: commitlint.config.cjs writes the
+      # rules out rather than extending it, because `extends` resolves from
+      # the repository root and there is no node_modules there to resolve it
+      # in. The linter is the only dependency.
+      - name: commitlint
+        run: |
+          npx --yes -p @commitlint/cli@19 commitlint --verbose \
+            --from "${{ github.event.pull_request.base.sha }}" \
+            --to "${{ github.event.pull_request.head.sha }}"
+
   web:
     name: web (typecheck, test, build)
     runs-on: ubuntu-latest

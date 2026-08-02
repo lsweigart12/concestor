@@ -23,6 +23,17 @@ import (
 	"github.com/lsweigart12/concestor/server/internal/store"
 )
 
+// Set by the linker at release time — see scripts/ci/build-release.sh, which
+// passes -X main.version and -X main.commit from the tag semantic-release
+// computed. They are variables rather than constants for exactly that reason.
+//
+// "dev" is the honest default. A `go run` has no version, and reporting an
+// empty string on /v1/about would read as a release that forgot to say which.
+var (
+	version = "dev"
+	commit  = ""
+)
+
 func main() {
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, "concestor-serve:", err)
@@ -96,7 +107,10 @@ func run() error {
 		log.Warn("table present but not wired up", "table", t, "reason", why)
 	}
 
-	srv := &api.Server{St: st, Log: log, WebDist: dist, Immutable: *immutable}
+	srv := &api.Server{
+		St: st, Log: log, WebDist: dist, Immutable: *immutable,
+		Release: version, Commit: commit,
+	}
 	h := srv.Handler()
 
 	hs := &http.Server{

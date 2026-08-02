@@ -575,6 +575,14 @@ export interface SegmentResponse {
 }
 
 export interface About {
+  /**
+   * The running binary's version — a release tag, or "dev". Not `build_id`,
+   * which identifies the *dataset* it has mmap'd. The two move on completely
+   * different cadences: a release ships code, a pipeline run ships data, and
+   * either can change without the other.
+   */
+  release?: string;
+  commit?: string;
   build_id: string;
   generated_at?: string;
   counts: Record<string, number>;

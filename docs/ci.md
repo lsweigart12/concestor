@@ -9,9 +9,13 @@ happen before Concestor deploys on Cloudflare.
 
 | File | Trigger | Jobs |
 |---|---|---|
-| `.github/workflows/ci.yml` | every push to `main`, every pull request | `web`, `server`, `pipeline`, `cloudflare` |
-| `.github/workflows/deploy-web.yml` | push to `main`, pull request, manual | `deploy` — skipped entirely until Cloudflare credentials exist |
+| `.github/workflows/ci.yml` | every push to `main`, every pull request | `commits`, `web`, `server`, `pipeline`, `cloudflare` |
+| `.github/workflows/release.yml` | CI succeeding on `main`, or manual | `release` — semantic-release, fully automatic |
+| `.github/workflows/deploy-web.yml` | a published release, pull request, manual | `deploy` — skipped entirely until Cloudflare credentials exist |
 | `.github/dependabot.yml` | monthly | npm, gomod, uv, github-actions |
+
+The chain is `merge → CI → release → deploy`, and no link in it waits for a
+human.
 
 The three halves share only files, so they get three independent jobs and a red
 run names the half that broke. Nothing in CI needs `build/` (2.9 GB) or
@@ -33,6 +37,10 @@ of every pipeline change, in order: `ruff format --check`, `ruff check`,
 `ty check`, `pytest`. Nothing here is advisory; all four block the merge.
 
 **`cloudflare`** — `wrangler deploy --dry-run` against the built `dist`. See §3.
+
+**`commits`** — commitlint over the pull request's own commits only. The
+version is a function of the commit log, so the commit log is an input to the
+build and gets checked like one. See §4.
 
 ---
 
@@ -170,7 +178,95 @@ npm --prefix web run cf:dev     # wrangler dev, needs API_ORIGIN set
 
 ---
 
-## 4. What is deliberately not here
+## 4. Releases
+
+Fully automatic. Merge to `main`, CI passes, a release is cut. Nobody decides
+a version number and nobody writes release notes.
+
+```
+merge → CI green on main → semantic-release → tag + GitHub Release → deploy
+```
+
+### The version is a function of the commit log
+
+Conventional Commits, per `commitlint.config.cjs`. `feat:` bumps the minor,
+`fix:` the patch, `BREAKING CHANGE:` in a body bumps the major; `docs`,
+`chore`, `ci`, `refactor`, `test`, `build`, `style` and `revert` release
+nothing. **`perf` deliberately does not bump** — a faster induced-subtree walk
+is not a new capability, and shipping it as one makes the version a worse
+description of the change than the commit already was.
+
+The type prefix is the whole of what the convention imposes here. The subject
+stays a sentence in this project's voice:
+
+```
+feat: Make the card say what a thing is, and let the reader walk from it
+```
+
+That is five characters more than the commit that actually shipped. Two rules
+exist to keep it that way, and both are load-bearing: **`subject-case` is
+off**, because config-conventional forbids sentence case and would reject
+every commit this project has ever written, and the rules are **written out
+rather than `extends`-ed**, because commitlint resolves `extends` from the
+repository root, there is no `node_modules` there, and the extended form
+throws `MODULE_NOT_FOUND` under `npx` — which is exactly how CI runs it.
+
+### One version, and the tag is the only place it is written
+
+`web/package.json` and `pipeline/pyproject.toml` stay at `0.1.0` and are never
+touched. Nothing is committed back to `main` — no version bump, no
+`CHANGELOG.md`, no bot commit, so `main`'s history is only ever what someone
+wrote.
+
+One version rather than three because architecture §4 makes version pinning
+structural: the artifact set and the code that reads it ship together, and
+three components drifting apart at `0.1.0`, `0.4.2` and `1.1.0` would describe
+a system this is not.
+
+The consequence of committing nothing back is that **there is no
+`CHANGELOG.md` in the tree**. The release notes are generated from the commits
+between tags and live on the GitHub Release, where they cannot go stale. A
+file would cost a bot commit on `main` for every release; if that trade ever
+looks worth making, it is `@semantic-release/changelog` plus
+`@semantic-release/git` and a `[skip ci]` marker.
+
+### What a release produces
+
+A tag, a GitHub Release with generated notes, and four assets from
+`scripts/ci/build-release.sh`: the server for `linux/amd64` and `linux/arm64`,
+the built frontend, and `SHA256SUMS`. The binaries are static
+(`CGO_ENABLED=0`, which costs nothing because the SQLite driver is
+`modernc.org/sqlite` rather than a cgo wrapper) and carry the version through
+`-ldflags -X main.version`.
+
+**The dataset is not in the release and never will be.** 2,004 MB of baked
+artifacts move on the pipeline's cadence, not the code's. A running instance
+reports both on `/v1/about`: `release` is the tag it was built from, `build_id`
+is the artifact set it has mmap'd. Conflating them would be the same mistake as
+merging `age_ma` into `age_layout` to save 10 MB — one number where the honest
+answer needs two.
+
+### Two guards worth knowing
+
+- **The release runs on CI succeeding, not on push to `main`.** `workflow_run`
+  is the only trigger that can know the commit's tests were green.
+- **If `main` moved while CI was running, the release skips** with a notice
+  rather than shipping the newer, untested tip. Nothing is lost: that commit
+  has its own CI run, and its success triggers the release again.
+
+### The baseline
+
+`v0.1.0` is tagged at the last commit before this pipeline existed. Without it
+semantic-release's first release is `v1.0.0`, which is a claim about stability
+that nobody has made. From `0.x`, `feat` gives `0.2.0` and a breaking change
+gives `1.0.0` when someone means it.
+
+To watch it decide without releasing anything, run the **Release** workflow
+manually with `dry_run` left on.
+
+---
+
+## 5. What is deliberately not here
 
 - **No pipeline run in CI.** Release cadence, not per commit, and the upstream
   APIs are a build-time oracle that must be paced.
@@ -179,6 +275,10 @@ npm --prefix web run cf:dev     # wrangler dev, needs API_ORIGIN set
 - **No coverage percentage.** The number that matters on this repo is the
   pass/skip split in §2, and a coverage badge computed without a dataset would
   report the 17-test figure as the truth.
+- **No release-approval step.** A release PR to merge, or an environment
+  awaiting review, would make the version a decision someone takes on a
+  Thursday rather than a consequence of what was merged. The gate is CI, and
+  the way to hold a release back is not to merge the `feat:`.
 - **No end-to-end browser test.** It would need a dataset, which means it
   belongs with `scripts/check.sh` and a real build, not in CI. `docs/handoff.md`
   §7 already records that no accessibility or performance pass exists; this is

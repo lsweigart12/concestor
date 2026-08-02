@@ -34,3 +34,6 @@ __pycache__/
 /server/concestor-serve
 /web/tsconfig.tsbuildinfo
 .vscode/*
+
+# Release artifacts, built by scripts/ci/build-release.sh from a tag.
+/release-artifacts/

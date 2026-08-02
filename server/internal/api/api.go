@@ -23,9 +23,16 @@ import (
 
 // Server wires the store to an http.Handler.
 type Server struct {
-	St        *store.Store
-	Log       *slog.Logger
-	WebDist   string
+	St      *store.Store
+	Log     *slog.Logger
+	WebDist string
+	// Release is the version of this binary — the git tag the release
+	// pipeline compiled in, or "dev" from a `go run`. Deliberately not the
+	// same thing as the store's BuildID, which identifies the *dataset*: the
+	// two move on different cadences, and /v1/about reports both so that a
+	// support question can be answered without guessing which one changed.
+	Release   string
+	Commit    string
 	Immutable bool
 }
 
@@ -398,6 +405,10 @@ type aboutAge struct {
 }
 
 type aboutBody struct {
+	// Release and BuildID answer two different questions — which code is
+	// running, and which dataset it has open. Neither implies the other.
+	Release     string                        `json:"release"`
+	Commit      string                        `json:"commit,omitempty"`
 	BuildID     string                        `json:"build_id"`
 	GeneratedAt string                        `json:"generated_at"`
 	Counts      aboutCounts                   `json:"counts"`
@@ -442,7 +453,16 @@ func (s *Server) handleAbout(w http.ResponseWriter, r *http.Request) {
 
 	_, tsErr := os.Stat(st.TimescalePath)
 
+	release := s.Release
+	if release == "" {
+		// An unset field must not read as a released build with an empty
+		// version. "dev" is what a `go run` is.
+		release = "dev"
+	}
+
 	body := aboutBody{
+		Release:     release,
+		Commit:      s.Commit,
 		BuildID:     st.BuildID,
 		GeneratedAt: st.GeneratedAt.Format("2006-01-02T15:04:05Z"),
 		Counts: aboutCounts{

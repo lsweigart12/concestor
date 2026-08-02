@@ -123,6 +123,12 @@ cd web && npm install && npm run build && npm test
 scripts/check.sh
 ```
 
+Commits follow [Conventional Commits](https://www.conventionalcommits.org) —
+the type prefix and nothing more, so `feat: Make the card say what a thing is,
+and let the reader walk from it` is a valid subject. Merging to `main` cuts a
+release automatically: the version comes from those prefixes, the notes from
+the commits, and neither is written by hand.
+
 CI runs the same checks on every pull request, on a clean checkout — which
 means no `build/`, which means **82 of the 99 Go tests and 47 of the pipeline's
 skip themselves and both suites still report success**. `scripts/check.sh`

@@ -84,6 +84,17 @@ Nothing may hardcode a port. `docs/worktrees.md` explains the split; the rule
 to keep is that borrowed paths are pipeline output nobody edits, and `web/`
 always belongs to the worktree.
 
+**Commits carry a Conventional Commits type, and nothing else about them
+changes.** `feat:` bumps the minor, `fix:` the patch, `BREAKING CHANGE:` in a
+body the major; `docs`, `chore`, `ci`, `refactor`, `test`, `build`, `style`,
+`revert` and `perf` release nothing. The subject stays a sentence in this
+project's voice — `feat: Make the card say what a thing is, and let the reader
+walk from it` — because `subject-case` is off in `commitlint.config.cjs` for
+exactly that reason. Getting the type wrong is not cosmetic: merging to `main`
+cuts a release, and the version is computed from these prefixes and nothing
+else. `docs/ci.md` §4 has the rest, including why there is no `CHANGELOG.md`
+and why the pipeline never runs in CI.
+
 `web/src/tree/induced.ts` and the Go equivalent are both ports of `render.py`'s
 `induced_subtree`, each pinned to the Python reference by a test built from the
 real baked arrays. If you change the suppression rule, change it in three
