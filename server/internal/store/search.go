@@ -33,6 +33,12 @@ type SearchResult struct {
 	HasAge     bool    `json:"has_age"`
 	HasImage   bool    `json:"has_image"`
 	MatchedOn  string  `json:"matched_on"` // "name" | "vernacular" | "fts"
+	// The name that actually matched, when it is not one the row already
+	// shows. A synonym or an abbreviation is the whole reason a row is on the
+	// page and the only field that contains what the reader typed — without it
+	// the row is an unexplained answer, and for *Homo floresiensis* it is an
+	// unexplained answer about a different species.
+	MatchedName *string `json:"matched_name,omitempty"`
 
 	// The silhouette, for callers that draw one. HasImage on its own is a
 	// ranking signal; these three are what it takes to *show* the thing, and
@@ -550,6 +556,9 @@ func (s *Store) searchFTS(ctx context.Context, q string, limit int) ([]*SearchRe
 	qFold := strings.ToLower(q)
 	var order []int
 	kinds := map[int]string{}
+	// The winning name itself, tracked in lockstep with `kinds` so the two can
+	// never disagree about which name is being credited.
+	matched := map[int]string{}
 	exact := map[int]bool{}
 	// Best band across every name this node matched through.
 	bands := map[int]int{}
@@ -622,8 +631,10 @@ func (s *Store) searchFTS(ctx context.Context, q string, limit int) ([]*SearchRe
 		if band < bands[idx] {
 			bands[idx] = band
 			kinds[idx] = kn
+			matched[idx] = name.String
 		} else if band == bands[idx] && matchStrength(kn) > matchStrength(kinds[idx]) {
 			kinds[idx] = kn
+			matched[idx] = name.String
 		}
 		// The tier is the best across every name matched, never the tier of the
 		// one picked to display.
@@ -668,6 +679,13 @@ func (s *Store) searchFTS(ctx context.Context, q string, limit int) ([]*SearchRe
 		if k, ok := kinds[*r.Idx]; ok && k != "" {
 			r.MatchedOn = k
 		}
+		// Only where the row does not already show it. Repeating the name in
+		// the heading back as the reason it matched is noise; a synonym the
+		// row has no other way to mention is the whole point.
+		if n, ok := matched[*r.Idx]; ok && n != "" && !showsName(r, n) {
+			v := n
+			r.MatchedName = &v
+		}
 		if exact[*r.Idx] {
 			r.exact = true
 		}
@@ -683,6 +701,15 @@ func (s *Store) searchFTS(ctx context.Context, q string, limit int) ([]*SearchRe
 		}
 	}
 	return out, nil
+}
+
+// showsName reports whether a result already displays this string, in which
+// case crediting it as the match adds nothing.
+func showsName(r *SearchResult, name string) bool {
+	if r.Name != nil && strings.EqualFold(*r.Name, name) {
+		return true
+	}
+	return r.Vernacular != nil && strings.EqualFold(*r.Vernacular, name)
 }
 
 // exactVernacularMatches finds nodes whose common name *is* the query. It uses

@@ -1014,6 +1014,24 @@ body {
 }
 
 /*
+ * Why a row matched, on the rare row that needs it.
+ *
+ * A third line, below the subtitle and quieter than it, because it is a note
+ * about the search rather than a fact about the taxon. It appears on synonym
+ * and abbreviation hits only — a few rows in a session — so it costs the list
+ * nothing in the common case and is the whole answer in the uncommon one.
+ */
+.row-via {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--ink-4);
+}
+.row.active .row-via {
+  color: var(--ink-3);
+}
+
+/*
  * A fossil's icon tile, when the taxon has no drawing.
  *
  * The ammonite is a stroked glyph rather than a filled silhouette, so at 26px

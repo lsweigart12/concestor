@@ -72,6 +72,10 @@ cd server && go test ./... && go run . -build ../build
 `.claude/launch.json` configurations and work unchanged in a parallel
 session's worktree, which has the source but neither `build/` (2.9 GB) nor
 `snapshot/` (1.7 GB). They borrow both, read-only, from the main checkout.
+**`go test` does not.** `testenv.BuildDir` walks six parents for
+`build/concestor.db` and from `<worktree>/server/internal/store` that stops one
+level short — so 70 of 87 tests skip and the suite still prints `ok`. Symlink
+`build` into the worktree root (it is gitignored) before trusting a green run.
 Nothing may hardcode a port. `docs/worktrees.md` explains the split; the rule
 to keep is that borrowed paths are pipeline output nobody edits, and `web/`
 always belongs to the worktree.

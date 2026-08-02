@@ -105,6 +105,25 @@ const SPECIES_SECTION = "Species";
 
 const DEBOUNCE_MS = 110;
 
+/**
+ * The synonym that got this row onto the page, or null.
+ *
+ * **Synonyms only**, and the other three kinds are each excluded for their own
+ * reason. A `name` or `vernacular` match is already printed in the row and
+ * highlighted where it matched, so crediting it would caption the obvious. An
+ * `abbreviation` looked like it belonged here and does not: "T. rex" returns
+ * eight rows that all matched the same way, so the line repeats down the whole
+ * list without distinguishing anything — and *Tyrannosaurus rex* with `rex`
+ * highlighted already explains itself.
+ *
+ * A synonym is the one case where the typed string appears **nowhere** on the
+ * row, so the answer arrives with no visible connection to the question.
+ */
+function matchedVia(h: SearchHit): string | null {
+  if (h.matched_on !== "synonym") return null;
+  return h.matched_name ?? null;
+}
+
 /** Whether PBDB gives this taxon anywhere to stand on a time axis. */
 function hasInterval(f: FossilTaxon): boolean {
   return [f.fea, f.fla, f.lea, f.lla].some(
@@ -519,6 +538,27 @@ function RowView({
           {h.rank && <>{h.rank} · </>}
           {h.tip_count.toLocaleString()} species
         </span>
+        {/*
+          Why this row is here, when nothing else on it says so.
+
+          A synonym or an abbreviation is the only field containing what was
+          typed, and the row cannot otherwise show it — so the answer arrives
+          looking like the search misheard. OTT files *Homo floresiensis* as a
+          synonym of *Homo sapiens*, which makes the unexplained version an
+          unexplained answer about a **different species**: the reader types a
+          real hominin and is silently handed us.
+
+          Stated as the taxonomy's filing rather than as a fact about the
+          animal. "Also known as" is the wording a Wikidata bug once put on this
+          exact pair, and it would be no more true coming from OTT — a
+          deprecated name is not an alias.
+        */}
+        {matchedVia(h) && (
+          <span className="row-via">
+            matched <em className="sci-italic">{matchedVia(h)}</em>, which the
+            taxonomy files under this name
+          </span>
+        )}
       </span>
       <span className="row-accessory">
         {already && <span className="kbd">on canvas</span>}

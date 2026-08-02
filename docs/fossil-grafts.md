@@ -205,11 +205,43 @@ the server sends `creator`/`uploader` and every card in the app reads
 only. That is now one helper covering all three call sites, which is what the
 existing comment there had already warned about.
 
-## 8. What this still does not do
+## 8. The synonym, explained rather than fixed
 
-It does not fix the *H. floresiensis* synonym, which is upstream in OTT: the
-taxonomy maps it onto *Homo sapiens*, so the **species** section still answers
-with the wrong species. The fossil section now finds the right thing under the
-right name, which makes the failure survivable but not fixed. The remedy is for
-the search layer to report `matched_on` — the server already sends it, `api.ts`
-already types it, and nothing renders it.
+OTT files *Homo floresiensis* as a synonym of ott770315, *Homo sapiens*. That is
+upstream and not ours to change, so the **species** section still answers with a
+different species — but it no longer does so silently.
+
+`matched_on` was already sent and already typed and rendered nowhere.
+`matched_name` is new: the string that actually matched, carried in lockstep
+with the kind that was already being reported, and **omitted when the row
+already shows it** — captioning *Homo sapiens* with "matched Homo sapiens" is a
+caption on the obvious. The row now reads:
+
+> *Homo sapiens* · Human · species · 2 species
+> matched *Homo floresiensis*, which the taxonomy files under this name
+
+**Synonyms only.** `abbreviation` looked like it belonged and does not: "T. rex"
+returns eight rows that all matched the same way, so the line repeats down the
+list without distinguishing anything, and *Tyrannosaurus rex* with `rex`
+highlighted already explains itself. A synonym is the one case where the typed
+string appears nowhere on the row.
+
+The wording is the taxonomy's filing, not a fact about the animal. **"Also known
+as" is the exact phrasing a Wikidata bug once put on this exact pair** — see the
+vernacular fix in `handoff.md` — and it would be no more true coming from OTT. A
+deprecated name is not an alias.
+
+Together with §7 this closes the original question: the species row explains
+itself, and the Fossils section directly below carries the real *Homo
+floresiensis*, drawable.
+
+## 9. A note on running the tests in a worktree
+
+`testenv.BuildDir` walks six parents looking for `build/concestor.db`. From
+`<worktree>/server/internal/store` that reaches `.claude/` and stops one level
+short of the main checkout, so **70 of 87 Go tests silently skipped** and the
+suite still printed `ok`. `scripts/serve.sh` borrows `build/` explicitly; the
+tests do not.
+
+Symlinking `build` into the worktree root — it is gitignored — makes all 87 run
+against the real database. Worth doing before trusting a green suite here.

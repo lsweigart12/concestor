@@ -226,6 +226,16 @@ interface HitBase {
   has_age: boolean;
   has_image: boolean;
   matched_on: string;
+  /**
+   * The name that actually matched, when the row does not already show it —
+   * a synonym or an abbreviation.
+   *
+   * The one field that contains what the reader typed. Without it a synonym
+   * hit is an unexplained answer, and OTT files *Homo floresiensis* as a
+   * synonym of *Homo sapiens*, so the unexplained answer is about a different
+   * species and reads as the search having misheard.
+   */
+  matched_name?: string | null;
   /** Present when the server resolved a silhouette for this hit. */
   phylopic_id?: string | null;
   /** The node the image is actually a drawing of. Often a relative. */
