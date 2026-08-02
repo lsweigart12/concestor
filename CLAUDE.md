@@ -437,6 +437,67 @@ by 25 million years. A node's own drawing is exempt because it was never a
 borrow: Cetacea at Cetacea is what a silhouette is for. Select Caniformia
 itself and the raccoon comes back, correctly.
 
+**A label is three rows — rank, name, age — and the age row is `age_ma` and
+nothing else.** Each row is on its own line, so a label is as wide as its widest
+row rather than the sum of them; the age used to ride on the name's line, and on
+a left-hand label that line is right-aligned, so the figure took the space
+nearest the dot and pushed the *name* away from the thing it names. The age slot
+also used to carry a **clock** where a taxon reached the present, and
+`caption.test.ts` had already written down why that was wrong: *"'present' is a
+position, not a quantity."* That fact now decorates the **mark** — a rounded
+arrow into the present, in the dot's own footprint. **The three rows also tier
+off in reverse — the age is last on and first off**, because x is time and there
+is a ruler under it, so a figure repeating a position is the first thing that can
+be spent; promoting the rank alongside the name also fixed `DIVERGENCE_META`,
+the only mark saying a derived name is derived, which had been gated a tier below
+the name it qualifies. Five things not to redo, all in `docs/handoff.md` §3:
+**a tip has no start date and there is none to find** (`age_ma` is a divergence
+age, a tip's own is zero, the stem age belongs to the fork above and is drawn
+there, and a PBDB first appearance is the `occurrence` tier — never collapsed to
+a point), so a tip prints no figure at all; **do not key the arrow on position** —
+the first attempt used the clock's own `age_ma < 0.05` and *Cetacea* and *Homo*
+are as alive as *Homo sapiens*, a clade sitting at its **crown age**, and a mark
+meaning "this is at x ≈ 0" says what the axis already says; **the tier is the
+extinction signal** (`occurrence` is applied only where nothing below the node is
+alive), its known limit being an extinct OTT taxon with no occurrence range; the
+arrow **rides on chosen taxa and never on a divergence**, because a fork is a
+moment and a moment is neither alive nor extinct — the same line `witness.ts`
+draws between an exemplar and a witness; and it **takes the dot's footprint**
+because the margin to the
+right of a terminal mark is where its label goes and on an internal node a mark
+beside the dot is drawn along the branch leaving it; and **every row pins its own
+font-size and line-height**, because a row is at least as tall as its strut and
+one that inherits is one whose height `labels.ts` cannot predict — a row
+inheriting `.mark.is-leaf .mark-label`'s 13.5px stood 17.9px against a reserved
+15. Relatedly, `labels.ts`'s font constants are pinned to styles.css by a test
+that reads the stylesheet: three had drifted, all under-measuring, and `SLACK`
+was spending its whole 6% hiding the largest of them.
+
+**A row belongs to a lineage that ends there.** A node with rendered
+descendants is drawn *on* the lineage that continues past it, at the midpoint of
+its children — even when the reader chose it by name. Rows go out in ascending
+`idx`, which is preorder, which puts an **ancestor before every one of its
+descendants**, so a chosen clade given a row of its own always took the *first*
+row of its own block: choosing Cetacea beside the blue whale and the hippo drew
+Cetacea above the whale it contains and Whippomorpha below both. Dropped onto
+the lineage, Cetacea is a marked point at 50 Ma on the whale's branch and
+Whippomorpha forks above it. Four things not to redo, all in `docs/handoff.md`
+§3: **ladderizing by clade size is refused** — rows ascending `idx` are what
+make adding a species insert in place rather than permute the canvas, and the
+fix needs no reordering; the **one exception** is a branch with no length on the
+axis (*Homo sapiens* and *H. s. neanderthalensis* both at `age_layout` 0, drawn
+on one pixel joined by a zero-length trace), where the parent keeps a row and
+the drop becomes visible — **a row, never an offset in x**; `terminal` in
+`labels.ts` is **no longer `isLeaf`**, because a clade on its descendant's line
+has that descendant's trace to its right and printed its name along it; and a
+**graft's rows go on the far side of its anchor's block from the fork** it
+descends from, because a row inserted between the two drags the fork's midpoint
+half a row per row inserted and with one graft lands it exactly on the graft's
+own line. Separately, `joinX` is held clear of the branch's own vertical: a
+fossil older than its whole branch clamps to the branch top, and `xAt` of that
+*is* that vertical, so the connector was drawn along the line it is meant to be
+distinguished from.
+
 **A fossil can now be drawn *in* the tree, and it is still not a node.** A
 *graft* is a synthetic occurrence-tier node built client-side, placed at its own
 `lla`, hanging off the branch its `attach_idx` sits on, showing its own

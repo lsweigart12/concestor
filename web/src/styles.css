@@ -50,7 +50,8 @@
   --w-reg: 400;
   --w-med: 560;
 
-  --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+  --sans:
+    ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
     "Helvetica Neue", Arial, sans-serif;
   --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
 
@@ -89,7 +90,9 @@ body {
 .mono {
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;
-  font-feature-settings: "tnum" 1, "zero" 1;
+  font-feature-settings:
+    "tnum" 1,
+    "zero" 1;
   letter-spacing: -0.01em;
 }
 
@@ -275,11 +278,39 @@ body {
   border-radius: 50%;
   transition:
     box-shadow 180ms var(--spring),
+    /* The flare's own property, so it settles off the mark rather than
+       snapping the moment `flaring` clears. */
+    filter 180ms var(--spring),
+    transform 180ms var(--spring);
+}
+
+/*
+ * A node that reaches the present: the dot, drawn as an arrow into it.
+ *
+ * Same 10px footprint as `.mark-dot`, in a 12-unit box offset by one so the two
+ * share a centre — the centre is where every edge attaches, so a mark that
+ * drifted off it would move the lineage rather than annotate it. The footprint
+ * is also the whole reason for the shape: the margin to the right of a terminal
+ * mark is where its label goes, so an arrow drawn *beside* the dot would be
+ * arguing with the name for the same pixels, and on an internal node it would
+ * be laid along the branch leaving the node and vanish into it.
+ */
+.mark-alive {
+  position: absolute;
+  left: -1px;
+  top: -1px;
+  width: 12px;
+  height: 12px;
+  overflow: visible;
+  transition:
+    filter 180ms var(--spring),
     transform 180ms var(--spring);
 }
 
 .mark:hover .mark-dot,
-.mark.is-focus .mark-dot {
+.mark.is-focus .mark-dot,
+.mark:hover .mark-alive,
+.mark.is-focus .mark-alive {
   transform: scale(1.45);
 }
 
@@ -401,8 +432,16 @@ body {
   letter-spacing: 0.005em;
 }
 
-/* Rank and silhouette provenance, on their own row so they cannot widen the
-   label past its neighbour. */
+/*
+ * The rank above the name, the age below it — three rows, each its own.
+ *
+ * Every one of them pins its own `font-size` and `line-height`, and that is
+ * load-bearing rather than tidy. A row is at least as tall as its *strut* — its
+ * own font-size times its line-height — whatever is inside it, so a row left to
+ * inherit is a row whose height nothing in `labels.ts` can predict. One did:
+ * it took `.mark.is-leaf .mark-label`'s 13.5px and stood 17.9px tall against a
+ * reserved 15. Reserved here as `NAME_LINE` and `META_LINE`.
+ */
 .mark-meta {
   font-family: var(--mono);
   font-size: 9.5px;
@@ -413,8 +452,8 @@ body {
 
 .mark-age {
   font-size: 11px;
+  line-height: 1.28;
   color: var(--ink-4);
-  margin-left: 7px;
   white-space: nowrap;
 }
 
@@ -540,24 +579,53 @@ body {
 }
 /* --------------------------------------------------------- the MRCA flare -- */
 
+/*
+ * One beat, for every shape a mark can be.
+ *
+ * **Written in `drop-shadow`, and that is the whole of what makes it
+ * universal.** A `box-shadow` is drawn around the element's *border box*, so it
+ * is only ever the right shape for a mark whose border box **is** its shape.
+ * That was true of `.mark-dot`, a 10px circle, and of nothing else on this
+ * canvas. The arrow is an `<svg>` with a transparent background, so the same
+ * keyframes painted a 12px square around it and `both` held the closing frame
+ * for the rest of the draw sequence — `flaring` is set until the whole sequence
+ * has run, not for the 620ms of the animation. The ammonite would have done the
+ * same, except that it had no flare rule at all and so **never flared**: three
+ * shapes carry the class and only one was answered.
+ *
+ * `drop-shadow` follows the rendered alpha instead — the circle, the triangle,
+ * the spiral — and needs to know nothing about which it is looking at. It has no
+ * spread, so the two blurs stand in for the `14px 5px` / `34px 12px` pair the
+ * box-shadow version used.
+ *
+ * **The size is animated as `scale`, not as `transform`**, because `.mark-fossil`
+ * spends its transform on `translate(-50%, -50%)` to centre itself and a
+ * keyframe setting `transform` would drop that and throw the ammonite half its
+ * own width off the node. `scale` is its own property and composes.
+ *
+ * The dot keeps its *resting* glow in `box-shadow` and that is not an oversight:
+ * the MRCA's identity is a 3px spread ring at zero blur, which `drop-shadow`
+ * cannot express. The two now add rather than replace, so the ring stays lit
+ * through the beat instead of being blanked by its opening frame.
+ */
 @keyframes flare {
   0% {
-    box-shadow: 0 0 0 0 currentColor;
-    transform: scale(1);
+    filter: drop-shadow(0 0 0 currentColor);
+    scale: 1;
   }
   22% {
-    box-shadow:
-      0 0 14px 5px currentColor,
-      0 0 34px 12px currentColor;
-    transform: scale(2.05);
+    filter: drop-shadow(0 0 7px currentColor) drop-shadow(0 0 16px currentColor);
+    scale: 2.05;
   }
   100% {
-    box-shadow: 0 0 6px 1px currentColor;
-    transform: scale(1);
+    filter: drop-shadow(0 0 3px currentColor);
+    scale: 1;
   }
 }
 
-.mark-dot.flaring {
+.mark-dot.flaring,
+.mark-alive.flaring,
+.mark-fossil.flaring {
   animation: flare 620ms var(--spring) both;
 }
 
@@ -1770,7 +1838,9 @@ body {
   cursor: pointer;
   text-align: inherit;
   border-bottom: 1px dotted var(--hairline-strong);
-  transition: color 90ms linear, border-color 90ms linear;
+  transition:
+    color 90ms linear,
+    border-color 90ms linear;
 }
 .detail .taxon-link:hover,
 .detail .taxon-link:focus-visible {
@@ -1808,7 +1878,10 @@ body {
   font-size: 11.5px;
   color: var(--ink-2);
   cursor: pointer;
-  transition: background 110ms linear, border-color 110ms linear, color 110ms linear;
+  transition:
+    background 110ms linear,
+    border-color 110ms linear,
+    color 110ms linear;
 }
 .detail .card-action:hover,
 .detail .card-action:focus-visible {
@@ -2324,7 +2397,14 @@ body {
 
 /* Respect prefers-reduced-motion: cut to the final state, keep the glow
    static. Motion here rewards the add action; it is never decoration, so
-   removing it costs information but not meaning. */
+   removing it costs information but not meaning.
+
+   The flare needs no entry of its own here any more. It used to carry
+   `.mark-dot.flaring { box-shadow: … }` as the static substitute, and that rule
+   could never fire: `.mark-dot` sets its `box-shadow` inline on every render, so
+   the stylesheet lost to it. `animation-duration: 1ms` snaps the beat to its
+   closing frame instead — a held `drop-shadow`, on whichever of the three marks
+   is flaring, which is the static glow this block is asking for. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -2332,8 +2412,5 @@ body {
     animation-duration: 1ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 1ms !important;
-  }
-  .mark-dot.flaring {
-    box-shadow: 0 0 10px 3px currentColor;
   }
 }

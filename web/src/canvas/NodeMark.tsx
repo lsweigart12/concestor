@@ -4,9 +4,13 @@
  * Semantic zoom, not scale zoom — the mark changes *what* it renders at each
  * level rather than just its size. Three tiers, per design-reference.md:
  *
- *   point        dot + silhouette
- *   label        + name (and the age, when there is one we may show)
- *   detail       + rank
+ *   point        mark + silhouette
+ *   label        + rank and name
+ *   detail       + age
+ *
+ * The age is last on and first off because the canvas already states it another
+ * way — x is time, and there is a ruler under it. Everything else on the label
+ * is unavailable anywhere else on screen.
  *
  * **The silhouette is in every tier, including the furthest.** The obvious
  * reading of design-reference.md puts it in the "full detail card" tier only,
@@ -111,7 +115,8 @@ export const PRESENT = "present";
 export function ageLabel(age: number | null, tier: Tier): string | null {
   if (!tierHasAge(tier) || age === null || !Number.isFinite(age)) return null;
   if (age < 0.05) return PRESENT;
-  const n = age >= 100 ? Math.round(age) : age >= 10 ? age.toFixed(0) : age.toFixed(1);
+  const n =
+    age >= 100 ? Math.round(age) : age >= 10 ? age.toFixed(0) : age.toFixed(1);
   return `${tier === TIER_INTERPOLATED ? "≤ " : ""}${n} Ma`;
 }
 
@@ -156,7 +161,7 @@ export function occurrenceSpan(
 export interface MarkAge {
   /** Stands in for a word. `null` where the figure speaks for itself. */
   glyph: AgeGlyphKind | null;
-  /** Empty only for the present, which is a position and not a quantity. */
+  /** Never empty. A slot holding a glyph and no figure is not an age. */
   text: string;
   /** The glyph in words, on hover. Empty where there is no glyph to explain. */
   title: string;
@@ -176,11 +181,43 @@ export function markAge(
     };
   }
   const label = ageLabel(age, tier);
-  if (label === null) return null;
-  if (label === PRESENT) {
-    return { glyph: "present", text: "", title: "Reaches the present day." };
-  }
+  if (label === null || label === PRESENT) return null;
   return { glyph: null, text: label, title: "" };
+}
+
+/**
+ * Is this taxon still living?
+ *
+ * The canvas used to answer this in the age slot, with a clock standing in for
+ * the word — and `caption.test.ts` had already written down why that slot was
+ * the wrong home: *"'present' is a position, not a quantity"*. Every other thing
+ * in that row is a figure. This one was a fact about the taxon wearing a
+ * figure's clothes, and it took the space a figure would have used.
+ *
+ * The first attempt at relocating it kept the clock's own condition — `age_ma`
+ * under 0.05, so "drawn at the present" — and that was wrong twice over.
+ * *Cetacea* and *Homo* are as alive as *Homo sapiens* is, and neither is drawn
+ * at the present: a clade sits at its **crown age**, which is when it began, not
+ * when it ended. And a mark meaning "this is at x ≈ 0" says only what the
+ * reader can already see, which is the same objection that took the date off the
+ * label in the first place.
+ *
+ * The signal that answers the real question is the **tier**. `occurrence` is
+ * applied only where nothing below the node is alive — that is what makes it a
+ * range in the rock rather than a divergence age — so it is the one place in
+ * this dataset where extinction is recorded about a *node*. Everything else in
+ * the synthesis tree descends to living species.
+ *
+ * Which is also why this is asked of chosen taxa alone (see `NodeMark`). A flag
+ * true of nearly every node distinguishes nothing; asked of the handful of
+ * things the reader named, it answers the question they came with. **The known
+ * limit**: an OTT taxon that is extinct but carries no occurrence range reads as
+ * living, because nothing in the build says otherwise. Only 0.5% of extinct OTT
+ * taxa are in the synthesis tree at all, and the fossil layer is where the rest
+ * of them live.
+ */
+export function isExtant(tier: Tier): boolean {
+  return tier !== TIER_OCCURRENCE;
 }
 
 /**
@@ -199,7 +236,9 @@ export function borrowedTitle(
   clade: { name: string | null; tips: number | null } | null,
 ): string {
   if (!clade) return `Silhouette of ${name}`;
-  const size = clade.tips ? `${clade.tips.toLocaleString()} species` : "many species";
+  const size = clade.tips
+    ? `${clade.tips.toLocaleString()} species`
+    : "many species";
   if (!clade.name) {
     return `Not ${name} itself — a drawing of the closest relative anyone has drawn`;
   }
@@ -357,7 +396,10 @@ export function DerivedName({ divergence }: { divergence: Divergence }) {
   return (
     <>
       {divergence.parts.map((p, i) => (
-        <span key={i} className={isScientificItalic(p.rank) ? "sci-italic" : undefined}>
+        <span
+          key={i}
+          className={isScientificItalic(p.rank) ? "sci-italic" : undefined}
+        >
           {p.text}
         </span>
       ))}
@@ -370,8 +412,55 @@ export const NodeMark = memo(function NodeMark({ data }: NodeProps) {
   const n = d.node;
   const color = `hsl(${d.hue} ${n.tier === TIER_STRUCTURAL ? 24 : 70}% ${d.focused || d.isMRCA ? 74 : 60}%)`;
   const age = markAge(n.age_ma, n.tier, n.occurrence);
+  /*
+    The arrow rides on a taxon the reader **chose**, and never on a divergence.
+
+    That line already exists and is already load-bearing: a leaf of the induced
+    subtree is a clade they asked for and draws its own exemplar, while a fork
+    draws a witness or nothing (`witness.ts`, handoff §3). It is the same
+    distinction here, and it is what makes the mark say anything. *Is this still
+    alive* is a question about a **thing**; a divergence is a **moment**, and a
+    moment is neither alive nor extinct. Answered for every node it would also be
+    true of nearly all of them and so would distinguish nothing — a canvas of
+    arrows. Answered for the handful of taxa someone named, it is the question
+    they came with.
+
+    A graft is excluded because it already wears the ammonite: a fossil says what
+    it is by its shape, and nothing that ended is alive anyway.
+  */
+  const alive = d.isLeaf && !d.graft && isExtant(n.tier);
+  // The dot spells its glow as `box-shadow`, which an SVG has no equivalent of
+  // — the same figures as a filter, so the two marks are lit identically.
+  const glow = d.focused
+    ? `drop-shadow(0 0 5px ${color})`
+    : d.isMRCA
+      ? `drop-shadow(0 0 4px ${color}) drop-shadow(0 0 2px hsl(${d.hue} 70% 60% / 0.5))`
+      : d.isLeaf
+        ? `drop-shadow(0 0 3px ${color})`
+        : "none";
+  /*
+    What survives as the view pulls back, in the order it survives.
+
+    The **date goes first**, because it is the one thing on a label the canvas
+    already says another way: x is time, and the axis under it is a ruler. A
+    figure that repeats a position is the first thing that can be spent, and it
+    used to be the last — the age rode from the label tier up while the rank,
+    which nothing else states, waited for detail.
+
+    So the rank comes with the name now, and that fixes a second thing on the
+    way. `DIVERGENCE_META` shares this row, and it is the only mark saying that a
+    derived name is derived — without it `Homo / Pan` sits in exactly the
+    position every real taxon name occupies and reads as one. It was gated on
+    detail while the name it qualifies appeared a whole tier earlier, so between
+    the two thresholds the canvas showed a made-up name with nothing to say so.
+
+    The *text* still goes entirely at the furthest tier, and that is unchanged
+    for the reason in this file's header: pulled back, type is too small to read
+    and a silhouette is not, so the picture is the only thing still carrying
+    meaning.
+  */
   const showText = d.zoom !== "point";
-  const showDetail = d.zoom === "detail";
+  const showAge = d.zoom === "detail";
   const div = d.divergence;
   const name = n.name ?? div?.text ?? UNNAMED;
   // Two pictures, one slot, and which is allowed depends on how the reader got
@@ -388,8 +477,9 @@ export const NodeMark = memo(function NodeMark({ data }: NodeProps) {
   //
   // Not gated on zoom: see the note at the top of this file.
   const witness = d.witness;
-  const withSilhouette = witness !== null || (d.showSilhouette && Boolean(n.phylopic_id));
-  const meta = div && showDetail ? DIVERGENCE_META : metaLine(n.rank, showDetail);
+  const withSilhouette =
+    witness !== null || (d.showSilhouette && Boolean(n.phylopic_id));
+  const meta = div && showText ? DIVERGENCE_META : metaLine(n.rank, showText);
 
   const box = d.label;
   const right = box ? box.side === "right" : d.isLeaf;
@@ -444,27 +534,65 @@ export const NodeMark = memo(function NodeMark({ data }: NodeProps) {
         <span className={`mark-fossil${d.flaring ? " flaring" : ""}`}>
           <AgeGlyph kind="fossil" />
         </span>
+      ) : alive ? (
+        /*
+          A lineage that runs to today, drawn as an arrow into it.
+
+          It takes the dot's own footprint rather than sitting beside it, and
+          that is the constraint that chose the shape. To the right of the mark
+          is where the label goes — a terminal mark asks for `right, dy: 0`
+          first and gets it — so a tick out into that margin would be arguing
+          with the name for the same pixels; on an internal node it would be
+          drawn along the branch leaving the node and disappear into it. In the
+          footprint, nothing can cover it, because the footprint is the one
+          place on this canvas that is already reserved for the node.
+
+          It points at the present, and on this canvas the present is a real
+          direction: x is time and it runs to the right. So the arrow is not a
+          symbol for aliveness, it is the lineage continuing off the end of what
+          we can date — the same literal reading that makes a graft's dashed run
+          an observed extent rather than an ornament.
+
+          Fill and glow are the dot's, unchanged: filled means you chose it, the
+          double ring means it is the MRCA. This channel is orthogonal to those
+          and must stay that way — it says *when*, they say *why it is here*.
+        */
+        <svg
+          className={`mark-alive${d.flaring ? " flaring" : ""}`}
+          viewBox="0 0 12 12"
+          role="img"
+          aria-label="reaches the present day"
+          style={{ filter: glow }}
+        >
+          <path
+            d="M2.6 2.6 L9.4 6 L2.6 9.4 Z"
+            fill={d.isLeaf || d.isMRCA ? color : "var(--void)"}
+            stroke={color}
+            strokeWidth={2.4}
+            strokeLinejoin="round"
+          />
+        </svg>
       ) : (
-      <span
-        className={`mark-dot${d.flaring ? " flaring" : ""}`}
-        style={{
-          background: d.isLeaf || d.isMRCA ? color : "var(--void)",
-          border: `1.5px solid ${color}`,
-          // The MRCA outranks the leaves, and it was not in this chain at
-          // all: every species you chose bloomed and the common ancestor —
-          // the answer, and the thing this app is named after — was a flat
-          // dot. The flare compensates for 620 ms and then never returns, so
-          // every shared link, every screenshot and every second look showed
-          // the answer as the dimmest filled mark on the canvas.
-          boxShadow: d.focused
-            ? `0 0 12px 3px ${color}`
-            : d.isMRCA
-              ? `0 0 11px 2px ${color}, 0 0 0 3px hsl(${d.hue} 70% 60% / 0.28)`
-              : d.isLeaf
-                ? `0 0 7px 1px ${color}`
-                : "none",
-        }}
-      />
+        <span
+          className={`mark-dot${d.flaring ? " flaring" : ""}`}
+          style={{
+            background: d.isLeaf || d.isMRCA ? color : "var(--void)",
+            border: `1.5px solid ${color}`,
+            // The MRCA outranks the leaves, and it was not in this chain at
+            // all: every species you chose bloomed and the common ancestor —
+            // the answer, and the thing this app is named after — was a flat
+            // dot. The flare compensates for 620 ms and then never returns, so
+            // every shared link, every screenshot and every second look showed
+            // the answer as the dimmest filled mark on the canvas.
+            boxShadow: d.focused
+              ? `0 0 12px 3px ${color}`
+              : d.isMRCA
+                ? `0 0 11px 2px ${color}, 0 0 0 3px hsl(${d.hue} 70% 60% / 0.28)`
+                : d.isLeaf
+                  ? `0 0 7px 1px ${color}`
+                  : "none",
+          }}
+        />
       )}
 
       {(showText || withSilhouette) && (
@@ -483,29 +611,50 @@ export const NodeMark = memo(function NodeMark({ data }: NodeProps) {
               <Silhouette
                 phylopicId={n.phylopic_id}
                 title={
-                  d.graft ? graftTitle(d.graft) : borrowedTitle(name, d.silhouetteClade)
+                  d.graft
+                    ? graftTitle(d.graft)
+                    : borrowedTitle(name, d.silhouetteClade)
                 }
               />
             )
           )}
+          {/*
+            Three rows, in the order a reader needs them: what kind of thing
+            this is, which thing it is, and when.
+
+            The age used to ride on the name's line, and on a left-hand label
+            that line is right-aligned — so the figure took the space nearest
+            the dot and the *name* was pushed away from the thing it names.
+            "Boreoeutheria ≤ 96 Ma" reserved 139 units for a name that needs 85,
+            and every one of those units is distance between a label and its own
+            point. On rows of their own the label is as wide as its widest row
+            instead of the sum of two. `metricsFor` reserves them the same way.
+          */}
           {showText && (
             <span className="mark-text" style={{ maxWidth: box?.textMaxWidth }}>
-              <span className="mark-name" title={div ? derivedTitle(div) : undefined}>
+              {meta && <span className="mark-meta">{meta}</span>}
+              <span
+                className="mark-name"
+                title={div ? derivedTitle(div) : undefined}
+              >
                 {div ? (
                   <DerivedName divergence={div} />
                 ) : (
-                  <span className={isScientificItalic(n.rank) ? "sci-italic" : undefined}>
+                  <span
+                    className={
+                      isScientificItalic(n.rank) ? "sci-italic" : undefined
+                    }
+                  >
                     {name}
                   </span>
                 )}
-                {age && (
-                  <span className="mark-age num" title={age.title || undefined}>
-                    {age.glyph && <AgeGlyph kind={age.glyph} />}
-                    {age.text}
-                  </span>
-                )}
               </span>
-              {meta && <span className="mark-meta">{meta}</span>}
+              {showAge && age && (
+                <span className="mark-age num" title={age.title || undefined}>
+                  {age.glyph && <AgeGlyph kind={age.glyph} />}
+                  {age.text}
+                </span>
+              )}
             </span>
           )}
         </span>

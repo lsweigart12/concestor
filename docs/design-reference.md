@@ -161,6 +161,28 @@ filter tween on the same element.
 - Selected path burns bright; unselected lineages recede to dim and
   desaturated. Contrast does the wayfinding, not labels.
 - Nodes are small luminous points that bloom on hover and focus.
+- **A taxon still living is an arrow into the present, in the dot's own
+  footprint.** x is time and it runs to the right, so the shape is the lineage
+  continuing past the last thing we can date rather than a symbol for aliveness.
+  The footprint is not a detail: the margin right of a terminal mark is where
+  its label goes, and on an internal node an arrow beside the dot would lie
+  along the branch leaving it. Fill and glow stay orthogonal — filled means *you
+  chose it*, the double ring means *MRCA*; this channel says *is it still here*.
+- **It rides on chosen taxa only, and reads extinction off the tier.** A
+  divergence is a moment and a moment is neither alive nor extinct, so a fork
+  keeps a plain dot — the same line that gives a chosen clade its exemplar and a
+  fork its witness. `occurrence` is the tier applied only where nothing below
+  the node is alive, and so the one place a node's extinction is recorded.
+- **A label is three rows: rank, name, age.** Each on its own line, so the
+  label is as wide as its widest row rather than the sum of them, and each
+  pinning its own font-size and line-height so the placement pass can predict
+  its height. The age never rides on the name's line — on a left-hand label
+  that line is right-aligned, so the figure takes the space nearest the mark
+  and pushes the name away from the thing it names.
+- **The age row is `age_ma` and nothing else.** It is a divergence age, so a
+  taxon drawn at the present has no figure for it: "present" is a position, not
+  a quantity, and whether something is still alive is a fact about the taxon.
+  That fact marks the taxon instead.
 - Dash pattern is the one thing on the canvas a reader cannot infer, and it
   carries the provenance claim, so it is stated as a **key on the axis footer**
   — one line, key left, scale right, flat text at the same size. A key, never
@@ -272,6 +294,15 @@ below is that one rule applied to the three things that overlap on the canvas.
 - **No force-directed layout.** Non-deterministic, wobbles between loads,
   and destroys the reading of ancestry. Not negotiable.
 - Layout pass via d3-hierarchy / ELK / dagre. Nodes are not user-draggable.
+- **A row belongs to a lineage that ends there.** A node with rendered
+  descendants sits *on* the lineage that continues past it, at the midpoint of
+  its children — even when the reader chose it by name. A chosen clade given a
+  row of its own is drawn above the animal it contains, because rows go out in
+  preorder and preorder puts the ancestor first. The single exception is a
+  branch with no length on the axis, where parent and child would otherwise
+  share a pixel; there the parent keeps a row and the trace becomes a visible
+  drop. **No ladderizing by clade size** — rows ascending `idx` are what make
+  adding a species insert in place rather than permute the canvas.
 
 ## Edges
 
@@ -284,7 +315,11 @@ below is that one rule applied to the three things that overlap on the canvas.
 
 - Semantic zoom, not scale zoom. Nodes change *what* they render at each
   level, not just their size.
-- Three tiers: glowing point → point + label → full detail card.
+- Three tiers: mark and silhouette → **+ rank and name** → **+ age**.
+- **The age is last on and first off**, because the canvas already states it
+  another way: x is time and there is a ruler under it. Everything else on a
+  label is unavailable anywhere else on screen, so a figure that repeats a
+  position is the first thing that can be spent.
 - `F` fit all · `⇧F` fit selection · `/` isolate path to root.
 
 ## The detail card
@@ -349,6 +384,11 @@ Wikipedia and the licence — leave the app, and look different because they do.
   action. Nothing animates purely for delight.
 - Spring physics, interruptible, 200–300ms for reflow.
 - Bloom intensity animates on selection change. No slide, no scale-bounce.
+- **The flare is one beat for every shape a mark can be**, so it is written in
+  `drop-shadow` and not `box-shadow`: a box-shadow follows the *border box*,
+  which is only the right shape for a mark whose border box is its shape. Its
+  size animates as `scale`, not `transform`, because a mark may already be
+  spending its transform on centring itself.
 - Enter/exit is fade plus draw-on. Never slide.
 - Respect `prefers-reduced-motion`: cut to final state, keep glow static.
 

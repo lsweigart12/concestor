@@ -872,6 +872,136 @@ whose synonym *Tripia* is an Eocene fossil.
 
 ---
 
+### A row belongs to a lineage that ends, not to a clade you happened to pick
+
+Reported as a bug against the app: choosing **Cetacea** beside *Balaenoptera
+musculus* and *Hippopotamus amphibius* threw Cetacea to the top of the canvas,
+above the whale it contains, and left *Pakicetus* — a fossil whose attach node
+**is** Cetacea — reading as though it hung off Whippomorpha instead.
+
+Both halves came from one rule. `layout()` gave a row to every selection,
+including one that is an ancestor of another selection, and rows go out in
+ascending `idx` — which is preorder, which puts an ancestor **before every one
+of its descendants**. So a chosen clade always took the *first* row of its own
+block, and its parent's midpoint then landed inside that block. Read down the
+canvas the picture said: Cetacea, blue whale, *then* the ancestor of both, then
+a fossil. Nothing about x could help — Cetacea carries no `age_ma` at all, so
+phase 2 synthesized an `age_layout` of 50.34 against Whippomorpha's 51.83 and
+the two branches ran back up the canvas eight layout units apart.
+
+The fix is the rule the rest of the file already implied: **a node with rendered
+descendants is drawn on the lineage that continues past it, never on a row of
+its own.** Cetacea becomes a marked point at 50 Ma on the branch running out to
+the blue whale, and Whippomorpha forks above it — which is how every phylogeny
+in print draws a named clade containing a sampled tip. It needs no reordering to
+get there, and that matters: **ladderizing by clade size was refused**, because
+sorting rows by subtree size would break the property the motion design rests on
+— rows ascending `idx` mean adding a species inserts it in place and permutes
+nothing. Four things not to redo:
+
+- **The unconditional row had a real case behind it.** OTT files *Homo sapiens
+  neanderthalensis* as a child of *Homo sapiens* and both sit at `age_layout` 0,
+  so putting the parent on its child's row puts two chosen species on one pixel
+  joined by a zero-length trace — rendered correctly, and invisible. A node
+  within `MARK_MIN_SEP` in x of the single child it would take its row from
+  keeps a row. **The fix is a row and not an offset in x**: x is time.
+- **A node with two or more rendered children never needs one** — its midpoint
+  is strictly between two distinct rows.
+- **`terminal` stopped being answerable by `isLeaf`.** A chosen clade sitting on
+  its descendant's line has that descendant's trace running out to its right, so
+  it takes the divergence candidate list. Left terminal it asked for `right,
+  dy: 0` first and got it: "Cetacea" printed along the whale's own branch.
+- **Which side a graft's rows go is not taste.** A row inserted *between* the
+  anchor and the fork it descends from drags that fork's midpoint half a row per
+  inserted row, and with one graft it lands **exactly** on the graft's row —
+  arithmetic, not luck. It was already true before this change and already
+  visible: with *Homo georgicus* on screen the Homo/Pan divergence dot sat on
+  the fossil's line. Grafts now go on the far side of the anchor's block from
+  the fork, and the connector ordering that keeps them from crossing reverses
+  with them, because the rule is the distance from the anchor and not the
+  direction.
+
+One thing the layout cannot fix, and should not pretend to: `joinAge` clamps to
+the branch top for a fossil older than its whole branch, and `xAt` of that is
+exactly the x of the branch's own vertical — so the connector was drawn *along*
+the line it is meant to be distinguished from, collinear however the rows are
+arranged. `joinX` is now held clear of that corner and never past the anchor's
+own mark, so on a branch shorter than the clearance the connector leaves the
+anchor's dot itself. `joinAge` and `joinAt` are untouched; the caption still
+says which of the three joins it is.
+
+---
+
+### The age slot answers *when*, so it stopped answering anything else
+
+A label was two rows — name with the age riding on its line, rank beneath — and
+the age was the part that did not belong there. On a left-hand label the name's
+line is right-aligned, so the figure took the space nearest the dot and the
+**name** was pushed away from the thing it names: `Boreoeutheria ≤ 96 Ma`
+reserved 139 units for a name that needs 85, and every one of those units is
+distance between a label and its own point.
+
+It is now three rows — **rank, name, age** — each on its own line, so a label is
+as wide as its widest row rather than the sum of them, and they read in the
+order a stranger needs: what kind of thing this is, which one it is, when.
+
+They also **tier off in that order, reversed**: the age is last on and first
+off. It is the one thing on a label the canvas already says another way — x is
+time and there is a ruler under it — so a figure repeating a position is the
+first thing that can be spent, while the rank and the name are unavailable
+anywhere else on screen. Promoting the rank fixed a second thing on the way:
+`DIVERGENCE_META` shares that row and is the only mark saying a derived name is
+derived, and it was gated a whole tier below the name it qualifies — so between
+the two thresholds the canvas showed `Homo / Pan` in the position every real
+taxon name occupies with nothing to say it was ours.
+
+The second half is the one worth keeping. The age row used to carry a **clock**
+where a species reached the present, and `caption.test.ts` had already written
+down why that was wrong without drawing the conclusion: *"'present' is a
+position, not a quantity."* Every neighbour in that slot is a figure. So the
+clock is gone and the fact it carried decorates the **mark** — a rounded arrow
+pointing at the present, in the dot's own footprint. Four things not to redo:
+
+- **A tip has no start date, and there is none to find.** `age_ma` is a
+  divergence age; a species tip's own is zero. The stem age belongs to the fork
+  above and is already drawn there, and a PBDB first appearance is the
+  `occurrence` tier — a weaker, differently-shaped claim that is never collapsed
+  to a point. So the age row prints `age_ma` and nothing else, and a tip prints
+  nothing. No number is the honest answer, exactly as it is for a structural
+  node.
+- **Do not key the arrow on position.** The first attempt kept the clock's own
+  condition — `age_ma` under 0.05, so *drawn at the present* — and it was wrong
+  twice. *Cetacea* and *Homo* are as alive as *Homo sapiens* is, and neither is
+  drawn at the present: a clade sits at its **crown age**, which is when it
+  began. And a mark meaning "this is at x ≈ 0" says only what the reader can
+  already see, which is the same objection that took the date off the label.
+  **The tier is the signal**: `occurrence` is applied only where nothing below
+  the node is alive, and is the one place a node's extinction is recorded. The
+  known limit is an extinct OTT taxon carrying no occurrence range, which reads
+  as living — 0.5% of extinct OTT taxa are in the synthesis tree at all, and the
+  fossil layer is where the rest of them live.
+- **It rides on chosen taxa, never on a divergence.** *Is this still alive* is a
+  question about a **thing**; a fork is a **moment**, and a moment is neither.
+  Asked of every node it would be true of nearly all of them and distinguish
+  nothing — a canvas of arrows. This is the same line `witness.ts` already
+  draws: a leaf of the induced subtree is a clade they chose and keeps its
+  exemplar, a divergence draws its witness.
+- **The arrow takes the dot's footprint rather than sitting beside it.** The
+  margin to the right of a terminal mark is where its label goes — a terminal
+  mark asks for `right, dy: 0` first and gets it — so a mark out in that margin
+  argues with the name for the same pixels, and on an internal node it is drawn
+  along the branch leaving the node and vanishes into it. The footprint is the
+  one place already reserved for the node.
+- **Every row pins its own font-size and line-height.** A row is at least as
+  tall as its strut whatever is inside it, so a row that inherits is a row whose
+  height nothing in `labels.ts` can predict. One inherited `.mark.is-leaf
+  .mark-label`'s 13.5px and stood 17.9px against a reserved 15.
+
+`AgeGlyphKind` is down to one member, correctly: the only word the age slot
+still has to say is *fossils*.
+
+---
+
 ## 4. Corrections to the design docs
 
 The docs held up extremely well — every structural figure in `data-sources.md`
@@ -1083,6 +1213,25 @@ it cannot deliver.
 
 ## 5. Things discovered while building
 
+- **A slack factor can hide a measurement bug until a second one lands on top
+  of it.** `labels.ts` measures every label with canvas `measureText` and
+  reserves the box the placement pass then treats as truth, and its font
+  constants are documented as having to match styles.css. Three had drifted, all
+  under-measuring: the stack was written `ui-sans-serif, -apple-system,
+  sans-serif`, which canvas resolves to a face **6.1% narrower** than the full
+  `--sans` list; `.mark-age` renders at 11px and was measured at `.mark-meta`'s
+  9.5, **15.8% short**; and `.mark.is-mrca .mark-label` sets `--w-med`, 560,
+  which `.mark-name` inherits and which is **4.0% wider** than the 400 it was
+  measured at. `SLACK = 1.06` exists to round against ourselves and was instead
+  spending its whole margin on the first of those — so the app looked correct
+  until a label hit a second mismatch and had nowhere left to go. "Primates",
+  one word with room for it, broke as "Primate" / "s"; `Homo / Pan ≤ 6.7 Ma`
+  wrapped to make space for a figure that then did not fit either. Four other
+  measurements carried their own abbreviations of the same two stacks; they now
+  read `SANS` / `MONO`. **The comment was right and unenforceable** — a comment
+  cannot fail — so `labels.test.ts` reads styles.css and pins each constant to
+  the declaration it claims to mirror, sizes, weight, letter-spacing, the age
+  glyph's reserved width and the two line heights.
 - **`node_fts.rowid` is a `search_name.id`, never a `node.idx`.** The FTS index
   holds one row per *name* — 6.8M rows against 2.7M nodes — because a taxon has
   a scientific name, an abbreviation, synonyms and vernaculars. Architecture

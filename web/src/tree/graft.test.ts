@@ -102,7 +102,9 @@ describe("fossilSpan reduces the two brackets without collapsing them", () => {
   });
 
   it("is null when PBDB records no interval — 21.4% of the corpus", () => {
-    expect(fossilSpan({ fea: null, fla: null, lea: null, lla: null })).toBeNull();
+    expect(
+      fossilSpan({ fea: null, fla: null, lea: null, lla: null }),
+    ).toBeNull();
   });
 
   it("survives a partially recorded bracket", () => {
@@ -211,7 +213,13 @@ describe("a graft is an occurrence-tier node carrying its own picture", () => {
 
   it("takes the corrected young end into the node it synthesises", () => {
     const moved = makeGraft(
-      fossil({ fea: 161.5, fla: 149.2, lea: 100.5, lla: 93.9, lla_drawn: 143.1 }),
+      fossil({
+        fea: 161.5,
+        fla: 149.2,
+        lea: 100.5,
+        lla: 93.9,
+        lla_drawn: 143.1,
+      }),
       IND,
       NODES,
     );
@@ -270,7 +278,13 @@ describe("a graft is an occurrence-tier node carrying its own picture", () => {
 
 describe("the join is clamped to the branch it has to land on", () => {
   it("pulls back to the branch's top when the fossil predates the whole branch", () => {
-    const early = fossil({ pbdb_taxon_no: 5, fea: 60, fla: 55, lea: 20, lla: 3 });
+    const early = fossil({
+      pbdb_taxon_no: 5,
+      fea: 60,
+      fla: 55,
+      lea: 20,
+      lla: 3,
+    });
     const g = makeGraft(early, IND, NODES);
     if (typeof g === "string") throw new Error(g);
     // The branch runs Homininae (6.7) → H. sapiens (0); 60 Ma is off its top,
@@ -285,7 +299,14 @@ describe("the join is clamped to the branch it has to land on", () => {
     // cases point in opposite directions and a boolean put the reverse of the
     // truth on screen — this is the one that caught it.
     const inside = makeGraft(
-      fossil({ pbdb_taxon_no: 9, attach_idx: 2, fea: 4, fla: 3, lea: 4, lla: 3 }),
+      fossil({
+        pbdb_taxon_no: 9,
+        attach_idx: 2,
+        fea: 4,
+        fla: 3,
+        lea: 4,
+        lla: 3,
+      }),
       IND,
       NODES,
     );
@@ -296,7 +317,11 @@ describe("the join is clamped to the branch it has to land on", () => {
   });
 
   it("does not clamp a first appearance that sits on the branch", () => {
-    const g = makeGraft(fossil({ pbdb_taxon_no: 6, fea: 5, lla: 1 }), IND, NODES);
+    const g = makeGraft(
+      fossil({ pbdb_taxon_no: 6, fea: 5, lla: 1 }),
+      IND,
+      NODES,
+    );
     if (typeof g === "string") throw new Error(g);
     expect(g.joinAge).toBe(5);
     expect(g.joinAt).toBe("first-appearance");
@@ -306,7 +331,11 @@ describe("the join is clamped to the branch it has to land on", () => {
 describe("buildGrafts is deterministic and keeps its refusals", () => {
   it("orders independently of the order the fossils resolved in", () => {
     const a = fossil();
-    const b = fossil({ name: "Homo floresiensis", pbdb_taxon_no: 91487, lla: 0.0117 });
+    const b = fossil({
+      name: "Homo floresiensis",
+      pbdb_taxon_no: 91487,
+      lla: 0.0117,
+    });
     const one = buildGrafts([a, b], IND, NODES).grafts.map((g) => g.idx);
     const two = buildGrafts([b, a], IND, NODES).grafts.map((g) => g.idx);
     expect(one).toEqual(two);
@@ -324,7 +353,10 @@ describe("buildGrafts is deterministic and keeps its refusals", () => {
     );
     expect(grafts).toHaveLength(1);
     expect(refused).toEqual([
-      { fossil: expect.objectContaining({ pbdb_taxon_no: 1 }), reason: "off-tree" },
+      {
+        fossil: expect.objectContaining({ pbdb_taxon_no: 1 }),
+        reason: "off-tree",
+      },
     ]);
   });
 });
@@ -334,16 +366,27 @@ describe("the layout places a graft without disturbing the tree", () => {
   const bare = layout(IND, NODES);
   const with_ = layout(IND, NODES, { grafts });
 
-  it("gives it a row of its own beneath the lineage it hangs from", () => {
+  it("gives it a row of its own against the lineage it hangs from", () => {
     const g = with_.placed.get(graftIdx(108454));
     const sapiens = with_.placed.get(4);
     expect(g).toBeDefined();
     expect(sapiens).toBeDefined();
-    // Directly after H. sapiens, whose row block it follows — not between
+    // Directly against H. sapiens, whose row block it follows — not between
     // H. sapiens and Pan, which would separate a branch from the rest of
-    // itself, and not at the bottom, which would read as a third lineage.
-    expect(g!.y).toBe(sapiens!.y + ROW_H);
-    expect(with_.placed.get(5)!.y).toBe(g!.y + ROW_H);
+    // itself, and not at the far end, which would read as a third lineage.
+    expect(g!.y).toBe(sapiens!.y - ROW_H);
+    expect(with_.placed.get(5)!.y).toBe(sapiens!.y + ROW_H);
+  });
+
+  it("does not put the fork it hangs under on its own row", () => {
+    // The side is not a taste: a row inserted *between* the anchor and its fork
+    // drags the fork's midpoint half a row for every row inserted, and one graft
+    // lands it exactly on the graft's row. Homininae sat on *Homo georgicus*'s
+    // line, and where the connector clamps to the branch top — Pakicetus against
+    // Cetacea — the fossil's dashed run left from the divergence dot itself and
+    // said the fossil hung off the wrong clade.
+    const g = with_.placed.get(graftIdx(108454))!;
+    expect(with_.placed.get(2)!.y).not.toBe(g.y);
   });
 
   it("leaves every node's x exactly where it was", () => {
@@ -381,7 +424,13 @@ describe("the layout places a graft without disturbing the tree", () => {
     // Otherwise a Cambrian fossil under a shallow tree is placed against a
     // scale that does not reach it and lands off the left edge, which is the
     // one failure a time axis must not have.
-    const old = fossil({ pbdb_taxon_no: 7, fea: 500, fla: 490, lea: 500, lla: 485 });
+    const old = fossil({
+      pbdb_taxon_no: 7,
+      fea: 500,
+      fla: 490,
+      lea: 500,
+      lla: 485,
+    });
     const { grafts: deep } = buildGrafts([old], IND, NODES);
     const out = layout(IND, NODES, { grafts: deep });
     expect(out.maxAge).toBeGreaterThanOrEqual(485);
@@ -481,24 +530,37 @@ describe("connectors on one branch do not cross each other", () => {
   );
   const out = layout(STACK_IND, STACK_NODES, { grafts });
 
-  it("draws the deepest join lowest", () => {
+  it("draws the deepest join furthest from the anchor", () => {
     // georgicus joins at 2.58 Ma, above the fork; the other two clamp to the
     // fork itself. Ordered by last appearance instead, georgicus came first
     // and its run cut through the vertical carrying the other two down.
+    //
+    // These three sit *above* node 3's block, because node 3 is the first of
+    // its ancestor's children and a row inserted below it would land the
+    // Homininae fork on a fossil's line. So "furthest from the anchor" is up,
+    // and the ordering that keeps the connectors apart runs the other way with
+    // it. The rule is the distance, not the direction.
     const ys = new Map(out.graftLinks.map((l) => [l.graft.fossil.name, l.y]));
-    expect(ys.get("Homo georgicus")).toBeGreaterThan(ys.get("Homo floresiensis")!);
-    expect(ys.get("Homo georgicus")).toBeGreaterThan(
+    expect(ys.get("Homo georgicus")).toBeLessThan(ys.get("Homo floresiensis")!);
+    expect(ys.get("Homo georgicus")).toBeLessThan(
       ys.get("Homo neanderthalensis")!,
     );
   });
 
-  it("puts them below the whole clade they hang from, not inside it", () => {
-    // The existing rule, still holding: the fossils follow node 3's block
+  it("puts them outside the whole clade they hang from, not inside it", () => {
+    // The existing rule, still holding: the fossils sit against node 3's block
     // rather than splitting H. sapiens from H. erectus.
+    const lo = Math.min(out.placed.get(4)!.y, out.placed.get(6)!.y);
+    const hi = Math.max(out.placed.get(4)!.y, out.placed.get(6)!.y);
     for (const l of out.graftLinks) {
-      expect(l.y).toBeGreaterThan(out.placed.get(4)!.y);
-      expect(l.y).toBeGreaterThan(out.placed.get(6)!.y);
+      expect(l.y < lo || l.y > hi).toBe(true);
     }
+  });
+
+  it("leaves the fork they hang under off every one of their rows", () => {
+    const taken = new Set(out.graftLinks.map((l) => l.y));
+    for (const idx of [2, 3])
+      expect(taken.has(out.placed.get(idx)!.y)).toBe(false);
   });
 
   it("has no pair of connectors intersecting", () => {
@@ -506,11 +568,11 @@ describe("connectors on one branch do not cross each other", () => {
     for (const a of out.graftLinks) {
       for (const b of out.graftLinks) {
         if (a === b) continue;
-        expect([a.graft.fossil.name, b.graft.fossil.name, crosses(a, b)]).toEqual([
+        expect([
           a.graft.fossil.name,
           b.graft.fossil.name,
-          false,
-        ]);
+          crosses(a, b),
+        ]).toEqual([a.graft.fossil.name, b.graft.fossil.name, false]);
       }
     }
   });
