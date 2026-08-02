@@ -1,0 +1,178 @@
+Concestor
+Copyright 2026 Luke Sweigart
+
+This product includes software developed by Luke Sweigart, licensed under the
+Apache License, Version 2.0. See LICENSE.
+
+The Apache licence covers the *software* in this repository: the build pipeline
+(`pipeline/`), the read API (`server/`), the frontend (`web/`), the design docs
+(`docs/`), and the mascot artwork in `brand/`, which is an original drawing by
+the copyright holder.
+
+It does **not** cover the scientific data the pipeline downloads, nor the
+artifact set it bakes into `build/`, nor the silhouette mirror in
+`snapshot/phylopic/`. Those carry their own upstream terms, set out below.
+Anyone redistributing a built dataset — as a release artifact, a container
+image, or a hosted service — is redistributing that upstream data and is bound
+by these terms, not by the Apache licence.
+
+
+================================================================================
+DATA SOURCES
+================================================================================
+
+Open Tree of Life — synthesis v16.1 (`opentree16.1`), taxonomy OTT 3.7.3
+    CC0 1.0 Universal (public domain dedication).
+    Declared in the release's own `properties.json` as `"legal": "cc0"`.
+    The dedication covers Open Tree's assembly; it does not relicense the
+    upstream taxonomies Open Tree reconciles (NCBI, GBIF, WoRMS, IRMNG,
+    Index Fungorum, SILVA).
+    https://tree.opentreeoflife.org/
+
+Duke, J. D., Guo, Y., Forest, F., Gumbs, R., McTavish, E. J. & Rosindell, J.
+(2026). "Assembling a fully-dated complete tree of life."
+    CC-BY 4.0. ATTRIBUTION REQUIRED.
+    Data: Zenodo, doi:10.5281/zenodo.19049120
+    Preprint: bioRxiv, doi:10.64898/2026.03.05.709771
+    Supplies `age_ma`, `age_tier` and the phase-2 basis of `age_layout`.
+    Interpolation code: github.com/jdduke24/dated-complete-tree (BSD-3-Clause).
+
+International Commission on Stratigraphy — `chart.ttl`, version 2026/06
+    CC-BY 4.0. ATTRIBUTION REQUIRED.
+    Cite: Cohen, K. M., Finney, S. C., Gibbard, P. L. & Fan, J.-X.,
+    "The ICS International Chronostratigraphic Chart", Episodes 2025;48:105-115.
+    Supplies `build/timescale.json` — interval names, ages, ranks and the
+    official CGMW colours.
+    https://github.com/i-c-stratigraphy/chart
+
+Wikidata
+    CC0 1.0 Universal.
+    Properties P9157 (Open Tree of Life ID), P225 (taxon name), P1843 (taxon
+    common name), plus item labels and aliases. Supplies the `vernacular`
+    table (162,466 rows) — the search box's entire common-name vocabulary.
+    https://www.wikidata.org/
+
+Paleobiology Database (PBDB)
+    CC0 1.0 Universal, as declared by the data service on delivery.
+    Supplies the `fossil` table (523,112 rows), first/last appearance
+    brackets, the `occurrence` table, the fossil attachment points that
+    rewrite `age_layout`, and the vernacular names in `VernacularName.tsv`.
+    https://paleobiodb.org/
+
+    The declaration is preserved verbatim in `snapshot/pbdb/datainfo.json`,
+    which the API returns alongside the data itself:
+
+        data_license: Creative Commons CC0
+        license_url:  https://creativecommons.org/publicdomain/zero/1.0/
+        access_time:  Sat 2026-08-01 01:08:29 GMT
+
+    That block, with its access timestamp and re-runnable `data_url`, is also
+    the citation PBDB asks for. Note for anyone auditing this: PBDB's classic
+    site FAQ states CC BY-NC-ND 3.0 and GBIF's listing of the same checklist
+    states CC BY 4.0. The CC0 declaration above is the one attached to the
+    retrieval, is machine-readable and current, and CC0 is irrevocable once
+    made — so it governs this data as retrieved on the date recorded.
+
+GBIF — legacy backbone taxonomy (frozen 2023-08-28) and the PBDB checklist
+Darwin Core archive (dataset c33ce2f2-c3cc-43a5-a380-fe4526d63650)
+    Used only as an identifier bridge: PBDB `taxon_no` → GBIF `taxonID` →
+    `nubKey` → OTT `gbif:` source id. No GBIF names, descriptions, taxonomic
+    hierarchy or occurrence records are redistributed. The derived `xref`
+    table (5,216,831 rows) is a correspondence between numeric identifiers
+    and nothing else.
+    https://www.gbif.org/
+
+PhyloPic
+    MIXED, PER IMAGE. See "Silhouettes" below.
+    12,863 SVGs mirrored byte-for-byte under `snapshot/phylopic/`, each
+    verified by SHA-256. No image is recoloured, cropped, retraced or
+    otherwise modified; the application displays them unaltered.
+    https://www.phylopic.org/
+
+TimeTree
+    EXCLUDED. TimeTree's terms prohibit redistribution of its data and of
+    transformations of its data. No TimeTree-derived age appears anywhere in
+    this project, and none may be added.
+
+
+================================================================================
+SILHOUETTES
+================================================================================
+
+Every silhouette carries its own licence, its original creator and its
+uploader. These are stored per image in the `silhouette` table
+(`license_url`, `attribution`, `contributor`) and rendered to the reader in
+the node card alongside a link to the licence itself.
+
+Creator and uploader are DIFFERENT FIELDS and differ for roughly half the
+corpus. `attribution` is the artist; `contributor` is whoever uploaded the
+work. Credit the artist. Any surface that adds a second credit block must go
+through `normalise` in `web/src/api.ts`, which is the only place that knows
+both vocabularies.
+
+Distribution across the mirrored corpus:
+
+    CC0 1.0                 6,661   51.8%
+    CC-BY 4.0               2,432   18.9%   attribution required
+    CC-BY-SA 3.0            1,196    9.3%   attribution required, ShareAlike
+    CC-BY 3.0               1,059    8.2%   attribution required
+    Public Domain Mark        770    6.0%
+    CC-BY-NC 3.0              420    3.3%   NON-COMMERCIAL ONLY
+    CC-BY-NC-SA 3.0           325    2.5%   NON-COMMERCIAL ONLY
+                           ------
+                           12,863
+
+Two consequences worth stating plainly:
+
+  * 745 images (5.8%) are NonCommercial. The build pipeline deliberately
+    applies no NonCommercial filter — see `pipeline/src/concestor_build/
+    images.py` and `docs/handoff.md` §1 — because the project is not
+    commercial. ANY COMMERCIAL USE OF THIS DATASET MUST FILTER THEM OUT
+    FIRST, and that includes advertising or sponsorship on an otherwise free
+    hosted instance. The `license_url` column carries everything needed.
+
+    Measured against build b48553b2b8a4a2ed, what filtering costs:
+
+        357 NC images are actually in use
+        128,719 nodes (4.7%) currently resolve to one
+        88 of 885 divergence witnesses (9.9%), across 38 distinct taxa
+
+    Coverage does not fall — `node_image` borrows the closest drawn relative,
+    so every node keeps a picture. What rises is `clade_idx`: the affected
+    nodes silently begin claiming more than they do today. Per
+    `docs/handoff.md` §5 that number, not coverage, is the one to gate on.
+    The best-known witnesses are unaffected — Acanthostega gunnari is BY-SA
+    3.0, Pakicetus BY 3.0, Sahelanthropus tchadensis CC0.
+
+  * 1,521 images (11.8%) are ShareAlike. Because they are displayed
+    unmodified and are not combined into a new work, ShareAlike imposes no
+    obligation on this repository's own code. Tracing, recolouring or
+    otherwise adapting a ShareAlike silhouette would change that, and the
+    resulting work would inherit BY-SA. See `docs/phase5c-decision.md` §9,
+    which settles this for the deferred outline-generation phase.
+
+
+================================================================================
+BUNDLED THIRD-PARTY SOFTWARE
+================================================================================
+
+A production frontend build (`web/dist`) embeds the following, all permissive.
+Their copyright notices and licence texts are reproduced in the dependency
+metadata under `web/node_modules` and are retained in the bundle's source
+maps.
+
+    react, react-dom                    MIT     Copyright (c) Meta Platforms, Inc.
+    @xyflow/react                       MIT     Copyright (c) xyflow GmbH
+
+The server binary statically links:
+
+    modernc.org/sqlite, libc, mathutil, memory      BSD-3-Clause
+    github.com/dustin/go-humanize                   MIT
+    github.com/google/uuid                          BSD-3-Clause
+    github.com/mattn/go-isatty                      MIT
+    github.com/ncruces/go-strftime                  MIT
+    github.com/remyoudompheng/bigfft                BSD-3-Clause
+    golang.org/x/sys                                BSD-3-Clause
+
+The build pipeline depends on numpy (BSD-3-Clause) and httpx (BSD-3-Clause);
+neither is redistributed.
