@@ -100,7 +100,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           # The toolchain line in go.mod is the single source of truth; a
           # version pinned here as well would drift from it silently.
