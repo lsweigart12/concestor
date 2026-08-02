@@ -360,6 +360,11 @@ Wikipedia and the licence — leave the app, and look different because they do.
   action. Nothing animates purely for delight.
 - Spring physics, interruptible, 200–300ms for reflow.
 - Bloom intensity animates on selection change. No slide, no scale-bounce.
+- **The flare is one beat for every shape a mark can be**, so it is written in
+  `drop-shadow` and not `box-shadow`: a box-shadow follows the *border box*,
+  which is only the right shape for a mark whose border box is its shape. Its
+  size animates as `scale`, not `transform`, because a mark may already be
+  spending its transform on centring itself.
 - Enter/exit is fade plus draw-on. Never slide.
 - Respect `prefers-reduced-motion`: cut to final state, keep glow static.
 
