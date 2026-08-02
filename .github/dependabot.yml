@@ -2,25 +2,63 @@
 # every couple of days on a project whose dependency surface is deliberately
 # small — six runtime packages in web/, two in pipeline/, and a driver in
 # server/. Security advisories are not rate-limited by this setting.
+#
+# Two things here exist because the first month proved they had to. Every
+# ecosystem is **grouped**, because a cadence only caps how often the pull
+# requests arrive and not how many arrive at once: the first github-actions
+# run opened five, one per action, all of them the same one-line edit. And
+# every ecosystem sets a **commit-message prefix**, because the version is a
+# function of the commit log and `Bump actions/checkout from 4 to 7` is not a
+# sentence that log can read — the `commits (conventional)` job failed on all
+# six of that month's pull requests, which is a check that has stopped saying
+# anything about the change and started saying only who wrote it.
+#
+# The prefixes are chosen to release nothing: `ci` for the workflows,
+# `build` for the three package ecosystems. A dependency bump is not a
+# feature and not a fix, and cutting a version for one would make the tag a
+# worse description of what changed than the commit already is.
 version: 2
 updates:
   - package-ecosystem: npm
     directory: /web
     schedule: { interval: monthly }
+    commit-message:
+      prefix: build
+      prefix-development: build
     groups:
       # React, TypeScript and vite move together often enough that separate
       # pull requests just mean resolving the same conflict three times.
       dev-toolchain:
         dependency-type: development
+      runtime:
+        dependency-type: production
 
   - package-ecosystem: gomod
     directory: /server
     schedule: { interval: monthly }
+    commit-message:
+      prefix: build
+    groups:
+      server:
+        patterns: ["*"]
 
   - package-ecosystem: uv
     directory: /pipeline
     schedule: { interval: monthly }
+    commit-message:
+      prefix: build
+    groups:
+      pipeline:
+        patterns: ["*"]
 
+  # One pull request for the lot. These are all the same edit — a tag in a
+  # `uses:` line — and reviewing them separately is five times the ceremony
+  # for none of the information.
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: monthly }
+    commit-message:
+      prefix: ci
+    groups:
+      actions:
+        patterns: ["*"]
