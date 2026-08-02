@@ -74,7 +74,7 @@ jobs:
             echo "::notice::CONCESTOR_API_ORIGIN is set — /v1 will be proxied to it and the Container will not be used."
           fi
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: steps.guard.outputs.configured == 'true'
         with:
           # On a release, the tag — not main's tip. Between the tag being cut
