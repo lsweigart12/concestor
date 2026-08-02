@@ -1,4 +1,23 @@
 /**
+ * A stylesheet is a module, and from TypeScript 7 it has to say so.
+ *
+ * `main.tsx` imports styles.css and `Graph.tsx` imports xyflow's, both for
+ * effect and neither for a value. TS 7 checks side-effect imports it
+ * previously waved through and raises TS2882 on both; the bundler has always
+ * resolved them, so this declares what Vite already does rather than changing
+ * anything that runs.
+ *
+ * `vite/client` rather than a hand-written `declare module "*.css"`, which is
+ * the pattern the file below otherwise follows, because the reason that
+ * pattern exists here is to keep `@types/node`'s globals out of a browser
+ * bundle. These globals are the browser bundle's — `import.meta.env` and the
+ * asset-import shapes are Vite's half of the contract this app is already
+ * built against, and writing our own wildcard would be a second, worse copy
+ * of it.
+ */
+/// <reference types="vite/client" />
+
+/**
  * The one Node API this project uses, declared rather than depended on.
  *
  * `labels.test.ts` reads styles.css so the type metrics it measures against can
