@@ -590,9 +590,42 @@ body {
   }
 }
 
-.mark-dot.flaring,
-.mark-alive.flaring {
+.mark-dot.flaring {
   animation: flare 620ms var(--spring) both;
+}
+
+/*
+ * The same beat for the arrow, in the one property that knows its shape.
+ *
+ * `flare` above animates `box-shadow`, and a box-shadow is drawn around the
+ * element's **border box**. On `.mark-dot` that box is a 10px circle and the
+ * glow comes out round; on an `<svg>` with a transparent background it is a
+ * 12px square. `both` then holds the closing frame — and `flaring` stays set
+ * until the whole draw sequence has run, not for the 620ms of the animation —
+ * so the arrow sat inside a lit rectangle for several seconds.
+ *
+ * `drop-shadow` follows the rendered alpha instead, which here is the triangle
+ * and nothing else. It has no spread, so the two blurs stand in for the
+ * `14px 5px` / `34px 12px` pair, and the closing frame matches the resting
+ * `glow` an unflared leaf carries so the beat settles rather than steps.
+ */
+@keyframes flare-alive {
+  0% {
+    filter: drop-shadow(0 0 0 currentColor);
+    transform: scale(1);
+  }
+  22% {
+    filter: drop-shadow(0 0 7px currentColor) drop-shadow(0 0 16px currentColor);
+    transform: scale(2.05);
+  }
+  100% {
+    filter: drop-shadow(0 0 3px currentColor);
+    transform: scale(1);
+  }
+}
+
+.mark-alive.flaring {
+  animation: flare-alive 620ms var(--spring) both;
 }
 
 /* ------------------------------------------------------------- time axis -- */
