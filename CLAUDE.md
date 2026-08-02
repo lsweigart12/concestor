@@ -24,6 +24,7 @@ wrong and these docs record the corrections.
 | [docs/phase3-pbdb-path.md](docs/phase3-pbdb-path.md) | How fossils resolve to the tree, measured |
 | [docs/phase5c-decision.md](docs/phase5c-decision.md) | Generated outlines from Wikimedia photos — **optional future enhancement, not scheduled**. Kept complete and measured. Four rejected approaches, with numbers |
 | [docs/witness-ceiling.md](docs/witness-ceiling.md) | Raising the divergence witness off nodes and onto fossil attachment points. **Shipped**; §9 is what it actually cost |
+| [docs/fossil-grafts.md](docs/fossil-grafts.md) | Drawing a fossil *in* the tree at its own date. **Shipped**; §2 is why grafting into the baked arrays was refused |
 | [docs/worktrees.md](docs/worktrees.md) | Why the preview works in a parallel session's worktree |
 
 **This product is for curious people interested in evolution, not for evolutionary
@@ -71,6 +72,10 @@ cd server && go test ./... && go run . -build ../build
 `.claude/launch.json` configurations and work unchanged in a parallel
 session's worktree, which has the source but neither `build/` (2.9 GB) nor
 `snapshot/` (1.7 GB). They borrow both, read-only, from the main checkout.
+**`go test` does not.** `testenv.BuildDir` walks six parents for
+`build/concestor.db` and from `<worktree>/server/internal/store` that stops one
+level short — so 70 of 87 tests skip and the suite still prints `ok`. Symlink
+`build` into the worktree root (it is gitignored) before trusting a green run.
 Nothing may hardcode a port. `docs/worktrees.md` explains the split; the rule
 to keep is that borrowed paths are pipeline output nobody edits, and `web/`
 always belongs to the worktree.
@@ -333,6 +338,44 @@ split drew Procyonidae, raccoons, with nothing on screen saying they postdate it
 by 25 million years. A node's own drawing is exempt because it was never a
 borrow: Cetacea at Cetacea is what a silhouette is for. Select Caniformia
 itself and the raccoon comes back, correctly.
+
+**A fossil can now be drawn *in* the tree, and it is still not a node.** A
+*graft* is a synthetic occurrence-tier node built client-side, placed at its own
+`lla`, hanging off the branch its `attach_idx` sits on, showing its own
+`fossil_image` drawing. It never enters `Induced`, so it can never move an MRCA,
+and its index is `-(pbdb_taxon_no)` precisely so that any code path mistaking it
+for a node fails on the array lookup instead of answering about a neighbour.
+Read `docs/fossil-grafts.md` §2 before proposing that fossils be grafted into the
+baked arrays instead — that costs a confident crown age on ~7,000 undated
+divergences, and the numbers are there. Three refusals, none of them
+approximated: no bracket (21.4% of PBDB), attach node not on a drawn branch, no
+`pbdb_taxon_no`.
+
+**Fossils are searchable and selectable, and neither needed a pipeline run.**
+`SearchFossils` full-scans the 523,112-row table at ~40ms — there is no index on
+`name` — and the palette renders it as its own section, pinned *last* whatever
+it scores, because a species is a node you can build a tree from and a fossil is
+an observation that hangs off one. Sections are a **grouping, not a
+re-ranking**: inside one, rows keep the server's order with only the session
+boost layered on top, exactly as before — fossils on the server's
+tier-then-notability, nodes on `/v1/search`'s. The rule above holds unchanged,
+and now covers two corpora: `web/` must not re-sort either. A graft selects like a node:
+same click, same `sel=`, and `pbdb108454` cannot collide with an OTT id. Its
+card is not the node card with fields blanked — it has no age, no tip count and
+no ancestry, and it is where the PhyloPic credit finally lives. That credit was
+blank at first because the server sends `creator`/`uploader` while every card
+reads `attribution`/`contributor`; `normalise()` was doing that rename for
+`/v1/node/` alone.
+
+**A row can say which name got it there**, and only for a synonym.
+`matched_name` rides alongside `matched_on` from `searchFTS`, tracked in
+lockstep with `kinds` so the two can never credit different names, and is
+omitted where the row already prints the string. It exists for the worst pair in
+the corpus: OTT files *Homo floresiensis* as a synonym of *Homo sapiens*, so
+without it the reader types a real hominin and is silently handed us. A `name`
+or `vernacular` match is already lit by `litRanges`, and an abbreviation repeats
+the same line down all eight rows of "T. rex" without distinguishing any of
+them — so neither is captioned.
 
 `concestor-build package` gates the artifact set as a whole and writes
 `build/manifest.json`, which `/v1/about` serves. It refuses to package while any

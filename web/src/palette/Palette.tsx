@@ -21,7 +21,16 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, hitSilhouette, type AnyHit, type BrokenHit, type SearchHit } from "../api";
+import {
+  api,
+  hitSilhouette,
+  type AnyHit,
+  type BrokenHit,
+  type FossilTaxon,
+  type SearchHit,
+} from "../api";
+import { AgeGlyph } from "../canvas/AgeGlyph";
+import { endedSpanLabel } from "../canvas/Bracket";
 import { Silhouette } from "../canvas/Silhouette";
 import { fuzzy, highlight, litRanges, recordUse, sessionBoost } from "./fuzzy";
 
@@ -49,8 +58,12 @@ interface Props {
   commands: Command[];
   scope: Scope | null;
   onPick: (hit: SearchHit) => void;
+  /** A fossil row was chosen: draw it against the tree. */
+  onPickFossil: (f: FossilTaxon) => void;
   /** Names already on the canvas, so the palette can say "already added". */
   present: Set<number>;
+  /** PBDB taxon numbers already drawn, for the same reason. */
+  presentFossils: Set<number>;
 }
 
 type Row =
@@ -63,13 +76,74 @@ type Row =
       ranges: [number, number][];
       /** …or on the vernacular, when that is what actually matched. */
       vernRanges: [number, number][];
+    }
+  | {
+      kind: "fossil";
+      fossil: FossilTaxon;
+      score: number;
+      ranges: [number, number][];
     };
+
+/** A titled run of rows. Raycast's model, and the one `Command.section` implies. */
+interface Section {
+  title: string;
+  rows: Row[];
+}
+
+/**
+ * The fossil section's title, and the one section whose position is fixed.
+ *
+ * Every other section floats on its best row's score. This one is pinned last
+ * however well a fossil name matches, because the two corpora answer different
+ * questions: a species is a node you can build a tree from, a fossil is an
+ * observation that hangs off one. Typing "dimetrodon" should not bury the
+ * species list under eight PBDB rows, and a reader who wants the fossil will
+ * find it — it is the only section with that name.
+ */
+const FOSSIL_SECTION = "Fossils";
+const SPECIES_SECTION = "Species";
 
 const DEBOUNCE_MS = 110;
 
-export function Palette({ open, onClose, commands, scope, onPick, present }: Props) {
+/**
+ * The synonym that got this row onto the page, or null.
+ *
+ * **Synonyms only**, and the other three kinds are each excluded for their own
+ * reason. A `name` or `vernacular` match is already printed in the row and
+ * highlighted where it matched, so crediting it would caption the obvious. An
+ * `abbreviation` looked like it belonged here and does not: "T. rex" returns
+ * eight rows that all matched the same way, so the line repeats down the whole
+ * list without distinguishing anything — and *Tyrannosaurus rex* with `rex`
+ * highlighted already explains itself.
+ *
+ * A synonym is the one case where the typed string appears **nowhere** on the
+ * row, so the answer arrives with no visible connection to the question.
+ */
+function matchedVia(h: SearchHit): string | null {
+  if (h.matched_on !== "synonym") return null;
+  return h.matched_name ?? null;
+}
+
+/** Whether PBDB gives this taxon anywhere to stand on a time axis. */
+function hasInterval(f: FossilTaxon): boolean {
+  return [f.fea, f.fla, f.lea, f.lla].some(
+    (v) => typeof v === "number" && Number.isFinite(v),
+  );
+}
+
+export function Palette({
+  open,
+  onClose,
+  commands,
+  scope,
+  onPick,
+  onPickFossil,
+  present,
+  presentFossils,
+}: Props) {
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<AnyHit[]>([]);
+  const [fossils, setFossils] = useState<FossilTaxon[]>([]);
   const [searching, setSearching] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
   const [active, setActive] = useState(0);
@@ -89,6 +163,7 @@ export function Palette({ open, onClose, commands, scope, onPick, present }: Pro
   useEffect(() => {
     if (!open || q.trim().length < 2) {
       setHits([]);
+      setFossils([]);
       setSearching(false);
       return;
     }
@@ -99,11 +174,13 @@ export function Palette({ open, onClose, commands, scope, onPick, present }: Pro
         const r = await api.search(q.trim(), 24);
         if (!cancelled) {
           setHits(r.results);
+          setFossils(r.fossils ?? []);
           setFailed(null);
         }
       } catch (e) {
         if (!cancelled) {
           setHits([]);
+          setFossils([]);
           setFailed(e instanceof Error ? e.message : String(e));
         }
       } finally {
@@ -116,7 +193,7 @@ export function Palette({ open, onClose, commands, scope, onPick, present }: Pro
     };
   }, [q, open]);
 
-  const rows: Row[] = useMemo(() => {
+  const rows = useMemo(() => {
     const needle = q.trim();
     const cmdRows: Row[] = commands
       .map((cmd) => {
@@ -168,12 +245,75 @@ export function Palette({ open, onClose, commands, scope, onPick, present }: Pro
       };
     }).filter((r): r is Extract<Row, { kind: "hit" }> => r !== null);
 
-    return [...hitRows, ...cmdRows].sort((a, b) => b.score - a.score);
-  }, [q, commands, hits]);
+    // Ranked by the server on match tier then notability. Undated taxa are
+    // dropped here, not styled differently: a fossil with no appearance
+    // interval has no position in time and cannot be drawn, so offering one is
+    // offering a dead end — the same reason broken taxa are not rows. They
+    // become a note below.
+    const fossilRows: Row[] = fossils
+      .filter((f) => hasInterval(f) && (f.pbdb_taxon_no ?? 0) > 0)
+      .map((f, i) => ({
+        kind: "fossil" as const,
+        fossil: f,
+        score: 2000 - i * 10 + sessionBoost(`f:${f.pbdb_taxon_no}`),
+        ranges: litRanges(needle, f.name),
+      }));
+
+    return { cmdRows, hitRows, fossilRows };
+  }, [q, commands, hits, fossils]);
+
+  /**
+   * Rows grouped into titled sections, Raycast-style.
+   *
+   * Sections float on their best row's score so the thing that best matches
+   * what was typed leads — except {@link FOSSIL_SECTION}, which is pinned last
+   * whatever it scores. `Command.section` has carried the grouping the whole
+   * time and nothing rendered it; this is where it starts meaning something.
+   */
+  const sections: Section[] = useMemo(() => {
+    const byTitle = new Map<string, Row[]>();
+    const push = (title: string, row: Row) => {
+      const list = byTitle.get(title);
+      if (list) list.push(row);
+      else byTitle.set(title, [row]);
+    };
+    for (const r of rows.hitRows) push(SPECIES_SECTION, r);
+    for (const r of rows.cmdRows) {
+      if (r.kind === "cmd") push(r.cmd.section, r);
+    }
+    for (const r of rows.fossilRows) push(FOSSIL_SECTION, r);
+
+    const out: Section[] = [];
+    for (const [title, list] of byTitle) {
+      list.sort((a, b) => b.score - a.score);
+      out.push({ title, rows: list });
+    }
+    return out.sort((a, b) => {
+      if (a.title === FOSSIL_SECTION) return 1;
+      if (b.title === FOSSIL_SECTION) return -1;
+      return (b.rows[0]?.score ?? 0) - (a.rows[0]?.score ?? 0);
+    });
+  }, [rows]);
+
+  /** The sections flattened, which is what the arrow keys actually walk. */
+  const flat: Row[] = useMemo(() => sections.flatMap((s) => s.rows), [sections]);
 
   const notes: BrokenHit[] = useMemo(
     () => hits.filter((h): h is BrokenHit => h.kind === "broken"),
     [hits],
+  );
+
+  /**
+   * Fossils that matched but cannot be drawn, named rather than offered.
+   *
+   * PBDB records no appearance interval for 21.4% of its taxa — *Homo naledi*
+   * among them — and "nothing matched" would be the wrong answer to someone who
+   * typed a real name. Same treatment as a broken taxon: say the true thing,
+   * and make it unpickable.
+   */
+  const undated: FossilTaxon[] = useMemo(
+    () => fossils.filter((f) => !hasInterval(f)),
+    [fossils],
   );
 
   useEffect(() => setActive(0), [q]);
@@ -189,12 +329,15 @@ export function Palette({ open, onClose, commands, scope, onPick, present }: Pro
       if (row.kind === "cmd") {
         recordUse(row.cmd.id);
         row.cmd.run();
+      } else if (row.kind === "fossil") {
+        recordUse(`f:${row.fossil.pbdb_taxon_no}`);
+        onPickFossil(row.fossil);
       } else {
         recordUse(`n:${row.hit.idx}`);
         onPick(row.hit);
       }
     },
-    [onPick],
+    [onPick, onPickFossil],
   );
 
   const onKeyDown = useCallback(
@@ -204,13 +347,13 @@ export function Palette({ open, onClose, commands, scope, onPick, present }: Pro
         onClose();
       } else if (e.key === "ArrowDown" || (e.key === "n" && e.ctrlKey)) {
         e.preventDefault();
-        setActive((a) => Math.min(a + 1, rows.length - 1));
+        setActive((a) => Math.min(a + 1, flat.length - 1));
       } else if (e.key === "ArrowUp" || (e.key === "p" && e.ctrlKey)) {
         e.preventDefault();
         setActive((a) => Math.max(a - 1, 0));
       } else if (e.key === "Enter") {
         e.preventDefault();
-        commit(rows[active]);
+        commit(flat[active]);
       } else if (
         e.key === "Backspace" &&
         scope &&
@@ -222,7 +365,7 @@ export function Palette({ open, onClose, commands, scope, onPick, present }: Pro
         scope.onPop();
       }
     },
-    [rows, active, commit, onClose, scope],
+    [flat, active, commit, onClose, scope],
   );
 
   if (!open) return null;
@@ -263,7 +406,7 @@ export function Palette({ open, onClose, commands, scope, onPick, present }: Pro
             </div>
           )}
 
-          {!failed && rows.length === 0 && notes.length === 0 && (
+          {!failed && flat.length === 0 && notes.length === 0 && undated.length === 0 && (
             <div className="palette-empty">
               {q.trim().length >= 2 ? (
                 <>
@@ -278,22 +421,51 @@ export function Palette({ open, onClose, commands, scope, onPick, present }: Pro
             </div>
           )}
 
-          {rows.map((row, i) => (
-            <RowView
-              // `key` is the node key, not the idx: it is the only field that
-              // is both present and unique on every hit the server can send.
-              key={row.kind === "cmd" ? `c${row.cmd.id}` : `h${row.hit.key}`}
-              row={row}
-              active={i === active}
-              present={present}
-              onHover={() => setActive(i)}
-              onClick={() => commit(row)}
-            />
-          ))}
+          {/*
+            Sections carry a header only when there is more than one of them.
+            A single-section list is not a grouping, and titling it "Species"
+            above the only rows on screen is a label on the obvious.
+          */}
+          {(() => {
+            let n = -1;
+            return sections.map((sec) => (
+              <div className="palette-group" key={`s${sec.title}`}>
+                {sections.length > 1 && (
+                  <div className="palette-section" role="presentation">
+                    {sec.title}
+                  </div>
+                )}
+                {sec.rows.map((row) => {
+                  const i = ++n;
+                  return (
+                    <RowView
+                      // The node key, not the idx: it is the only field both
+                      // present and unique on every hit the server can send.
+                      key={
+                        row.kind === "cmd"
+                          ? `c${row.cmd.id}`
+                          : row.kind === "fossil"
+                            ? `f${row.fossil.pbdb_taxon_no}`
+                            : `h${row.hit.key}`
+                      }
+                      row={row}
+                      active={i === active}
+                      present={present}
+                      presentFossils={presentFossils}
+                      onHover={() => setActive(i)}
+                      onClick={() => commit(row)}
+                    />
+                  );
+                })}
+              </div>
+            ));
+          })()}
 
           {notes.map((n) => (
             <BrokenNote key={`b${n.key}`} hit={n} />
           ))}
+
+          {undated.length > 0 && <UndatedNote fossils={undated} />}
         </div>
       </div>
     </div>
@@ -304,15 +476,30 @@ function RowView({
   row,
   active,
   present,
+  presentFossils,
   onHover,
   onClick,
 }: {
   row: Row;
   active: boolean;
   present: Set<number>;
+  presentFossils: Set<number>;
   onHover: () => void;
   onClick: () => void;
 }) {
+  if (row.kind === "fossil") {
+    return (
+      <FossilRow
+        fossil={row.fossil}
+        ranges={row.ranges}
+        active={active}
+        drawn={presentFossils.has(row.fossil.pbdb_taxon_no ?? -1)}
+        onHover={onHover}
+        onClick={onClick}
+      />
+    );
+  }
+
   if (row.kind === "cmd") {
     const c = row.cmd;
     return (
@@ -364,10 +551,132 @@ function RowView({
           {h.rank && <>{h.rank} · </>}
           {h.tip_count.toLocaleString()} species
         </span>
+        {/*
+          Why this row is here, when nothing else on it says so.
+
+          A synonym or an abbreviation is the only field containing what was
+          typed, and the row cannot otherwise show it — so the answer arrives
+          looking like the search misheard. OTT files *Homo floresiensis* as a
+          synonym of *Homo sapiens*, which makes the unexplained version an
+          unexplained answer about a **different species**: the reader types a
+          real hominin and is silently handed us.
+
+          Stated as the taxonomy's filing rather than as a fact about the
+          animal. "Also known as" is the wording a Wikidata bug once put on this
+          exact pair, and it would be no more true coming from OTT — a
+          deprecated name is not an alias.
+        */}
+        {matchedVia(h) && (
+          <span className="row-via">
+            matched <em className="sci-italic">{matchedVia(h)}</em>, which the
+            taxonomy files under this name
+          </span>
+        )}
       </span>
       <span className="row-accessory">
         {already && <span className="kbd">on canvas</span>}
         {active && !already && <span className="kbd">↵ add</span>}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * A fossil row.
+ *
+ * Deliberately shaped like a species row and deliberately not identical to one.
+ * Same anatomy — icon, title, subtitle, accessory — because it is the same kind
+ * of list item and Raycast's grammar should not change halfway down. But the
+ * icon is the ammonite the canvas uses for a graft rather than a silhouette
+ * dot, the subtitle leads with the range instead of a species count, and the
+ * accessory says *draw* rather than *add*, because that is a different verb: a
+ * species joins the tree, a fossil is drawn against it.
+ */
+function FossilRow({
+  fossil,
+  ranges,
+  active,
+  drawn,
+  onHover,
+  onClick,
+}: {
+  fossil: FossilTaxon;
+  ranges: [number, number][];
+  active: boolean;
+  drawn: boolean;
+  onHover: () => void;
+  onClick: () => void;
+}) {
+  const bounds = [fossil.fea, fossil.fla, fossil.lea, fossil.lla].filter(
+    (v): v is number => typeof v === "number" && Number.isFinite(v),
+  );
+  const span = bounds.length
+    ? endedSpanLabel(Math.max(...bounds), Math.min(...bounds))
+    : null;
+  const italic = fossil.rank === "species" || fossil.rank === "genus";
+  return (
+    <div
+      className={`row${active ? " active" : ""}`}
+      onMouseMove={onHover}
+      onClick={onClick}
+    >
+      <span className="row-icon row-icon-fossil">
+        {fossil.phylopic_id ? (
+          <Silhouette phylopicId={fossil.phylopic_id} size={20} fallback="◦" />
+        ) : (
+          <AgeGlyph kind="fossil" />
+        )}
+      </span>
+      <span className="row-body">
+        <span className={`row-title${italic ? " sci-italic" : ""}`}>
+          {parts(fossil.name, ranges)}
+        </span>
+        <span className="row-sub">
+          {span && <span className="num">{span}</span>}
+          {fossil.rank && <> · {fossil.rank}</>}
+          {fossil.n_occs > 0 && <> · {fossil.n_occs.toLocaleString()} occurrences</>}
+        </span>
+      </span>
+      <span className="row-accessory">
+        {drawn && <span className="kbd">on canvas</span>}
+        {active && !drawn && <span className="kbd">↵ draw</span>}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * Fossils that matched the query but have nowhere to stand in time.
+ *
+ * A note rather than a row, for the same reason {@link BrokenNote} is: 21.4% of
+ * PBDB taxa carry no appearance interval, so there is no x for them and nothing
+ * Enter could usefully do. *Homo naledi* is one of these, and "nothing matched"
+ * would be a worse answer than this one to somebody who typed a real name.
+ */
+function UndatedNote({ fossils }: { fossils: FossilTaxon[] }) {
+  const names = fossils.slice(0, 4).map((f) => f.name);
+  const rest = fossils.length - names.length;
+  return (
+    <div className="palette-note" role="note">
+      <span className="row-icon">!</span>
+      <span className="row-body">
+        <span className="row-title">
+          {names.map((n, i) => (
+            <span key={n}>
+              {i > 0 && ", "}
+              <strong className="sci-italic">{n}</strong>
+            </span>
+          ))}
+          {rest > 0 && ` and ${rest} more`}{" "}
+          {names.length === 1 && rest === 0 ? "is a fossil" : "are fossils"} with
+          no recorded date
+        </span>
+        <span className="row-sub">
+          PBDB records no appearance interval for about a fifth of its taxa, so
+          there is nowhere on the time axis to put{" "}
+          {names.length === 1 && rest === 0 ? "it" : "them"}. Nothing else about
+          the search is affected.
+        </span>
       </span>
     </div>
   );

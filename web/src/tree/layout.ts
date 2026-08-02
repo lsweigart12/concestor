@@ -21,6 +21,7 @@
 
 import type { PathNode } from "../api";
 import type { Induced } from "./induced";
+import type { Graft } from "./graft";
 import {
   labelBounds,
   placeLabels,
@@ -112,6 +113,30 @@ export interface Placed {
   isMRCA: boolean;
   /** Stable across renders — see {@link laneHue}. */
   hue: number;
+  /**
+   * Set on a fossil drawn against the tree rather than a node in it. Carries
+   * the graft so the renderer can draw its connector back to the attach point;
+   * absent on everything the topology actually contains.
+   */
+  graft?: Graft;
+}
+
+/**
+ * A graft's connector: from a point on a drawn branch down to the fossil.
+ *
+ * Two coordinates rather than one, because the two ends mean different things.
+ * `(joinX, joinY)` is on the lineage, at the fossil's own **first appearance**
+ * — the youngest its lineage can have parted, clamped to the branch. `(x, y)`
+ * is the fossil at its last. So the vertical drop is the part nobody knows and
+ * the horizontal run is, where unclamped, the taxon's observed extent.
+ */
+export interface GraftLink {
+  idx: number;
+  joinX: number;
+  joinY: number;
+  x: number;
+  y: number;
+  graft: Graft;
 }
 
 export interface Layout {
@@ -123,6 +148,8 @@ export interface Layout {
   labels: Map<number, LabelBox>;
   /** Bounds of nodes *and* labels, which is what the viewport should frame. */
   content: Rect | null;
+  /** One per drawn graft. Empty when no fossil is on the canvas. */
+  graftLinks: GraftLink[];
 }
 
 /**
@@ -155,11 +182,14 @@ export function layout(
     plotWidth?: number;
     label?: LabelText;
     axis?: AxisMode;
+    /** Fossils drawn against the tree. See `graft.ts`; empty is the default. */
+    grafts?: readonly Graft[];
   } = {},
 ): Layout {
   const rowH = opts.rowHeight ?? ROW_H;
   const plotW = opts.plotWidth ?? PLOT_W;
   const mode = opts.axis ?? "log";
+  const grafts = opts.grafts ?? [];
   const placed = new Map<number, Placed>();
   if (ind.rendered.length === 0) {
     return {
@@ -169,16 +199,24 @@ export function layout(
       width: plotW + PAD_X * 2,
       labels: new Map(),
       content: null,
+      graftLinks: [],
     };
   }
 
   const ageOf = (v: number) => nodes.get(v)?.age_layout ?? 0;
-  const maxAge = Math.max(...ind.rendered.map(ageOf), 1);
+  // Grafts count toward the extent. A fossil older than every node on screen
+  // would otherwise be placed against a scale that does not reach it and land
+  // off the left edge — which is the one failure a time axis must not have.
+  const maxAge = Math.max(
+    ...ind.rendered.map(ageOf),
+    ...grafts.map((g) => g.node.age_layout),
+    1,
+  );
 
   // The present sits at the right edge and deep time runs left, so an older
   // node is further from the reader's starting point rather than closer.
-  const xOf = (v: number) =>
-    PAD_X + plotW * (1 - ageFrac(ageOf(v), maxAge, mode));
+  const xAt = (age: number) => PAD_X + plotW * (1 - ageFrac(age, maxAge, mode));
+  const xOf = (v: number) => xAt(ageOf(v));
 
   // y: one row per rendered leaf in preorder order, internal nodes at the
   // midpoint of their children's extent. Rendered leaves are the selections
@@ -212,8 +250,43 @@ export function layout(
    * at the true shared age, and the nesting is visible as nesting.
    */
   const rows = ind.rendered.filter((v) => !kids.has(v) || leafSet.has(v));
+
+  /**
+   * Grafts take rows of their own, inserted directly beneath the lineage they
+   * hang from.
+   *
+   * "Beneath" is the last row of the anchor's own subtree, not the anchor's
+   * row: an anchor with descendants on screen owns a block of rows, and
+   * dropping a fossil into the middle of that block would separate a branch
+   * from the rest of itself. Placing it after the block reads as what it is —
+   * an extra thing hanging off this part of the tree — and, because the rows
+   * either side belong to the same clade, the reader's eye never has to cross
+   * an unrelated lineage to get from the connector to the fossil.
+   */
+  const basePos = new Map<number, number>();
+  rows.forEach((v, i) => basePos.set(v, i));
+  const lastRowIn = (v: number): number => {
+    let m = basePos.get(v) ?? -1;
+    for (const c of kids.get(v) ?? []) m = Math.max(m, lastRowIn(c));
+    return m;
+  };
+  const graftsAfter = new Map<number, Graft[]>();
+  for (const g of grafts) {
+    const at = lastRowIn(g.anchor);
+    const slot = at < 0 ? rows.length - 1 : at;
+    const list = graftsAfter.get(slot);
+    if (list) list.push(g);
+    else graftsAfter.set(slot, [g]);
+  }
+
   const yOf = new Map<number, number>();
-  rows.forEach((v, i) => yOf.set(v, i * rowH));
+  const graftY = new Map<number, number>();
+  let row = 0;
+  rows.forEach((v, i) => {
+    yOf.set(v, row++ * rowH);
+    for (const g of graftsAfter.get(i) ?? []) graftY.set(g.idx, row++ * rowH);
+  });
+  const totalRows = row;
 
   const resolveY = (v: number): number => {
     const known = yOf.get(v);
@@ -244,6 +317,39 @@ export function layout(
     });
   }
 
+  // Grafts join `placed` so that labels, collision resolution and the content
+  // bounds all treat them as first-class marks — which on the canvas they are.
+  // They are deliberately *not* in `ind`, so nothing that walks the topology
+  // can reach them.
+  const graftLinks: GraftLink[] = [];
+  for (const g of grafts) {
+    const y = graftY.get(g.idx);
+    if (y === undefined) continue;
+    const x = xAt(g.node.age_layout);
+    placed.set(g.idx, {
+      idx: g.idx,
+      x,
+      y,
+      node: g.node,
+      isLeaf: false,
+      isMRCA: false,
+      // The anchor's hue, not its own: a graft belongs to the lineage it hangs
+      // from, and giving it an independent colour would read as a third branch.
+      hue: laneHue(g.anchor),
+      graft: g,
+    });
+    graftLinks.push({
+      idx: g.idx,
+      // The connector leaves the branch at the attach node's own age, on the
+      // horizontal run `orthPath` puts at the anchor's y.
+      joinX: xAt(g.joinAge),
+      joinY: yOf.get(g.anchor) ?? y,
+      x,
+      y,
+      graft: g,
+    });
+  }
+
   // Labels are laid out from the finished node positions, against the traces
   // those positions imply — so placement knows about every line it could be
   // drawn through, not just about the other labels.
@@ -253,7 +359,15 @@ export function layout(
     x: p.x,
     y: p.y,
     isLeaf: p.isLeaf,
-    priority: (p.isLeaf ? 1e9 : 0) + (p.isMRCA ? 5e8 : 0) + p.node.tip_count,
+    // A graft outranks every divergence and yields only to a chosen leaf. It
+    // is on the canvas because the reader asked for it by name, and `tip_count`
+    // alone would put a one-tip fossil below every node it hangs among — so
+    // the label the reader came for would be the first one crowded out.
+    priority:
+      (p.isLeaf ? 1e9 : 0) +
+      (p.graft ? 8e8 : 0) +
+      (p.isMRCA ? 5e8 : 0) +
+      p.node.tip_count,
     ...describe(p),
   }));
 
@@ -263,6 +377,11 @@ export function layout(
     const a = placed.get(seg.anc);
     const b = placed.get(v);
     if (a && b) runs.push({ ax: a.x, ay: a.y, bx: b.x, by: b.y });
+  }
+  // Graft connectors are lines on the canvas too, so labels must be placed
+  // against them or a fossil's own name lands across the stub it hangs on.
+  for (const l of graftLinks) {
+    runs.push({ ax: l.joinX, ay: l.joinY, bx: l.x, by: l.y });
   }
 
   const labels = placeLabels(inputs, runs, {
@@ -281,10 +400,11 @@ export function layout(
   return {
     placed,
     maxAge,
-    height: Math.max(rows.length, 1) * rowH,
+    height: Math.max(totalRows, 1) * rowH,
     width: plotW + PAD_X * 2,
     labels,
     content: { x: minX, y: minY, w: maxX - minX, h: maxY - minY },
+    graftLinks,
   };
 }
 

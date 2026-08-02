@@ -119,7 +119,7 @@ product is broken at its front door, not merely incomplete.
 | 6 — vernaculars | built — `vernaculars.py` + `search.py`, `node_fts` live |
 | walking-skeleton renderer | done, throwaway, superseded |
 | serving binary | **built, in Go** — `server/`, every endpoint live. [serving-binary.md](serving-binary.md) |
-| real UI | **built** — `web/`, React + xyflow v12. The signature interaction works end to end |
+| real UI | **built** — `web/`, React + xyflow v12. The signature interaction works end to end. Fossils are drawn *in* the tree as client-side grafts, searchable and selectable — [fossil-grafts.md](fossil-grafts.md) |
 
 Everything in `ingest.md` is now implemented. What remains is depth and polish,
 not new machinery — see §7 for the honest list of what is thin.
@@ -1281,6 +1281,18 @@ as *this one does not match*.
 The whole of the ranking is server-side. `web/` must not re-sort `/v1/search`
 on anything it can compute from the two fields on the wire — the server has
 every name the taxon carries and the client has two.
+
+*And the palette's sections do not weaken that.* The fossil work landed a
+`Section` layer between the search result and the row — species, commands,
+fossils — and grouping is the one thing it does. Rows keep their server order
+inside a section, carrying the session boost and nothing else; sections
+themselves float on their best row's score, except Fossils, which is pinned
+last however well a PBDB name matches. There are now two ranked corpora on the
+wire and the rule covers both: `/v1/search`'s `results` are ranked by the bands
+above, its `fossils` by match tier then notability, and the client re-sorts
+neither. Ordering that comes from a section boundary is a statement about which
+corpus answers the question, not about which row within one is the better
+answer.
 
 **The fossil layer is drawn.** Clicking a segment opens a lane beneath the
 chronogram sharing its time axis; Amniota → *Homo sapiens* shows 8 of 2,657

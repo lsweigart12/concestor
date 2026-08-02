@@ -46,13 +46,16 @@ import {
 import { traceStroke, TIER_CLASS, type TraceEdgeData } from "./TraceEdge";
 
 /** Just enough of an edge to say which patterns are on screen. */
-export type TracePattern = Pick<TraceEdgeData, "tier" | "unbounded">;
+export type TracePattern = Pick<TraceEdgeData, "tier" | "unbounded"> &
+  Partial<Pick<TraceEdgeData, "attachment">>;
 
 export interface LegendRow {
   id: string;
   tier: Tier;
   /** Extra trace classes beyond the tier's own, in canvas order. */
   unbounded: boolean;
+  /** A fossil's connector rather than a branch. See `trace-attachment`. */
+  attachment?: boolean;
   text: string;
 }
 
@@ -91,6 +94,18 @@ const ALL_ROWS: readonly LegendRow[] = [
     unbounded: false,
     text: "no age · fossils dated",
   },
+  // The one row that is not about an age at all. Every pattern above answers
+  // "when did this split happen"; this answers "where does this thing attach",
+  // and the honest answer for a fossil is *somewhere along that branch*. It
+  // earns a row because it is a new kind of line on the canvas, and a line
+  // nobody can decode is the failure this legend exists to prevent.
+  {
+    id: "attachment",
+    tier: TIER_OCCURRENCE,
+    unbounded: false,
+    attachment: true,
+    text: "fossil · attaches somewhere along",
+  },
 ];
 
 /**
@@ -102,7 +117,11 @@ const ALL_ROWS: readonly LegendRow[] = [
 export function legendRows(edges: readonly TracePattern[]): LegendRow[] {
   const present = new Set<string>();
   for (const e of edges) {
-    if (e.tier === TIER_MEASURED) present.add("measured");
+    // An attachment is judged first and alone: its tier is `occurrence` so that
+    // the dash matches the fossil it leads to, but what the row has to explain
+    // is the attachment, not the tier.
+    if (e.attachment) present.add("attachment");
+    else if (e.tier === TIER_MEASURED) present.add("measured");
     else if (e.tier === TIER_INTERPOLATED) present.add("interpolated");
     else if (e.tier === TIER_OCCURRENCE) present.add("occurrence");
     else present.add(e.unbounded ? "unbounded" : "structural");
@@ -111,7 +130,8 @@ export function legendRows(edges: readonly TracePattern[]): LegendRow[] {
     !present.has("interpolated") &&
     !present.has("structural") &&
     !present.has("unbounded") &&
-    !present.has("occurrence")
+    !present.has("occurrence") &&
+    !present.has("attachment")
   ) {
     return [];
   }
@@ -133,7 +153,7 @@ export function Legend({ edges }: { edges: readonly TracePattern[] }) {
               the meaning is. */}
           <svg className="legend-swatch" width="22" height="8" aria-hidden="true">
             <g
-              className={`trace ${TIER_CLASS[r.tier]}${r.unbounded ? " trace-unbounded" : ""}`}
+              className={`trace ${TIER_CLASS[r.tier]}${r.unbounded ? " trace-unbounded" : ""}${r.attachment ? " trace-attachment" : ""}`}
             >
               <path
                 className="trace-core"

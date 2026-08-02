@@ -541,3 +541,52 @@ func TestAWithdrawnExactMatchKeepsItsOwnName(t *testing.T) {
 		}
 	}
 }
+
+// matched_name is the string that actually matched, and it exists for one
+// case: a synonym is the only field containing what the reader typed and the
+// row has no other way to show it.
+//
+// The case that forced it is the worst one in the corpus. OTT files *Homo
+// floresiensis* as a synonym of ott770315, *Homo sapiens* — so searching a real
+// hominin silently answers with a different species, and without the matched
+// name on the row there is nothing on screen connecting the question to the
+// answer. See docs/fossil-grafts.md §8.
+func TestMatchedNameCarriesTheSynonymThatHit(t *testing.T) {
+	st := open(t)
+	if st.Schema.FTS == nil || st.Schema.FTS.MapKind == "" {
+		t.Skip("no kind column")
+	}
+	res, err := st.Search(t.Context(), "Homo floresiensis", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res) == 0 {
+		t.Fatal("no results")
+	}
+	got := res[0]
+	if got.Name == nil || *got.Name != "Homo sapiens" {
+		t.Fatalf("first hit = %v, want Homo sapiens (OTT's own synonymy)", got.Name)
+	}
+	if got.MatchedOn != "synonym" {
+		t.Fatalf("matched_on = %q, want synonym", got.MatchedOn)
+	}
+	if got.MatchedName == nil || *got.MatchedName != "Homo floresiensis" {
+		t.Fatalf("matched_name = %v, want the synonym that hit", got.MatchedName)
+	}
+}
+
+// A name the row already prints is not sent back as the reason it matched:
+// captioning "Homo sapiens" with "matched Homo sapiens" is a caption on the
+// obvious, and the UI would have to filter it out again.
+func TestMatchedNameIsAbsentWhenTheRowAlreadyShowsIt(t *testing.T) {
+	st := open(t)
+	res, err := st.Search(t.Context(), "Homo sapiens", 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range res {
+		if r.Name != nil && *r.Name == "Homo sapiens" && r.MatchedName != nil {
+			t.Fatalf("matched_name = %q on a row whose own name matched", *r.MatchedName)
+		}
+	}
+}

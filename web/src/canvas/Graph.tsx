@@ -36,6 +36,7 @@ import {
 import "@xyflow/react/dist/style.css";
 
 import {
+  TIER_OCCURRENCE,
   TIER_STRUCTURAL,
   type FossilTaxon,
   type PathNode,
@@ -53,6 +54,7 @@ import {
 } from "../tree/layout";
 import type { Induced } from "../tree/induced";
 import type { AddDelta } from "../tree/induced";
+import { isGraftIdx, type Graft } from "../tree/graft";
 import { divergenceFor, UNNAMED } from "../tree/naming";
 import {
   markAge,
@@ -135,6 +137,8 @@ export interface GraphProps {
   onDrill: (d: Drill | null) => void;
   /** A fossil row was clicked; the app opens its action menu. */
   onPickFossil: (f: FossilTaxon) => void;
+  /** Fossils drawn against the tree. See `tree/graft.ts`. */
+  grafts: readonly Graft[];
 }
 
 const prefersReduced = () =>
@@ -155,6 +159,7 @@ function Inner(props: GraphProps) {
     drill,
     onDrill,
     onPickFossil,
+    grafts,
   } = props;
 
   const rf = useReactFlow();
@@ -219,8 +224,14 @@ function Inner(props: GraphProps) {
   );
 
   const lay = useMemo(
-    () => layout(ind, nodeMap, { plotWidth, label: describeLabel, axis: axisMode }),
-    [ind, nodeMap, plotWidth, describeLabel, axisMode],
+    () =>
+      layout(ind, nodeMap, {
+        plotWidth,
+        label: describeLabel,
+        axis: axisMode,
+        grafts,
+      }),
+    [ind, nodeMap, plotWidth, describeLabel, axisMode, grafts],
   );
 
   /**
@@ -262,12 +273,20 @@ function Inner(props: GraphProps) {
   const focusLineage = useMemo(() => {
     const out = new Set<number>();
     let cur: number | null = focusedIdx;
+    // A focused graft has no ancestry of its own — it is not in the topology.
+    // Its lineage is the branch it hangs on, so the walk starts at the anchor
+    // and the fossil rides along. Without this the set is the graft alone and
+    // focusing one dims the entire tree it is annotating.
+    if (cur !== null && isGraftIdx(cur)) {
+      out.add(cur);
+      cur = grafts.find((g) => g.idx === cur)?.anchor ?? null;
+    }
     while (cur !== null && cur !== undefined) {
       out.add(cur);
       cur = ind.segments.get(cur)?.anc ?? null;
     }
     return out;
-  }, [focusedIdx, ind]);
+  }, [focusedIdx, ind, grafts]);
 
   // Bloom is the first thing to go when frames are tight, and dropping to flat
   // strokes at low zoom is the documented acceptable answer.
@@ -351,6 +370,11 @@ function Inner(props: GraphProps) {
           label: lay.labels.get(p.idx),
           divergence: divergenceFor(p.idx, ind, nodeMap),
           showSilhouette,
+          // A fossil drawn against the tree rather than a node in it. The mark
+          // renders the same way — it is an occurrence-tier node carrying its
+          // own picture — but the caption has to state how firmly it is placed,
+          // and only the graft knows that.
+          graft: p.graft ?? null,
           witness: witnessOn(p),
           // Only worth saying when the picture is not a portrait. "Silhouette
           // of Homo sapiens" on Homo sapiens is noise.
@@ -411,6 +435,7 @@ function Inner(props: GraphProps) {
         dim,
         unbounded,
         drilled: activeDrill?.upper === seg.anc && activeDrill.lower === v,
+        attachment: false,
         drawToken: drawDelay.has(v) ? (delta?.token ?? null) : null,
         delay: drawDelay.get(v) ?? 0,
         reduced,
@@ -419,6 +444,37 @@ function Inner(props: GraphProps) {
         id: `${seg.anc}-${v}`,
         source: String(seg.anc),
         target: String(v),
+        type: "trace",
+        data: data as unknown as Record<string, unknown>,
+      });
+    }
+
+    // A graft's connector. It leaves the lineage at the fossil's own first
+    // appearance and arrives at its last, so the vertical drop is the
+    // unresolved attachment and the horizontal run is the observed extent.
+    for (const l of lay.graftLinks) {
+      const anchor = lay.placed.get(l.graft.anchor);
+      const data: TraceEdgeData = {
+        d: orthPath(l.joinX, l.joinY, l.x, l.y),
+        hue: anchor?.hue ?? 200,
+        // Occurrence, matching the fossil itself: nobody has dated this, and
+        // the dash channel answers exactly that question.
+        tier: TIER_OCCURRENCE,
+        dim:
+          (isolate && !focusLineage.has(l.graft.anchor)) ||
+          (!isolate && focusedIdx !== null && focusedIdx !== l.idx &&
+            !focusLineage.has(l.graft.anchor)),
+        unbounded: false,
+        drilled: false,
+        attachment: true,
+        drawToken: null,
+        delay: 0,
+        reduced,
+      };
+      out.push({
+        id: `graft-${l.idx}`,
+        source: String(l.graft.anchor),
+        target: String(l.idx),
         type: "trace",
         data: data as unknown as Record<string, unknown>,
       });
@@ -444,7 +500,7 @@ function Inner(props: GraphProps) {
     () =>
       rfEdges.map((e) => {
         const d = e.data as unknown as TraceEdgeData;
-        return { tier: d.tier, unbounded: d.unbounded };
+        return { tier: d.tier, unbounded: d.unbounded, attachment: d.attachment };
       }),
     [rfEdges],
   );
@@ -582,6 +638,10 @@ function Inner(props: GraphProps) {
    */
   const onEdgeClick = useCallback(
     (_: unknown, e: Edge) => {
+      // A graft's connector is not a segment — there is no chain of suppressed
+      // nodes between its ends to open. It has no hit target either, so this is
+      // the belt to that brace rather than the only guard.
+      if (e.id.startsWith("graft-")) return;
       const upper = Number(e.source);
       const lower = Number(e.target);
       const open = drill?.upper === upper && drill.lower === lower;

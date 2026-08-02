@@ -212,6 +212,26 @@ body {
   stroke-dasharray: 2 6;
 }
 
+/*
+ * A fossil's connector, which is not descent and must not read as it.
+ *
+ * Every other line here says *this lineage became that one*. This one says
+ * only *this taxon belongs somewhere along that branch* — phase 3 resolved it
+ * by name and phase 4 hung it on the deepest node anyone could, and where along
+ * the branch it actually parted is not known and is not knowable from this
+ * data. So it is drawn as a tether rather than a trace: the widest gaps in the
+ * file, thinner than a branch, and no halo at all. It should read as an
+ * annotation on the tree, because that is exactly what it is.
+ */
+.trace-attachment .trace-core {
+  stroke-dasharray: 1.5 5.5;
+  stroke-width: 1.1px;
+  opacity: 0.6;
+}
+.trace-attachment .trace-halo {
+  opacity: 0;
+}
+
 /* Unselected lineages recede to dim and desaturated. Contrast does the
    wayfinding, not labels. */
 .dimmed {
@@ -261,6 +281,47 @@ body {
 .mark:hover .mark-dot,
 .mark.is-focus .mark-dot {
   transform: scale(1.45);
+}
+
+/*
+ * A fossil is not a position in the topology, and its mark may not be a circle
+ * — every circle here is a node, and a reader who learns that in the first ten
+ * seconds must not then be shown a fossil wearing the same shape.
+ *
+ * It gets the ammonite the age slot already uses for a fossil range, rather
+ * than a shape of its own: the glyph beside this mark's own range and the mark
+ * itself are then the same figure, which is one vocabulary instead of two.
+ *
+ * Centred on the box rather than filling it. The box is 10px because React
+ * Flow needs a declared size and the position is offset by half of it, so the
+ * *centre* is the coordinate — the glyph is larger than that and has to be
+ * centred on the same point rather than laid into the corner.
+ */
+.mark-fossil {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 15px;
+  height: 15px;
+  transform: translate(-50%, -50%);
+  transition: transform 180ms var(--spring);
+}
+.mark-fossil .age-glyph {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  opacity: 1;
+  vertical-align: initial;
+  /* The mark is the node's hit target; the glyph inside it must not take the
+     pointer separately or the tooltip fights the click. */
+  pointer-events: none;
+}
+.mark.is-graft:hover .mark-fossil,
+.mark.is-graft.is-focus .mark-fossil {
+  transform: translate(-50%, -50%) scale(1.4);
+}
+.mark.is-focus .mark-fossil .age-glyph {
+  filter: drop-shadow(0 0 5px currentColor);
 }
 
 /*
@@ -928,12 +989,61 @@ body {
   scrollbar-color: var(--ink-4) transparent;
 }
 
+/*
+ * Section headers. Raycast's grouping, and the thing `Command.section` was
+ * always for — it sat unrendered until fossils arrived and gave the list two
+ * corpora to keep apart.
+ *
+ * A label, not a divider: no rule, no background, no box. The list is already
+ * a stack of rows inside a panel, and a second border would be the third
+ * horizontal line in 40px. Space and a quiet uppercase word are enough to say
+ * *these belong together*, which is all a section header has to do.
+ */
 .palette-section {
-  padding: var(--s2) var(--s4) var(--s1);
+  padding: var(--s3) var(--s4) var(--s1);
   font-size: 10px;
   letter-spacing: 0.11em;
   text-transform: uppercase;
   color: var(--ink-4);
+  user-select: none;
+}
+/* The first header sits directly under the input, which already has a rule
+   beneath it — so it needs the tighter of the two paddings, not both. */
+.palette-group:first-child .palette-section {
+  padding-top: var(--s2);
+}
+
+/*
+ * Why a row matched, on the rare row that needs it.
+ *
+ * A third line, below the subtitle and quieter than it, because it is a note
+ * about the search rather than a fact about the taxon. It appears on synonym
+ * and abbreviation hits only — a few rows in a session — so it costs the list
+ * nothing in the common case and is the whole answer in the uncommon one.
+ */
+.row-via {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--ink-4);
+}
+.row.active .row-via {
+  color: var(--ink-3);
+}
+
+/*
+ * A fossil's icon tile, when the taxon has no drawing.
+ *
+ * The ammonite is a stroked glyph rather than a filled silhouette, so at 26px
+ * inside a tile it reads thin where a silhouette reads solid. Letting it fill
+ * more of the tile is what keeps the two row kinds looking like the same list.
+ */
+.row-icon-fossil .age-glyph {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  opacity: 1;
+  vertical-align: initial;
 }
 
 /* Raycast row anatomy: icon · title · subtitle · right-aligned accessory. */

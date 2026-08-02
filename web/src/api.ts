@@ -226,6 +226,16 @@ interface HitBase {
   has_age: boolean;
   has_image: boolean;
   matched_on: string;
+  /**
+   * The name that actually matched, when the row does not already show it —
+   * a synonym or an abbreviation.
+   *
+   * The one field that contains what the reader typed. Without it a synonym
+   * hit is an unexplained answer, and OTT files *Homo floresiensis* as a
+   * synonym of *Homo sapiens*, so the unexplained answer is about a different
+   * species and reads as the search having misheard.
+   */
+  matched_name?: string | null;
   /** Present when the server resolved a silhouette for this hit. */
   phylopic_id?: string | null;
   /** The node the image is actually a drawing of. Often a relative. */
@@ -392,9 +402,24 @@ export function hitSilhouette(
  */
 export interface FossilTaxon {
   name: string;
+  /**
+   * PBDB's own primary key, and the only identity this taxon has — it is not a
+   * node, so it has no `node_key` and no OTT id. It is what a graft is keyed on
+   * and therefore what goes in the URL. Absent on a build whose fossil table
+   * predates the column, which `makeGraft` refuses rather than works around.
+   *
+   * **Nothing may address the tree with it.** See `divergence_pbdb_taxon_no`.
+   */
+  pbdb_taxon_no?: number;
   rank: string | null;
   /** The tree node it resolves to. Always on the segment we asked about. */
   attach_idx: number;
+  /**
+   * PBDB `parent_no` hops taken to reach `attach_idx`, and so how loose the
+   * placement is. Zero means the taxon is itself in the synthesis tree; eight
+   * is a statement about a family. `placementNote` turns it into words.
+   */
+  attach_walk?: number | null;
   n_occs: number;
   is_extant: boolean | null;
   /**
@@ -408,6 +433,24 @@ export interface FossilTaxon {
   fla: number | null;
   lea: number | null;
   lla: number | null;
+}
+
+/**
+ * A fossil with the two things a card needs beyond the row itself.
+ *
+ * `silhouette` is **not** optional in spirit: a graft puts that drawing on the
+ * canvas and CC-BY applies to whatever is on screen, so the card is where the
+ * credit has to appear. It is absent only when the taxon has no drawing at all.
+ */
+export interface FossilDetail extends FossilTaxon {
+  silhouette?: {
+    phylopic_id: string;
+    license_url: string;
+    attribution: string | null;
+    contributor: string | null;
+  } | null;
+  /** The node it hangs below, resolved — so the card can name it cold. */
+  attach?: PathNode | null;
 }
 
 export interface SegmentResponse {
@@ -543,8 +586,7 @@ function normalise(url: string, body: unknown): unknown {
     Object.assign(b, n);
     const sil = b.silhouette as Record<string, unknown> | null | undefined;
     if (sil) {
-      sil.attribution = sil.attribution ?? sil.creator ?? null;
-      sil.contributor = sil.contributor ?? sil.uploader ?? null;
+      creditFields(sil);
       sil.source_idx = sil.source_idx ?? b.silhouette_source_idx ?? b.idx;
       sil.source_name = sil.source_name ?? null;
     }
@@ -554,8 +596,7 @@ function normalise(url: string, body: unknown): unknown {
     // "creator not recorded" about an artist the payload names.
     const wit = b.divergence_silhouette as Record<string, unknown> | null | undefined;
     if (wit) {
-      wit.attribution = wit.attribution ?? wit.creator ?? null;
-      wit.contributor = wit.contributor ?? wit.uploader ?? null;
+      creditFields(wit);
       wit.source_name = wit.source_name ?? b.divergence_source_name ?? null;
     }
     b.synonyms = toStrings(b.synonyms);
@@ -565,7 +606,27 @@ function normalise(url: string, body: unknown): unknown {
     // preferred, so the card reads as a list of names.
     b.vernaculars = toStrings(b.vernaculars, true);
   }
+  // A fossil card draws a PhyloPic image too, so it needs the same translation
+  // — and this is the third place that has needed it, which is why it is one
+  // helper now. The failure is silent by construction: reading an absent field
+  // yields a credit line that says "creator not recorded" about an artist the
+  // payload names by a different key.
+  if (url.startsWith("/v1/fossil/")) {
+    creditFields(b.silhouette as Record<string, unknown> | null | undefined);
+  }
   return b;
+}
+
+/**
+ * Translate a credit block's field names in place.
+ *
+ * The server calls them `creator` and `uploader`; every card in this app calls
+ * them `attribution` and `contributor`. One boundary, one rename.
+ */
+function creditFields(sil: Record<string, unknown> | null | undefined): void {
+  if (!sil) return;
+  sil.attribution = sil.attribution ?? sil.creator ?? null;
+  sil.contributor = sil.contributor ?? sil.uploader ?? null;
 }
 
 const cache = new Map<string, Promise<unknown>>();
@@ -591,9 +652,13 @@ export const api = {
   about: () => get<About>("/v1/about"),
 
   search: (q: string, limit = 20) =>
-    get<{ query: string; results: AnyHit[] }>(
-      `/v1/search?q=${encodeURIComponent(q)}&limit=${limit}`,
-    ),
+    get<{
+      query: string;
+      results: AnyHit[];
+      /** PBDB taxa matching the same query. Ranked separately, never merged. */
+      fossils?: FossilTaxon[];
+      fossils_available?: boolean;
+    }>(`/v1/search?q=${encodeURIComponent(q)}&limit=${limit}`),
 
   path: (key: string) => get<Resolved>(`/v1/path/${encodeURIComponent(key)}`),
 
@@ -606,6 +671,15 @@ export const api = {
 
   segment: (upper: number, lower: number) =>
     get<SegmentResponse>(`/v1/segment/${upper}/${lower}`),
+
+  /**
+   * One PBDB taxon by its own key.
+   *
+   * The segment listing is how a reader normally meets a fossil, and it is
+   * keyed on the branch. A graft is view state, so it survives in the URL, so a
+   * cold load arrives holding an id and no lane to have found it in.
+   */
+  fossil: (taxonNo: number) => get<FossilDetail>(`/v1/fossil/${taxonNo}`),
 
   timescale: () => get<{ intervals: TimescaleInterval[] }>("/v1/timescale"),
 

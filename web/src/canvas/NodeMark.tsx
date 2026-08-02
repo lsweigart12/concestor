@@ -40,6 +40,7 @@ import { endedSpanLabel } from "./Bracket";
 import type { LabelBox } from "../tree/labels";
 import { branchProse, UNNAMED, type Divergence } from "../tree/naming";
 import { Silhouette } from "./Silhouette";
+import { fossilSpan, type Graft } from "../tree/graft";
 
 export type ZoomTier = "point" | "label" | "detail";
 
@@ -65,6 +66,17 @@ export interface MarkData extends Record<string, unknown> {
    * Null on every leaf, because a species you chose is not a divergence.
    */
   witness: Witness | null;
+  /**
+   * Set on a fossil drawn against the tree rather than a node in it.
+   *
+   * The mark renders identically — a graft *is* an occurrence-tier node with
+   * its own picture, which is why it needed no new tier and no new component —
+   * but the picture's caption is a different sentence. A node's silhouette
+   * says "something in this clade looks like this"; a fossil's says "this is
+   * the taxon, here is when the rock has it, and here is how firmly anyone can
+   * place it". `graftTitle` is that sentence.
+   */
+  graft: Graft | null;
   /** Resolved position, from the collision pass. Absent before it runs. */
   label: LabelBox | undefined;
   /** Set only where the taxonomy has no name and we derived one. See naming.ts. */
@@ -270,6 +282,40 @@ export function witnessTitle(
 }
 
 /**
+ * What the picture beside a *fossil* is, which is the third of these sentences
+ * and the only one that is not hedged about whose portrait it is.
+ *
+ * `borrowedTitle` has to explain that the drawing is of a relative;
+ * `witnessTitle` has to explain that the taxon merely sits below the fork. A
+ * graft's drawing is of the taxon itself — `fossil_image` matches PBDB and
+ * PhyloPic on the same name and never inherits, because a fossil has no clade
+ * to borrow from. So the only thing left to qualify is the *placement*, and
+ * that is the whole of what this says.
+ *
+ * The date comes first because it is the strong claim and it is what the reader
+ * came for. `placementNote` then concedes the weak one, in the same three bands
+ * a witness uses — one function, so a fossil cannot describe itself one way in
+ * a lane and another way on the canvas.
+ */
+export function graftTitle(g: Graft): string {
+  const span = fossilSpan(g.fossil);
+  const when = span
+    ? ` is found in the rock through ${endedSpanLabel(span.oldest, span.youngest)}`
+    : " has no appearance interval recorded";
+  const where = placementNote(g.fossil.attach_walk ?? null);
+  // Where the line meets the tree is a claim of its own and has to be read as
+  // one — and the two clamped cases point in *opposite* directions, so they
+  // cannot share a sentence. See `Graft.joinAt`.
+  const join =
+    g.joinAt === "first-appearance"
+      ? " The line meets the branch at its first appearance, which is the latest its lineage can have parted."
+      : g.joinAt === "anchor"
+        ? " It first appears later than the point it hangs from, so its lineage parted somewhere below there, off the branches drawn here."
+        : " It is older than the whole branch it hangs on, so its lineage parted earlier than anything drawn here.";
+  return `${g.fossil.name}${when}. It is not a node in the tree: nobody has resolved where its lineage branches.${where}${join}`;
+}
+
+/**
  * The secondary row. Rank only.
  *
  * What an inherited silhouette actually depicts belongs on the image, not
@@ -368,6 +414,9 @@ export const NodeMark = memo(function NodeMark({ data }: NodeProps) {
         "mark",
         d.isLeaf ? "is-leaf" : "",
         d.isMRCA ? "is-mrca" : "",
+        // A fossil is not a position in the tree, and the dot has to say so
+        // before the tooltip gets a chance to. See `.mark.is-graft`.
+        d.graft ? "is-graft" : "",
         d.focused ? "is-focus" : "",
         d.dim ? "dimmed" : "",
       ]
@@ -378,6 +427,24 @@ export const NodeMark = memo(function NodeMark({ data }: NodeProps) {
       <Handle type="target" position={Position.Left} />
       <Handle type="source" position={Position.Right} />
 
+      {/*
+        A fossil gets the ammonite, not a dot.
+
+        Every dot on this canvas is a position in the topology, and a graft is
+        not one — so it may not wear the same shape, and inventing a *third*
+        shape for it would leave the reader with two vocabularies to learn. The
+        glyph already means "fossils" in the age slot of every occurrence-tier
+        label, including this graft's own; using it as the mark makes the shape
+        beside the range and the shape in the range the same shape.
+
+        Stroked, per the note in `AgeGlyph`: a filled form beside a node is a
+        silhouette, which is a claim about what the taxon looked like.
+      */}
+      {d.graft ? (
+        <span className={`mark-fossil${d.flaring ? " flaring" : ""}`}>
+          <AgeGlyph kind="fossil" />
+        </span>
+      ) : (
       <span
         className={`mark-dot${d.flaring ? " flaring" : ""}`}
         style={{
@@ -398,6 +465,7 @@ export const NodeMark = memo(function NodeMark({ data }: NodeProps) {
                 : "none",
         }}
       />
+      )}
 
       {(showText || withSilhouette) && (
         <span
@@ -414,7 +482,9 @@ export const NodeMark = memo(function NodeMark({ data }: NodeProps) {
             n.phylopic_id && (
               <Silhouette
                 phylopicId={n.phylopic_id}
-                title={borrowedTitle(name, d.silhouetteClade)}
+                title={
+                  d.graft ? graftTitle(d.graft) : borrowedTitle(name, d.silhouetteClade)
+                }
               />
             )
           )}

@@ -11,7 +11,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, type PathNode, type Resolved } from "../api";
+import { api, type FossilTaxon, type PathNode, type Resolved } from "../api";
 import { addDelta, induced, type AddDelta, type Induced } from "../tree/induced";
 import type { AxisMode } from "../tree/layout";
 
@@ -35,6 +35,16 @@ export interface ViewState {
    * parameter `seg=upper-lower`.
    */
   drill: { upper: number; lower: number } | null;
+  /**
+   * Fossils drawn against the tree, as PBDB taxon numbers. `f=108454,91487`.
+   *
+   * A separate list from `keys`, and it has to be: a selection is a node and
+   * induces a subtree, while a graft is an annotation on one and induces
+   * nothing. Putting a fossil in `keys` would send `pbdb108454` to
+   * `/v1/paths`, which would correctly fail to resolve it — and if it ever
+   * stopped failing, a fossil would start contributing to an MRCA.
+   */
+  fossils: number[];
 }
 
 const DEFAULT: ViewState = {
@@ -43,12 +53,17 @@ const DEFAULT: ViewState = {
   selected: null,
   isolate: false,
   drill: null,
+  fossils: [],
 };
 
 export function decode(search: string): ViewState {
   const p = new URLSearchParams(search);
   const raw = p.get("n");
   const seg = (p.get("seg") ?? "").split("-").map(Number);
+  const fossils = (p.get("f") ?? "")
+    .split(",")
+    .map(Number)
+    .filter((n) => Number.isInteger(n) && n > 0);
   return {
     keys: raw ? raw.split(",").filter(Boolean) : [],
     axis: p.get("axis") === "linear" ? "linear" : "log",
@@ -58,6 +73,9 @@ export function decode(search: string): ViewState {
       seg.length === 2 && Number.isInteger(seg[0]) && Number.isInteger(seg[1])
         ? { upper: seg[0]!, lower: seg[1]! }
         : null,
+    // Deduplicated on the way in rather than on the way out: the same taxon
+    // twice would be two React keys for one mark and two rows for one fossil.
+    fossils: [...new Set(fossils)],
   };
 }
 
@@ -68,6 +86,7 @@ export function encode(v: ViewState): string {
   if (v.selected) p.set("sel", v.selected);
   if (v.isolate) p.set("iso", "1");
   if (v.drill) p.set("seg", `${v.drill.upper}-${v.drill.lower}`);
+  if (v.fossils.length) p.set("f", v.fossils.join(","));
   const q = p.toString();
   return q ? `?${q}` : "/";
 }
@@ -115,6 +134,10 @@ export function useTree() {
   const [unresolved, setUnresolved] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [delta, setDelta] = useState<(AddDelta & { token: number }) | null>(null);
+  // Resolved fossils, by PBDB taxon number. Like `nodes`, this only grows: the
+  // API is immutable within a build, so removing a graft from the view need
+  // not throw away the row it was drawn from.
+  const [fossils, setFossils] = useState<Map<number, FossilTaxon>>(() => new Map());
   const prevInduced = useRef<Induced | null>(null);
   const token = useRef(0);
 
@@ -207,6 +230,39 @@ export function useTree() {
     };
   }, [view.keys, paths, idxOf, ingest]);
 
+  // Resolve any fossil in the view we do not already hold. Separate from the
+  // path fetch above and deliberately so: a fossil has no path, and a failure
+  // to resolve one must cost that fossil rather than the tree it annotates.
+  useEffect(() => {
+    const missing = view.fossils.filter((n) => !fossils.has(n));
+    if (missing.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const got = await Promise.all(
+        missing.map((n) => api.fossil(n).catch(() => null)),
+      );
+      if (cancelled) return;
+      const found = new Map<number, FossilTaxon>();
+      const lost: number[] = [];
+      missing.forEach((n, i) => {
+        const f = got[i];
+        if (f) found.set(n, f);
+        else lost.push(n);
+      });
+      if (found.size) setFossils((m) => new Map([...m, ...found]));
+      // A fossil id that resolves to nothing is dropped from the view rather
+      // than retried forever. Same reasoning as a broken taxon: the id came
+      // from a hand-edited or stale URL, nothing will ever be drawn for it, and
+      // leaving it in means re-requesting it on every subsequent render.
+      if (lost.length) {
+        setView((v) => ({ ...v, fossils: v.fossils.filter((n) => !lost.includes(n)) }));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [view.fossils, fossils]);
+
   const selectionIdx = useMemo(
     () => view.keys.map((k) => idxOf.get(k)).filter((v): v is number => v !== undefined),
     [view.keys, idxOf],
@@ -253,6 +309,24 @@ export function useTree() {
     }));
   }, []);
 
+  /**
+   * Draw a fossil against the tree, or stop drawing it.
+   *
+   * Additive like `add`, and pointedly *not* a selection: `keys` is untouched,
+   * so the induced subtree and therefore every MRCA on screen is exactly what
+   * it was before. A graft cannot move a divergence, which is the whole reason
+   * the two lists are separate.
+   */
+  const addFossil = useCallback((taxonNo: number) => {
+    setView((v) =>
+      v.fossils.includes(taxonNo) ? v : { ...v, fossils: [...v.fossils, taxonNo] },
+    );
+  }, []);
+
+  const removeFossil = useCallback((taxonNo: number) => {
+    setView((v) => ({ ...v, fossils: v.fossils.filter((n) => n !== taxonNo) }));
+  }, []);
+
   const clear = useCallback(() => setView({ ...DEFAULT }), []);
   const setAxis = useCallback((axis: AxisMode) => setView((v) => ({ ...v, axis })), []);
   const select = useCallback(
@@ -280,6 +354,8 @@ export function useTree() {
   return {
     view,
     nodes,
+    /** Resolved fossil rows, by PBDB taxon number. `view.fossils` is the order. */
+    fossils,
     induced: ind,
     selectionIdx,
     idxOf,
@@ -295,6 +371,8 @@ export function useTree() {
     select,
     toggleIsolate,
     setDrill,
+    addFossil,
+    removeFossil,
     dismissBroken,
     dismissUnresolved,
     consumeDelta,
