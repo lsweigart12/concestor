@@ -1515,7 +1515,13 @@ body {
 .toasts {
   position: fixed;
   left: 50%;
-  bottom: var(--s6);
+  /* Above the axis, not across it. A toast is a report about a view; the strip
+     along the bottom is what tells the reader how to read that view, and one
+     covering the other loses the more useful of the two. `--axis-h` is the same
+     number the drill lane stacks on, so the three keep one column — but the
+     axis grows upward when its footer wraps, so the gap has to be at least the
+     slack `AXIS_RESERVE` in Graph.tsx allows for that. 84 + 24 clears its 104. */
+  bottom: calc(var(--axis-h) + var(--s5));
   transform: translateX(-50%);
   z-index: 45;
   display: flex;
