@@ -43,17 +43,27 @@ export interface LabelInput {
   terminal: boolean;
   /** The taxon name. Wraps when it must. */
   name: string;
-  /** Short trailing figure kept on the name's line — "≤ 96 Ma". */
+  /** What the mark says about time — "≤ 96 Ma", "56–41 Ma". Its own row. */
   trailing: string;
   /**
    * Whether a glyph precedes that figure — the ammonite before a fossil range,
-   * the clock that stands alone for the present. Measured rather than drawn
-   * here, so it is a width and not a string.
+   * which is the only one left. Measured rather than drawn here, so it is a
+   * width and not a string.
    */
   trailingGlyph: boolean;
-  /** Secondary row: rank, and what an inherited silhouette actually depicts. */
+  /** The rank. Its own row, above the name. */
   meta: string;
   hasSilhouette: boolean;
+  /**
+   * Drawn at `--w-med` rather than `--w-reg`, which is 4.0% wider.
+   *
+   * A property of the *type*, not of the topology, which is why it is not
+   * spelled `isMRCA` even though the MRCA is currently the only mark that
+   * carries it. Whatever `.mark.is-mrca .mark-label` grows to cover, the rule
+   * to keep is that a label measured in one weight and drawn in another is a
+   * label placed against the wrong box.
+   */
+  medium: boolean;
   /** Placed in descending order, so the most important labels get first pick. */
   priority: number;
 }
@@ -78,16 +88,53 @@ export interface TraceRun {
   by: number;
 }
 
-// Must match `.mark-name` / `.mark-meta` in styles.css. A label measured at
-// one size and rendered at another is a label placed against the wrong box.
-const NAME_FONT = "12.5px ui-sans-serif, -apple-system, sans-serif";
-const META_FONT = "9.5px ui-monospace, monospace";
+/**
+ * The two stacks, spelled exactly as `--sans` and `--mono` in styles.css.
+ *
+ * Exported because four other measurements were each carrying their own
+ * abbreviation of them, and an abbreviation is not a shorthand here: canvas
+ * resolves `ui-sans-serif, -apple-system, sans-serif` to a different face than
+ * the full list, **6.1% narrower** at 12.5px. Every label was measured against
+ * that face and drawn in the real one, and `SLACK` was quietly absorbing the
+ * whole error — which is why a second mismatch on top of it had nowhere to go.
+ */
+export const SANS =
+  'ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
+export const MONO =
+  'ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace';
+
+/**
+ * Must match `.mark-name`, `.mark-age` and `.mark-meta` in styles.css. A label
+ * measured at one size and rendered at another is a label placed against the
+ * wrong box — and there were two of those.
+ *
+ * `.mark-age` renders at **11px**, not the 9.5px of `.mark-meta`; measured as
+ * meta, "≤ 6.7 Ma" came out 15.8% short and the divergence's own name was
+ * wrapped to make room for a figure that then did not fit either. And
+ * `.mark.is-mrca .mark-label` sets `font-weight: var(--w-med)`, 560, which
+ * `.mark-name` inherits: measured at 400, "Primates" was 9.1% short of the box
+ * it was given and broke across two lines as "Primate" / "s". The MRCA is the
+ * one label in this app guaranteed to be on screen.
+ */
+const NAME_FONT = `12.5px ${SANS}`;
+const NAME_FONT_MED = `560 12.5px ${SANS}`;
+const AGE_FONT = `11px ${MONO}`;
+const AGE_FONT_MED = `560 11px ${MONO}`;
+const META_FONT = `9.5px ${MONO}`;
+const META_FONT_MED = `560 9.5px ${MONO}`;
 
 const SIL = 34; // silhouette box
 const SIL_GAP = 9;
 const DOT_GAP = 13; // node centre → nearest label edge
 const NAME_LINE = 16;
-const META_LINE = 13;
+/**
+ * The rank row and the age row, which are 9.5px and 11px type respectively.
+ *
+ * One constant for both, tall enough for the larger, because the difference is
+ * a pixel and a half and two constants would have to be kept in step with two
+ * CSS rules for it.
+ */
+const META_LINE = 15;
 const TRACE_HALF = 5; // traces are 1.6px cores with a 7px halo; keep clear of both
 const DOT_HALF = 8;
 const MIN_TEXT_W = 88;
@@ -97,19 +144,49 @@ const WRAP_LEVELS = 3;
 // whatever sits to its right.
 const GLYPH_W = 16;
 
-// CSS `letter-spacing`, in em, for the two rows. See `textWidth`.
+// CSS `letter-spacing`, in em, for the three runs. See `textWidth`. The age's
+// is negative and comes from `.num` rather than `.mark-age` — tabular figures
+// are set slightly tight — so leaving it out would only ever over-reserve, but
+// it costs nothing to be right about.
 const NAME_TRACKING = 0.005;
+const AGE_TRACKING = -0.01;
 const META_TRACKING = 0.06;
 /**
  * Bias every measurement slightly wide.
  *
- * The model and the browser will never agree exactly — font fallback, subpixel
- * advances, the margin on the age. The errors are not symmetric in cost: an
- * over-estimate reserves a few pixels too many and nothing looks wrong, while
- * an under-estimate flips a row count and puts text through a line. So round
- * against ourselves.
+ * The model and the browser will never agree exactly — subpixel advances, the
+ * margin on the age, whether a webfont has finished loading. The errors are not
+ * symmetric in cost: an over-estimate reserves a few pixels too many and nothing
+ * looks wrong, while an under-estimate flips a row count and puts text through a
+ * line. So round against ourselves.
+ *
+ * It is genuine slack now and not a correction. It used to be spending its whole
+ * 6% on the truncated font stack above, which left nothing for the real
+ * disagreements and made the two size and weight mismatches visible rather than
+ * merely present.
  */
 const SLACK = 1.06;
+
+/**
+ * Everything above that is a claim about styles.css, gathered so a test can
+ * hold it to one.
+ *
+ * "Must match `.mark-name` / `.mark-meta`" was a comment for as long as this
+ * file has existed, and three of the numbers under it drifted anyway. A comment
+ * cannot fail; `labels.test.ts` reads the stylesheet and compares.
+ */
+export const TYPE = {
+  NAME_FONT,
+  NAME_FONT_MED,
+  AGE_FONT,
+  META_FONT,
+  NAME_TRACKING,
+  AGE_TRACKING,
+  META_TRACKING,
+  NAME_LINE,
+  META_LINE,
+  GLYPH_W,
+} as const;
 
 // ---------------------------------------------------------------- measuring --
 
@@ -156,22 +233,42 @@ interface Metrics {
   textMaxWidth: number;
 }
 
+/**
+ * Three rows: what kind of thing this is, which thing it is, and when.
+ *
+ * The age used to ride on the name's line, and on a left-hand label that line is
+ * right-aligned — so the figure took the space nearest the mark and the *name*
+ * was pushed away from the thing it names. `Boreoeutheria ≤ 96 Ma` reserved 139
+ * units where the name needs 85, and every one of those units is distance
+ * between a label and its own point.
+ *
+ * On rows of their own the label is as wide as its widest row rather than the
+ * sum of them, which is the whole gain, and the three read in the order a
+ * stranger needs: the rank says what kind of thing is being named before the
+ * name arrives, and the age is the fact you go looking for once you know.
+ */
 function metricsFor(n: LabelInput, wrap: number, cap: number): Metrics {
-  const nameW = textWidth(n.name, NAME_FONT, NAME_TRACKING) * SLACK;
-  const trailFigureW = n.trailing ? textWidth(n.trailing, META_FONT) * SLACK : 0;
-  const trailW =
+  const nameFont = n.medium ? NAME_FONT_MED : NAME_FONT;
+  const ageFont = n.medium ? AGE_FONT_MED : AGE_FONT;
+  const metaFont = n.medium ? META_FONT_MED : META_FONT;
+
+  const nameW = textWidth(n.name, nameFont, NAME_TRACKING) * SLACK;
+  const ageW =
     n.trailing || n.trailingGlyph
-      ? trailFigureW + (n.trailingGlyph ? GLYPH_W : 0) + 8
+      ? textWidth(n.trailing, ageFont, AGE_TRACKING) * SLACK +
+        (n.trailingGlyph ? GLYPH_W : 0)
       : 0;
-  const metaW = textWidth(n.meta, META_FONT, META_TRACKING) * SLACK;
-  const naturalText = Math.max(nameW + trailW, metaW);
+  const rankW = n.meta ? textWidth(n.meta, metaFont, META_TRACKING) * SLACK : 0;
+  const naturalText = Math.max(nameW, ageW, rankW);
 
   const textMaxWidth = Math.max(
     MIN_TEXT_W,
     Math.min(cap, naturalText / (wrap + 1)),
   );
-  const nameRows = Math.max(1, Math.ceil((nameW + trailW) / textMaxWidth));
-  const metaRows = n.meta ? Math.max(1, Math.ceil(metaW / textMaxWidth)) : 0;
+  const rows = (w: number) =>
+    w ? Math.max(1, Math.ceil(w / textMaxWidth)) : 0;
+  const nameRows = Math.max(1, Math.ceil(nameW / textMaxWidth));
+  const metaRows = rows(ageW) + rows(rankW);
 
   const textW = Math.min(naturalText, textMaxWidth);
   const textH = nameRows * NAME_LINE + metaRows * META_LINE;

@@ -27,8 +27,19 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { api, type FossilTaxon, type PathNode, type SegmentResponse } from "../api";
-import { Bracket, bracketGeom, bracketKey, bracketTitle, spanLabel } from "./Bracket";
+import {
+  api,
+  type FossilTaxon,
+  type PathNode,
+  type SegmentResponse,
+} from "../api";
+import {
+  Bracket,
+  bracketGeom,
+  bracketKey,
+  bracketTitle,
+  spanLabel,
+} from "./Bracket";
 import {
   capNote,
   laneHeight,
@@ -40,7 +51,7 @@ import {
   type LaneRows,
 } from "./lane";
 import { isScientificItalic } from "./NodeMark";
-import { textWidth } from "../tree/labels";
+import { MONO, SANS, textWidth } from "../tree/labels";
 import { SilhouetteSvg } from "./Silhouette";
 
 export interface Drill {
@@ -135,8 +146,8 @@ const TEXT_GAP = 7;
 /** Room a name and its two trailing figures need to the right of a bar. */
 const TEXT_ROOM = 210;
 
-const NAME_FONT = "11px ui-sans-serif, system-ui, sans-serif";
-const FIG_FONT = "9.5px ui-monospace, monospace";
+const NAME_FONT = `11px ${SANS}`;
+const FIG_FONT = `9.5px ${MONO}`;
 /** The two `dx="8"` gaps between the three runs of a row's label. */
 const RUN_GAP = 8;
 
@@ -146,7 +157,10 @@ const RUN_GAP = 8;
  * Same measurer the label placement pass uses, so the lane and the canvas
  * agree about type metrics rather than each guessing.
  */
-function rowTextWidth(f: FossilTaxon, geom: { oldest: number; youngest: number }): number {
+function rowTextWidth(
+  f: FossilTaxon,
+  geom: { oldest: number; youngest: number },
+): number {
   return (
     textWidth(f.name, NAME_FONT) +
     RUN_GAP +
@@ -178,7 +192,10 @@ export function DrillLane({
   ]);
   const cap = capNote(rows);
   const unplaced = unplacedNote(rows.unplaced);
-  const ranked = useMemo(() => rankIntermediates(intermediates), [intermediates]);
+  const ranked = useMemo(
+    () => rankIntermediates(intermediates),
+    [intermediates],
+  );
   const labels = spineLabels(ranked, toScreenX, { width });
 
   // A minimum rather than a height: the footer wraps at narrow widths, and a
@@ -190,9 +207,13 @@ export function DrillLane({
       <div className="drill-head">
         <span className="drill-title">
           Fossil occurrences along{" "}
-          <span className={upper.italic ? "sci-italic" : undefined}>{upper.name}</span>
+          <span className={upper.italic ? "sci-italic" : undefined}>
+            {upper.name}
+          </span>
           {" → "}
-          <span className={lower.italic ? "sci-italic" : undefined}>{lower.name}</span>
+          <span className={lower.italic ? "sci-italic" : undefined}>
+            {lower.name}
+          </span>
         </span>
         {cap && <span className="drill-cap num">{cap}</span>}
         <button type="button" className="drill-close" onClick={onClose}>
@@ -226,7 +247,9 @@ export function DrillLane({
           // between a bar and the label naming it. Measured rather than
           // reserved: a fixed offset leaves a hole after a short name and
           // collides with a long one, and both were visible.
-          const textX = toTheRight ? right + TEXT_GAP : geom.envelope.x - TEXT_GAP;
+          const textX = toTheRight
+            ? right + TEXT_GAP
+            : geom.envelope.x - TEXT_GAP;
           const runW = rowTextWidth(f, geom);
           const silX = toTheRight ? textX + runW + 6 : textX - runW - 6 - ICON;
           return (
@@ -274,7 +297,11 @@ export function DrillLane({
                 y={y + ROW_H / 2 + 1}
                 textAnchor={toTheRight ? "start" : "end"}
               >
-                <tspan className={isScientificItalic(f.rank) ? "sci-italic" : undefined}>
+                <tspan
+                  className={
+                    isScientificItalic(f.rank) ? "sci-italic" : undefined
+                  }
+                >
                   {f.name}
                 </tspan>
                 <tspan className="drill-row-span" dx="8">
@@ -307,15 +334,44 @@ export function DrillLane({
         <span className="drill-key">
           {key.map((r) => (
             <span className="drill-key-row" key={r.id}>
-              <svg className="drill-key-swatch" width="24" height="9" aria-hidden="true">
+              <svg
+                className="drill-key-swatch"
+                width="24"
+                height="9"
+                aria-hidden="true"
+              >
                 <g className="bracket">
                   {r.id !== "absent" && (
-                    <rect className="bracket-envelope" x={1} y={0} width={22} height={9} />
+                    <rect
+                      className="bracket-envelope"
+                      x={1}
+                      y={0}
+                      width={22}
+                      height={9}
+                    />
                   )}
-                  <rect className="bracket-cap" x={1} y={0} width={1} height={9} />
-                  <rect className="bracket-cap" x={22} y={0} width={1} height={9} />
+                  <rect
+                    className="bracket-cap"
+                    x={1}
+                    y={0}
+                    width={1}
+                    height={9}
+                  />
+                  <rect
+                    className="bracket-cap"
+                    x={22}
+                    y={0}
+                    width={1}
+                    height={9}
+                  />
                   {r.id === "certain" && (
-                    <rect className="bracket-certain" x={7} y={2} width={10} height={5} />
+                    <rect
+                      className="bracket-certain"
+                      x={7}
+                      y={2}
+                      width={10}
+                      height={5}
+                    />
                   )}
                 </g>
               </svg>
@@ -324,7 +380,9 @@ export function DrillLane({
           ))}
         </span>
         {unplaced && <span className="drill-unplaced">{unplaced}</span>}
-        <span className="drill-caption">observed in rock · not divergence ages</span>
+        <span className="drill-caption">
+          observed in rock · not divergence ages
+        </span>
       </div>
     </div>
   );
@@ -366,7 +424,13 @@ function Spine({
         </rect>
       ))}
       {labels.map((l) => (
-        <text key={l.idx} className="drill-spine-name" x={l.x} y={27} textAnchor="middle">
+        <text
+          key={l.idx}
+          className="drill-spine-name"
+          x={l.x}
+          y={27}
+          textAnchor="middle"
+        >
           {l.text}
         </text>
       ))}

@@ -27,14 +27,16 @@
  *   whole use is saying *when*. Lucide's `shell` (ISC) is the same idea and was
  *   the starting point; its five whorls turn to mud below about 20px, so this
  *   is the same construction opened out to two.
- * - **present**: a clock. In a slot that answers *when*, the reader needs "now"
- *   rather than "time" — but every kingdom-neutral alternative for "alive
- *   today" is worse: a sprout or a leaf beside a dog is wrong, and a heartbeat
- *   beside a fungus is wrong. A clock is never wrong, and the tooltip carries
- *   the rest.
+ * There was a second kind, a clock, standing for "present" where the age slot
+ * had no number to give. It has gone, and not because the drawing was wrong:
+ * the *slot* was. "Present" is a position and every one of its neighbours is a
+ * quantity, so the one entry that was a fact about the lineage rather than a
+ * figure now decorates the mark instead — see `reachesPresent` and `.mark-alive`
+ * in `NodeMark`. Which leaves this type with one member, correctly: the only
+ * word the age slot still has to say is *fossils*.
  */
 
-export type AgeGlyphKind = "fossil" | "present";
+export type AgeGlyphKind = "fossil";
 
 /**
  * Drawn on a 16 unit grid rather than Lucide's 24, so the stroke stays a round
@@ -55,17 +57,10 @@ const PATHS: Record<AgeGlyphKind, React.ReactNode> = {
       fill="none"
     />
   ),
-  present: (
-    <>
-      <circle cx="8" cy="8" r="6.1" fill="none" />
-      <path d="M8 4.4V8l2.6 1.3" fill="none" />
-    </>
-  ),
 };
 
 const LABELS: Record<AgeGlyphKind, string> = {
   fossil: "fossils",
-  present: "present",
 };
 
 export function AgeGlyph({ kind }: { kind: AgeGlyphKind }) {

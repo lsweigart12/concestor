@@ -10,11 +10,18 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  TIER_INTERPOLATED,
   TIER_MEASURED,
   TIER_OCCURRENCE,
   TIER_STRUCTURAL,
 } from "../api";
-import { ageLabel, borrowedTitle, markAge, occurrenceSpan } from "./NodeMark";
+import {
+  ageLabel,
+  borrowedTitle,
+  isExtant,
+  markAge,
+  occurrenceSpan,
+} from "./NodeMark";
 
 describe("borrowedTitle", () => {
   it("says nothing extra about a node's own portrait", () => {
@@ -24,7 +31,9 @@ describe("borrowedTitle", () => {
   it("names the group and its size when the drawing is of a relative", () => {
     // The riffle beetle: 987 tips, where the old rule offered Ecdysozoa's
     // 1,208,417 and called it a silhouette of the beetle.
-    expect(borrowedTitle("Cleptelmis ornata", { name: "Elminae", tips: 987 })).toBe(
+    expect(
+      borrowedTitle("Cleptelmis ornata", { name: "Elminae", tips: 987 }),
+    ).toBe(
       "Not Cleptelmis ornata itself — a drawing from within Elminae, " +
         "the smallest group holding both (987 species)",
     );
@@ -105,7 +114,12 @@ describe("the occurrence tier never becomes an age", () => {
     // Better silent than a label promising a span it cannot state.
     expect(occurrenceSpan(TIER_OCCURRENCE, null)).toBeNull();
     expect(
-      occurrenceSpan(TIER_OCCURRENCE, { fea: null, fla: null, lea: null, lla: null }),
+      occurrenceSpan(TIER_OCCURRENCE, {
+        fea: null,
+        fla: null,
+        lea: null,
+        lla: null,
+      }),
     ).toBeNull();
     expect(markAge(66, TIER_OCCURRENCE, null)).toBeNull();
   });
@@ -127,12 +141,29 @@ describe("the occurrence tier never becomes an age", () => {
 });
 
 describe("the age slot's marks", () => {
-  it("stands the clock in for the word, and gives no figure with it", () => {
-    // "present" is a position, not a quantity. A figure beside the clock would
-    // be one — and "0 Ma" is a precision nobody has claimed.
-    const a = markAge(0.01, TIER_MEASURED, null);
-    expect(a).toEqual({ glyph: "present", text: "", title: expect.any(String) });
-    expect(a?.title).not.toBe("");
+  it("says nothing at all where the answer is not a quantity", () => {
+    // "present" is a position, not a quantity — the rule this file has always
+    // stated — and every neighbour in this slot is a figure. So the slot no
+    // longer answers it: the clock that used to stand here took the width of a
+    // figure to say something that was never one. Whether the taxon is alive is
+    // a fact about the taxon, and it marks the taxon now. See `isExtant`.
+    expect(markAge(0.01, TIER_MEASURED, null)).toBeNull();
+  });
+
+  it("reads extinction off the tier, which is the only place it is recorded", () => {
+    // `occurrence` is applied only where nothing below the node is alive — that
+    // is what makes it a range in the rock rather than a divergence age.
+    expect(isExtant(TIER_OCCURRENCE)).toBe(false);
+    expect(isExtant(TIER_MEASURED)).toBe(true);
+  });
+
+  it("does not confuse being alive with being drawn at the present", () => {
+    // The first attempt asked whether `age_ma` was ~0, and *Cetacea* and *Homo*
+    // are as alive as *Homo sapiens* is. A clade sits at its crown age — when it
+    // began — so a rule keyed on position marks only the tips, and marking "this
+    // is at x ≈ 0" says what the axis already says.
+    expect(isExtant(TIER_STRUCTURAL)).toBe(true);
+    expect(isExtant(TIER_INTERPOLATED)).toBe(true);
   });
 
   it("leaves an ordinary age unmarked", () => {

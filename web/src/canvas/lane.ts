@@ -21,7 +21,7 @@
  */
 
 import type { FossilTaxon, PathNode } from "../api";
-import { textWidth } from "../tree/labels";
+import { SANS, textWidth } from "../tree/labels";
 
 /** Must match the `.drill-*` rules in styles.css. */
 export const HEAD_H = 22;
@@ -101,7 +101,9 @@ export function laneRows(
  * Null rather than "showing 3 of 3": a cap notice on a complete lane trains a
  * reader to ignore the one place it matters.
  */
-export function capNote(rows: Pick<LaneRows, "shown" | "total">): string | null {
+export function capNote(
+  rows: Pick<LaneRows, "shown" | "total">,
+): string | null {
   if (rows.shown >= rows.total) return null;
   // "most-recorded first" was true while the server ordered on n_occs alone,
   // and that ordering put five living wastebasket clades at the top of every
@@ -116,7 +118,8 @@ export function unplacedNote(unplaced: readonly FossilTaxon[]): string | null {
   if (unplaced.length === 0) return null;
   const names = unplaced.slice(0, UNPLACED_NAMES).map((f) => f.name);
   const rest = unplaced.length - names.length;
-  const list = rest > 0 ? `${names.join(", ")} and ${rest} more` : names.join(", ");
+  const list =
+    rest > 0 ? `${names.join(", ")} and ${rest} more` : names.join(", ");
   return `no appearance interval recorded, so not placed in time: ${list}`;
 }
 
@@ -170,7 +173,7 @@ export interface SpineLabel {
   half: number;
 }
 
-const SPINE_FONT = "10.5px ui-sans-serif, -apple-system, sans-serif";
+const SPINE_FONT = `10.5px ${SANS}`;
 const SPINE_GAP = 10;
 
 /**
@@ -196,7 +199,8 @@ export function spineLabels(
     const half = textWidth(n.name, SPINE_FONT) / 2;
     const x = toX(n.age_layout);
     if (opts.width > 0 && (x - half < 0 || x + half > opts.width)) continue;
-    if (out.some((o) => Math.abs(o.x - x) < o.half + half + SPINE_GAP)) continue;
+    if (out.some((o) => Math.abs(o.x - x) < o.half + half + SPINE_GAP))
+      continue;
     out.push({ idx: n.idx, text: n.name, x, half });
   }
   return out;

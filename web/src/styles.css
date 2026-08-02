@@ -278,8 +278,33 @@ body {
     transform 180ms var(--spring);
 }
 
+/*
+ * A node that reaches the present: the dot, drawn as an arrow into it.
+ *
+ * Same 10px footprint as `.mark-dot`, in a 12-unit box offset by one so the two
+ * share a centre — the centre is where every edge attaches, so a mark that
+ * drifted off it would move the lineage rather than annotate it. The footprint
+ * is also the whole reason for the shape: the margin to the right of a terminal
+ * mark is where its label goes, so an arrow drawn *beside* the dot would be
+ * arguing with the name for the same pixels, and on an internal node it would
+ * be laid along the branch leaving the node and vanish into it.
+ */
+.mark-alive {
+  position: absolute;
+  left: -1px;
+  top: -1px;
+  width: 12px;
+  height: 12px;
+  overflow: visible;
+  transition:
+    filter 180ms var(--spring),
+    transform 180ms var(--spring);
+}
+
 .mark:hover .mark-dot,
-.mark.is-focus .mark-dot {
+.mark.is-focus .mark-dot,
+.mark:hover .mark-alive,
+.mark.is-focus .mark-alive {
   transform: scale(1.45);
 }
 
@@ -401,8 +426,16 @@ body {
   letter-spacing: 0.005em;
 }
 
-/* Rank and silhouette provenance, on their own row so they cannot widen the
-   label past its neighbour. */
+/*
+ * The rank above the name, the age below it — three rows, each its own.
+ *
+ * Every one of them pins its own `font-size` and `line-height`, and that is
+ * load-bearing rather than tidy. A row is at least as tall as its *strut* — its
+ * own font-size times its line-height — whatever is inside it, so a row left to
+ * inherit is a row whose height nothing in `labels.ts` can predict. One did:
+ * it took `.mark.is-leaf .mark-label`'s 13.5px and stood 17.9px tall against a
+ * reserved 15. Reserved here as `NAME_LINE` and `META_LINE`.
+ */
 .mark-meta {
   font-family: var(--mono);
   font-size: 9.5px;
@@ -413,8 +446,8 @@ body {
 
 .mark-age {
   font-size: 11px;
+  line-height: 1.28;
   color: var(--ink-4);
-  margin-left: 7px;
   white-space: nowrap;
 }
 
@@ -557,7 +590,8 @@ body {
   }
 }
 
-.mark-dot.flaring {
+.mark-dot.flaring,
+.mark-alive.flaring {
   animation: flare 620ms var(--spring) both;
 }
 

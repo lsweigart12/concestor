@@ -1,15 +1,21 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   labelBounds,
+  MONO,
   placeLabels,
+  SANS,
   traceRects,
+  TYPE,
   type LabelInput,
   type TraceRun,
 } from "./labels";
 
 const OPTS = { rowH: 74, maxTextWidth: 240 };
 
-function node(over: Partial<LabelInput> & { idx: number; x: number; y: number }): LabelInput {
+function node(
+  over: Partial<LabelInput> & { idx: number; x: number; y: number },
+): LabelInput {
   return {
     terminal: false,
     name: "Clade",
@@ -17,6 +23,7 @@ function node(over: Partial<LabelInput> & { idx: number; x: number; y: number })
     trailingGlyph: false,
     meta: "",
     hasSilhouette: false,
+    medium: false,
     priority: 0,
     ...over,
   };
@@ -52,6 +59,98 @@ function anyOverlap(rs: ReturnType<typeof rects>): [number, number] | null {
   return null;
 }
 
+/**
+ * The stylesheet, read rather than remembered.
+ *
+ * Every constant this checks was already documented as having to match the CSS,
+ * and three of them had drifted from it: the font stack was an abbreviation
+ * canvas resolves to a narrower face, `.mark-age` renders at 11px and was
+ * measured at 9.5, and an MRCA's label is 560 weight and was measured at 400.
+ * All three under-measure, so every one of them ended as text through a line or
+ * a one-word name broken in half.
+ */
+const CSS = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+
+function block(selector: string): string {
+  const at = CSS.indexOf(`\n${selector} {`);
+  if (at < 0) throw new Error(`styles.css has no rule for ${selector}`);
+  return CSS.slice(at, CSS.indexOf("}", at));
+}
+
+function decl(selector: string, prop: string): string {
+  const m = new RegExp(`(?:^|[;{\\s])${prop}:\\s*([^;]+);`).exec(
+    block(selector),
+  );
+  if (!m) throw new Error(`${selector} declares no ${prop}`);
+  return m[1]!.replace(/\s+/g, " ").trim();
+}
+
+describe("the measurer is measuring the type that is actually drawn", () => {
+  it("carries the stylesheet's own font stacks, not an abbreviation of them", () => {
+    // `ui-sans-serif, -apple-system, sans-serif` is not shorthand for the full
+    // list: canvas resolves it to a face 6.1% narrower at 12.5px, and SLACK was
+    // spending its entire 6% covering that up.
+    expect(SANS).toBe(decl(":root", "--sans"));
+    expect(MONO).toBe(decl(":root", "--mono"));
+  });
+
+  it("measures each row at the size that row is rendered at", () => {
+    expect(TYPE.NAME_FONT).toBe(`${decl(".mark-name", "font-size")} ${SANS}`);
+    expect(TYPE.AGE_FONT).toBe(`${decl(".mark-age", "font-size")} ${MONO}`);
+    expect(TYPE.META_FONT).toBe(`${decl(".mark-meta", "font-size")} ${MONO}`);
+  });
+
+  it("measures the MRCA at the weight the MRCA is drawn in", () => {
+    const med = decl(":root", "--w-med");
+    expect(decl(".mark.is-mrca .mark-label", "font-weight")).toBe(
+      "var(--w-med)",
+    );
+    expect(TYPE.NAME_FONT_MED).toBe(`${med} ${TYPE.NAME_FONT}`);
+  });
+
+  it("reserves the letter-spacing the browser adds and the model cannot see", () => {
+    // `measureText` knows nothing about CSS tracking. `.mark-meta` carries
+    // 0.06em — eleven pixels across a twenty-character rank. The age's is
+    // negative and arrives from `.num`, not from `.mark-age`.
+    expect(`${TYPE.NAME_TRACKING}em`).toBe(
+      decl(".mark-name", "letter-spacing"),
+    );
+    expect(`${TYPE.AGE_TRACKING}em`).toBe(
+      decl(".num,\n.mono", "letter-spacing"),
+    );
+    expect(`${TYPE.META_TRACKING}em`).toBe(
+      decl(".mark-meta", "letter-spacing"),
+    );
+  });
+
+  it("takes the age's family from the class that actually sets it", () => {
+    // `.mark-age` declares a size and no family; `.num` beside it is where the
+    // mono comes from. Measuring the figure in the name's sans would be a
+    // different width entirely.
+    expect(decl(".num,\n.mono", "font-family")).toBe("var(--mono)");
+  });
+
+  it("reserves the age glyph as the word it stands in for", () => {
+    const w = Number.parseFloat(decl(".age-glyph", "width"));
+    const gap = Number.parseFloat(decl(".age-glyph", "margin-right"));
+    expect(TYPE.GLYPH_W).toBe(w + gap);
+  });
+
+  it("gives every row at least the height its own line-height asks for", () => {
+    // A row is at least as tall as its strut — its font-size times its
+    // line-height — whatever is inside it, so a row that does not pin both is a
+    // row whose height nothing here can predict. One did not: it inherited
+    // `.mark.is-leaf .mark-label`'s 13.5px and stood 17.9px against a
+    // reserved 15.
+    const line = (sel: string) =>
+      Number.parseFloat(decl(sel, "font-size")) *
+      Number.parseFloat(decl(sel, "line-height"));
+    expect(TYPE.NAME_LINE).toBeGreaterThanOrEqual(line(".mark-name"));
+    expect(TYPE.META_LINE).toBeGreaterThanOrEqual(line(".mark-age"));
+    expect(TYPE.META_LINE).toBeGreaterThanOrEqual(line(".mark-meta"));
+  });
+});
+
 describe("label placement", () => {
   it("separates labels on nodes that share a lane", () => {
     // Two nodes 60px apart on the same row. Both default to the same side, so
@@ -68,7 +167,13 @@ describe("label placement", () => {
   it("keeps a clade label off the trace running out of it", () => {
     // Carnivora → Canis in the same lane: the edge is a horizontal run at the
     // child's y, straight through where a right-hand label would sit.
-    const parent = node({ idx: 1, x: 100, y: 0, name: "Carnivora", meta: "ORDER" });
+    const parent = node({
+      idx: 1,
+      x: 100,
+      y: 0,
+      name: "Carnivora",
+      meta: "ORDER",
+    });
     const child = node({
       idx: 2,
       x: 600,
@@ -126,7 +231,9 @@ describe("label placement", () => {
     const placedRects = rects(inputs, boxes);
     for (const r of placedRects) {
       const others = placedRects.filter((o) => o.idx !== r.idx);
-      const clash = anyOverlap([r, ...others].filter((o) => o.idx === r.idx || true));
+      const clash = anyOverlap(
+        [r, ...others].filter((o) => o.idx === r.idx || true),
+      );
       if (clash) {
         // If anything overlaps, at least one participant must admit it.
         const [a, b] = clash;
@@ -191,7 +298,14 @@ describe("label placement", () => {
   it("reports bounds that contain every label", () => {
     const inputs = [
       node({ idx: 1, x: 0, y: 0, name: "Eukaryota", trailing: "1781 Ma" }),
-      node({ idx: 2, x: 400, y: 74, terminal: true, name: "Homo sapiens", priority: 1e9 }),
+      node({
+        idx: 2,
+        x: 400,
+        y: 74,
+        terminal: true,
+        name: "Homo sapiens",
+        priority: 1e9,
+      }),
     ];
     const boxes = placeLabels(inputs, [], OPTS);
     const bounds = labelBounds(inputs, boxes)!;
@@ -206,7 +320,9 @@ describe("label placement", () => {
 
 describe("trace occupancy", () => {
   it("covers both runs of an orthogonal edge", () => {
-    const [vertical, horizontal] = traceRects([{ ax: 10, ay: 0, bx: 200, by: 50 }]);
+    const [vertical, horizontal] = traceRects([
+      { ax: 10, ay: 0, bx: 200, by: 50 },
+    ]);
     expect(vertical!.x).toBeLessThanOrEqual(10);
     expect(vertical!.h).toBeGreaterThanOrEqual(50);
     expect(horizontal!.w).toBeGreaterThanOrEqual(190);
