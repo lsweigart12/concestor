@@ -156,14 +156,60 @@ the gate, *Dimetrodon* was announced as undrawable one frame before being drawn.
   induces nothing. A fossil in `keys` would be sent to `/v1/paths`.
 - The drill-down lane's action menu leads with *Draw … on the tree*.
 
-## 7. What this does not do
+## 7. Searchable, and selectable
 
-It does not make fossils searchable. Typing `Homo georgicus` still finds
-nothing, because `search_name` has five corpora and none of them is the fossil
-table. That is a separate change — a sixth `kind` resolving to the attachment
-node — and it needs a pipeline run rather than a client-side rule. It is the
-obvious next step and nothing here forecloses it.
+**Fossils are in the palette**, as their own section below the species, and no
+pipeline run was needed. `SearchFossils` is a full scan of the 523,112-row
+table — there is no index on `name`, since the table is keyed on
+`(attach_idx, n_occs DESC)` for the segment query — and a prefix scan measures
+**~40ms**, comfortably inside the palette's 110ms debounce. An in-memory prefix
+index would cost ~15MB and a slower boot to save something nobody can perceive.
 
-It also does not fix the *H. floresiensis* synonym, which is upstream in OTT and
-would need the search layer to report `matched_on` — the server already sends
-it, `api.ts` already types it, and nothing renders it.
+Ordering is match tier — exact, prefix, contains — then the same `notability`
+a drill-down lane uses. Without the tier, "homo" returns whatever the
+most-recorded substring match happens to be.
+
+The section is **pinned last** whatever it scores, because the two corpora
+answer different questions: a species is a node you can build a tree from, a
+fossil is an observation that hangs off one. Typing "dimetrodon" should not
+bury the species list under eight PBDB rows.
+
+Picking one draws it, **and adds the clade it hangs below when that clade is
+not on the canvas** — otherwise the one thing the reader asked for produces no
+visible change and a notice explaining why. The added clade is named in the
+toast rather than slipped in silently.
+
+Undated taxa are a **note, not a row** — the `BrokenNote` pattern, for the same
+reason: 21.4% of PBDB has no interval, nothing Enter could do would work, and
+"nothing matched" is a worse answer than the true one. *Homo naledi* is exactly
+this case.
+
+### A graft is selectable like a node
+
+Same click, same `sel=` in the URL, same card slot. The key namespaces keep the
+two apart without a second parameter — `pbdb108454` cannot collide with an OTT
+id or a node key — and `focusedIdx` becomes the negative graft index so the mark
+highlights and the lineage dims exactly as a node's would. A focused graft's
+"lineage" is its anchor's, since it has none of its own.
+
+The card is **not** the node card with fields blanked. A node card leads with an
+age, a species count and a depth; a fossil has none of those. It carries the
+range, the occurrence count, the attachment point, and the two uncertainties —
+where it hangs and when it lived — stated separately.
+
+**It also closes a licensing gap.** A graft puts a PhyloPic image on the canvas
+and CC-BY applies to whatever is on screen; until this card existed there was
+nowhere for the credit to go. The credit was silently blank at first, because
+the server sends `creator`/`uploader` and every card in the app reads
+`attribution`/`contributor` — a rename `normalise()` was doing for `/v1/node/`
+only. That is now one helper covering all three call sites, which is what the
+existing comment there had already warned about.
+
+## 8. What this still does not do
+
+It does not fix the *H. floresiensis* synonym, which is upstream in OTT: the
+taxonomy maps it onto *Homo sapiens*, so the **species** section still answers
+with the wrong species. The fossil section now finds the right thing under the
+right name, which makes the failure survivable but not fixed. The remedy is for
+the search layer to report `matched_on` — the server already sends it, `api.ts`
+already types it, and nothing renders it.

@@ -17,7 +17,9 @@ import {
   TIER_STRUCTURAL,
   type About,
   type FossilTaxon,
+  type FossilDetail,
   type NodeDetail,
+  type PathNode,
   type SearchHit,
   type TimescaleInterval,
 } from "./api";
@@ -25,8 +27,21 @@ import { bracketGeom, bracketTitle, endedSpanLabel, gapLabel } from "./canvas/Br
 import { Graph } from "./canvas/Graph";
 import { Silhouette } from "./canvas/Silhouette";
 import { mayDrawExemplar, witnessOn } from "./canvas/witness";
-import { ageLabel, DerivedName, isScientificItalic } from "./canvas/NodeMark";
-import { buildGrafts } from "./tree/graft";
+import {
+  ageLabel,
+  DerivedName,
+  isScientificItalic,
+  placementNote,
+} from "./canvas/NodeMark";
+import {
+  buildGrafts,
+  graftIdx,
+  isGraftIdx,
+  makeGraft,
+  parseGraftKey,
+  type Graft,
+  type GraftRefusal,
+} from "./tree/graft";
 import { Palette, type Command, type Scope } from "./palette/Palette";
 import { resetUsage } from "./palette/fuzzy";
 import { useTree } from "./state/store";
@@ -45,6 +60,15 @@ interface Toast {
   warn?: boolean;
 }
 
+/**
+ * How long a graft refusal must persist before it is worth saying, in ms.
+ *
+ * Long enough to outlast a path fetch on a local API and short enough that a
+ * real refusal still feels like a response to the click that caused it.
+ */
+const REFUSAL_SETTLE_MS = 700;
+const REFUSAL_REASONS: GraftRefusal[] = ["off-tree", "no-range", "no-identity"];
+
 const isMac = navigator.platform.toLowerCase().includes("mac");
 const mod = isMac ? "⌘" : "Ctrl";
 
@@ -57,6 +81,7 @@ export default function App() {
   const [about, setAbout] = useState<About | null>(null);
   const [timescale, setTimescale] = useState<TimescaleInterval[] | null>(null);
   const [detail, setDetail] = useState<NodeDetail | null>(null);
+  const [fossilDetail, setFossilDetail] = useState<FossilDetail | null>(null);
   const [fitSignal, setFitSignal] = useState<{
     kind: "all" | "selection";
     token: number;
@@ -98,8 +123,24 @@ export default function App() {
     })();
   }, []);
 
+  /**
+   * The focused fossil, when `sel` names one.
+   *
+   * A graft is selectable exactly like a node — same click, same `sel=` in the
+   * URL, same card slot — and the key namespaces keep the two apart without a
+   * second parameter: `pbdb108454` cannot collide with an OTT id or a node key.
+   */
+  const focusedTaxonNo = useMemo(
+    () => (tree.view.selected ? parseGraftKey(tree.view.selected) : null),
+    [tree.view.selected],
+  );
+
   const focusedIdx = useMemo(() => {
     if (!tree.view.selected) return null;
+    // A focused graft's canvas index, so the mark highlights and the lineage
+    // dims around it exactly as a node's would. Negative, so nothing that
+    // walks the topology can act on it.
+    if (focusedTaxonNo !== null) return graftIdx(focusedTaxonNo);
     const k = tree.view.selected;
     const direct = tree.idxOf.get(k) ?? tree.idxOf.get(`ott${k}`);
     if (direct !== undefined) return direct;
@@ -107,10 +148,10 @@ export default function App() {
       (x) => x.key === k || String(x.ott_id) === k,
     );
     return n?.idx ?? null;
-  }, [tree.view.selected, tree.idxOf, tree.nodes]);
+  }, [tree.view.selected, focusedTaxonNo, tree.idxOf, tree.nodes]);
 
   useEffect(() => {
-    if (focusedIdx === null) {
+    if (focusedIdx === null || focusedTaxonNo !== null) {
       setDetail(null);
       return;
     }
@@ -124,7 +165,26 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [focusedIdx, tree.nodes]);
+  }, [focusedIdx, focusedTaxonNo, tree.nodes]);
+
+  // The fossil card's own payload. A separate fetch from the node card's and a
+  // separate piece of state, because the two cards show different things: this
+  // one carries the drawing's credit and the attachment point's name, and has
+  // no age, no tip count and no ancestry to show.
+  useEffect(() => {
+    if (focusedTaxonNo === null) {
+      setFossilDetail(null);
+      return;
+    }
+    let cancelled = false;
+    api
+      .fossil(focusedTaxonNo)
+      .then((d) => !cancelled && setFossilDetail(d))
+      .catch(() => !cancelled && setFossilDetail(null));
+    return () => {
+      cancelled = true;
+    };
+  }, [focusedTaxonNo]);
 
   // A broken taxon reaching the canvas means a link made before the palette
   // stopped offering them. Say what happened in the reader's language — the
@@ -394,30 +454,18 @@ export default function App() {
    * fossil with it. So the fossil stays in the URL and the notice says what to
    * do, instead of the view quietly dropping it.
    *
-   * Announced once per fossil per reason. The refusal set is recomputed on
-   * every selection change, so toasting off the set itself would repeat the
-   * message on every unrelated add.
-   *
-   * **Not while the tree is still resolving.** `off-tree` is computed against
-   * the induced subtree, and the induced subtree is empty until the paths land
-   * — so on a cold load with fossils in the URL, *every* graft is briefly
-   * off-tree and every one of them was announced a frame before being drawn.
-   * The gate is what makes the notice mean "this cannot be drawn" rather than
-   * "this is not drawn yet". A graft that later becomes drawable clears its
-   * mark, so removing its clade a second time says so a second time.
+   * Announced once per fossil per reason, and only once the view has held
+   * still. Both halves of that are load-bearing. Without the dedup the message
+   * repeats on every unrelated add; without the settle delay it fires into
+   * every ordinary flow, because `off-tree` is *transiently true* twice over —
+   * on a cold load before the paths land, and in the gap between drawing a
+   * fossil and adding the clade it needs. Both were seen: `Dimetrodon` was
+   * announced undrawable one frame before being drawn, twice, for two
+   * different reasons. A graft that becomes drawable clears its mark, so
+   * removing its clade later says so again.
    */
-  const announcedRefusals = useRef(new Set<string>());
-  useEffect(() => {
-    for (const g of grafts) {
-      for (const reason of ["off-tree", "no-range", "no-identity"]) {
-        announcedRefusals.current.delete(`${g.fossil.pbdb_taxon_no}:${reason}`);
-      }
-    }
-    if (tree.loading || tree.induced.rendered.length === 0) return;
-    for (const { fossil: f, reason } of graftSet.refused) {
-      const seen = `${f.pbdb_taxon_no ?? f.name}:${reason}`;
-      if (announcedRefusals.current.has(seen)) continue;
-      announcedRefusals.current.add(seen);
+  const announce = useCallback(
+    (f: FossilTaxon, reason: GraftRefusal) => {
       toast(
         reason === "off-tree" ? (
           <>
@@ -438,8 +486,33 @@ export default function App() {
         ),
         true,
       );
+    },
+    [toast],
+  );
+
+  const announcedRefusals = useRef(new Set<string>());
+  useEffect(() => {
+    for (const g of grafts) {
+      for (const reason of REFUSAL_REASONS) {
+        announcedRefusals.current.delete(`${g.fossil.pbdb_taxon_no}:${reason}`);
+      }
     }
-  }, [graftSet.refused, grafts, tree.loading, tree.induced.rendered.length, toast]);
+    if (tree.loading || tree.induced.rendered.length === 0) return;
+    if (graftSet.refused.length === 0) return;
+    // The cleanup is what makes the delay work: any change to the refusal set
+    // cancels the pending notice, so a refusal that is being resolved never
+    // reaches the screen. Nobody is waiting on this message, so waiting for the
+    // set to settle costs nothing.
+    const t = window.setTimeout(() => {
+      for (const { fossil: f, reason } of graftSet.refused) {
+        const seen = `${f.pbdb_taxon_no ?? f.name}:${reason}`;
+        if (announcedRefusals.current.has(seen)) continue;
+        announcedRefusals.current.add(seen);
+        announce(f, reason);
+      }
+    }, REFUSAL_SETTLE_MS);
+    return () => window.clearTimeout(t);
+  }, [graftSet.refused, grafts, tree.loading, tree.induced.rendered.length, announce]);
 
   const fossilCommands: Command[] = useMemo(() => {
     const f = pickedFossil;
@@ -642,6 +715,72 @@ export default function App() {
   }, []);
 
   const present = useMemo(() => new Set(tree.induced.leaves), [tree.induced.leaves]);
+  const presentFossils = useMemo(
+    () => new Set(tree.view.fossils),
+    [tree.view.fossils],
+  );
+
+  /**
+   * A fossil chosen from the palette.
+   *
+   * Draws it, and adds the clade it hangs below when that clade is not on the
+   * canvas — because otherwise the one thing the reader asked for produces no
+   * visible change and a notice explaining why. Searching a fossil by name is a
+   * statement that you want to see it; the branch it needs to hang from is
+   * machinery, and making the reader work that out for themselves would be
+   * offering a puzzle instead of an answer.
+   *
+   * Adding the host is a real change to the selection, so it is named in the
+   * toast rather than done silently.
+   */
+  const drawFossil = useCallback(
+    async (f: FossilTaxon) => {
+      const taxonNo = f.pbdb_taxon_no ?? 0;
+      if (taxonNo <= 0) return;
+      tree.addFossil(taxonNo);
+      setPaletteOpen(false);
+
+      const placeable =
+        tree.induced.rendered.length > 0 &&
+        makeGraft(f, tree.induced, tree.nodes) !== "off-tree";
+      if (placeable) {
+        toast(
+          <>
+            Drew <strong>{f.name}</strong>
+          </>,
+        );
+        return;
+      }
+      // The attach node is by definition *not* on the canvas here, so it is not
+      // in `tree.nodes` either and there is no key to add. `/v1/fossil` carries
+      // the resolved node for exactly this; the request is already cached by
+      // the time the store's own resolve runs.
+      let host: PathNode | null = null;
+      try {
+        host = (await api.fossil(taxonNo)).attach ?? null;
+      } catch {
+        // Falls through to the plain confirmation; the graft is in the URL
+        // either way and the refusal notice will explain what to do.
+      }
+      if (!host) {
+        toast(
+          <>
+            Drew <strong>{f.name}</strong>
+          </>,
+        );
+        return;
+      }
+      tree.add(host.key);
+      toast(
+        <>
+          Drew <strong>{f.name}</strong>, and added{" "}
+          <strong>{host.name ?? "the clade it hangs below"}</strong> so it has a
+          branch to hang from
+        </>,
+      );
+    },
+    [tree, toast],
+  );
 
   if (reachable === false) {
     return (
@@ -671,7 +810,18 @@ export default function App() {
         onDeltaPlayed={tree.consumeDelta}
         focusedIdx={focusedIdx}
         onFocus={(idx) => {
-          const n = idx === null ? null : tree.nodes.get(idx);
+          if (idx === null) {
+            tree.select(null);
+            return;
+          }
+          // A graft is not in `tree.nodes` and never will be — its index is
+          // negative precisely so that lookup misses. It carries its own key,
+          // which is what goes in `sel` and what opens the fossil card.
+          if (isGraftIdx(idx)) {
+            tree.select(grafts.find((g) => g.idx === idx)?.key ?? null);
+            return;
+          }
+          const n = tree.nodes.get(idx);
           tree.select(n ? n.key : null);
         }}
         isolate={tree.view.isolate}
@@ -701,6 +851,14 @@ export default function App() {
         </div>
       )}
 
+      {fossilDetail && focusedTaxonNo !== null && (
+        <FossilCard
+          fossil={fossilDetail}
+          hue={laneHue(graftIdx(focusedTaxonNo))}
+          graft={grafts.find((g) => g.idx === graftIdx(focusedTaxonNo)) ?? null}
+        />
+      )}
+
       {detail && focusedNode && (
         <Detail
           detail={detail}
@@ -721,7 +879,9 @@ export default function App() {
         commands={visibleCommands}
         scope={scope}
         onPick={addHit}
+        onPickFossil={drawFossil}
         present={present}
+        presentFossils={presentFossils}
       />
 
       <div className="toasts">
@@ -748,6 +908,138 @@ export default function App() {
         {tree.loading && <span className="mono">resolving…</span>}
       </div>
     </>
+  );
+}
+
+/**
+ * The card for a fossil.
+ *
+ * The same slot and the same anatomy as {@link Detail}, and deliberately not
+ * the same content — because the two are answers to different questions and a
+ * card that pretended otherwise would be the borrowed-silhouette mistake in
+ * text. A node card leads with an age, a species count and a depth; a fossil
+ * has none of those. What it has is a range in the rock, a count of
+ * occurrences, and an attachment point whose looseness is the real caveat.
+ *
+ * Three things it must do that the node card does not:
+ *
+ *   - **Credit the drawing.** A graft puts a PhyloPic image on the canvas and
+ *     CC-BY applies to whatever is on screen. Until this card existed there was
+ *     nowhere for that credit to go, which was a licensing gap and not a polish
+ *     item.
+ *   - **Say it is not a node**, in the reader's language, once and plainly.
+ *     Everything else on this canvas has a position in the tree.
+ *   - **State the placement and the date as two separate uncertainties.** Where
+ *     it hangs and when it lived are independent, and letting one stand in for
+ *     the other is what `placementNote` exists to prevent.
+ */
+function FossilCard({
+  fossil,
+  hue,
+  graft,
+}: {
+  fossil: FossilDetail;
+  hue: number;
+  /** Present when it is actually drawn; absent when the card is open cold. */
+  graft: Graft | null;
+}) {
+  const bounds = [fossil.fea, fossil.fla, fossil.lea, fossil.lla].filter(
+    (v): v is number => typeof v === "number" && Number.isFinite(v),
+  );
+  const span = bounds.length
+    ? endedSpanLabel(Math.max(...bounds), Math.min(...bounds))
+    : null;
+  const sil = fossil.silhouette ?? null;
+  const host = fossil.attach ?? null;
+  const walk = fossil.attach_walk ?? null;
+  return (
+    <aside className="detail" style={{ color: `hsl(${hue} 60% 62%)` }}>
+      {sil && (
+        <div className="detail-image">
+          <Silhouette phylopicId={sil.phylopic_id} size={110} />
+          {/* No watermark. On a node card it says whose portrait this really
+              is, because the drawing is nearly always of a relative. Here it
+              is of this taxon — `fossil_image` matches PBDB and PhyloPic on the
+              same name and never inherits — so a watermark would repeat the
+              heading. */}
+        </div>
+      )}
+      <h2
+        className={
+          fossil.rank === "species" || fossil.rank === "genus"
+            ? "sci-italic"
+            : undefined
+        }
+        style={{ color: "var(--ink)" }}
+      >
+        {fossil.name}
+      </h2>
+      <div className="rank">{fossil.rank ? `fossil · ${fossil.rank}` : "fossil"}</div>
+
+      <dl>
+        {/* No `age` row, and its absence is the point rather than an omission.
+            Every age in this app comes from a chronogram of living species and
+            an extinct taxon has no counterpart in one. */}
+        <dt>fossils</dt>
+        <dd className="num">{span ?? "no range recorded"}</dd>
+        {fossil.n_occs > 0 && (
+          <>
+            <dt>occurrences</dt>
+            <dd className="num">{fossil.n_occs.toLocaleString()}</dd>
+          </>
+        )}
+        <dt>below</dt>
+        <dd>{host?.name ?? `node ${fossil.attach_idx}`}</dd>
+        <dt>PBDB</dt>
+        <dd className="num">{fossil.pbdb_taxon_no}</dd>
+      </dl>
+
+      <p className="note">
+        This is a fossil taxon, not a node in the tree. Nobody has resolved
+        where its lineage branches, so it has no position of its own and no
+        divergence age — what is known is where it turns up in the rock, which
+        is an observation rather than an estimate.
+        {walk !== null && placementNote(walk)}
+      </p>
+
+      {graft && span && (
+        <p className="note">
+          It is drawn hanging from{" "}
+          <strong>{host?.name ?? "the branch above it"}</strong>, at its own
+          date. The line meets the branch{" "}
+          {graft.joinAt === "first-appearance" ? (
+            <>
+              at its first appearance, which is the latest its lineage can have
+              parted from the rest.
+            </>
+          ) : graft.joinAt === "anchor" ? (
+            <>
+              at that point because it first appears later — its lineage parted
+              somewhere below there, off the branches drawn here.
+            </>
+          ) : (
+            <>
+              as far back as the branch is drawn, because it is older than all
+              of it.
+            </>
+          )}
+        </p>
+      )}
+
+      {sil && (
+        <p className="credit">
+          Silhouette{sil.attribution ? ` by ${sil.attribution}` : ""}
+          {sil.contributor && sil.contributor !== sil.attribution
+            ? `, uploaded by ${sil.contributor}`
+            : ""}{" "}
+          ·{" "}
+          <a href={sil.license_url} target="_blank" rel="noreferrer noopener">
+            licence
+          </a>{" "}
+          · PhyloPic
+        </p>
+      )}
+    </aside>
   );
 }
 

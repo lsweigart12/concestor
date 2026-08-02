@@ -54,7 +54,7 @@ import {
 } from "../tree/layout";
 import type { Induced } from "../tree/induced";
 import type { AddDelta } from "../tree/induced";
-import type { Graft } from "../tree/graft";
+import { isGraftIdx, type Graft } from "../tree/graft";
 import { divergenceFor, UNNAMED } from "../tree/naming";
 import {
   markAge,
@@ -273,12 +273,20 @@ function Inner(props: GraphProps) {
   const focusLineage = useMemo(() => {
     const out = new Set<number>();
     let cur: number | null = focusedIdx;
+    // A focused graft has no ancestry of its own — it is not in the topology.
+    // Its lineage is the branch it hangs on, so the walk starts at the anchor
+    // and the fossil rides along. Without this the set is the graft alone and
+    // focusing one dims the entire tree it is annotating.
+    if (cur !== null && isGraftIdx(cur)) {
+      out.add(cur);
+      cur = grafts.find((g) => g.idx === cur)?.anchor ?? null;
+    }
     while (cur !== null && cur !== undefined) {
       out.add(cur);
       cur = ind.segments.get(cur)?.anc ?? null;
     }
     return out;
-  }, [focusedIdx, ind]);
+  }, [focusedIdx, ind, grafts]);
 
   // Bloom is the first thing to go when frames are tight, and dropping to flat
   // strokes at low zoom is the documented acceptable answer.

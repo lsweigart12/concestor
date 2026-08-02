@@ -989,12 +989,43 @@ body {
   scrollbar-color: var(--ink-4) transparent;
 }
 
+/*
+ * Section headers. Raycast's grouping, and the thing `Command.section` was
+ * always for — it sat unrendered until fossils arrived and gave the list two
+ * corpora to keep apart.
+ *
+ * A label, not a divider: no rule, no background, no box. The list is already
+ * a stack of rows inside a panel, and a second border would be the third
+ * horizontal line in 40px. Space and a quiet uppercase word are enough to say
+ * *these belong together*, which is all a section header has to do.
+ */
 .palette-section {
-  padding: var(--s2) var(--s4) var(--s1);
+  padding: var(--s3) var(--s4) var(--s1);
   font-size: 10px;
   letter-spacing: 0.11em;
   text-transform: uppercase;
   color: var(--ink-4);
+  user-select: none;
+}
+/* The first header sits directly under the input, which already has a rule
+   beneath it — so it needs the tighter of the two paddings, not both. */
+.palette-group:first-child .palette-section {
+  padding-top: var(--s2);
+}
+
+/*
+ * A fossil's icon tile, when the taxon has no drawing.
+ *
+ * The ammonite is a stroked glyph rather than a filled silhouette, so at 26px
+ * inside a tile it reads thin where a silhouette reads solid. Letting it fill
+ * more of the tile is what keeps the two row kinds looking like the same list.
+ */
+.row-icon-fossil .age-glyph {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  opacity: 1;
+  vertical-align: initial;
 }
 
 /* Raycast row anatomy: icon · title · subtitle · right-aligned accessory. */

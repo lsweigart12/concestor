@@ -456,6 +456,19 @@ func (s *Server) handleAbout(w http.ResponseWriter, r *http.Request) {
 type searchBody struct {
 	Query   string               `json:"query"`
 	Results []store.SearchResult `json:"results"`
+	// PBDB taxa matching the same query, ranked separately and never merged
+	// into `Results`.
+	//
+	// Two corpora answering two different questions: `Results` are *nodes* —
+	// things with a position, an ancestry and an MRCA — while these are
+	// observations from the rock that hang off a branch. Interleaving them by
+	// score would put a one-occurrence fossil genus above the species someone
+	// typed, and would imply the two can be picked for the same purpose. The
+	// client renders them as their own section, below.
+	Fossils []store.Fossil `json:"fossils"`
+	// False when the fossil table has not been built, so an empty list can be
+	// told apart from "nothing matched".
+	FossilsAvailable bool `json:"fossils_available"`
 }
 
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
@@ -475,7 +488,20 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, http.StatusInternalServerError, "search failed")
 		return
 	}
-	s.writeJSON(w, r, http.StatusOK, searchBody{Query: q, Results: res})
+	body := searchBody{Query: q, Results: res, Fossils: []store.Fossil{}}
+	// A failure here costs the fossil section and nothing else. The species
+	// results are the answer to the question; the fossils are an extra, and
+	//502-ing the whole palette because a supplementary scan failed would trade
+	// a degraded list for no list.
+	if s.St.Schema.Fossil != nil {
+		fos, err := s.St.SearchFossils(r.Context(), q, 0)
+		if err != nil {
+			s.Log.Warn("fossil search", "q", q, "err", err)
+		} else {
+			body.Fossils, body.FossilsAvailable = fos, true
+		}
+	}
+	s.writeJSON(w, r, http.StatusOK, body)
 }
 
 // --- /v1/path ------------------------------------------------------------
@@ -751,7 +777,41 @@ func (s *Server) handleFossil(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, http.StatusNotFound, "no PBDB taxon with that id")
 		return
 	}
-	s.writeJSON(w, r, http.StatusOK, fo)
+
+	body := fossilBody{Fossil: *fo}
+
+	// The drawing's credit. **Not optional**: a graft puts this image on the
+	// canvas, CC-BY applies to whatever is on screen, and the card is the only
+	// surface with room to say who drew it. The node card has carried this
+	// since the silhouette layer shipped; a fossil drawing had no card at all
+	// until now, which is the gap this closes rather than a new requirement.
+	if fo.PhylopicID != nil && *fo.PhylopicID != "" {
+		attrib, err := s.St.SilhouetteAttribution(r.Context(), *fo.PhylopicID)
+		if err != nil {
+			s.Log.Warn("fossil silhouette attribution", "id", id, "err", err)
+		} else {
+			body.Silhouette = attrib
+		}
+	}
+
+	// The taxon it hangs below, named. The client has this node only when the
+	// clade happens to be on the canvas already, and the card has to be able to
+	// say "belongs somewhere below Homo" on a cold load too.
+	if a := s.St.Arrays; a.Valid(fo.AttachIdx) {
+		if entries, err := s.entries(r, []int{fo.AttachIdx}); err == nil && len(entries) == 1 {
+			body.Attach = &entries[0]
+		}
+	}
+
+	s.writeJSON(w, r, http.StatusOK, body)
+}
+
+// fossilBody is one PBDB taxon with the two things a card needs beyond the row
+// itself: who drew the picture, and what the attachment point is called.
+type fossilBody struct {
+	store.Fossil
+	Silhouette *store.Attribution `json:"silhouette,omitempty"`
+	Attach     *Entry             `json:"attach,omitempty"`
 }
 
 // --- /v1/segment ---------------------------------------------------------

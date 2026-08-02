@@ -321,6 +321,18 @@ divergences, and the numbers are there. Three refusals, none of them
 approximated: no bracket (21.4% of PBDB), attach node not on a drawn branch, no
 `pbdb_taxon_no`.
 
+**Fossils are searchable and selectable, and neither needed a pipeline run.**
+`SearchFossils` full-scans the 523,112-row table at ~40ms — there is no index on
+`name` — and the palette renders it as its own section, pinned *last* whatever
+it scores, because a species is a node you can build a tree from and a fossil is
+an observation that hangs off one. A graft selects like a node: same click, same
+`sel=`, and `pbdb108454` cannot collide with an OTT id. Its card is not the node
+card with fields blanked — it has no age, no tip count and no ancestry, and it
+is where the PhyloPic credit finally lives. That credit was blank at first
+because the server sends `creator`/`uploader` while every card reads
+`attribution`/`contributor`; `normalise()` was doing that rename for `/v1/node/`
+alone.
+
 Which of the two to draw depends on how the reader reached the node, so **only
 the client can decide it**, and `web/src/canvas/witness.ts` is where that
 happens. A leaf of the induced subtree is a clade they *chose* and keeps its

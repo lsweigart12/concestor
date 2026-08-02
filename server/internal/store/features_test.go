@@ -679,3 +679,75 @@ func TestAPreRenameWitnessTableIsReadAsNodes(t *testing.T) {
 		t.Error("a node witness must not arrive claiming to be a PBDB taxon")
 	}
 }
+
+// SearchFossils is the palette's fossil section. It is a full scan of a table
+// with no index on `name` — measured at ~40ms against the real 523,112 rows,
+// comfortably inside the palette's debounce — so what needs pinning is not the
+// speed but the ordering and the escaping.
+func TestSearchFossilsRanksExactThenPrefixThenContains(t *testing.T) {
+	dir := futureBuild(t)
+	st, err := Open(t.Context(), Options{BuildDir: dir, Log: slog.New(slog.DiscardHandler)})
+	if err != nil {
+		t.Fatalf("opening a future build: %v", err)
+	}
+	defer st.Close() //nolint:errcheck
+
+	names := func(q string) []string {
+		t.Helper()
+		got, err := st.SearchFossils(t.Context(), q, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := make([]string, len(got))
+		for i, f := range got {
+			out[i] = f.Name
+		}
+		return out
+	}
+
+	// A substring match must work at all. It did not: the placeholders were
+	// bound in the order the clauses were *written* rather than the order they
+	// appear in the SQL, which put the bare query into the WHERE — so only an
+	// exact name ever matched, and "georgicus" found nothing while
+	// "tyrannosaurus" found Tyrannosaurus and looked like success.
+	if got := names("saurus"); len(got) != 2 {
+		t.Fatalf("substring search = %v, want both -saurus genera", got)
+	}
+
+	// Exact beats everything, however unnotable. Mammalia is extant and takes
+	// the largest penalty there is; typing its name still has to find it.
+	if got := names("mammalia"); len(got) == 0 || got[0] != "Mammalia" {
+		t.Fatalf("exact search = %v, want Mammalia first", got)
+	}
+
+	// Inside a match tier, `notability` decides — extinct, then drawn, then
+	// specific. Both of these are extinct genera matching as substrings; the
+	// drawing is what separates them.
+	if got := names("no"); len(got) < 2 || got[0] != "Tyrannosaurus" {
+		t.Fatalf("substring order = %v, want the drawn genus first", got)
+	}
+
+	// LIKE's own wildcards are neutralised, or a query containing `%` matches
+	// the entire corpus and the palette fills with unrelated rows.
+	if got := names("%a"); len(got) != 0 {
+		t.Fatalf("wildcard search = %v, want no matches for a literal %%a", got)
+	}
+
+	// Undated taxa are *returned*, not filtered. The client needs them to say
+	// "Obscurosaurus is a fossil with no recorded date" rather than "nothing
+	// matched", which is the answer that sent someone here in the first place.
+	found := false
+	for _, n := range names("obscuro") {
+		if n == "Obscurosaurus" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("an undated taxon must still be returned, so the UI can explain it")
+	}
+
+	// Below the minimum length the scan does not run at all.
+	if got := names("o"); len(got) != 0 {
+		t.Fatalf("one-character search = %v, want nothing", got)
+	}
+}
