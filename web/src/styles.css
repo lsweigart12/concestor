@@ -609,9 +609,57 @@ body {
   color: var(--ink-4);
 }
 
-.axis-caption {
-  letter-spacing: 0.08em;
+/*
+ * The scale switch, bottom right.
+ *
+ * One word — "logarithmic" or "linear" — and it is the current state, not a
+ * label for a control beside it. It replaced "millions of years before present
+ * · symlog", which spent a whole line on a unit the ticks and every node label
+ * already carry, and buried the fact that the axis has two scales inside a
+ * transform's name.
+ *
+ * It takes the control bar's anatomy — `L` badge, then the word — and one step
+ * more contrast than the footer line it sits on, because it is the only
+ * control down here and the only binding not drawn on the bar. A first draft
+ * styled it as bare text on the argument that a bordered object would be a
+ * third floating thing on this edge. That argument is about *panels*: this is
+ * 60 pixels wide, it shares the footer's baseline, and reading as flat prose
+ * cost it the one job it has, which is to look pressable.
+ */
+.axis-mode {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px 3px 5px;
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  background: var(--void-3);
+  font-family: var(--sans);
+  font-size: 11px;
+  letter-spacing: 0.04em;
   white-space: nowrap;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    color 120ms ease,
+    border-color 120ms ease;
+}
+
+.axis-mode:hover {
+  border-color: var(--hairline-strong);
+  color: var(--ink);
+}
+.axis-mode:hover .kbd {
+  border-color: var(--hairline-strong);
+  color: var(--accent);
+}
+
+.axis-mode:focus-visible {
+  outline: none;
+  border-color: var(--accent-dim);
+  color: var(--ink);
 }
 
 .axis-line {
@@ -1173,57 +1221,253 @@ body {
 }
 
 /*
- * The hint bar, on the top edge.
+ * The control bar, on the top edge.
  *
- * design-reference.md pins it bottom-right, and that held while the bottom was
- * an axis and one pill. It stopped holding once the axis footer had something
- * to say: at the widths this is actually used at, the key, the units and four
- * keybinds do not fit on one line, and stacking them turned the bottom into a
- * pile. So the two questions split by edge — the top says what you can *do*,
- * the bottom says how to *read* what you see.
+ * It replaces a hint bar that named four chords and could not be clicked. The
+ * split by edge is unchanged and is why this is at the top — it says what you
+ * can *do*, and the axis at the bottom says how to *read* what you see.
  *
- * It takes the axis's treatment rather than a pill of its own: a fade to void
- * that guarantees legibility over a trace, and nothing that reads as an object.
+ * What changed is that the row is now made of controls. Each is a key badge
+ * followed by a word, in that order and at that emphasis: the badge is what a
+ * reader will be using in a minute, so it leads and the label explains it.
+ * That ordering is the whole design — a toolbar with the keys hidden in
+ * tooltips teaches nobody anything, and a hint bar that cannot be clicked
+ * strands the reader who has not learned them yet.
+ *
+ * It keeps the axis's treatment rather than taking a panel of its own: a fade
+ * to void that guarantees legibility over a trace, and no object outline. The
+ * strip itself is click-through — only the buttons take a press, so a drag
+ * that starts on a lineage under the fade still pans the canvas.
  */
-.hintbar {
+.controls {
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
   z-index: 20;
-  height: 38px;
+  min-height: 40px;
   display: flex;
-  gap: var(--s3);
+  flex-wrap: wrap;
+  gap: var(--s1);
   align-items: center;
-  padding: 0 var(--s4);
+  padding: var(--s1) var(--s3);
+  background: linear-gradient(to bottom, var(--void) 46%, transparent);
+  pointer-events: none;
+  transition: opacity 400ms ease;
+}
+
+/* Chrome auto-hides. The canvas is the page — but a control that has faded is
+   still a control, so pointing at it brings it back rather than making the
+   reader wiggle the mouse first. */
+.controls.idle {
+  opacity: 0.34;
+}
+.controls:hover,
+.controls:focus-within {
+  opacity: 1;
+}
+
+.control {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px 4px 5px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  font-family: var(--sans);
+  font-size: 11.5px;
+  font-weight: var(--w-reg);
+  color: var(--ink-3);
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    color 120ms ease,
+    border-color 120ms ease;
+}
+
+.control:hover:not(:disabled) {
+  background: var(--void-3);
+  border-color: var(--hairline);
+  color: var(--ink);
+}
+.control:hover:not(:disabled) .kbd {
+  border-color: var(--hairline-strong);
+  color: var(--accent);
+}
+
+/* Keyboard focus is a real state here and must not borrow hover's look — a
+   reader tabbing the bar needs to see where they are. */
+.control:focus-visible {
+  outline: none;
+  border-color: var(--accent-dim);
+  color: var(--ink);
+}
+
+/* Held state, for the toggles. The one channel that is not brightness, because
+   brightness encodes recency and selection and never anything else. */
+.control.on {
+  color: var(--accent);
+}
+.control.on .kbd {
+  border-color: var(--accent-dim);
+  color: var(--accent);
+}
+
+/* Disabled rather than hidden, so the bar never reshuffles under a hand that
+   is already moving. The tooltip carries what would make it work. */
+.control:disabled {
+  opacity: 0.38;
+  cursor: default;
+}
+
+.control .kbd {
+  /* The loudest thing on the button. Everything else on this bar is 11.5px
+     sans at --ink-3; the badge keeps its border and its mono. */
+  flex: none;
+}
+
+.control-label {
+  white-space: nowrap;
+}
+
+.controls-busy {
+  margin-left: var(--s2);
   font-size: 11px;
   color: var(--ink-4);
-  background: linear-gradient(to bottom, var(--void) 40%, transparent);
-  /* Advertising, not a control. Never take a click meant for a lineage. */
-  pointer-events: none;
 }
 
-/* Chrome auto-hides. The canvas is the page. */
-.hintbar.idle {
-  opacity: 0.28;
-}
-
-/* In a narrow panel the hint bar is wider than the useful canvas, and the
-   detail card would cover the graph it describes. The bindings still work;
-   the advertisement is what goes. */
-@media (max-width: 620px) {
-  .hintbar {
+/*
+ * Narrow: the labels go, the buttons stay.
+ *
+ * The old hint bar hid itself entirely here, which was defensible when it was
+ * only advertising. It is not defensible for a control — the reader on a
+ * narrow window is the one least likely to be using a keyboard at all. The
+ * badges alone are 30px each and eight of them fit; the secondary ones go
+ * first if they do not.
+ */
+@media (max-width: 720px) {
+  .control-label {
     display: none;
   }
-  .detail {
-    width: auto;
-    left: var(--s3);
-    right: var(--s3);
-    max-height: 42vh;
+  .control {
+    padding: 4px 5px;
   }
 }
-.hintbar {
-  transition: opacity 400ms ease;
+
+@media (max-width: 620px) {
+  .control.secondary {
+    display: none;
+  }
+}
+
+/* ------------------------------------------------------------------ modal -- */
+
+/*
+ * The one dialog, and it exists because one action can destroy work.
+ *
+ * Everything else in this app confirms after the fact in a toast. Clearing is
+ * a single unshifted letter next to two other single unshifted letters, and it
+ * can take an hour of assembling a tree with it. `chrome/Confirm.tsx` carries
+ * the full argument.
+ *
+ * It borrows the palette's scrim and box so it is recognisably the same
+ * surface arriving in the same way, and sits above it — the palette can be
+ * open behind it, because the clear command is reachable from there.
+ */
+.modal-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 22vh;
+  background: rgba(6, 6, 8, 0.68);
+  animation: fade 110ms ease-out;
+}
+
+.modal {
+  width: min(420px, 92vw);
+  background: var(--void-2);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius);
+  padding: var(--s4);
+}
+
+.modal-title {
+  margin: 0 0 var(--s2);
+  font-size: 14px;
+  font-weight: var(--w-med);
+  color: var(--ink);
+}
+
+.modal-body {
+  margin: 0 0 var(--s4);
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--ink-3);
+}
+.modal-body strong {
+  font-weight: var(--w-med);
+  color: var(--ink-2);
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--s2);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  background: var(--void-3);
+  font-family: var(--sans);
+  font-size: 12px;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.btn:hover {
+  border-color: var(--hairline-strong);
+  color: var(--ink);
+}
+
+.btn:focus-visible {
+  outline: none;
+  border-color: var(--accent-dim);
+  color: var(--ink);
+}
+
+/*
+ * The destructive answer, and the only warm thing in the app.
+ *
+ * "Cool throughout, no warm-orange heatmap" governs the *data*: a hue that
+ * means danger cannot also be a value on a scale, which is why nothing on the
+ * canvas is allowed to be warm. Here there is no data — it is the one button
+ * that destroys something, and refusing to mark it in order to keep the
+ * palette pure would be a stylistic rule outranking a safety one.
+ */
+.btn-danger {
+  border-color: hsl(6 40% 34%);
+  background: hsl(6 30% 16%);
+  color: hsl(6 60% 78%);
+}
+.btn-danger:hover,
+.btn-danger:focus-visible {
+  border-color: hsl(6 50% 46%);
+  color: hsl(6 70% 86%);
+}
+.btn-danger .kbd {
+  border-color: hsl(6 40% 34%);
+  background: hsl(6 24% 12%);
+  color: hsl(6 50% 72%);
 }
 
 /* ----------------------------------------------------------------- legend -- */
@@ -1325,6 +1569,26 @@ body {
   scrollbar-width: thin;
 }
 
+/*
+ * Narrow: the card spans the width and starts below the control bar.
+ *
+ * These four declarations lived in the hint bar's media query, several hundred
+ * lines *above* the `.detail` rule they were meant to override — same
+ * specificity, earlier in the file, so all but `left` lost the cascade and had
+ * been dead for as long as they had existed. Nothing showed it while the top
+ * edge held an advertisement that hid itself at this width. It shows the
+ * moment the top edge holds buttons: the card landed on them.
+ */
+@media (max-width: 620px) {
+  .detail {
+    width: auto;
+    left: var(--s3);
+    right: var(--s3);
+    top: 46px;
+    max-height: 42vh;
+  }
+}
+
 .detail-image {
   position: relative;
   display: flex;
@@ -1408,6 +1672,11 @@ body {
   place-items: center;
   text-align: center;
   padding: var(--s5);
+  /* It is a sentence, not a surface. It covers the whole viewport, so while
+     the only chrome was a click-through hint bar nothing noticed; the moment
+     the axis footer became a switch, the empty canvas was swallowing presses
+     aimed at it. */
+  pointer-events: none;
 }
 .boot-inner {
   max-width: 520px;
@@ -1422,6 +1691,12 @@ body {
   letter-spacing: 0.16em;
   text-transform: uppercase;
   margin: 0 0 var(--s3);
+}
+/* The second way in, for a reader with no species in mind. Quieter than the
+   first, because it is the fallback and not the instruction. */
+.boot-alt {
+  color: var(--ink-4);
+  font-size: 12.5px;
 }
 .boot-inner code {
   font-family: var(--mono);

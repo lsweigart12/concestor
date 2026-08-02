@@ -50,7 +50,7 @@ TimeTree stays excluded; its redistribution ban is unconditional.
 
 **[design-reference.md](design-reference.md) is authoritative** on visual
 language, command surface, motion and stack. A dark instrument where the graph is
-the only light source, operated from a `⌘K` command palette, phosphor-persistence
+the only light source, operated from a `P` command palette, phosphor-persistence
 metaphor, React Flow / xyflow v12. Read it before writing any frontend code.
 
 It sharpens the priorities rather than changing them. Its **signature interaction
@@ -89,6 +89,13 @@ answer one question — how do I read a position here? — so they share one fla
 line in the axis footer, and the hint bar, which answers a different question,
 moved to the top edge. If something else earns standing chrome later, the test
 is which of those two questions it answers, not where there is room.
+
+That line has since lost its units and gained a control: the right end is one
+word, `logarithmic` or `linear`, and clicking it toggles the scale. The units
+were carried by every tick and every dated node already; that there is a second
+scale was carried nowhere. The top edge is now a bar of **buttons** rather than
+a hint — see design-reference.md's command surface — and the split by edge is
+what survived unchanged.
 
 **The ICS geologic palette is warm; the design language forbids warm.** Keep the
 official hue *relationships*, drop the official saturation and luminance, and let
@@ -444,7 +451,7 @@ rather than as approximate.
 
 ### Random picks: the pool is "has its own drawing", in both corpora
 
-`⌘⇧S` adds a random species, `⌘⇧F` draws a random fossil, and both come from
+`R` adds a random species, `⇧R` draws a random fossil, and both come from
 `/v1/random`. The command exists because the empty canvas is a command list and
 every other command on it assumes the reader has already thought of a species —
 which, for an audience of curious people rather than systematists, is the hard

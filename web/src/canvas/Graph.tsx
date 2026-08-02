@@ -130,6 +130,8 @@ export interface GraphProps {
   onFocus: (idx: number | null) => void;
   isolate: boolean;
   axisMode: AxisMode;
+  /** The axis footer is a switch as well as a label. */
+  onAxisMode: (m: AxisMode) => void;
   intervals: TimescaleInterval[] | null;
   fitSignal: { kind: "all" | "selection"; token: number } | null;
   /** The segment whose drill-down lane is open. Lives in the URL. */
@@ -154,6 +156,7 @@ function Inner(props: GraphProps) {
     onFocus,
     isolate,
     axisMode,
+    onAxisMode,
     intervals,
     fitSignal,
     drill,
@@ -701,6 +704,7 @@ function Inner(props: GraphProps) {
         toAge={toAge}
         intervals={intervals}
         axisMode={axisMode}
+        onAxisMode={onAxisMode}
         legend={<Legend edges={patterns} />}
       />
     </div>

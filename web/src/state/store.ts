@@ -142,9 +142,19 @@ export function useTree() {
   const token = useRef(0);
 
   // URL is the serialisation. Push on change, and honour back/forward.
+  //
+  // The comparison is against the search string *or* the path, in that order,
+  // because `encode` returns "/" for an empty view and "?…" for every other
+  // one. Testing both independently — `url !== search && url !== pathname` —
+  // silently swallowed exactly one transition: clearing a full canvas produced
+  // "/", which differs from "?n=247333" but equals the pathname, so nothing was
+  // pushed. The URL kept a selection that was no longer on screen, reloading
+  // brought back what had just been cleared, and back went somewhere else
+  // entirely. It only ever mattered on clear, which is why it survived until
+  // clear grew a confirmation promising the back button would work.
   useEffect(() => {
     const url = encode(view);
-    if (url !== window.location.search && url !== window.location.pathname) {
+    if (url !== (window.location.search || window.location.pathname)) {
       window.history.pushState(null, "", url);
     }
   }, [view]);

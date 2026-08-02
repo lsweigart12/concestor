@@ -64,7 +64,7 @@ our own; **no dagre, no ELK, no d3-hierarchy**, because a graph-layout engine
 assigns `x` by depth and here `x` is time.
 
 ```bash
-cd web && npm install && npm run build && npm test   # 148 tests
+cd web && npm install && npm run build && npm test   # 188 tests
 cd server && go test ./... && go run . -build ../build
 ```
 
@@ -208,6 +208,19 @@ Wikidata crawl cannot fix `oak` (*Quercus* is a **broken taxon**, so it is not
 a node and is never crawled), and **`web/` must not re-sort `/v1/search`** — the
 client's fuzzy score was outweighing four server ranks and silently putting a
 sea snail above the butterflies.
+
+**The keyboard surface is bare letters, and `web/src/chrome/bindings.ts` is
+the only table.** `P` palette, `S` species-filtered palette, `F` fit (`⇧F` fit
+selection), `/` isolate, `Tab` step, `L` time scale, `R` random species, `⇧R`
+random fossil, `C` clear. `matchKey` refuses any press holding ctrl, meta or
+alt — that refusal is the feature, because the old `⌘`-based surface was a
+losing negotiation with the browser (`⌘L` is the URL bar and cannot be
+prevented, `⌘F` is find, `⌘R` is reload) and every binding that survived it was
+double-shifted. The same table feeds the control bar's buttons and the palette
+rows, so a key cannot print one thing and do another. Two consequences worth
+knowing before changing it: **share has no key** on purpose, and **clear is the
+one action with a confirmation dialog** — one unshifted letter beside two
+others, and the only one that can destroy an hour of work.
 
 **Decisions in this codebase are made by whoever holds it.** These docs escalate
 nothing and hold nothing open pending approval; where a question was once

@@ -4,9 +4,11 @@
  * Pick species, see the minimal subtree connecting them through their common
  * ancestors, laid out against deep time.
  *
- * Every action has a command and the mouse is a convenience path, never
- * required. Confirmations are brief HUD toasts — no modals, no dialogs, and no
- * settings panel that duplicates something a command already does.
+ * Every action has a command *and* a button. The keyboard is first class and no
+ * longer exclusive: `chrome/bindings.ts` holds every key, the control bar draws
+ * the same rows as buttons with their keys printed on them, and both paths run
+ * the same callback. Confirmations are brief HUD toasts — the single exception
+ * is clearing the canvas, which asks first; `chrome/Confirm.tsx` says why.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -42,7 +44,10 @@ import {
   type Graft,
   type GraftRefusal,
 } from "./tree/graft";
-import { Palette, type Command, type Scope } from "./palette/Palette";
+import { Palette, type Command, type PaletteFilter, type Scope } from "./palette/Palette";
+import { Confirm } from "./chrome/Confirm";
+import { Controls, type ControlAction } from "./chrome/Controls";
+import { kbd, matchKey } from "./chrome/bindings";
 import { resetUsage } from "./palette/fuzzy";
 import { useTree } from "./state/store";
 import { laneHue } from "./tree/layout";
@@ -80,14 +85,14 @@ const REFUSAL_REASONS: GraftRefusal[] = ["off-tree", "no-range", "no-identity"];
  */
 const RANDOM_CANDIDATES = 12;
 
-const isMac = navigator.platform.toLowerCase().includes("mac");
-const mod = isMac ? "⌘" : "Ctrl";
-
 export default function App() {
   const tree = useTree();
   // Closed on load. The canvas is the page; the boot hint says how to open it.
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [scoped, setScoped] = useState(false);
+  /** Non-null when the palette is answering about one corpus only. */
+  const [filter, setFilter] = useState<PaletteFilter | null>(null);
+  const [confirmClear, setConfirmClear] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [about, setAbout] = useState<About | null>(null);
   const [timescale, setTimescale] = useState<TimescaleInterval[] | null>(null);
@@ -415,7 +420,7 @@ export default function App() {
         title: "Fit all",
         subtitle: "Frame the whole induced subtree",
         icon: "⤢",
-        keys: `${mod}0`,
+        keys: kbd("fit"),
         section: "View",
         run: () => {
           setFitSignal({ kind: "all", token: Date.now() });
@@ -430,7 +435,7 @@ export default function App() {
             ? "Linear puts every recent divergence in one pixel"
             : "Symlog: linear to 1 Ma, logarithmic above",
         icon: "⇄",
-        keys: `${mod}⇧L`,
+        keys: kbd("axis"),
         section: "View",
         run: () => {
           tree.setAxis(tree.view.axis === "log" ? "linear" : "log");
@@ -438,11 +443,14 @@ export default function App() {
         },
       },
       {
+        // No key of its own, and that is the cost of a modifier-free surface
+        // rather than an oversight: the letters that would be honest here — `s`
+        // for share, `l` for link — are the two most-used bindings in the app.
+        // It is one of the few actions nobody reaches for mid-flow.
         id: "share",
         title: "Copy shareable link",
         subtitle: "All view state lives in the URL",
         icon: "↗",
-        keys: `${mod}S`,
         section: "View",
         run: () => {
           share();
@@ -461,7 +469,7 @@ export default function App() {
           "always arrives with a picture rather than a bare name. Press again to keep going " +
           "— each one joins the tree through its common ancestors with whatever is already here.",
         icon: "✦",
-        keys: `${mod}⇧S`,
+        keys: kbd("random-species"),
         section: "Selection",
         run: () => void randomSpecies(),
       },
@@ -474,7 +482,7 @@ export default function App() {
           "the three things it takes to place one on the axis. It hangs off the branch it " +
           "belongs below, and the clade it needs is added if the canvas has not got it yet.",
         icon: "◈",
-        keys: `${mod}⇧F`,
+        keys: kbd("random-fossil"),
         section: "Selection",
         run: () => void randomFossil(),
       },
@@ -483,12 +491,11 @@ export default function App() {
         title: "Clear the canvas",
         subtitle: "Remove every selection",
         icon: "×",
-        keys: `${mod}⇧K`,
+        keys: kbd("clear"),
         section: "Selection",
         run: () => {
-          tree.clear();
           setPaletteOpen(false);
-          toast("Canvas cleared");
+          setConfirmClear(true);
         },
       },
       {
@@ -535,7 +542,7 @@ export default function App() {
           title: `Isolate the path to ${nm}`,
           subtitle: "Dim every other lineage",
           icon: "◎",
-          keys: `${mod}\\`,
+          keys: kbd("isolate"),
           section: "This node",
           contextual: true,
           run: () => {
@@ -547,7 +554,7 @@ export default function App() {
           id: "ctx-fit",
           title: `Fit to ${nm}`,
           icon: "⊹",
-          keys: `${mod}.`,
+          keys: kbd("fit-selection"),
           section: "This node",
           contextual: true,
           run: () => {
@@ -572,7 +579,7 @@ export default function App() {
             ? "The lane below the chronogram"
             : "Intermediate clades, and what the rock records on this segment",
           icon: "⌗",
-          ...(open ? { keys: "esc" } : {}),
+          ...(open ? { keys: kbd("escape") } : {}),
           section: "This node",
           contextual: true,
           run: () => {
@@ -586,7 +593,7 @@ export default function App() {
           id: "ctx-remove",
           title: `Remove ${nm}`,
           icon: "−",
-          keys: "⌫",
+          keys: kbd("remove"),
           section: "This node",
           contextual: true,
           run: () => {
@@ -814,93 +821,221 @@ export default function App() {
           }
         : null;
 
-  // Full keyboard operation: search, add, remove, clear, fit, isolate and step
-  // through selection are all bound.
+  /** Open the palette on the whole surface, from a key or from a button. */
+  const openPalette = useCallback(() => {
+    // A fossil scope is per-click and never survives into the next opening, or
+    // the palette answers about a row nobody is looking at.
+    setPickedFossil(null);
+    setScoped(false);
+    setFilter(null);
+    setPaletteOpen(true);
+  }, []);
+
+  /**
+   * The same palette, answering about species only.
+   *
+   * Its own key because searching for a species is not one command among
+   * twenty — it is the thing the app is for, and the reader who presses `S` has
+   * already decided what kind of answer they want. Filtering rather than
+   * opening a second surface keeps one list, one set of arrow keys and one
+   * Enter, and the filter is poppable with backspace exactly like a scope.
+   */
+  const openSpecies = useCallback(() => {
+    setPickedFossil(null);
+    setScoped(false);
+    setFilter("species");
+    setPaletteOpen(true);
+  }, []);
+
+  const clearCanvas = useCallback(() => {
+    tree.clear();
+    setConfirmClear(false);
+    toast("Canvas cleared");
+  }, [tree, toast]);
+
+  const stepSelection = useCallback(
+    (back: boolean) => {
+      const ls = tree.induced.leaves;
+      if (ls.length === 0) return;
+      const at = focusedIdx === null ? -1 : ls.indexOf(focusedIdx);
+      const next = ls[(at + (back ? -1 + ls.length : 1)) % ls.length];
+      const n = next !== undefined ? tree.nodes.get(next) : undefined;
+      if (n) tree.select(n.key);
+    },
+    [tree, focusedIdx],
+  );
+
+  const empty = tree.induced.rendered.length === 0 && tree.view.fossils.length === 0;
+
+  /**
+   * Full keyboard operation, on bare letters.
+   *
+   * Three guards come before any binding is matched, and each is answering a
+   * real failure rather than being defensive. Typing in a field must never
+   * reach here, or every search box would fire commands as it was filled. An
+   * open palette owns the keyboard even when focus has slipped out of its input
+   * — clicking the scrim used to leave the list up and the letters live under
+   * it. And an open dialog owns it outright: the whole point of asking is that
+   * the next keystroke is an answer to the question, not another command.
+   */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const meta = isMac ? e.metaKey : e.ctrlKey;
       const inField =
         e.target instanceof HTMLElement &&
-        (e.target.tagName === "INPUT" || e.target.isContentEditable);
-
-      if (meta && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        // ⌘K with a node selected opens a contextual actions menu scoped to
-        // it. A fossil scope is per-click and never survives into the next
-        // ⌘K, or the palette answers about a row nobody is looking at.
-        setPickedFossil(null);
-        setScoped(e.shiftKey ? false : focusedIdx !== null);
-        if (e.shiftKey) {
-          tree.clear();
-          toast("Canvas cleared");
-          return;
-        }
-        setPaletteOpen((o) => !o);
-        return;
-      }
+        (e.target.tagName === "INPUT" ||
+          e.target.tagName === "TEXTAREA" ||
+          e.target.isContentEditable);
       if (inField) return;
 
-      if (meta && e.key === "0") {
-        e.preventDefault();
-        setFitSignal({ kind: "all", token: Date.now() });
-      } else if (meta && e.key === ".") {
-        e.preventDefault();
-        setFitSignal({ kind: "selection", token: Date.now() });
-      } else if (meta && e.key === "\\") {
-        e.preventDefault();
-        tree.toggleIsolate();
-      } else if (meta && e.shiftKey && e.key.toLowerCase() === "l") {
-        // ⇧ is load-bearing. Plain ⌘L is the browser's own "focus the URL bar"
-        // and a page cannot preventDefault it, so the axis never toggled;
-        // adding shift keeps the L-for-log mnemonic and reaches us.
-        e.preventDefault();
-        tree.setAxis(tree.view.axis === "log" ? "linear" : "log");
-      } else if (meta && e.shiftKey && e.key.toLowerCase() === "s") {
-        // ⇧S and ⇧F for the two corpora the app keeps apart everywhere else —
-        // Species and Fossils, the palette's own section names.
-        //
-        // Both are shifted because every unshifted mnemonic in reach is spoken
-        // for: ⌘S is this app's share, ⌘F is the browser's find, and ⌘R is
-        // reload. ⌘⇧R was the obvious pair and is refused on purpose: it is
-        // hard-reload in every browser, and taking that from a reader to save a
-        // letter is a worse trade than the one ⌘⇧L already documents.
-        //
-        // The order of these two branches is load-bearing: ⌘S is tested below,
-        // so a shifted press has to be claimed first or it copies a link.
-        e.preventDefault();
-        void randomSpecies();
-      } else if (meta && e.shiftKey && e.key.toLowerCase() === "f") {
-        e.preventDefault();
-        void randomFossil();
-      } else if (meta && e.key.toLowerCase() === "s") {
-        e.preventDefault();
-        share();
-      } else if (e.key === "Escape") {
-        // One key, innermost thing first — the same order the palette closes
-        // in. A drill-down lane is a thing you opened over the canvas, so it
-        // goes before the selection does; otherwise dismissing it costs two
-        // presses and the first one silently does something else.
-        if (tree.view.drill) tree.setDrill(null);
-        else tree.select(null);
-      } else if ((e.key === "Backspace" || e.key === "Delete") && focusedNode) {
-        e.preventDefault();
-        if (tree.induced.leaves.includes(focusedNode.idx)) {
-          tree.remove(focusedNode.key);
-          toast(`Removed ${focusedNode.name ?? focusedNode.key}`);
+      if (confirmClear) {
+        // Enter is the focused button's own; only the escape hatch is ours.
+        if (e.key === "Escape") {
+          e.preventDefault();
+          setConfirmClear(false);
         }
-      } else if (e.key === "Tab" && tree.induced.leaves.length) {
-        // Step through the selection without leaving the keyboard.
-        e.preventDefault();
-        const ls = tree.induced.leaves;
-        const at = focusedIdx === null ? -1 : ls.indexOf(focusedIdx);
-        const next = ls[(at + (e.shiftKey ? -1 + ls.length : 1)) % ls.length];
-        const n = next !== undefined ? tree.nodes.get(next) : undefined;
-        if (n) tree.select(n.key);
+        return;
+      }
+      if (paletteOpen) {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          setPaletteOpen(false);
+          setScoped(false);
+          setFilter(null);
+          setPickedFossil(null);
+        }
+        return;
+      }
+
+      const action = matchKey(e);
+      if (action === null) return;
+      // Everything below is ours, so nothing below reaches the browser. Tab
+      // would otherwise walk the focus ring and `/` opens quick-find in Firefox.
+      e.preventDefault();
+
+      switch (action) {
+        case "palette":
+          openPalette();
+          break;
+        case "species":
+          openSpecies();
+          break;
+        case "fit":
+          setFitSignal({ kind: "all", token: Date.now() });
+          break;
+        case "fit-selection":
+          // Falls back to framing everything rather than doing nothing: the
+          // reader asked to be shown something, and with no selection the
+          // whole tree is the honest answer to "here".
+          setFitSignal({
+            kind: focusedIdx === null ? "all" : "selection",
+            token: Date.now(),
+          });
+          break;
+        case "isolate":
+          tree.toggleIsolate();
+          break;
+        case "step":
+          stepSelection(false);
+          break;
+        case "step-back":
+          stepSelection(true);
+          break;
+        case "axis":
+          tree.setAxis(tree.view.axis === "log" ? "linear" : "log");
+          break;
+        case "random-species":
+          void randomSpecies();
+          break;
+        case "random-fossil":
+          void randomFossil();
+          break;
+        case "clear":
+          if (!empty) setConfirmClear(true);
+          break;
+        case "remove":
+          if (focusedNode && tree.induced.leaves.includes(focusedNode.idx)) {
+            tree.remove(focusedNode.key);
+            toast(`Removed ${focusedNode.name ?? focusedNode.key}`);
+          }
+          break;
+        case "escape":
+          // One key, innermost thing first — the same order the palette closes
+          // in. A drill-down lane is a thing you opened over the canvas, so it
+          // goes before the selection does; otherwise dismissing it costs two
+          // presses and the first one silently does something else.
+          if (tree.view.drill) tree.setDrill(null);
+          else tree.select(null);
+          break;
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [tree, focusedIdx, focusedNode, toast, share, randomSpecies, randomFossil]);
+  }, [
+    tree,
+    focusedIdx,
+    focusedNode,
+    toast,
+    randomSpecies,
+    randomFossil,
+    openPalette,
+    openSpecies,
+    stepSelection,
+    paletteOpen,
+    confirmClear,
+    empty,
+  ]);
+
+  /**
+   * The control bar's rows, which are the bindings with their callbacks bound.
+   *
+   * Contextual actions stay in the bar and go grey, rather than appearing and
+   * disappearing as the selection changes: a bar that reshuffles under a
+   * reader's hand costs them the button they were reaching for, and the
+   * tooltip on a disabled one says what would make it work.
+   */
+  const controls: ControlAction[] = useMemo(
+    () => [
+      { id: "palette", run: openPalette },
+      { id: "species", run: openSpecies },
+      { id: "random-species", run: () => void randomSpecies() },
+      { id: "random-fossil", run: () => void randomFossil() },
+      {
+        id: "fit",
+        run: () => setFitSignal({ kind: "all", token: Date.now() }),
+        ...(empty ? { disabledBecause: "Nothing on the canvas to frame yet" } : {}),
+      },
+      {
+        id: "isolate",
+        run: () => tree.toggleIsolate(),
+        active: tree.view.isolate,
+        ...(focusedIdx === null
+          ? { disabledBecause: "Select a node first — isolate dims everything off its path" }
+          : {}),
+      },
+      {
+        id: "step",
+        run: () => stepSelection(false),
+        ...(tree.induced.leaves.length === 0
+          ? { disabledBecause: "Add a species and this steps through the selection" }
+          : {}),
+      },
+      {
+        id: "clear",
+        run: () => setConfirmClear(true),
+        ...(empty ? { disabledBecause: "The canvas is already empty" } : {}),
+      },
+    ],
+    [
+      openPalette,
+      openSpecies,
+      randomSpecies,
+      randomFossil,
+      stepSelection,
+      tree,
+      focusedIdx,
+      empty,
+    ],
+  );
 
   // Chrome auto-hides. The canvas is the page.
   useEffect(() => {
@@ -963,6 +1098,7 @@ export default function App() {
         }}
         isolate={tree.view.isolate}
         axisMode={tree.view.axis}
+        onAxisMode={tree.setAxis}
         intervals={timescale}
         fitSignal={fitSignal}
         drill={tree.view.drill}
@@ -980,9 +1116,14 @@ export default function App() {
           <div className="boot-inner">
             <h1>Concestor</h1>
             <p>
-              Press <span className="kbd">{mod}K</span> and search for two
-              species. You will get the smallest tree that connects them through
-              their common ancestor.
+              Press <span className="kbd">{kbd("species")}</span> and search for
+              two species. You will get the smallest tree that connects them
+              through their common ancestor.
+            </p>
+            <p className="boot-alt">
+              Or press <span className="kbd">{kbd("random-species")}</span> for a
+              species picked for you — every key here is also a button along the
+              top.
             </p>
           </div>
         </div>
@@ -1011,15 +1152,42 @@ export default function App() {
         onClose={() => {
           setPaletteOpen(false);
           setScoped(false);
+          setFilter(null);
           setPickedFossil(null);
         }}
         commands={visibleCommands}
         scope={scope}
+        filter={filter}
+        onFilter={setFilter}
         onPick={addHit}
         onPickFossil={drawFossil}
         present={present}
         presentFossils={presentFossils}
       />
+
+      {confirmClear && (
+        <Confirm
+          title="Clear the canvas?"
+          body={
+            <>
+              This takes <strong>{tree.induced.leaves.length}</strong>{" "}
+              species
+              {tree.view.fossils.length > 0 && (
+                <>
+                  {" "}
+                  and <strong>{tree.view.fossils.length}</strong>{" "}
+                  {tree.view.fossils.length === 1 ? "fossil" : "fossils"}
+                </>
+              )}{" "}
+              off the tree. Nothing else is affected, and your browser's back
+              button restores this view — every one of them is a URL.
+            </>
+          }
+          confirmLabel="Clear"
+          onConfirm={clearCanvas}
+          onCancel={() => setConfirmClear(false)}
+        />
+      )}
 
       <div className="toasts">
         {toasts.map((t) => (
@@ -1029,21 +1197,7 @@ export default function App() {
         ))}
       </div>
 
-      <div className={`hintbar${idle ? " idle" : ""}`}>
-        <span>
-          <span className="kbd">{mod}K</span> commands
-        </span>
-        <span>
-          <span className="kbd">{mod}0</span> fit
-        </span>
-        <span>
-          <span className="kbd">{mod}\</span> isolate
-        </span>
-        <span>
-          <span className="kbd">Tab</span> step
-        </span>
-        {tree.loading && <span className="mono">resolving…</span>}
-      </div>
+      <Controls actions={controls} idle={idle} busy={tree.loading} />
     </>
   );
 }

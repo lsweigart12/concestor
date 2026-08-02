@@ -65,9 +65,25 @@ filter tween on the same element.
 
 ## Command surface
 
-- `⌘K` is the root. Opening the app opens the palette. The empty canvas
-  state is the command list, not an illustration.
-- Every action has a command. Mouse is a convenience path, never required.
+- **Every binding is a bare letter, and nothing here holds a modifier.** `P`
+  opens the palette, `S` opens it filtered to species, `F` fits, `/` isolates,
+  `Tab` steps, `L` switches the time scale, `R` adds a random species, `⇧R`
+  draws a random fossil, `C` clears. Shift is the *variant* of a binding and
+  never a second one, so a reader who learns `R` has already guessed `⇧R`.
+  The rule this replaces was a running negotiation with the browser — `⌘L`
+  reaches the URL bar and cannot be prevented, `⌘F` is find, `⌘R` is reload —
+  and every mnemonic that survived it was shifted twice and wrong. The canvas
+  has no text entry, so the letter keys are ours and the chords stay the
+  browser's. `web/src/chrome/bindings.ts` is the one table; `matchKey` refuses
+  any press holding ctrl, meta or alt, which is what keeps that promise.
+- `P` is the root of the command surface. The empty canvas state is the
+  command list, not an illustration.
+- **Every action has a command, a key, and a button.** Keyboard operation is
+  first class and not exclusive; the second half of that is new. The control
+  bar on the top edge draws the bindings as real buttons with the key printed
+  on each one — badge first, word second, because the button is how you do it
+  now and the key is how you will do it in a minute. Mouse is a convenience
+  path, never a required one, and the reverse is now also true.
 - Palette rows follow Raycast anatomy: icon · title · subtitle ·
   right-aligned accessory metadata.
 - **A species row's icon is its silhouette**, the same one the node will wear
@@ -81,12 +97,21 @@ filter tween on the same element.
 - Fuzzy search with highlighted match ranges. Results rank on recency and
   frequency, not alphabetically.
 - Commands accept typed arguments inline (species name, clade, node id).
-- `⌘K` with a node selected opens a **contextual actions menu** — nested
-  palette scoped to that node or branch.
+- A node's own actions are a **contextual section** of the palette rather than
+  a separate mode; a fossil clicked in the drill-down lane still opens a menu
+  scoped to it, because a fossil's actions are all about the node it attaches
+  to and none of the general ones apply.
 - The search field carries a breadcrumb of current scope. Backspace at
-  position zero pops the scope.
+  position zero pops it.
+- **A filter is a scope over one corpus, and `S` is the one that exists.** It
+  drops commands and fossils from the list entirely rather than demoting them:
+  the reader pressed a key naming a corpus, and leaving a command row above the
+  answer would make the filter a suggestion. Inside the palette it is also
+  reachable by typing `s` then space — live only on an empty field, so
+  *Sus* and *Salmo* are never intercepted. It pops with backspace like any
+  other chip.
 - **There is a way in that does not require having thought of a species.**
-  `⌘⇧S` adds a random one, `⌘⇧F` draws a random fossil. The empty canvas is a
+  `R` adds a random one, `⇧R` draws a random fossil. The empty canvas is a
   command list, and every other command on it assumes you already have a name
   in mind; nobody browses 2.4 million of them. Both draw only from taxa that
   carry **a silhouette of their own**, which is the whole of the design — a
@@ -95,21 +120,33 @@ filter tween on the same element.
   A random fossil also adds the clade it hangs below when the canvas has not
   got it, because otherwise the command's usual outcome is a refusal notice for
   something nobody chose by name.
-  Both are shifted because every unshifted mnemonic is taken: `⌘S` is share,
-  `⌘F` is the browser's find, `⌘R` is reload. `⌘⇧R` was the obvious pair for
-  "random" and is refused — it is hard-reload everywhere, and taking that from
-  a reader to save a letter is a worse trade than `⌘⇧L` already documents.
+  The two share a letter, which is the pairing `⌘⇧S`/`⌘⇧F` could never have
+  had: `⌘⇧R` is hard-reload in every browser. Copying a shareable link lost its
+  key in the same change and kept its command — `s` and `l` are the two most
+  used letters in the app, and share is the one action nobody reaches for
+  mid-flow.
 - **A command row may carry a tooltip its subtitle cannot hold.** The subtitle
   is one line in a fixed-height row; a caveat that needs a sentence — what a
   pick is drawn from, what it will do to the selection as a side effect — goes
   in `Command.hint`, which a reader can go looking for and never has to read
   past. It falls back to the subtitle, so every row has one.
-- Inline keybind hints on every row. Persistent hint bar on the **top edge**,
-  flat text under the same fade-to-void the axis uses, not a pill. It was
-  pinned bottom-right until the axis footer had something to say; the two
-  questions now split by edge — the top says what you can *do*, the bottom says
-  how to *read* what you see.
-- Confirmations are brief HUD toasts. No modals, no dialogs.
+- Inline keybind hints on every row, from the same table the buttons read.
+- **The control bar is on the top edge**, under the same fade-to-void the axis
+  uses, not a pill and not a panel. The two questions split by edge — the top
+  says what you can *do*, the bottom says how to *read* what you see. It
+  auto-hides with the rest of the chrome and comes back on hover, because a
+  faded control is still a control. An action that cannot run right now is
+  **disabled, never hidden**: a bar that reshuffles as the selection changes
+  costs the reader the button they were already reaching for, and the tooltip
+  on a greyed one says what would make it work. Below 720px the labels go and
+  the badges stay; below 620px the two bindings a touch reader cannot use
+  anyway — step, and a random fossil — go with them.
+- Confirmations are brief HUD toasts. **One dialog exists**, and only one:
+  clearing the canvas asks first. It is a single unshifted letter beside two
+  other single unshifted letters, it is the only action that can destroy an
+  hour of work, and a toast reading "Canvas cleared" reports the accident
+  rather than preventing it. Everything else is additive or one keystroke from
+  being undone, and confirms after the fact as before.
 
 ---
 
@@ -123,13 +160,25 @@ filter tween on the same element.
 - Nodes are small luminous points that bloom on hover and focus.
 - Dash pattern is the one thing on the canvas a reader cannot infer, and it
   carries the provenance claim, so it is stated as a **key on the axis footer**
-  — one line, key left, units right, flat text at the same size. A key, never
+  — one line, key left, scale right, flat text at the same size. A key, never
   an explanation: the sentences belong in the node card, one click from the
   node being asked about. It names only the patterns actually drawn, so a fully
   dated tree shows no key at all. It is the narrow exception to "no onboarding
   overlays", not a licence for more chrome — and it is **not** a panel. Two
   drafts made it one, a card and then a pill, and both were a third floating
   object on an edge that already had two. The line it belongs on existed.
+- **The right end of that line is one word and its key, and it is the switch.**
+  It reads `L logarithmic` or `L linear` — the state, in the reader's word,
+  clicking to toggle. It replaced "millions of years before present · symlog",
+  which spent the line on a unit every tick and node label already carries and
+  buried the two facts that matter: that there is a second scale, and that you
+  can have it. `symlog` is the name of a transform, not of anything on screen;
+  the knee is labelled on the axis where it happens, and the tooltip carries
+  the units. It wears the control bar's anatomy — badge, then word — because it
+  is the one binding not drawn on the bar, and this is where the thing it
+  changes lives. A first pass styled it as flat text on the "no third floating
+  object" argument above; that argument is about panels, and reading as prose
+  cost a 60-pixel control the only job it has, which is to look pressable.
 
 ## Hit targets
 
@@ -212,7 +261,7 @@ below is that one rule applied to the three things that overlap on the canvas.
 - Semantic zoom, not scale zoom. Nodes change *what* they render at each
   level, not just their size.
 - Three tiers: glowing point → point + label → full detail card.
-- `⌘0` fit all · `⌘.` fit selection · `⌘\` isolate path to root.
+- `F` fit all · `⇧F` fit selection · `/` isolate path to root.
 
 ## Motion
 

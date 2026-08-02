@@ -1,7 +1,7 @@
 /**
- * The command surface. ⌘K is the root, and the palette *is* the interface —
- * not an accessory to it. Opening the app opens the palette, and the empty
- * canvas state is the command list rather than an illustration.
+ * The command surface. `P` is the root and `S` opens the same list filtered to
+ * species; the palette *is* the interface, not an accessory to it, and the
+ * empty canvas state is the command list rather than an illustration.
  *
  * Row anatomy follows Raycast: icon · title · subtitle · right-aligned
  * accessory metadata, with an inline keybind hint on every row.
@@ -66,11 +66,27 @@ export interface Scope {
   onPop: () => void;
 }
 
+/**
+ * A corpus the palette is answering about, to the exclusion of the others.
+ *
+ * One value today and written as a union anyway, because the shape of the
+ * thing is "which corpus", not "is it species" — fossils are the obvious
+ * second and the commands the obvious third.
+ */
+export type PaletteFilter = "species";
+
+/** What a reader types to enter a filter, and what the chip then says. */
+const FILTER_PREFIX: Record<PaletteFilter, string> = { species: "s" };
+const FILTER_LABEL: Record<PaletteFilter, string> = { species: "Species" };
+
 interface Props {
   open: boolean;
   onClose: () => void;
   commands: Command[];
   scope: Scope | null;
+  /** Set when the list is restricted to one corpus. */
+  filter: PaletteFilter | null;
+  onFilter: (f: PaletteFilter | null) => void;
   onPick: (hit: SearchHit) => void;
   /** A fossil row was chosen: draw it against the tree. */
   onPickFossil: (f: FossilTaxon) => void;
@@ -150,6 +166,8 @@ export function Palette({
   onClose,
   commands,
   scope,
+  filter,
+  onFilter,
   onPick,
   onPickFossil,
   present,
@@ -292,10 +310,15 @@ export function Palette({
       else byTitle.set(title, [row]);
     };
     for (const r of rows.hitRows) push(SPECIES_SECTION, r);
-    for (const r of rows.cmdRows) {
-      if (r.kind === "cmd") push(r.cmd.section, r);
+    // A filter removes the other corpora entirely rather than demoting them.
+    // The reader pressed a key that named one of the three; leaving a command
+    // row above the answer would make the filter a suggestion.
+    if (filter === null) {
+      for (const r of rows.cmdRows) {
+        if (r.kind === "cmd") push(r.cmd.section, r);
+      }
+      for (const r of rows.fossilRows) push(FOSSIL_SECTION, r);
     }
-    for (const r of rows.fossilRows) push(FOSSIL_SECTION, r);
 
     const out: Section[] = [];
     for (const [title, list] of byTitle) {
@@ -307,7 +330,7 @@ export function Palette({
       if (b.title === FOSSIL_SECTION) return -1;
       return (b.rows[0]?.score ?? 0) - (a.rows[0]?.score ?? 0);
     });
-  }, [rows]);
+  }, [rows, filter]);
 
   /** The sections flattened, which is what the arrow keys actually walk. */
   const flat: Row[] = useMemo(() => sections.flatMap((s) => s.rows), [sections]);
@@ -326,8 +349,8 @@ export function Palette({
    * and make it unpickable.
    */
   const undated: FossilTaxon[] = useMemo(
-    () => fossils.filter((f) => !hasInterval(f)),
-    [fossils],
+    () => (filter === null ? fossils.filter((f) => !hasInterval(f)) : []),
+    [fossils, filter],
   );
 
   useEffect(() => setActive(0), [q]);
@@ -354,6 +377,28 @@ export function Palette({
     [onPick, onPickFossil],
   );
 
+  /**
+   * Typing into the field, and the one thing that is not typing.
+   *
+   * `s` then space enters the species filter, the same one the `S` key opens
+   * from the canvas. It is the shortest path from "I am already in the palette"
+   * to "I only want species", and it costs nothing to a reader who does not
+   * know it: the trigger is only live on an empty field with nothing else
+   * pushed, so a search for *Sus* or *Salmo* is never intercepted — those have
+   * a letter after the s, not a space.
+   */
+  const onChange = useCallback(
+    (v: string) => {
+      if (!filter && !scope && v === `${FILTER_PREFIX.species} `) {
+        onFilter("species");
+        setQ("");
+        return;
+      }
+      setQ(v);
+    },
+    [filter, scope, onFilter],
+  );
+
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
       if (e.key === "Escape") {
@@ -370,16 +415,20 @@ export function Palette({
         commit(flat[active]);
       } else if (
         e.key === "Backspace" &&
-        scope &&
+        (scope || filter) &&
         e.currentTarget.selectionStart === 0 &&
         e.currentTarget.selectionEnd === 0
       ) {
-        // Backspace at position zero pops the scope, per design-reference.md.
+        // Backspace at position zero pops the scope, per design-reference.md —
+        // and now the filter, which is the same gesture on the same chip.
+        // Innermost first: a filter is entered from inside a scope, never the
+        // other way round.
         e.preventDefault();
-        scope.onPop();
+        if (filter) onFilter(null);
+        else scope?.onPop();
       }
     },
-    [flat, active, commit, onClose, scope],
+    [flat, active, commit, onClose, scope, filter, onFilter],
   );
 
   if (!open) return null;
@@ -394,14 +443,19 @@ export function Palette({
       <div className="palette" role="dialog" aria-label="Command palette">
         <div className="palette-input-row">
           {scope && <span className="scope-chip">{scope.label}</span>}
+          {filter && <span className="scope-chip">{FILTER_LABEL[filter]}</span>}
           <input
             ref={inputRef}
             className="palette-input"
             value={q}
-            onChange={(e) => setQ(e.target.value)}
+            onChange={(e) => onChange(e.target.value)}
             onKeyDown={onKeyDown}
             placeholder={
-              scope ? "Action…" : "Search a species, or type a command — try “dog”"
+              filter
+                ? "Search species — try “dog”"
+                : scope
+                  ? "Action…"
+                  : "Search a species, or type a command — try “dog”"
             }
             spellCheck={false}
             autoComplete="off"
@@ -429,6 +483,8 @@ export function Palette({
                   Scientific names always work; common names depend on the
                   vernacular index having been built.
                 </>
+              ) : filter ? (
+                <>Type to search 2.4 million species.</>
               ) : (
                 <>Type to search 2.4 million species, or pick a command.</>
               )}

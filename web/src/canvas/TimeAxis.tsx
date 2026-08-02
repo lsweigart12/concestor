@@ -38,6 +38,7 @@
 
 import { useMemo } from "react";
 import type { TimescaleInterval } from "../api";
+import { kbd } from "../chrome/bindings";
 import { LANDMARK_TICKS, SYMLOG_T0, type AxisMode } from "../tree/layout";
 
 interface Props {
@@ -49,6 +50,8 @@ interface Props {
   toAge: (x: number) => number;
   intervals: TimescaleInterval[] | null;
   axisMode: AxisMode;
+  /** Switching scale is a click on the footer as well as a key. */
+  onAxisMode: (m: AxisMode) => void;
   /**
    * The provenance key, if this canvas has anything to admit. It rides on the
    * footer line rather than floating over the canvas, because it answers the
@@ -292,6 +295,7 @@ export function TimeAxis({
   toAge,
   intervals,
   axisMode,
+  onAxisMode,
   legend,
 }: Props) {
   /**
@@ -493,10 +497,42 @@ export function TimeAxis({
           have to inherit the same stylesheet the canvas uses. */}
       <div className="axis-foot">
         {legend}
-        <span className="axis-caption">
-          millions of years before present
-          {axisMode === "log" ? " · symlog" : " · linear"}
-        </span>
+        {/*
+          One word and its key, and it is a control.
+
+          It used to read "millions of years before present · symlog": a units
+          caption with the scale mode tacked on, and the two most important
+          facts about it — that there is another scale, and that you can have it
+          — were the two it did not state. It is now the state and the switch at
+          once, in the word the reader would use.
+
+          "logarithmic" rather than "symlog", which is the name of the
+          transform and not of anything a reader is looking at. The knee is
+          already labelled on the axis where it happens, which is where that
+          detail belongs; the tooltip carries the rest, including the units the
+          line no longer spells out.
+
+          It wears the control bar's anatomy — badge first, then the word — for
+          the same reason the bar does: it is the one binding not on the bar,
+          and a key that is never printed is a key nobody learns. This is where
+          `L` gets printed, because it is where the thing it changes lives.
+        */}
+        <button
+          type="button"
+          className="axis-mode"
+          onClick={() => onAxisMode(axisMode === "log" ? "linear" : "log")}
+          title={
+            axisMode === "log"
+              ? "Time scale: logarithmic, and linear below 1 Ma. Ticks are millions of years before present. Click, or press L, for a linear axis."
+              : "Time scale: linear, which puts every recent divergence in one pixel. Ticks are millions of years before present. Click, or press L, for a logarithmic axis."
+          }
+          aria-label={`Time scale: ${axisMode === "log" ? "logarithmic" : "linear"}. Click to switch.`}
+        >
+          <span className="kbd">{kbd("axis")}</span>
+          <span className="axis-mode-label">
+            {axisMode === "log" ? "logarithmic" : "linear"}
+          </span>
+        </button>
       </div>
     </div>
   );
