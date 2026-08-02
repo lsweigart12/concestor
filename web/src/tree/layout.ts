@@ -174,6 +174,40 @@ export function laneHue(idx: number): number {
   return LANE_HUES[Math.abs(h) % LANE_HUES.length]!;
 }
 
+/**
+ * Row order for grafts sharing a slot: the deeper the join, the lower the row.
+ *
+ * A graft's connector is an L — down from `(joinX, anchorY)` to its own row,
+ * then right to the fossil. `joinAge` is clamped to be no younger than the
+ * anchor, so **`joinX` is never right of the anchor**: every connector leaves
+ * the lineage at or above the branch's top and then has to travel right, past
+ * whatever else hangs off the same point.
+ *
+ * That makes crossings a pure question of order. Take two grafts on one slot,
+ * `i` drawn above `j`. `j`'s vertical crosses `i`'s horizontal run exactly when
+ * `joinX(i) < joinX(j) < x(i)` — and sorting so that `joinX` only ever
+ * *decreases* down the rows makes that condition unsatisfiable. `i`'s own
+ * vertical stops at `i`'s row, above `j`, so it can never reach `j`'s run
+ * either. No crossings, by construction rather than by tuning.
+ *
+ * `joinX` decreases as `joinAge` increases, so ascending `joinAge` is the same
+ * rule stated without reference to the scale — which matters, because it must
+ * hold under both axis modes and at every zoom.
+ *
+ * The case it was written for: *H. georgicus* (first appearance 2.58 Ma) among
+ * *H. floresiensis* and *H. neanderthalensis*, whose first appearances are
+ * *younger* than the divergence they hang from and so clamp to it. Ordered by
+ * last appearance, georgicus came first and its run cut straight through the
+ * vertical carrying the other two down. It belongs at the bottom, and this is
+ * the property that says so.
+ *
+ * Sorting is stable, so grafts that join at the same point keep the order
+ * `buildGrafts` gave them and the picture stays a function of the URL.
+ */
+export function graftOrder(a: Graft, b: Graft): number {
+  return a.joinAge - b.joinAge;
+}
+
 export function layout(
   ind: Induced,
   nodes: Map<number, PathNode>,
@@ -262,6 +296,9 @@ export function layout(
    * an extra thing hanging off this part of the tree — and, because the rows
    * either side belong to the same clade, the reader's eye never has to cross
    * an unrelated lineage to get from the connector to the fossil.
+   *
+   * **Within a slot the deeper join goes lower**, and that ordering is what
+   * keeps the connectors from crossing each other. See {@link graftOrder}.
    */
   const basePos = new Map<number, number>();
   rows.forEach((v, i) => basePos.set(v, i));
@@ -278,6 +315,7 @@ export function layout(
     if (list) list.push(g);
     else graftsAfter.set(slot, [g]);
   }
+  for (const list of graftsAfter.values()) list.sort(graftOrder);
 
   const yOf = new Map<number, number>();
   const graftY = new Map<number, number>();
@@ -358,7 +396,11 @@ export function layout(
     idx: p.idx,
     x: p.x,
     y: p.y,
-    isLeaf: p.isLeaf,
+    // A graft is terminal without being a leaf: `isLeaf` says *chosen*, which
+    // decides whether it may draw a borrowed exemplar, and a graft may not be
+    // one of those. What the label placement needs is the other question —
+    // does anything continue past this mark — and for a fossil nothing does.
+    terminal: p.isLeaf || p.graft !== undefined,
     // A graft outranks every divergence and yields only to a chosen leaf. It
     // is on the canvas because the reader asked for it by name, and `tip_count`
     // alone would put a one-tip fossil below every node it hangs among — so

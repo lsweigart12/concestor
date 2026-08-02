@@ -31,7 +31,16 @@ export interface LabelInput {
   idx: number;
   x: number;
   y: number;
-  isLeaf: boolean;
+  /**
+   * The mark ends its line, with the margin to its right open.
+   *
+   * A question about geometry, not about the topology — which is why it is not
+   * spelled `isLeaf`. A chosen leaf is one; so is a **graft**, whose connector
+   * arrives from the left and stops at the fossil with nothing beyond it. Giving
+   * a graft the divergence ordering, which it had, put every fossil's name and
+   * silhouette a half-row above the mark they belong to.
+   */
+  terminal: boolean;
   /** The taxon name. Wraps when it must. */
   name: string;
   /** Short trailing figure kept on the name's line — "≤ 96 Ma". */
@@ -185,19 +194,24 @@ interface Candidate {
 /**
  * Where a label is willing to go, best first.
  *
- * Leaves want to sit beside their point on the open margin side, so they try
- * right, then vertical dodges, and only then the crowded interior. Clades
- * default above-left — nothing is ever routed there, since the parent arrives
- * horizontally at the node's own y and its vertical drop is back at the
+ * Terminal marks want to sit beside their point on the open margin side, so
+ * they try right, then vertical dodges, and only then the crowded interior.
+ * Clades default above-left — nothing is ever routed there, since the parent
+ * arrives horizontally at the node's own y and its vertical drop is back at the
  * parent's x — and fall through to above-right, below-left, below-right. That
  * ordering is what makes a blocked clade label step sideways into open space
  * rather than downward through its own subtree.
+ *
+ * The split is `terminal`, not `isLeaf`, and the difference is not cosmetic: the
+ * clade list never offers `dy: 0` until its ninth candidate, so anything sent
+ * down it that *is* a terminal mark is displaced by half a row even when the
+ * space beside it is completely clear. That is what happened to every graft.
  */
 function candidatesFor(n: LabelInput, h: number, rowH: number): Candidate[] {
   const near = h / 2 + 10;
   const step = Math.max(rowH * 0.34, 22);
 
-  if (n.isLeaf) {
+  if (n.terminal) {
     const out: Candidate[] = [{ side: "right", dy: 0 }];
     for (const d of [near, -near, near + step, -(near + step)]) {
       out.push({ side: "right", dy: d });
