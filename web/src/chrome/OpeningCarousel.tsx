@@ -17,9 +17,10 @@
  * 2. **Any manual press stops it for good.** Once somebody has taken the wheel,
  *    an auto-advance is fighting them. It does not resume on a timer.
  * 3. **`prefers-reduced-motion` disables it entirely**, along with the fade.
- * 4. **It is never the only route.** Every opening is also a palette command
- *    under `Start here`, and the about panel lists all six. Nothing here is
- *    reachable only by waiting.
+ * 4. **It is never the only route.** The arrows and the dots reach all six
+ *    directly, and while the canvas is empty — which is the only time this
+ *    shows on it — every opening is also a palette command under `Start here`.
+ *    Nothing here is reachable only by waiting.
  *
  * The interval is deliberately long. The reveal runs to two lines and a reader
  * who has just arrived is also looking at the silhouettes and the axis, so this
@@ -34,7 +35,24 @@ import { OPENINGS, type Opening } from "../openings";
 /** Long enough to read two lines without racing, per the note above. */
 const DWELL_MS = 7600;
 
-export function OpeningCarousel({ onOpen }: { onOpen: (o: Opening) => void }) {
+export function OpeningCarousel({
+  onOpen,
+  /**
+   * Off inside the about panel, on for the empty canvas.
+   *
+   * The canvas is an attract surface with nothing else on it, so advancing is
+   * the whole point. The panel is something a reader opened deliberately and is
+   * *reading* — it carries provenance prose below this — and text sliding
+   * around above what you are reading is the exact behaviour that gives
+   * carousels their reputation. Rule 1 does not save it there either: hover
+   * only pauses while the pointer is over the carousel, and a reader three
+   * paragraphs down has moved on.
+   */
+  autoRotate = true,
+}: {
+  onOpen: (o: Opening) => void;
+  autoRotate?: boolean;
+}) {
   const [at, setAt] = useState(0);
   /** Set once the reader presses anything. Never cleared — see rule 2. */
   const [taken, setTaken] = useState(false);
@@ -51,13 +69,13 @@ export function OpeningCarousel({ onOpen }: { onOpen: (o: Opening) => void }) {
   }, []);
 
   useEffect(() => {
-    if (taken || held || reduced.current) return;
+    if (!autoRotate || taken || held || reduced.current) return;
     const t = window.setTimeout(
       () => setAt((i) => (i + 1) % OPENINGS.length),
       DWELL_MS,
     );
     return () => window.clearTimeout(t);
-  }, [at, taken, held]);
+  }, [at, taken, held, autoRotate]);
 
   const o = OPENINGS[at];
   if (!o) return null;

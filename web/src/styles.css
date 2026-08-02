@@ -2228,111 +2228,6 @@ body {
   outline-offset: 2px;
 }
 
-/* -------------------------------------------------------------- openings -- */
-
-/*
- * The ways in. Shared by the empty canvas and the about panel, because they
- * are the same offer made in two places and a reader who learns the shape in
- * one should recognise it in the other.
- *
- * `.boot` is `pointer-events: none` so the empty canvas does not swallow
- * presses aimed at the axis footer behind it. These rows are the exception and
- * have to take it back explicitly — without this the list renders perfectly and
- * cannot be clicked, which looks like a dead link rather than a bug.
- */
-.openings {
-  list-style: none;
-  margin: 0 0 var(--s4);
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  pointer-events: auto;
-  text-align: left;
-}
-
-/*
- * `text-align` is set here and not on the list, because a `button` carries
- * `center` from the user-agent sheet and inherits nothing — the first cut set
- * it on `.openings` and every row still rendered centred, which read as six
- * paragraphs of prose rather than as a menu.
- */
-.opening {
-  display: grid;
-  grid-template-columns: 12px 1fr;
-  column-gap: var(--s2);
-  width: 100%;
-  padding: 7px var(--s3) 7px var(--s2);
-  border: 1px solid transparent;
-  border-radius: 6px;
-  background: transparent;
-  font-family: var(--sans);
-  text-align: left;
-  color: inherit;
-  cursor: pointer;
-  transition:
-    background 120ms ease,
-    border-color 120ms ease;
-}
-.opening:hover,
-.opening:focus-visible {
-  background: var(--void-3);
-  border-color: var(--hairline);
-  outline: none;
-}
-
-/*
- * The one mark that says these are pressable. Without it the rows are legible
- * and inert-looking, and a reader who does not hover — which is every reader on
- * a touch screen — has no reason to believe the list does anything.
- *
- * On the button rather than on the question, and spanning both rows: as a
- * `::before` inside `.opening-q` it would need subgrid to line up with the
- * answer beneath it, and the question's own text node would be competing with
- * it for the same cell.
- */
-.opening::before {
-  content: "›";
-  grid-column: 1;
-  grid-row: 1 / span 2;
-  color: var(--ink-5, var(--ink-4));
-  transition: color 120ms ease;
-}
-.opening:hover::before,
-.opening:focus-visible::before {
-  color: var(--accent);
-}
-
-.opening-q {
-  display: block;
-  grid-column: 2;
-  font-size: 13px;
-  color: var(--ink-2);
-}
-.opening:hover .opening-q,
-.opening:focus-visible .opening-q {
-  color: var(--ink);
-}
-
-/*
- * The answer, and it is deliberately legible rather than a hover affordance.
- * An earlier cut revealed it only on hover, which reads well on a desktop and
- * hides the entire pitch on a touch screen — where there is no hover at all and
- * the reader would be choosing between six unexplained questions.
- */
-.opening-a {
-  display: block;
-  grid-column: 2;
-  margin-top: 1px;
-  font-size: 11.5px;
-  line-height: 1.4;
-  color: var(--ink-4);
-}
-.opening:hover .opening-a,
-.opening:focus-visible .opening-a {
-  color: var(--ink-3);
-}
-
 /* ----------------------------------------------------------------- about -- */
 
 .modal-wide {
@@ -2372,10 +2267,17 @@ body {
   color: var(--ink-2);
 }
 
-/* The openings inside the panel sit flush with its text column. */
-.about .openings {
-  margin-left: calc(var(--s3) * -1);
-  margin-right: calc(var(--s3) * -1);
+/*
+ * The carousel inside the panel. Narrower arrows than on the canvas, where it
+ * has a whole viewport; here it shares a 560px dialog with running text, and
+ * the arrows sitting hard against the text column read as part of the prose.
+ */
+.about .carousel {
+  grid-template-columns: 24px minmax(0, 1fr) 24px;
+  margin-bottom: var(--s4);
+}
+.about .carousel-card {
+  min-height: 138px;
 }
 
 .about-foot {

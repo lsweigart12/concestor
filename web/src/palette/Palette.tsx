@@ -121,17 +121,41 @@ interface Section {
 }
 
 /**
- * The fossil section's title, and the one section whose position is fixed.
+ * The fossil section's title.
  *
- * Every other section floats on its best row's score. This one is pinned last
- * however well a fossil name matches, because the two corpora answer different
- * questions: a species is a node you can build a tree from, a fossil is an
- * observation that hangs off one. Typing "dimetrodon" should not bury the
- * species list under eight PBDB rows, and a reader who wants the fossil will
- * find it — it is the only section with that name.
+ * Pinned near the tail however well a fossil name matches, because the two
+ * corpora answer different questions: a species is a node you can build a tree
+ * from, a fossil is an observation that hangs off one. Typing "dimetrodon"
+ * should not bury the species list under eight PBDB rows, and a reader who
+ * wants the fossil will find it — it is the only section with that name.
  */
 const FOSSIL_SECTION = "Fossils";
 const SPECIES_SECTION = "Species";
+
+/**
+ * Credits, provenance and the ranking reset. Pinned dead last.
+ *
+ * Without this it *climbs*, and climbs precisely because it is useful once:
+ * every section floats on its best row's score and {@link sessionBoost} adds to
+ * whatever the reader has pressed before, so opening the about panel twice
+ * parks it above Fit and Species for the rest of the session. These two rows
+ * answer a question nobody is in the middle of asking — they belong at the
+ * bottom of a list, the way an About menu item does everywhere else.
+ *
+ * They stay findable: type "about" and every other section stops matching, so
+ * the only section left is at the top by default.
+ */
+export const ABOUT_SECTION = "About";
+
+/**
+ * Sections whose position is fixed, in the order they appear at the tail.
+ * Everything not listed floats on its best row's score.
+ */
+const TAIL_SECTIONS: readonly string[] = [FOSSIL_SECTION, ABOUT_SECTION];
+const tailRank = (title: string): number => {
+  const i = TAIL_SECTIONS.indexOf(title);
+  return i < 0 ? 0 : i + 1;
+};
 
 const DEBOUNCE_MS = 110;
 
@@ -298,9 +322,10 @@ export function Palette({
    * Rows grouped into titled sections, Raycast-style.
    *
    * Sections float on their best row's score so the thing that best matches
-   * what was typed leads — except {@link FOSSIL_SECTION}, which is pinned last
-   * whatever it scores. `Command.section` has carried the grouping the whole
-   * time and nothing rendered it; this is where it starts meaning something.
+   * what was typed leads — except those in {@link TAIL_SECTIONS}, which hold
+   * the bottom whatever they score. `Command.section` has carried the grouping
+   * the whole time and nothing rendered it; this is where it starts meaning
+   * something.
    */
   const sections: Section[] = useMemo(() => {
     const byTitle = new Map<string, Row[]>();
@@ -326,8 +351,9 @@ export function Palette({
       out.push({ title, rows: list });
     }
     return out.sort((a, b) => {
-      if (a.title === FOSSIL_SECTION) return 1;
-      if (b.title === FOSSIL_SECTION) return -1;
+      const ra = tailRank(a.title);
+      const rb = tailRank(b.title);
+      if (ra !== rb) return ra - rb;
       return (b.rows[0]?.score ?? 0) - (a.rows[0]?.score ?? 0);
     });
   }, [rows, filter]);

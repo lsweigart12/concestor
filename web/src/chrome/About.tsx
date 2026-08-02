@@ -19,7 +19,8 @@
 
 import { useEffect, useRef } from "react";
 import type { About as AboutPayload } from "../api";
-import { OPENINGS, type Opening } from "../openings";
+import { OpeningCarousel } from "./OpeningCarousel";
+import type { Opening } from "../openings";
 
 export function About({
   about,
@@ -30,6 +31,15 @@ export function About({
   onOpen: (o: Opening) => void;
   onClose: () => void;
 }) {
+  /**
+   * Focus lands on Close, not on the first opening.
+   *
+   * Something inside the dialog has to take focus or Escape and Tab both start
+   * outside it. Close is the one control here that cannot change what is on the
+   * canvas, which makes it the safe landing: a keyboard reader who opens this
+   * and hits Enter by reflex should not have their tree replaced by whichever
+   * question the carousel happened to be showing.
+   */
   const ref = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     requestAnimationFrame(() => ref.current?.focus());
@@ -55,21 +65,16 @@ export function About({
         </p>
 
         <h3 className="about-h">Start here</h3>
-        <ul className="openings">
-          {OPENINGS.map((o, i) => (
-            <li key={o.id}>
-              <button
-                type="button"
-                className="opening"
-                ref={i === 0 ? ref : undefined}
-                onClick={() => onOpen(o)}
-              >
-                <span className="opening-q">{o.question}</span>
-                <span className="opening-a">{o.reveal}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
+        {/*
+          The same carousel the empty canvas shows, and not a list of all six.
+          A list put the panel's own content — what the dashes mean, where the
+          data comes from — below six questions and six answers, so the reader
+          had to scroll past the thing they already saw on the canvas to reach
+          the thing they opened this to read.
+
+          `autoRotate` is off here, and the component says why.
+        */}
+        <OpeningCarousel onOpen={onOpen} autoRotate={false} />
 
         <h3 className="about-h">Reading the tree</h3>
         <p className="about-p">
@@ -97,7 +102,7 @@ export function About({
           <span className="mono">
             {about ? `build ${about.build_id}` : "build unavailable"}
           </span>
-          <button type="button" className="btn" onClick={onClose}>
+          <button ref={ref} type="button" className="btn" onClick={onClose}>
             <span className="kbd">esc</span> Close
           </button>
         </div>

@@ -32,6 +32,7 @@ import {
   useStore,
   type Edge,
   type Node,
+  type Viewport,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
@@ -134,6 +135,8 @@ export interface GraphProps {
   onAxisMode: (m: AxisMode) => void;
   intervals: TimescaleInterval[] | null;
   fitSignal: { kind: "all" | "selection"; token: number } | null;
+  /** Reports whether the canvas is already showing the fit. */
+  onFitState?: (fit: boolean) => void;
   /** The segment whose drill-down lane is open. Lives in the URL. */
   drill: Drill | null;
   onDrill: (d: Drill | null) => void;
@@ -159,6 +162,7 @@ function Inner(props: GraphProps) {
     onAxisMode,
     intervals,
     fitSignal,
+    onFitState,
     drill,
     onDrill,
     onPickFossil,
@@ -521,36 +525,78 @@ function Inner(props: GraphProps) {
    * labels are known to need. Same principle as everything else here —
    * positions are computed, never guessed at by a solver.
    */
+  const fitTarget = useCallback((): Viewport | null => {
+    const c = lay.content;
+    if (!c || !vw || !vh) return null;
+    // The bounds already include every placed label, so the fit frames what
+    // is actually drawn rather than the dots plus a guessed margin.
+    const minX = c.x - EDGE_PAD;
+    const maxX = c.x + c.w + EDGE_PAD;
+    const minY = c.y - EDGE_PAD;
+    const maxY = c.y + c.h + EDGE_PAD;
+    // The axis owns the bottom strip, and an open drill-down lane owns more
+    // of it; fitting into the full height would slide the lowest lineage
+    // underneath whichever is there.
+    const usableH = Math.max(vh - AXIS_RESERVE - laneH, 160);
+    const z = Math.min(
+      vw / Math.max(maxX - minX, 1),
+      usableH / Math.max(maxY - minY, 1),
+      MAX_FIT_ZOOM,
+    );
+    return {
+      x: (vw - (minX + maxX) * z) / 2,
+      y: (usableH - (minY + maxY) * z) / 2,
+      zoom: z,
+    };
+  }, [lay, vw, vh, laneH]);
+
   const fitToContent = useCallback(
     (duration: number) => {
-      const c = lay.content;
-      if (!c || !vw || !vh) return;
-      // The bounds already include every placed label, so the fit frames what
-      // is actually drawn rather than the dots plus a guessed margin.
-      const minX = c.x - EDGE_PAD;
-      const maxX = c.x + c.w + EDGE_PAD;
-      const minY = c.y - EDGE_PAD;
-      const maxY = c.y + c.h + EDGE_PAD;
-      // The axis owns the bottom strip, and an open drill-down lane owns more
-      // of it; fitting into the full height would slide the lowest lineage
-      // underneath whichever is there.
-      const usableH = Math.max(vh - AXIS_RESERVE - laneH, 160);
-      const z = Math.min(
-        vw / Math.max(maxX - minX, 1),
-        usableH / Math.max(maxY - minY, 1),
-        MAX_FIT_ZOOM,
-      );
-      rf.setViewport(
-        {
-          x: (vw - (minX + maxX) * z) / 2,
-          y: (usableH - (minY + maxY) * z) / 2,
-          zoom: z,
-        },
-        { duration },
-      );
+      const t = fitTarget();
+      if (t) rf.setViewport(t, { duration });
     },
-    [lay, vw, vh, rf, laneH],
+    [fitTarget, rf],
   );
+
+  /**
+   * Tell the app whether the canvas is already showing the fit.
+   *
+   * Asked of the viewport rather than remembered, because "have we fitted?" is
+   * the wrong question — the tree reframes itself on an add and on a lane
+   * opening, the target moves when the window resizes, and a flag set at the
+   * last `fitToContent` would be stale after any of those. Comparing the live
+   * transform against the target it would be given answers it in every case.
+   *
+   * On `onMoveEnd` and on layout change only, never per frame: React Flow pans
+   * by transform without re-rendering subscribers, and taking a viewport
+   * subscription here to keep a palette row up to date would trade a smooth
+   * drag for it. The palette is opened between gestures, not during one.
+   */
+  const reportFit = useCallback(() => {
+    if (!onFitState) return;
+    const t = fitTarget();
+    if (!t) {
+      onFitState(false);
+      return;
+    }
+    const v = rf.getViewport();
+    // A whole pixel of pan and a half percent of zoom are both invisible, and
+    // the animated fit lands a hair off its own target often enough that an
+    // exact test would report "not fit" immediately after fitting.
+    onFitState(
+      Math.abs(v.x - t.x) < 1.5 &&
+        Math.abs(v.y - t.y) < 1.5 &&
+        Math.abs(v.zoom - t.zoom) < t.zoom * 0.005,
+    );
+  }, [onFitState, fitTarget, rf]);
+
+  // The target moves when the layout, the viewport size or the lane does, so
+  // re-answer then as well as after a gesture. Deferred a frame because an
+  // in-flight fit animation is still running when these change.
+  useEffect(() => {
+    const t = window.setTimeout(reportFit, 480);
+    return () => window.clearTimeout(t);
+  }, [reportFit, fitSignal]);
 
   // Opening or closing the lane changes how much canvas there is, so the tree
   // reframes into what is left rather than sliding underneath it. Keyed on the
@@ -666,6 +712,7 @@ function Inner(props: GraphProps) {
         onNodeClick={onNodeClick}
         onEdgeClick={onEdgeClick}
         onPaneClick={() => onFocus(null)}
+        onMoveEnd={reportFit}
         nodesDraggable={false}
         nodesConnectable={false}
         elementsSelectable

@@ -36,7 +36,13 @@ import {
   parseGraftKey,
   type GraftRefusal,
 } from "./tree/graft";
-import { Palette, type Command, type PaletteFilter, type Scope } from "./palette/Palette";
+import {
+  Palette,
+  ABOUT_SECTION,
+  type Command,
+  type PaletteFilter,
+  type Scope,
+} from "./palette/Palette";
 import { About as AboutPanel } from "./chrome/About";
 import { OpeningCarousel } from "./chrome/OpeningCarousel";
 import { OPENINGS, keysOf, type Opening } from "./openings";
@@ -101,6 +107,14 @@ export default function App() {
    * has is an attachment point, and the actions are about that.
    */
   const [pickedFossil, setPickedFossil] = useState<FossilTaxon | null>(null);
+  /**
+   * Whether the canvas is already showing the fit, reported by the graph.
+   *
+   * Starts false so the command exists before the first report lands; a
+   * momentarily-offered Fit is a smaller error than a permanently missing one
+   * if the graph never mounts.
+   */
+  const [viewFit, setViewFit] = useState(false);
   const [reachable, setReachable] = useState<boolean | null>(null);
   const [idle, setIdle] = useState(false);
   const toastId = useRef(0);
@@ -496,20 +510,39 @@ export default function App() {
     }
   }, [drawFossil, toast, presentFossils]);
 
+  /**
+   * Nothing on the canvas at all.
+   *
+   * Declared here rather than beside its other user further down, because the
+   * command list needs it too and two copies of "is the canvas empty" is how
+   * the two surfaces start disagreeing.
+   */
+  const empty = tree.induced.rendered.length === 0 && tree.view.fossils.length === 0;
+
   const commands: Command[] = useMemo(() => {
     const base: Command[] = [
-      {
-        id: "fit-all",
-        title: "Fit all",
-        subtitle: "Frame the whole induced subtree",
-        icon: "⤢",
-        keys: kbd("fit"),
-        section: "View",
-        run: () => {
-          setFitSignal({ kind: "all", token: Date.now() });
-          setPaletteOpen(false);
-        },
-      },
+      // Absent while the canvas is already showing the fit, and absent on an
+      // empty one. A command that would visibly do nothing is worse than a
+      // missing command: the reader presses it, watches for a change, and
+      // learns that this palette answers some presses and not others.
+      // `viewFit` is asked of the live viewport rather than remembered — see
+      // `reportFit` in `canvas/Graph.tsx`.
+      ...(empty || viewFit
+        ? []
+        : [
+            {
+              id: "fit-all",
+              title: "Fit all",
+              subtitle: "Frame the whole induced subtree",
+              icon: "⤢",
+              keys: kbd("fit"),
+              section: "View",
+              run: () => {
+                setFitSignal({ kind: "all", token: Date.now() });
+                setPaletteOpen(false);
+              },
+            },
+          ]),
       {
         id: "axis",
         title: `Switch time axis to ${tree.view.axis === "log" ? "linear" : "logarithmic"}`,
@@ -585,11 +618,21 @@ export default function App() {
           setConfirmClear(true);
         },
       },
-      // The openings are commands as well as an empty-state list, so a reader
-      // who has already drawn something can still reach them — and so the
-      // palette answers "mushroom" with the question about mushrooms, not only
-      // with 300 fungi. They sit above the corpus for that reason.
-      ...OPENINGS.map((o) => ({
+      // Only while the canvas is empty, which is the difference between an
+      // opening and every other command here.
+      //
+      // An opening is not additive: `tree.open` *replaces* the selection, the
+      // fossils and the axis, because the claim it makes is only true of its
+      // own set of taxa. Offered against a tree somebody has spent time
+      // assembling, "Are you a fish?" is an undo-less clear wearing the label
+      // of a question — and it would sit in the palette one fuzzy match away
+      // from the species they were actually reaching for.
+      //
+      // Nothing is lost by hiding them: with an empty canvas they are here, in
+      // the boot carousel, and in the about panel, and the about panel is
+      // reachable at any time. `⌫`-ing back to an empty canvas brings them
+      // back, and so does the back button, since every view is a URL.
+      ...(empty ? OPENINGS : []).map((o) => ({
         id: `opening-${o.id}`,
         title: o.question,
         subtitle: o.reveal,
@@ -603,7 +646,7 @@ export default function App() {
         title: "About Concestor",
         subtitle: "What this is, where the data comes from, what the dashes mean",
         icon: "i",
-        section: "About",
+        section: ABOUT_SECTION,
         run: () => {
           setPaletteOpen(false);
           setAboutOpen(true);
@@ -614,7 +657,7 @@ export default function App() {
         title: "Reset search ranking",
         subtitle: "Forget recency and frequency history",
         icon: "↺",
-        section: "About",
+        section: ABOUT_SECTION,
         run: () => {
           resetUsage();
           setPaletteOpen(false);
@@ -694,7 +737,18 @@ export default function App() {
       }
     }
     return base;
-  }, [tree, about, focusedNode, toast, share, randomSpecies, randomFossil, openOpening]);
+  }, [
+    tree,
+    about,
+    focusedNode,
+    toast,
+    share,
+    randomSpecies,
+    randomFossil,
+    openOpening,
+    empty,
+    viewFit,
+  ]);
 
   /**
    * What a fossil offers, which is short and deliberately so.
@@ -954,8 +1008,6 @@ export default function App() {
     [tree, focusedIdx],
   );
 
-  const empty = tree.induced.rendered.length === 0 && tree.view.fossils.length === 0;
-
   /**
    * Full keyboard operation, on bare letters.
    *
@@ -1102,7 +1154,11 @@ export default function App() {
       {
         id: "fit",
         run: () => setFitSignal({ kind: "all", token: Date.now() }),
-        ...(empty ? { disabledBecause: "Nothing on the canvas to frame yet" } : {}),
+        ...(empty
+          ? { disabledBecause: "Nothing on the canvas to frame yet" }
+          : viewFit
+            ? { disabledBecause: "The whole tree is already framed" }
+            : {}),
       },
       {
         id: "isolate",
@@ -1201,6 +1257,7 @@ export default function App() {
         onAxisMode={tree.setAxis}
         intervals={timescale}
         fitSignal={fitSignal}
+        onFitState={setViewFit}
         drill={tree.view.drill}
         onDrill={tree.setDrill}
         grafts={grafts}

@@ -300,22 +300,63 @@ id, one a licence paragraph too long to finish before it vanished. They are now
 one `chrome/About.tsx`, which leads with the openings, because the honest answer
 to *what is this* is a drawn tree rather than a description of one.
 
-**The canvas shows one opening at a time; the about panel still lists all six.**
-That split is deliberate — the canvas is an attract surface and the panel is a
-reference one — and it is why `chrome/OpeningCarousel.tsx` and the `.openings`
-list both exist. Six questions and six answers at once was a wall of prose on a
-surface whose whole argument is that the graph is the only thing worth looking
-at. The silhouettes carry what the deleted text was carrying: `OpeningTaxon.art`
-is a PhyloPic id rendered straight off `/v1/silhouette/{id}.svg`, so the preview
-needs no API round trip before the canvas holds anything.
+**One opening at a time, in both places `chrome/OpeningCarousel.tsx` appears.**
+Six questions and six answers at once was a wall of prose on a surface whose
+whole argument is that the graph is the only thing worth looking at, and in the
+about panel it pushed that panel's own content — what the dashes mean, where the
+data comes from — below the fold. The silhouettes carry what the deleted text
+was carrying: `OpeningTaxon.art` is a PhyloPic id rendered straight off
+`/v1/silhouette/{id}.svg`, so the preview needs no API round trip before the
+canvas holds anything.
 
-**Auto-rotation is the part that needed care**, because rotating banners are
-normally a defect. Four rules make this one defensible and none is optional:
-hover or focus anywhere in the card stops it; any manual press stops it *for
-good* rather than on a timer; `prefers-reduced-motion` disables it and the fade
-outright; and it is never the only route, since all six are palette commands
-under `Start here` and all six are listed in the about panel. Nothing is
-reachable only by waiting.
+**`autoRotate` is on for the canvas and off in the panel.** The canvas is an
+attract surface with nothing else on it. The panel is something a reader opened
+deliberately and is reading, and text sliding above the paragraph you are on is
+the exact behaviour that gives carousels their reputation — hover-to-pause does
+not save it, because that only holds while the pointer is over the carousel.
+
+**Auto-rotation is otherwise the part that needed care.** Three more rules, none
+optional: hover or focus anywhere in the card stops it; any manual press stops it
+*for good* rather than on a timer; `prefers-reduced-motion` disables it and the
+fade outright. And it is never the only route — arrows and dots reach all six
+directly, and the palette carries them too while the canvas is empty.
+
+**`Start here` is hidden from the palette once anything is drawn**, and that is
+the difference between an opening and every other command. An opening is not
+additive: `tree.open` *replaces* the selection, the fossils and the axis, because
+its claim is only true of its own taxa. Offered against a tree somebody has spent
+time assembling, "Are you a fish?" is an undo-less clear wearing the label of a
+question — sitting one fuzzy match away from the species they were reaching for.
+Nothing is lost: the about panel is reachable at any time, and both the back
+button and clearing bring the section back, since every view is a URL.
+
+### The palette hides what would do nothing, and pins what nobody is asking for
+
+Two rules, both about the same failure: a row that answers a press with no
+visible change teaches the reader that this list is unreliable.
+
+**`TAIL_SECTIONS` pins `Fossils` and then `About` to the bottom.** The about
+section *climbed*, and climbed precisely because it is useful once — sections
+float on their best row's score, `sessionBoost` adds to whatever has been
+pressed before, so opening the panel twice parked credits and the ranking reset
+above Fit and Species for the rest of the session. They stay findable: type
+"about" and every other section stops matching. `ABOUT_SECTION` is exported
+from `Palette.tsx` and imported by `App.tsx` so the string cannot drift.
+
+**`Fit all` is absent while the canvas already shows the fit**, and the control
+bar's button says *"The whole tree is already framed"* rather than going quiet.
+`Graph.reportFit` **asks the viewport** instead of remembering a flag, and that
+is the part worth keeping: the tree reframes itself on an add and on a lane
+opening, and the target moves on a window resize, so a flag set at the last
+`fitToContent` is stale after any of them. `fitTarget()` is the same
+computation `fitToContent` applies, compared against the live transform within
+1.5px and half a percent of zoom — the animated fit lands a hair off its own
+target, and an exact test reports "not fit" immediately after fitting.
+
+It runs on `onMoveEnd` and on layout change, **never per frame**. React Flow
+pans by transform without re-rendering subscribers, so taking a viewport
+subscription to keep a palette row current would trade a smooth drag for it.
+The palette is opened between gestures, not during one.
 
 Two structural notes. **`Opening.taxa` is one list of `{key, art, label}`, not
 parallel arrays** — a drifted pair shows a salmon captioned as a shark and
