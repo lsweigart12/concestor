@@ -35,10 +35,23 @@
  *
  * Each was verified against the baked arrays rather than against the internet,
  * and one popular candidate **failed and was cut**: "*T. rex* lived closer to
- * us than to *Stegosaurus*" is false as this app draws it, because PBDB's last
- * appearance for *Stegosaurus* is 93.9 Ma — its bracket runs up into the
- * Cenomanian — not the textbook ~150 Ma. The gap is 27.9 Ma against 66. Do not
- * restore it without re-checking `fossil.lla`.
+ * us than to *Stegosaurus*" was false as this app drew it, because PBDB's last
+ * appearance for *Stegosaurus* was 93.9 Ma — not the textbook ~150 — putting
+ * the gap at 27.9 Ma against 66.
+ *
+ * **That number was a bug, and it is fixed.** It came from a `Stegosaurus sp.`
+ * occurrence in the Mussentuchit Member carrying the genus 50 Myr into the
+ * Cenomanian; `young_ends` now refuses a young end no identified member
+ * supports, and `fossil.lla_drawn` for *Stegosaurus* is **143.1 Ma**. *T. rex*
+ * is uncorrected at 66.0, having nothing to correct. So the gap is **77.1 Ma
+ * against 66.0 and the claim is true.**
+ *
+ * It is still not here, and the reason is the artifact rather than the fact:
+ * the correction lives in phase 4 and the shipped build predates it, so a
+ * canvas built today still draws *Stegosaurus* at 93.9 and would contradict
+ * the copy. **Add this opening once phase 4 has been re-run** — confirm with
+ * `fossil.lla_drawn`, not `fossil.lla`, which still holds PBDB's own 93.9 by
+ * design.
  */
 
 import type { AxisMode } from "./tree/layout";

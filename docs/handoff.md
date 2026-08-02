@@ -281,10 +281,15 @@ Four things not to redo:
   itself on the one axis it exists to be careful about. Branching order is
   exact; let the axis carry the figures.
 - **Every claim was checked against the baked arrays, and one popular candidate
-  failed.** *"T. rex lived closer to us than to Stegosaurus"* is **false as this
-  app draws it**: PBDB's last appearance for *Stegosaurus* is `lla` 93.9 Ma, not
-  the textbook ~150, so the gap is 27.9 Ma against 66. Do not restore it without
-  re-reading `fossil.lla`.
+  failed — then stopped failing.** *"T. rex lived closer to us than to
+  Stegosaurus"* was false as this app drew it: *Stegosaurus*'s last appearance
+  was 93.9 Ma, putting the gap at 27.9 against 66. **That was the `sp.`
+  contamination §"A fossil's young end" describes, and it is fixed** —
+  `lla_drawn` is 143.1, *T. rex* is uncorrected at 66.0, and the gap is 77.1
+  against 66.0, so the claim is now **true**. The opening is still absent
+  because the shipped build predates the phase 4 fix and would draw the canvas
+  contradicting its own copy. **Add it after phase 4 is re-run**, checking
+  `lla_drawn` rather than `lla` — the latter still holds PBDB's 93.9 by design.
 - **`tree.open()` nulls `prevInduced` and `lastCount`.** An opening replaces the
   canvas and its paths arrive one at a time, so leaving those refs on the old
   tree makes each intermediate `addDelta` compute draw-waves against a baseline
