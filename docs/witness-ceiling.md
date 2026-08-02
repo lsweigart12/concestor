@@ -180,6 +180,23 @@ silently wrong in two places at once.
   where `is_extant` is null are genuinely unknown — exclude those too, since a
   wrong include is a silent regression and a wrong exclude is one missing
   picture.
+- **A young end stretched by `sp.` material widens the bracket in the exact
+  direction the containment test is vulnerable to.** This is the extant-range
+  hazard above arriving through a different door, and it does not need a wrong
+  `is_extant` flag to do it: PBDB's young end for 10,655 taxa is one no
+  identified member of them reaches, because it rests on material catalogued no
+  finer than the taxon itself. A bracket widened toward the present cannot fail
+  to contain a recent split. Measured on the built corpus, **41 of the 885
+  witnesses** were chosen on such a taxon and **10 of the 192 spanning
+  witnesses spanned on that strength** — *Eodiscoglossus* took three forks at
+  `gap_ma` 0.0 with a young end 55.4 Myr younger than any identified
+  descendant. `load_fossil_candidates` reads `lla_drawn`, phase 4's corrected
+  end, and spanning fell from 192 to **190**: the two it lost are the false
+  ones, and every anchor case (*Acanthostega*, *Eohippus*, *Sahelanthropus*,
+  *Pakicetus*) is untouched. **The residue is 3**, all on taxa phase 4
+  deliberately refused to correct — an ichnotaxon or an uncorroborated
+  alternative — where keeping PBDB's number is the conservative answer. See
+  `fossil-grafts.md` §3.
 - **PBDB carries homonyms internally, not only against OTT.** `Scopus` is two
   taxa in the fossil table: the extant hamerkop genus at 5.3–0 Ma and an
   extinct Permian genus at 254–252 Ma. Aggregating rows by *name* merges them

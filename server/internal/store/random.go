@@ -181,11 +181,19 @@ func (s *Store) RandomFossils(ctx context.Context, limit int) ([]Fossil, error) 
 	}
 	limit = clampRandomLimit(limit)
 
+	// `lla_drawn` where the build has it, because this is the position the
+	// graft will use and the filter has to be the graft's own refusal stated in
+	// SQL. Reading `lla` here and drawing at `lla_drawn` would let a pick land
+	// on a taxon whose two ends straddle the Holocene test.
+	young := `t."lla"`
+	if f.YoungEnd {
+		young = `coalesce(t."lla_drawn", t."lla")`
+	}
 	where := []string{
-		`t."lla" IS NOT NULL`,
+		young + " IS NOT NULL",
 		// Holocene base, 0.0117 Ma. Anything whose last appearance is at or
 		// after it has not demonstrably ended.
-		`t."lla" > 0.0117`,
+		young + " > 0.0117",
 		"img." + quote(f.ImageID) + " IS NOT NULL",
 	}
 	if f.IsPrimary != "" {

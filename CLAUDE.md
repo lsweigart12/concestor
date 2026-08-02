@@ -326,6 +326,38 @@ because a taxon known from one stratigraphic interval has both appearances
 inside it. For the other 60.4% there is **no certain extent at all** and the
 solid bar must be left undrawn — not zero-width, which reads as precision.
 
+**A fossil's young end can be a fact about the catalogue rather than the
+animal, and `lla` is not always where a taxon may be drawn.** PBDB's
+`lastapp_min_ma` aggregates a taxon's whole subtree, so a young end younger
+than every descendant's can only rest on material catalogued no finer than the
+taxon itself — an `sp.` or an `indet.`. That test is **exact**, not a
+heuristic, and it fires on 10,655 taxa. *Stegosaurus* stopped at 93.9 Ma on
+**one** occurrence of 86, `Stegosaurus sp.` from the Mussentuchit Member, and
+was drawn in the Cenomanian 50 Myr after it lived; *Iguanodon* and
+*Megalosaurus* were both at 66.0 Ma on one hedged record each. **The bracket moves as a pair** — `[lea, lla]` are the same
+occurrences, so `lea_drawn` travels with `lla_drawn`, and **all three surfaces
+that print it must read the corrected pair**: the graft, the card, and phase
+4's `occurrence` table (the node-level range). Missing the last put `162–94 Ma`
+on the *Stegosaurus* node directly above a graft reading `162–143`. `lla` is
+never overwritten — `lla_identified`, `young_end_occs`, `lla_drawn` and
+`lea_drawn` carry the reading, on the same principle that keeps `age_ma`/`age_tier`/`age_layout`
+apart, and **`lla_drawn` is the only column a mark's x may read.** The card
+prints PBDB's range unchanged and says the difference in words. Four things not
+to redo, all in `docs/fossil-grafts.md` §3: the **share** of a record identified
+to species does not discriminate (*Stegosaurus* is 20.9% identified, like
+*Tasmanites*, whose alternative would be a 1,595 Myr error) — **corroboration at
+the identified end** does; **ichno- and form taxa are exempt** by PBDB's `I`/`F`
+flags, because there a genus-level id is the finest that exists; the correction
+**must propagate** or it is defeated one rank up; and the invariant
+`lla ≤ lla_drawn ≤ fea` is enforced **per row**, since *Crassispira* is a living
+genus whose synonym *Tripia* is an Eocene fossil and 414 rows would otherwise
+be dragged to the Holocene. PBDB's aggregate is **not monotone** (440 taxa),
+which the first version of that gate assumed. **`fea` is left alone** and is a
+different problem: *Stegosaurus* reaches 161.5 Ma because one of its 86
+occurrences is logged only as "Late Jurassic", an epoch whose base is 161.5 —
+coarse stratigraphic resolution, not a bad ID, and what the faded envelope
+already means.
+
 **Silhouettes resolve to the closest drawn *relative*, not the nearest drawn
 ancestor**, and `node_image.clade_idx` — the smallest clade holding both the
 node and the drawing — is the size of the claim the picture makes. That is the

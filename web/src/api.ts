@@ -461,6 +461,84 @@ export interface FossilTaxon {
   fla: number | null;
   lea: number | null;
   lla: number | null;
+  /**
+   * The young end of the last-appearance bracket, read for what it is worth.
+   * `lla` above is PBDB's own number and is never overwritten.
+   *
+   * `lla_identified` is the youngest last appearance an *identified* member of
+   * this taxon reaches. When it is **older** than `lla`, the taxon's own young
+   * end rests on material catalogued no finer than the taxon itself — a
+   * `Stegosaurus sp.` — and says nothing about where the named animal's record
+   * ends. PBDB aggregates upward, so that comparison is exact rather than a
+   * heuristic: a young end below every descendant's cannot come from an
+   * identified one.
+   *
+   * `lla_drawn` is where the taxon may be **drawn**, and it is the only one of
+   * the three a position may read. It equals `lla` except on the taxa whose
+   * alternative is corroborated enough to act on, and phase 4 holds
+   * `lla <= lla_drawn <= fea` for every row.
+   *
+   * All three are absent on a build predating them, which every reader here
+   * falls back from rather than works around.
+   */
+  lla_identified?: number | null;
+  young_end_occs?: number | null;
+  lla_drawn?: number | null;
+  /**
+   * The other end of the same last-appearance bracket, moved with `lla_drawn`.
+   * `[lea, lla]` is one bracket and both ends come from the same occurrences,
+   * so pairing a corrected `lla_drawn` with PBDB's own `lea` would assemble a
+   * bracket out of two different records — for *Stegosaurus*, a corrected
+   * 143.1 against a 100.5 that is the very occurrence being refused.
+   */
+  lea_drawn?: number | null;
+}
+
+/**
+ * The four bounds as they may be *drawn*: PBDB's first-appearance bracket
+ * unchanged, and the last-appearance bracket corrected where its own young end
+ * is one no identified member reaches.
+ *
+ * `fea`/`fla` are never touched here. They are wide for a different reason —
+ * stratigraphic resolution, not misidentification — and that width is what the
+ * faded envelope honestly means. *Stegosaurus* reaches 161.5 Ma because one of
+ * its 86 occurrences is logged only as "Late Jurassic", an epoch whose base is
+ * 161.5; no specimen is dated there.
+ */
+export function drawnBounds(f: FossilTaxon): {
+  fea: number | null;
+  fla: number | null;
+  lea: number | null;
+  lla: number | null;
+} {
+  const moved =
+    typeof f.lla_drawn === "number" &&
+    Number.isFinite(f.lla_drawn) &&
+    f.lla_drawn !== f.lla;
+  if (!moved) return { fea: f.fea, fla: f.fla, lea: f.lea, lla: f.lla };
+  return {
+    fea: f.fea,
+    fla: f.fla,
+    lea: typeof f.lea_drawn === "number" ? f.lea_drawn : f.lea,
+    lla: f.lla_drawn as number,
+  };
+}
+
+/**
+ * Whether a fossil's own young end is one no identified member of it reaches.
+ *
+ * The card says so and the position avoids it. Both need the same test, and it
+ * is a comparison rather than a flag so that a build without the columns
+ * simply answers `false` instead of throwing.
+ */
+export function youngEndIsIndeterminate(
+  f: Pick<FossilTaxon, "lla" | "lla_identified">,
+): boolean {
+  return (
+    typeof f.lla === "number" &&
+    typeof f.lla_identified === "number" &&
+    f.lla_identified > f.lla
+  );
 }
 
 /**

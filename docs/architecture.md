@@ -185,6 +185,9 @@ CREATE TABLE fossil (
   attach_idx      INTEGER NOT NULL,   -- deepest in-synth ancestor. see §3.4
   attach_method   INTEGER NOT NULL,   -- provenance of that attachment
   fea, fla, lea, lla  REAL,           -- the two appearance brackets
+  lla_identified  REAL,               -- youngest end an *identified* member reaches
+  young_end_occs  INTEGER NOT NULL,   -- occurrences sitting at it
+  lla_drawn       REAL,               -- where it may be drawn. see §7 and fossil-grafts §3
   n_occs          INTEGER NOT NULL,   -- notability signal
   is_extant       INTEGER             -- nullable: 1.7% are genuinely unknown
 );
@@ -685,6 +688,16 @@ axis so everything stays comparable:
   > interval has both appearances inside it, so the two cross. For the other **60.4%
   > there is no certain extent at all** and the solid bar must be left *undrawn* — not
   > zero-width, which reads as precision, and not inverted. Three cases, not two.
+
+  > **Also amended: the young end is not always a fact about the named taxon.**
+  > PBDB's `lastapp_min_ma` aggregates a taxon's whole subtree, so a young end below
+  > every descendant's can only rest on material catalogued no finer than the taxon
+  > itself — a `Stegosaurus sp.` **10,655 taxa** are like this, and the bracket above
+  > is still drawn from PBDB's four bounds unchanged. What moves is the *position*:
+  > `lla_drawn` is the only column a mark's x may read, and on **7,802 rows** it
+  > differs from `lla`. *Stegosaurus* drawn at `lla` sits in the Cenomanian, 50 Myr
+  > after the animal, on the strength of one occurrence. The card prints PBDB's range
+  > and says the difference in words. See fossil-grafts.md §3.
 - Visually distinct from the spine, because they are annotations on a segment, not
   resolved positions within it. Offset lane, different mark, no connecting edges to
   siblings.

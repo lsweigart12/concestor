@@ -56,6 +56,7 @@
  */
 
 import {
+  drawnBounds,
   TIER_OCCURRENCE,
   type FossilTaxon,
   type PathNode,
@@ -177,6 +178,30 @@ export function fossilSpan(
 }
 
 /**
+ * Where the glyph goes: the young end, corrected where PBDB's own is not one
+ * any identified member reaches.
+ *
+ * `fossilSpan` still describes the *bracket*, which is PBDB's and stays whole.
+ * This is the *position*, and the two differ on 7,802 rows. The case is
+ * *Stegosaurus*: PBDB stops the genus at 93.9 Ma on the strength of one
+ * occurrence catalogued `Stegosaurus sp.` in the Mussentuchit Member, while
+ * every named species ends at 143.1. Drawn at 93.9 the animal sits in the
+ * Cenomanian, 50 Myr after it lived, beside things it never met.
+ *
+ * Phase 4 holds `lla <= lla_drawn <= fea`, so this can never leave the
+ * bracket; the clamp against `span` is belt-and-braces for a build whose
+ * columns disagree, and costs nothing.
+ */
+export function graftYoungest(
+  f: Pick<FossilTaxon, "fea" | "fla" | "lea" | "lla" | "lla_drawn">,
+  span: { oldest: number; youngest: number },
+): number {
+  const drawn = f.lla_drawn;
+  if (typeof drawn !== "number" || !Number.isFinite(drawn)) return span.youngest;
+  return Math.min(Math.max(drawn, span.youngest), span.oldest);
+}
+
+/**
  * Where a fossil's attach node sits relative to what is currently drawn.
  *
  * Three cases and no fourth. A node is either rendered, or suppressed inside
@@ -258,16 +283,21 @@ export function makeGraft(
       // guarding structural guards this too, and `markAge` prints the range
       // behind the fossil glyph rather than an age.
       age_ma: null,
-      occurrence: {
-        fea: fossil.fea,
-        fla: fossil.fla,
-        lea: fossil.lea,
-        lla: fossil.lla,
-      },
-      // `lla` alone, matching phase 4's clamp. `fea` is junk-wide — measured,
-      // the first-appearance bracket *widens* with occurrence count — and the
-      // latest end is the one that holds throughout.
-      age_layout: span.youngest,
+      // The bounds as they may be *drawn*. `[lea, lla]` is corrected together
+      // where the young end is one no identified member reaches, because both
+      // its ends come from the same occurrences: pairing a corrected 143.1
+      // with Stegosaurus' own `lea` of 100.5 would rebuild the bracket out of
+      // the very record being refused, and the bar would still run into the
+      // Cretaceous under a glyph sitting in the Jurassic. `fea`/`fla` are
+      // untouched — they are wide for a different reason. The card prints
+      // PBDB's own numbers beside this and says where the two differ.
+      occurrence: drawnBounds(fossil),
+      // The young end alone, matching phase 4's clamp. `fea` is junk-wide —
+      // measured, the first-appearance bracket *widens* with occurrence count
+      // — and the latest end is the one that holds throughout. `graftYoungest`
+      // is where that end is *corrected* when PBDB's own is one no identified
+      // member of the taxon reaches.
+      age_layout: graftYoungest(fossil, span),
       tier: TIER_OCCURRENCE,
       tip_count: 1,
       depth: 0,

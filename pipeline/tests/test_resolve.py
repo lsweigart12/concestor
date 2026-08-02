@@ -366,6 +366,7 @@ def _taxon(
         fla=None,
         lea=None,
         lla=None,
+        flags="",
     )
 
 

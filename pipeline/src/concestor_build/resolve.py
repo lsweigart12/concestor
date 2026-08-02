@@ -251,6 +251,12 @@ class PbdbTaxon(NamedTuple):
     fla: float | None
     lea: float | None
     lla: float | None
+    # PBDB's own flags, a character set: `I` ichnotaxon, `F` form taxon, `V`
+    # variant. Phase 4 reads `I` and `F` — for those two a genus-level
+    # identification is the *finest one that exists*, so their own appearance
+    # range is their real one and must not be second-guessed against species
+    # that were never going to be named. See `fossils.young_ends`.
+    flags: str
 
 
 def _num(raw: str) -> float | None:
@@ -288,6 +294,7 @@ def load_pbdb_taxa(path: Path = PBDB_TAXA) -> list[PbdbTaxon]:
                     fla=_num(r["firstapp_min_ma"]),
                     lea=_num(r["lastapp_max_ma"]),
                     lla=_num(r["lastapp_min_ma"]),
+                    flags=r["flags"] or "",
                 )
             )
     return out
