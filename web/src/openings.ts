@@ -11,17 +11,15 @@
  * that draws the answer.
  *
  * **No opening is a pair, and that is the whole design.** A pair draws one
- * number. Three or more draw an *argument* — usually the nesting itself is the
- * proof, visible without reading anything. You and a salmon join; only then
- * does the shark; therefore any group holding both of those fish holds you.
- * That picture is the thing this app does that nothing else does, and two
- * species can never make it.
+ * number. Three or more draw an *argument* — the nesting itself is the proof,
+ * visible without reading anything. You and a salmon join; only then does the
+ * shark; therefore any group holding both of those fish holds you. That
+ * picture is the thing this app does that nothing else does, and two species
+ * can never make it.
  *
- * `trex` is the deliberate exception: its proof is *horizontal position* and
- * its subject is the time axis rather than the branching. It is kept because
- * nothing else here makes deep time legible as a quantity the reader can
- * measure against their own distance from it — but it needs its own care, and
- * the note on that opening says what that care is.
+ * **Every opening proves itself by nesting**, and there is no exception. One
+ * was tried — see the note on *T. rex* below — and taken out again precisely
+ * because its proof was a horizontal position instead.
  *
  * An opening may also carry taxa that take no part in the claim and are there
  * to be far away. A tree of near neighbours is uniformly tight and gives the
@@ -39,22 +37,29 @@
  * tier system exists precisely to stop that. Say what the tree does; let the
  * axis say when.
  *
- * Each was verified against the baked arrays rather than against the internet,
- * and the `trex` opening is here only because one of those arrays changed.
- * "*T. rex* lived closer to us than to *Stegosaurus*" was cut as **false**:
- * PBDB's last appearance for *Stegosaurus* was 93.9 Ma, not the textbook ~150,
- * putting the gap at 27.9 Ma against 66.
+ * Each was verified against the baked arrays rather than against the internet.
  *
- * That number was a bug. A `Stegosaurus sp.` occurrence in the Mussentuchit
- * Member carried the genus 50 Myr into the Cenomanian; `young_ends` now
- * refuses a young end no identified member supports, so `lla_drawn` is
- * **143.1 Ma** while *T. rex* stays at 66.0 with nothing to correct. The gap
- * is **77.1 against 66.0** and the claim holds. Verified on build
- * `45ada2238ded2c93`.
+ * **"*T. rex* lived closer to us than to *Stegosaurus*" is not here, and the
+ * reason is not the data.** It was cut once as false — *Stegosaurus*'s last
+ * appearance read 93.9 Ma, not the textbook ~150, so the gap was 27.9 against
+ * 66. That was a `Stegosaurus sp.` occurrence in the Mussentuchit Member
+ * carrying the genus 50 Myr into the Cenomanian, and it is fixed: `lla_drawn`
+ * is 143.1 against *T. rex*'s uncorrected 66.0, the gap is 77.1 against 66.0,
+ * and the claim is **true**. It was built, verified on build
+ * `45ada2238ded2c93`, and removed anyway.
  *
- * The lesson is the one worth keeping: **a claim here is only as stable as the
- * column it rests on.** This one is true on `lla_drawn` and false on raw
- * `lla`, which still holds PBDB's 93.9 by design and always will.
+ * It was removed because it is **not a claim about phylogeny**. It compares two
+ * species' ages, which this app can show but is not for — handoff.md §1 puts
+ * the time axis behind identifying an MRCA and drawing the tree, and every
+ * other opening here answers *who is related to whom*. It also draws badly: the
+ * proof is three dots at different points on one line, with none of the nesting
+ * that makes the others legible at a glance.
+ *
+ * So do not re-derive it. The data supports it, the product does not, and those
+ * are different questions. What is worth keeping is the near miss: **a claim is
+ * only as stable as the column it rests on** — this one is true on `lla_drawn`
+ * and false on raw `lla`, which still holds PBDB's 93.9 by design and always
+ * will.
  */
 
 import type { AxisMode } from "./tree/layout";
@@ -179,47 +184,6 @@ export const OPENINGS: readonly Opening[] = [
         art: "9ecd443a-dc7f-48f2-8ecf-33d73f24f1b7",
         label: "mauve stinger",
       },
-    ],
-  },
-  {
-    // The one opening whose proof is a *position* rather than a nesting, and
-    // the only one where the time axis is the argument instead of the setting.
-    // It earns the exception: nothing else here makes deep time legible as a
-    // quantity you can compare against your own distance from it.
-    //
-    // **It reads off the marks, and the marks are last appearances.** Both
-    // dinosaurs are `occurrence` tier, so each draws a dot at its `lla` with
-    // its bracket beside it as text — 162–143 and 84–66 Ma — rather than as a
-    // bar. So the eye compares dot to dot: 143.1 → 66.0 is 77.1 Ma against
-    // 66.0 to the present, and on the linear axis that measured 176px against
-    // 151px, a ratio of 1.166 against the data's 1.168.
-    //
-    // The copy is worded for that reading and no other. *Nearest bracket
-    // edges* would say the opposite — 83.6 → 143.1 is 59.5 Ma, less than 66 —
-    // so this must never be reworded to talk about when the animals "overlap"
-    // or how far apart the *ranges* sit. It compares two moments of last
-    // appearance, which is what the classic version of this fact means and
-    // what the canvas actually puts on screen.
-    //
-    // This was cut once, correctly: before the `sp.` contamination fix,
-    // *Stegosaurus* drew at 93.9 Ma and the claim was false. It holds on
-    // `lla_drawn` 143.1 and dies again if anything reverts to raw `lla`.
-    id: "trex",
-    question: "Did T. rex and Stegosaurus live together?",
-    reveal:
-      "Not remotely — T. rex sits nearer to you in time than to Stegosaurus.",
-    taxa: [
-      {
-        key: "ott664349",
-        art: "ff4f8bd4-7788-41f0-87bc-4fc42bb1da72",
-        label: "Tyrannosaurus rex",
-      },
-      {
-        key: "ott4946402",
-        art: "173f44e3-2db7-4c98-b41f-6ab58093a145",
-        label: "Stegosaurus",
-      },
-      HUMAN,
     ],
   },
   {
