@@ -88,9 +88,9 @@ export function About({
 
         <h3 className="about-h">Start here</h3>
         {/*
-          The same carousel the empty canvas shows, and not a list of all six.
+          The same carousel the empty canvas shows, and not a list of them all.
           A list put the panel's own content — what the dashes mean, where the
-          data comes from — below six questions and six answers, so the reader
+          data comes from — below a question and answer each, so the reader
           had to scroll past the thing they already saw on the canvas to reach
           the thing they opened this to read.
 

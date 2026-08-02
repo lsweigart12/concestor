@@ -1,7 +1,7 @@
 /**
  * The empty canvas, as one question at a time.
  *
- * Six openings stacked as a list was six questions and six answers on screen at
+ * Every opening stacked as a list was a question and an answer each, on screen at
  * once — a wall of prose on a surface whose whole argument is that the graph is
  * the only thing worth looking at. One at a time reads as an invitation instead
  * of a menu, and the silhouettes do the work the extra text was doing: they say
@@ -17,7 +17,7 @@
  * 2. **Any manual press stops it for good.** Once somebody has taken the wheel,
  *    an auto-advance is fighting them. It does not resume on a timer.
  * 3. **`prefers-reduced-motion` disables it entirely**, along with the fade.
- * 4. **It is never the only route.** The arrows and the dots reach all six
+ * 4. **It is never the only route.** The arrows and the dots reach every one
  *    directly, and while the canvas is empty — which is the only time this
  *    shows on it — every opening is also a palette command under `Start here`.
  *    Nothing here is reachable only by waiting.

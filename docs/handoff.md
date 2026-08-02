@@ -281,15 +281,22 @@ Four things not to redo:
   itself on the one axis it exists to be careful about. Branching order is
   exact; let the axis carry the figures.
 - **Every claim was checked against the baked arrays, and one popular candidate
-  failed — then stopped failing.** *"T. rex lived closer to us than to
-  Stegosaurus"* was false as this app drew it: *Stegosaurus*'s last appearance
-  was 93.9 Ma, putting the gap at 27.9 against 66. **That was the `sp.`
-  contamination §"A fossil's young end" describes, and it is fixed** —
-  `lla_drawn` is 143.1, *T. rex* is uncorrected at 66.0, and the gap is 77.1
-  against 66.0, so the claim is now **true**. The opening is still absent
-  because the shipped build predates the phase 4 fix and would draw the canvas
-  contradicting its own copy. **Add it after phase 4 is re-run**, checking
-  `lla_drawn` rather than `lla` — the latter still holds PBDB's 93.9 by design.
+  failed, then stopped failing.** *"T. rex lived closer to us than to
+  Stegosaurus"* was cut as false: *Stegosaurus*'s last appearance was 93.9 Ma,
+  putting the gap at 27.9 against 66. That was the `sp.` contamination
+  §"A fossil's young end" describes; on `lla_drawn` 143.1 against *T. rex*'s
+  uncorrected 66.0 the gap is 77.1 against 66.0 and **the claim holds**, so the
+  opening is back. Verified on build `45ada2238ded2c93`. **It is true on
+  `lla_drawn` and false on raw `lla`**, which still carries PBDB's own 93.9 by
+  design — a claim here is only as stable as the column it rests on.
+- **`trex` proves itself with a position rather than a nesting**, the only one
+  that does, and it needs care the others do not. Both dinosaurs are
+  `occurrence` tier, so each draws a dot at its `lla` with the bracket beside it
+  as *text* rather than as a bar — so the eye compares dot to dot: 143.1 → 66.0
+  against 66.0 → present, measured on screen at 176px against 151px, a ratio of
+  1.166 against the data's 1.168. **Nearest bracket edges would say the
+  opposite** (83.6 → 143.1 is 59.5, under 66), so the copy must never be
+  reworded to talk about overlap or about how far apart the *ranges* sit.
 - **`tree.open()` nulls `prevInduced` and `lastCount`.** An opening replaces the
   canvas and its paths arrive one at a time, so leaving those refs on the old
   tree makes each intermediate `addDelta` compute draw-waves against a baseline
@@ -306,7 +313,7 @@ one `chrome/About.tsx`, which leads with the openings, because the honest answer
 to *what is this* is a drawn tree rather than a description of one.
 
 **One opening at a time, in both places `chrome/OpeningCarousel.tsx` appears.**
-Six questions and six answers at once was a wall of prose on a surface whose
+Every question and answer at once was a wall of prose on a surface whose
 whole argument is that the graph is the only thing worth looking at, and in the
 about panel it pushed that panel's own content — what the dashes mean, where the
 data comes from — below the fold. The silhouettes carry what the deleted text
@@ -323,7 +330,7 @@ not save it, because that only holds while the pointer is over the carousel.
 **Auto-rotation is otherwise the part that needed care.** Three more rules, none
 optional: hover or focus anywhere in the card stops it; any manual press stops it
 *for good* rather than on a timer; `prefers-reduced-motion` disables it and the
-fade outright. And it is never the only route — arrows and dots reach all six
+fade outright. And it is never the only route — arrows and dots reach each one
 directly, and the palette carries them too while the canvas is empty.
 
 **`Start here` is hidden from the palette once anything is drawn**, and that is
