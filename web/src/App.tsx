@@ -69,6 +69,17 @@ interface Toast {
 const REFUSAL_SETTLE_MS = 700;
 const REFUSAL_REASONS: GraftRefusal[] = ["off-tree", "no-range", "no-identity"];
 
+/**
+ * How many candidates a random pick asks for.
+ *
+ * One would do almost always. The extras cost a few hundred bytes and buy the
+ * one thing a single pick cannot have: the certainty that the confirmation is
+ * true. Adding a species already on the canvas changes nothing, and a toast
+ * reading "Added Pallas's cat" over an unchanged canvas is worse than no
+ * command at all.
+ */
+const RANDOM_CANDIDATES = 12;
+
 const isMac = navigator.platform.toLowerCase().includes("mac");
 const mod = isMac ? "⌘" : "Ctrl";
 
@@ -249,6 +260,154 @@ export default function App() {
       .catch(() => toast("Could not reach the clipboard", true));
   }, [toast]);
 
+  const present = useMemo(() => new Set(tree.induced.leaves), [tree.induced.leaves]);
+  const presentFossils = useMemo(
+    () => new Set(tree.view.fossils),
+    [tree.view.fossils],
+  );
+
+  /**
+   * A fossil chosen from the palette.
+   *
+   * Draws it, and adds the clade it hangs below when that clade is not on the
+   * canvas — because otherwise the one thing the reader asked for produces no
+   * visible change and a notice explaining why. Searching a fossil by name is a
+   * statement that you want to see it; the branch it needs to hang from is
+   * machinery, and making the reader work that out for themselves would be
+   * offering a puzzle instead of an answer.
+   *
+   * Adding the host is a real change to the selection, so it is named in the
+   * toast rather than done silently.
+   */
+  const drawFossil = useCallback(
+    async (f: FossilTaxon) => {
+      const taxonNo = f.pbdb_taxon_no ?? 0;
+      if (taxonNo <= 0) return;
+      tree.addFossil(taxonNo);
+      setPaletteOpen(false);
+
+      const placeable =
+        tree.induced.rendered.length > 0 &&
+        makeGraft(f, tree.induced, tree.nodes) !== "off-tree";
+      if (placeable) {
+        toast(
+          <>
+            Drew <strong>{f.name}</strong>
+          </>,
+        );
+        return;
+      }
+      // The attach node is by definition *not* on the canvas here, so it is not
+      // in `tree.nodes` either and there is no key to add. `/v1/fossil` carries
+      // the resolved node for exactly this; the request is already cached by
+      // the time the store's own resolve runs.
+      let host: PathNode | null = null;
+      try {
+        host = (await api.fossil(taxonNo)).attach ?? null;
+      } catch {
+        // Falls through to the plain confirmation; the graft is in the URL
+        // either way and the refusal notice will explain what to do.
+      }
+      if (!host) {
+        toast(
+          <>
+            Drew <strong>{f.name}</strong>
+          </>,
+        );
+        return;
+      }
+      tree.add(host.key);
+      toast(
+        <>
+          Drew <strong>{f.name}</strong>, and added{" "}
+          <strong>{host.name ?? "the clade it hangs below"}</strong> so it has a
+          branch to hang from
+        </>,
+      );
+    },
+    [tree, toast],
+  );
+
+  /**
+   * Put something on the canvas without being asked what.
+   *
+   * The empty canvas is a command list, and every other command on it assumes
+   * you have already thought of a species. Nobody browses 2.4 million of them,
+   * and for an audience of curious people rather than systematists the first
+   * move is the hard one — so there has to be an action that answers "show me
+   * *something*".
+   *
+   * Both picks come from `/v1/random`, which draws only from taxa that carry
+   * their own drawing. That filter is the whole design: a uniform draw over the
+   * corpus returns an unnamed `mrcaott…` clade or an undescribed mite, and a
+   * surprise that is mostly nothing to look at is one a reader stops pressing.
+   * The server-side note on `RandomNodes` has the pools and the counts.
+   *
+   * Over-asking and filtering here is what keeps the confirmation honest.
+   * Adding something already on the canvas is a no-op, and a toast saying
+   * "Added X" over a canvas that did not change is a false statement about the
+   * one thing the reader was watching for.
+   */
+  const randomSpecies = useCallback(async () => {
+    setPaletteOpen(false);
+    try {
+      const r = await api.random("species", RANDOM_CANDIDATES);
+      if (!r.available) {
+        toast(
+          "This build has no silhouette resolution, so there is no pool of drawn species to pick from.",
+          true,
+        );
+        return;
+      }
+      const hit = r.results.find((h) => !present.has(h.idx));
+      if (!hit) {
+        // Only reachable with the whole draw already on screen, which needs a
+        // canvas of thousands. Saying so beats a confirmation that lies.
+        toast("Every pick this round is already on the canvas — try again.", true);
+        return;
+      }
+      tree.add(hit.key);
+      toast(
+        <>
+          Added{" "}
+          <strong className={isScientificItalic(hit.rank) ? "sci-italic" : undefined}>
+            {hit.name ?? hit.key}
+          </strong>
+          {hit.vernacular ? <> — {hit.vernacular}</> : null}
+        </>,
+      );
+    } catch {
+      toast("Could not reach the search API for a random pick", true);
+    }
+  }, [tree, toast, present]);
+
+  const randomFossil = useCallback(async () => {
+    setPaletteOpen(false);
+    try {
+      const r = await api.random("fossil", RANDOM_CANDIDATES);
+      if (!r.available) {
+        toast(
+          "This build has no fossil drawings, so there is no pool of illustrated fossils to pick from.",
+          true,
+        );
+        return;
+      }
+      const f = r.fossils.find((x) => !presentFossils.has(x.pbdb_taxon_no ?? -1));
+      if (!f) {
+        toast("Every pick this round is already drawn — try again.", true);
+        return;
+      }
+      // `drawFossil` does the rest, including adding the clade the fossil hangs
+      // below when it is not on the canvas. That is not an extra here, it is
+      // the whole command: a random fossil almost always attaches to a branch
+      // nobody has drawn yet, so without it the usual outcome would be a
+      // refusal notice for something the reader never chose by name.
+      await drawFossil(f);
+    } catch {
+      toast("Could not reach the search API for a random pick", true);
+    }
+  }, [drawFossil, toast, presentFossils]);
+
   const commands: Command[] = useMemo(() => {
     const base: Command[] = [
       {
@@ -289,6 +448,35 @@ export default function App() {
           share();
           setPaletteOpen(false);
         },
+      },
+      // Filed under Selection rather than under a section of their own: what
+      // they do is add to the selection, and the reader who wants one is the
+      // reader looking at an empty canvas wondering what to put on it.
+      {
+        id: "random-species",
+        title: "Add a random species",
+        subtitle: "Something illustrated, picked for you",
+        hint:
+          "Draws from the ~14,000 taxa that have a silhouette of their own, so the pick " +
+          "always arrives with a picture rather than a bare name. Press again to keep going " +
+          "— each one joins the tree through its common ancestors with whatever is already here.",
+        icon: "✦",
+        keys: `${mod}⇧S`,
+        section: "Selection",
+        run: () => void randomSpecies(),
+      },
+      {
+        id: "random-fossil",
+        title: "Draw a random fossil",
+        subtitle: "An illustrated extinct taxon, at its own date",
+        hint:
+          "Picked from PBDB taxa that are drawn, extinct, and carry a stratigraphic range — " +
+          "the three things it takes to place one on the axis. It hangs off the branch it " +
+          "belongs below, and the clade it needs is added if the canvas has not got it yet.",
+        icon: "◈",
+        keys: `${mod}⇧F`,
+        section: "Selection",
+        run: () => void randomFossil(),
       },
       {
         id: "clear",
@@ -410,7 +598,7 @@ export default function App() {
       }
     }
     return base;
-  }, [tree, about, focusedNode, toast, share]);
+  }, [tree, about, focusedNode, toast, share, randomSpecies, randomFossil]);
 
   /**
    * What a fossil offers, which is short and deliberately so.
@@ -667,6 +855,23 @@ export default function App() {
         // adding shift keeps the L-for-log mnemonic and reaches us.
         e.preventDefault();
         tree.setAxis(tree.view.axis === "log" ? "linear" : "log");
+      } else if (meta && e.shiftKey && e.key.toLowerCase() === "s") {
+        // ⇧S and ⇧F for the two corpora the app keeps apart everywhere else —
+        // Species and Fossils, the palette's own section names.
+        //
+        // Both are shifted because every unshifted mnemonic in reach is spoken
+        // for: ⌘S is this app's share, ⌘F is the browser's find, and ⌘R is
+        // reload. ⌘⇧R was the obvious pair and is refused on purpose: it is
+        // hard-reload in every browser, and taking that from a reader to save a
+        // letter is a worse trade than the one ⌘⇧L already documents.
+        //
+        // The order of these two branches is load-bearing: ⌘S is tested below,
+        // so a shifted press has to be claimed first or it copies a link.
+        e.preventDefault();
+        void randomSpecies();
+      } else if (meta && e.shiftKey && e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        void randomFossil();
       } else if (meta && e.key.toLowerCase() === "s") {
         e.preventDefault();
         share();
@@ -695,7 +900,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [tree, focusedIdx, focusedNode, toast, share]);
+  }, [tree, focusedIdx, focusedNode, toast, share, randomSpecies, randomFossil]);
 
   // Chrome auto-hides. The canvas is the page.
   useEffect(() => {
@@ -713,74 +918,6 @@ export default function App() {
       window.removeEventListener("keydown", wake);
     };
   }, []);
-
-  const present = useMemo(() => new Set(tree.induced.leaves), [tree.induced.leaves]);
-  const presentFossils = useMemo(
-    () => new Set(tree.view.fossils),
-    [tree.view.fossils],
-  );
-
-  /**
-   * A fossil chosen from the palette.
-   *
-   * Draws it, and adds the clade it hangs below when that clade is not on the
-   * canvas — because otherwise the one thing the reader asked for produces no
-   * visible change and a notice explaining why. Searching a fossil by name is a
-   * statement that you want to see it; the branch it needs to hang from is
-   * machinery, and making the reader work that out for themselves would be
-   * offering a puzzle instead of an answer.
-   *
-   * Adding the host is a real change to the selection, so it is named in the
-   * toast rather than done silently.
-   */
-  const drawFossil = useCallback(
-    async (f: FossilTaxon) => {
-      const taxonNo = f.pbdb_taxon_no ?? 0;
-      if (taxonNo <= 0) return;
-      tree.addFossil(taxonNo);
-      setPaletteOpen(false);
-
-      const placeable =
-        tree.induced.rendered.length > 0 &&
-        makeGraft(f, tree.induced, tree.nodes) !== "off-tree";
-      if (placeable) {
-        toast(
-          <>
-            Drew <strong>{f.name}</strong>
-          </>,
-        );
-        return;
-      }
-      // The attach node is by definition *not* on the canvas here, so it is not
-      // in `tree.nodes` either and there is no key to add. `/v1/fossil` carries
-      // the resolved node for exactly this; the request is already cached by
-      // the time the store's own resolve runs.
-      let host: PathNode | null = null;
-      try {
-        host = (await api.fossil(taxonNo)).attach ?? null;
-      } catch {
-        // Falls through to the plain confirmation; the graft is in the URL
-        // either way and the refusal notice will explain what to do.
-      }
-      if (!host) {
-        toast(
-          <>
-            Drew <strong>{f.name}</strong>
-          </>,
-        );
-        return;
-      }
-      tree.add(host.key);
-      toast(
-        <>
-          Drew <strong>{f.name}</strong>, and added{" "}
-          <strong>{host.name ?? "the clade it hangs below"}</strong> so it has a
-          branch to hang from
-        </>,
-      );
-    },
-    [tree, toast],
-  );
 
   if (reachable === false) {
     return (

@@ -167,6 +167,63 @@ func (s *Store) notability(f *FossilSchema) string {
 
 func quote(s string) string { return fmt.Sprintf("%q", s) }
 
+// fossilRow is the SELECT list and the image LEFT JOIN that every fossil query
+// shares, in the order {@link scanFossil} reads them back.
+//
+// The pair has to travel together, which is why one function returns both: the
+// join is what makes the `img` alias in the select list resolve, and a column
+// added to one half but not the other is not a compile error — it is a scan
+// that silently reads the wrong field into the wrong pointer. There were four
+// verbatim copies before this existed.
+func fossilRow(f *FossilSchema) (sel, join string) {
+	brackets := "NULL, NULL, NULL, NULL"
+	if f.Brackets {
+		brackets = `t."fea", t."fla", t."lea", t."lla"`
+	}
+	image := "NULL"
+	if f.ImageTable != "" {
+		join = fmt.Sprintf(" LEFT JOIN %q img ON img.%q = t.%q",
+			f.ImageTable, f.ImageKey, f.AcceptedNo)
+		image = "img." + quote(f.ImageID)
+	}
+	cols := []string{
+		"t." + quote(f.AttachIdx), "t." + quote(f.Name), "t." + quote(f.NOccs),
+		colOrNullT(f.Rank), colOrNullT(f.IsExtant), colOrNullT(f.Difference),
+		brackets, image, colOrNullT(f.TaxonNo), colOrNullT(f.AttachWalk),
+	}
+	return strings.Join(cols, ", "), join
+}
+
+// scanner is satisfied by both *sql.Rows and *sql.Row, so the single-taxon
+// lookup and the list queries can read the same row shape.
+type scanner interface{ Scan(dest ...any) error }
+
+// scanFossil reads one row of fossilRow's SELECT list.
+func scanFossil(sc scanner) (Fossil, error) {
+	var fo Fossil
+	var rank, diff, image sql.NullString
+	var extant sql.NullInt64
+	var fea, fla, lea, lla sql.NullFloat64
+	var taxonNo, walk sql.NullInt64
+	if err := sc.Scan(&fo.AttachIdx, &fo.Name, &fo.NOccs, &rank, &extant, &diff,
+		&fea, &fla, &lea, &lla, &image, &taxonNo, &walk); err != nil {
+		return fo, err
+	}
+	fo.Rank, fo.Difference = nullStr(rank), nullStr(diff)
+	if extant.Valid {
+		b := extant.Int64 != 0
+		fo.IsExtant = &b
+	}
+	fo.FEA, fo.FLA, fo.LEA, fo.LLA = nullF(fea), nullF(fla), nullF(lea), nullF(lla)
+	fo.PhylopicID = nullStr(image)
+	fo.TaxonNo = taxonNo.Int64
+	if walk.Valid {
+		w := walk.Int64
+		fo.AttachWalk = &w
+	}
+	return fo, nil
+}
+
 // Fossils returns the fossil taxa attached anywhere on a segment, most
 // notable first — see `notability`, which is where the ordering is decided.
 func (s *Store) Fossils(ctx context.Context, attach []int, limit int) (list []Fossil, total int, err error) {
@@ -200,24 +257,9 @@ func (s *Store) Fossils(ctx context.Context, attach []int, limit int) (list []Fo
 		return nil, 0, err
 	}
 
-	brackets := "NULL, NULL, NULL, NULL"
-	if f.Brackets {
-		brackets = `t."fea", t."fla", t."lea", t."lla"`
-	}
-	join, image := "", "NULL"
-	if f.ImageTable != "" {
-		join = fmt.Sprintf(" LEFT JOIN %q img ON img.%q = t.%q",
-			f.ImageTable, f.ImageKey, f.AcceptedNo)
-		image = "img." + quote(f.ImageID)
-	}
-	sel := []string{
-		"t." + quote(f.AttachIdx), "t." + quote(f.Name), "t." + quote(f.NOccs),
-		colOrNullT(f.Rank), colOrNullT(f.IsExtant), colOrNullT(f.Difference),
-		brackets, image, colOrNullT(f.TaxonNo), colOrNullT(f.AttachWalk),
-	}
+	sel, join := fossilRow(f)
 	q := fmt.Sprintf("SELECT %s FROM %q t%s WHERE %s ORDER BY %s, t.%q DESC, t.%q LIMIT %d",
-		strings.Join(sel, ", "), f.Table, join, where, s.notability(f),
-		f.NOccs, f.Name, limit)
+		sel, f.Table, join, where, s.notability(f), f.NOccs, f.Name, limit)
 
 	rows, err := s.DB.QueryContext(ctx, q, args...)
 	if err != nil {
@@ -228,14 +270,8 @@ func (s *Store) Fossils(ctx context.Context, attach []int, limit int) (list []Fo
 	list = []Fossil{}
 	seen := map[string]struct{}{}
 	for rows.Next() {
-		var fo Fossil
-		var rank, diff sql.NullString
-		var extant sql.NullInt64
-		var fea, fla, lea, lla sql.NullFloat64
-		var image sql.NullString
-		var taxonNo, walk sql.NullInt64
-		if err := rows.Scan(&fo.AttachIdx, &fo.Name, &fo.NOccs, &rank, &extant, &diff,
-			&fea, &fla, &lea, &lla, &image, &taxonNo, &walk); err != nil {
+		fo, err := scanFossil(rows)
+		if err != nil {
 			return nil, 0, err
 		}
 		// PBDB carries a row per taxon_no, and synonyms collapse onto the same
@@ -245,19 +281,6 @@ func (s *Store) Fossils(ctx context.Context, attach []int, limit int) (list []Fo
 			continue
 		}
 		seen[fo.Name] = struct{}{}
-		fo.Rank = nullStr(rank)
-		fo.Difference = nullStr(diff)
-		if extant.Valid {
-			b := extant.Int64 != 0
-			fo.IsExtant = &b
-		}
-		fo.FEA, fo.FLA, fo.LEA, fo.LLA = nullF(fea), nullF(fla), nullF(lea), nullF(lla)
-		fo.PhylopicID = nullStr(image)
-		fo.TaxonNo = taxonNo.Int64
-		if walk.Valid {
-			w := walk.Int64
-			fo.AttachWalk = &w
-		}
 		list = append(list, fo)
 	}
 	return list, total, rows.Err()
@@ -279,50 +302,15 @@ func (s *Store) FossilByTaxonNo(ctx context.Context, taxonNo int64) (*Fossil, er
 	if f == nil || f.TaxonNo == "" {
 		return nil, nil
 	}
-	brackets := "NULL, NULL, NULL, NULL"
-	if f.Brackets {
-		brackets = `t."fea", t."fla", t."lea", t."lla"`
-	}
-	join, image := "", "NULL"
-	if f.ImageTable != "" {
-		join = fmt.Sprintf(" LEFT JOIN %q img ON img.%q = t.%q",
-			f.ImageTable, f.ImageKey, f.AcceptedNo)
-		image = "img." + quote(f.ImageID)
-	}
-	sel := []string{
-		"t." + quote(f.AttachIdx), "t." + quote(f.Name), "t." + quote(f.NOccs),
-		colOrNullT(f.Rank), colOrNullT(f.IsExtant), colOrNullT(f.Difference),
-		brackets, image, colOrNullT(f.TaxonNo), colOrNullT(f.AttachWalk),
-	}
-	q := fmt.Sprintf("SELECT %s FROM %q t%s WHERE t.%q = ?",
-		strings.Join(sel, ", "), f.Table, join, f.TaxonNo)
+	sel, join := fossilRow(f)
+	q := fmt.Sprintf("SELECT %s FROM %q t%s WHERE t.%q = ?", sel, f.Table, join, f.TaxonNo)
 
-	var fo Fossil
-	var rank, diff sql.NullString
-	var extant sql.NullInt64
-	var fea, fla, lea, lla sql.NullFloat64
-	var img sql.NullString
-	var no, walk sql.NullInt64
-	err := s.DB.QueryRowContext(ctx, q, taxonNo).Scan(
-		&fo.AttachIdx, &fo.Name, &fo.NOccs, &rank, &extant, &diff,
-		&fea, &fla, &lea, &lla, &img, &no, &walk)
+	fo, err := scanFossil(s.DB.QueryRowContext(ctx, q, taxonNo))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
-	}
-	fo.Rank, fo.Difference = nullStr(rank), nullStr(diff)
-	if extant.Valid {
-		b := extant.Int64 != 0
-		fo.IsExtant = &b
-	}
-	fo.FEA, fo.FLA, fo.LEA, fo.LLA = nullF(fea), nullF(fla), nullF(lea), nullF(lla)
-	fo.PhylopicID = nullStr(img)
-	fo.TaxonNo = no.Int64
-	if walk.Valid {
-		w := walk.Int64
-		fo.AttachWalk = &w
 	}
 	return &fo, nil
 }
@@ -363,21 +351,7 @@ func (s *Store) SearchFossils(ctx context.Context, q string, limit int) ([]Fossi
 	// matches the whole corpus.
 	esc := strings.NewReplacer("\\", "\\\\", "%", "\\%", "_", "\\_").Replace(lower)
 
-	brackets := "NULL, NULL, NULL, NULL"
-	if f.Brackets {
-		brackets = `t."fea", t."fla", t."lea", t."lla"`
-	}
-	join, image := "", "NULL"
-	if f.ImageTable != "" {
-		join = fmt.Sprintf(" LEFT JOIN %q img ON img.%q = t.%q",
-			f.ImageTable, f.ImageKey, f.AcceptedNo)
-		image = "img." + quote(f.ImageID)
-	}
-	sel := []string{
-		"t." + quote(f.AttachIdx), "t." + quote(f.Name), "t." + quote(f.NOccs),
-		colOrNullT(f.Rank), colOrNullT(f.IsExtant), colOrNullT(f.Difference),
-		brackets, image, colOrNullT(f.TaxonNo), colOrNullT(f.AttachWalk),
-	}
+	sel, join := fossilRow(f)
 	name := "lower(t." + quote(f.Name) + ")"
 	tier := fmt.Sprintf(
 		"CASE WHEN %s = ? THEN 0 WHEN %s LIKE ? ESCAPE '\\' THEN 1 ELSE 2 END",
@@ -388,7 +362,7 @@ func (s *Store) SearchFossils(ctx context.Context, q string, limit int) ([]Fossi
 	}
 	q2 := fmt.Sprintf(
 		"SELECT %s FROM %q t%s WHERE %s ORDER BY %s, %s, t.%q DESC, length(t.%q) LIMIT %d",
-		strings.Join(sel, ", "), f.Table, join, where, tier, s.notability(f),
+		sel, f.Table, join, where, tier, s.notability(f),
 		f.NOccs, f.Name, limit*4)
 
 	// Bound in the order the placeholders appear in the *text*, which puts
@@ -405,13 +379,8 @@ func (s *Store) SearchFossils(ctx context.Context, q string, limit int) ([]Fossi
 	list := []Fossil{}
 	seen := map[string]struct{}{}
 	for rows.Next() {
-		var fo Fossil
-		var rank, diff, img sql.NullString
-		var extant sql.NullInt64
-		var fea, fla, lea, lla sql.NullFloat64
-		var no, walk sql.NullInt64
-		if err := rows.Scan(&fo.AttachIdx, &fo.Name, &fo.NOccs, &rank, &extant, &diff,
-			&fea, &fla, &lea, &lla, &img, &no, &walk); err != nil {
+		fo, err := scanFossil(rows)
+		if err != nil {
 			return nil, err
 		}
 		// PBDB carries a row per taxon_no and synonyms collapse onto one
@@ -421,18 +390,6 @@ func (s *Store) SearchFossils(ctx context.Context, q string, limit int) ([]Fossi
 			continue
 		}
 		seen[fo.Name] = struct{}{}
-		fo.Rank, fo.Difference = nullStr(rank), nullStr(diff)
-		if extant.Valid {
-			b := extant.Int64 != 0
-			fo.IsExtant = &b
-		}
-		fo.FEA, fo.FLA, fo.LEA, fo.LLA = nullF(fea), nullF(fla), nullF(lea), nullF(lla)
-		fo.PhylopicID = nullStr(img)
-		fo.TaxonNo = no.Int64
-		if walk.Valid {
-			w := walk.Int64
-			fo.AttachWalk = &w
-		}
 		list = append(list, fo)
 		if len(list) >= limit {
 			break

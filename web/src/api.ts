@@ -648,8 +648,51 @@ async function get<T>(url: string): Promise<T> {
   return p as Promise<T>;
 }
 
+/**
+ * A request whose answer is *not* a function of the build, so it must never be
+ * remembered — not by this cache, and not by the browser's.
+ *
+ * `get` memoises on the URL forever, which is exactly right for an immutable
+ * API and exactly wrong for one endpoint: `/v1/random` would answer every press
+ * of the command with the first press's pick, for the lifetime of the tab. The
+ * server sends `no-store` for the same reason one layer down; this is the other
+ * half of it.
+ */
+async function getFresh<T>(url: string): Promise<T> {
+  const res = await fetch(url, {
+    headers: { accept: "application/json" },
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    throw new ApiError(res.status, `${res.status} ${res.statusText} for ${url}`);
+  }
+  return normalise(url, await res.json()) as T;
+}
+
+/** Which corpus a random pick is drawn from. Never both — see `/v1/random`. */
+export type RandomKind = "species" | "fossil";
+
+export interface RandomResponse {
+  kind: RandomKind;
+  results: SearchHit[];
+  fossils: FossilTaxon[];
+  /** False when this build cannot make the pick at all, rather than "no luck". */
+  available: boolean;
+}
+
 export const api = {
   about: () => get<About>("/v1/about"),
+
+  /**
+   * Draw taxa that carry their own drawing, from one corpus or the other.
+   *
+   * `limit` is over-asked on purpose. A pick already on the canvas is a no-op
+   * that would still be confirmed by a toast, so the caller takes the first
+   * candidate it is not already showing rather than making a second request to
+   * find one.
+   */
+  random: (kind: RandomKind, limit = 1) =>
+    getFresh<RandomResponse>(`/v1/random?kind=${kind}&limit=${limit}`),
 
   search: (q: string, limit = 20) =>
     get<{

@@ -442,6 +442,56 @@ rather than as approximate.
 
 §2 gains a row if this is ever built. It deliberately has none.
 
+### Random picks: the pool is "has its own drawing", in both corpora
+
+`⌘⇧S` adds a random species, `⌘⇧F` draws a random fossil, and both come from
+`/v1/random`. The command exists because the empty canvas is a command list and
+every other command on it assumes the reader has already thought of a species —
+which, for an audience of curious people rather than systematists, is the hard
+part.
+
+**The pool is the entire design, and uniform-over-the-corpus is wrong twice
+over.** A uniform node draw returns one of the 1.6M unnamed `mrcaott…` clades or
+an undescribed mite; a uniform PBDB draw returns a single-occurrence brachiopod
+with no stratigraphic bracket, which cannot be placed on the axis at all. So
+both pools require the taxon to carry **a silhouette of its own** — which is not
+a decoration filter but the strongest notability signal either corpus has,
+somebody having chosen to illustrate the thing.
+
+Measured on the current build:
+
+| pool | filter | rows |
+|---|---|---:|
+| species | `node_image.climb = 0`, named | **13,918** |
+| fossils | `is_primary`, `is_extant = 0`, `lla > 0.0117`, joined to `fossil_image` | **2,114** |
+
+Four things not to redo:
+
+- **`climb = 0`, not "has an image".** Phase 5 resolves a drawing for all
+  2,725,682 nodes by climbing to a relative, so "has an image" is true of the
+  whole corpus and carries no information. `climb` is hops to the clade the
+  drawing *speaks for*, so zero means that clade is the node itself.
+- **The Holocene bound is load-bearing**, for the same reason `witness-ceiling.md`
+  gives: PBDB flags *Thalassia testudinum*, the living turtle grass, extinct at
+  48.07–0.0117 Ma. `is_extant` alone admits living things wearing a fossil's
+  clothes.
+- **Written as a subquery, not a join.** As a join SQLite drives from
+  `node_name` and probes `node_image` per row, 745 ms; as `IN (SELECT … WHERE
+  climb = 0)` it scans `node_image` once and probes `node` by rowid, 83 ms.
+- **`/v1/random` is the one endpoint that is not a function of the build**, so
+  it goes through `writeVolatileJSON` and `no-store`, and the client fetches it
+  outside `api.ts`'s URL cache. Through the ordinary path it would carry the
+  build ETag and a one-year `immutable`, and the second press would be answered
+  from cache with the first press's pick — forever, and looking like it worked.
+
+The client over-asks (12 candidates) and takes the first not already on the
+canvas. Adding something already there is a no-op, and "Added Pallas's cat" over
+an unchanged canvas is a false statement about the one thing the reader was
+watching. A random fossil also adds the clade it hangs below when that clade is
+missing — reusing `drawFossil`'s existing path — because a random fossil almost
+always attaches to a branch nobody has drawn, and without it the command's usual
+outcome would be a refusal notice for something nobody chose by name.
+
 ---
 
 ## 4. Corrections to the design docs

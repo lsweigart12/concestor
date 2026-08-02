@@ -915,3 +915,94 @@ func TestSafeID(t *testing.T) {
 
 func itoa(v int) string     { return strconv.Itoa(v) }
 func itoa64(v int64) string { return strconv.FormatInt(v, 10) }
+
+// The random endpoint is the one /v1 response that is not a function of the
+// build, and it is served through `writeVolatileJSON` for exactly that reason.
+// Sent through the ordinary path it would carry the build's ETag and a
+// one-year `immutable`, so the second press of the command would be answered
+// from the browser cache with the first press's answer — an endpoint that
+// looked like it worked and never picked twice.
+func TestRandomIsNeverCached(t *testing.T) {
+	ts, _ := serve(t)
+	resp := getJSON(t, ts, "/v1/random?kind=species", nil)
+	if cc := resp.Header.Get("Cache-Control"); cc != "no-store" {
+		t.Errorf("Cache-Control = %q, want no-store", cc)
+	}
+	if tag := resp.Header.Get("ETag"); tag != "" {
+		t.Errorf("ETag = %q; a random answer must not be revalidatable", tag)
+	}
+}
+
+func TestRandomSpecies(t *testing.T) {
+	ts, _ := serve(t)
+	var body struct {
+		Kind      string               `json:"kind"`
+		Results   []store.SearchResult `json:"results"`
+		Fossils   []store.Fossil       `json:"fossils"`
+		Available bool                 `json:"available"`
+	}
+	getJSON(t, ts, "/v1/random?kind=species&limit=5", &body)
+	if body.Kind != "species" {
+		t.Fatalf("kind = %q", body.Kind)
+	}
+	if !body.Available {
+		t.Skip("this build cannot tell an own drawing from a borrowed one")
+	}
+	if len(body.Results) != 5 {
+		t.Fatalf("got %d picks, want 5", len(body.Results))
+	}
+	if len(body.Fossils) != 0 {
+		t.Error("a species draw must not carry fossils; the two corpora stay apart")
+	}
+	for _, r := range body.Results {
+		// Everything the palette row and the add path need. A pick missing any
+		// of these is a row the reader cannot act on.
+		if r.Idx == nil || r.Key == "" || r.Name == nil || r.PhylopicID == nil {
+			t.Errorf("incomplete pick: %+v", r)
+		}
+	}
+}
+
+func TestRandomFossil(t *testing.T) {
+	ts, _ := serve(t)
+	var body struct {
+		Kind      string               `json:"kind"`
+		Results   []store.SearchResult `json:"results"`
+		Fossils   []store.Fossil       `json:"fossils"`
+		Available bool                 `json:"available"`
+	}
+	getJSON(t, ts, "/v1/random?kind=fossil&limit=5", &body)
+	if body.Kind != "fossil" {
+		t.Fatalf("kind = %q", body.Kind)
+	}
+	if !body.Available {
+		t.Skip("no fossil table with drawings in this build")
+	}
+	if len(body.Fossils) != 5 {
+		t.Fatalf("got %d picks, want 5", len(body.Fossils))
+	}
+	if len(body.Results) != 0 {
+		t.Error("a fossil draw must not carry nodes")
+	}
+	for _, f := range body.Fossils {
+		if f.TaxonNo <= 0 || f.LLA == nil || f.PhylopicID == nil {
+			t.Errorf("a pick the canvas would refuse to graft: %+v", f)
+		}
+	}
+}
+
+// `kind` is a closed set. A typo must be an error rather than a silent default,
+// because the two corpora are not interchangeable and quietly answering about
+// species when a caller asked for fossils is the kind of wrong answer that
+// takes an hour to see.
+func TestRandomRejectsAnUnknownKind(t *testing.T) {
+	ts, _ := serve(t)
+	resp := getJSON(t, ts, "/v1/random?kind=rock", nil)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("got %d, want 400", resp.StatusCode)
+	}
+	resp = getJSON(t, ts, "/v1/random?kind=species&limit=0", nil)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("limit=0 got %d, want 400", resp.StatusCode)
+	}
+}

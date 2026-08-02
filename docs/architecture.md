@@ -316,9 +316,16 @@ deploys on a release cadence rather than per-commit.
 | `GET /v1/segment/{upper}/{lower}` | intermediates + ranked fossils with brackets | one index scan |
 | `GET /v1/node/{key}` | detail panel: synonyms, sources, xref provenance, attribution | a few indexed lookups |
 | `GET /v1/timescale` | ICS intervals, ~40 KB, `immutable` | static |
+| `GET /v1/random?kind=` | random taxa that carry their own drawing, from one corpus or the other | one full scan behind `ORDER BY random()`, 83–100 ms |
 
 All responses are `Cache-Control: immutable` keyed by build id, because the data cannot
 change within a build. A CDN in front absorbs essentially all traffic.
+
+**`/v1/random` is the one exception, and it must stay one.** Its answer is not a
+function of the build, so it is served `no-store` with no ETag. Through the
+immutable path a browser would answer every later request from cache with the
+first pick, permanently — an endpoint that appears to work and never picks
+twice. `handoff.md` §3 has the pools and why they are narrow.
 
 ### Search ranking
 

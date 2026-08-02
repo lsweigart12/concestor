@@ -39,6 +39,20 @@ export interface Command {
   title: string;
   subtitle?: string;
   icon: string;
+  /**
+   * The hover tooltip, when a row needs more than a subtitle can hold.
+   *
+   * The subtitle is a *line* — it sits under the title in a fixed-height row
+   * and has to stay short enough not to wrap. Some commands have a caveat worth
+   * a sentence: what a random pick is drawn from, what it will do to the
+   * selection as a side effect. Those belong somewhere a reader can go looking
+   * for them and nowhere they have to read past.
+   *
+   * Falls back to the subtitle, so every command has a tooltip without being
+   * given one — the same string, which is the honest default when there is
+   * nothing more to say.
+   */
+  hint?: string;
   keys?: string;
   section: string;
   /** Hidden unless a node is focused — the contextual actions menu. */
@@ -505,6 +519,7 @@ function RowView({
     return (
       <div
         className={`row${active ? " active" : ""}`}
+        title={c.hint ?? c.subtitle}
         onMouseMove={onHover}
         onClick={onClick}
       >

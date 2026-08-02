@@ -85,6 +85,25 @@ filter tween on the same element.
   palette scoped to that node or branch.
 - The search field carries a breadcrumb of current scope. Backspace at
   position zero pops the scope.
+- **There is a way in that does not require having thought of a species.**
+  `⌘⇧S` adds a random one, `⌘⇧F` draws a random fossil. The empty canvas is a
+  command list, and every other command on it assumes you already have a name
+  in mind; nobody browses 2.4 million of them. Both draw only from taxa that
+  carry **a silhouette of their own**, which is the whole of the design — a
+  uniform draw returns an unnamed `mrcaott…` clade or an undescribed mite, and
+  a surprise that is usually nothing to look at is one a reader stops pressing.
+  A random fossil also adds the clade it hangs below when the canvas has not
+  got it, because otherwise the command's usual outcome is a refusal notice for
+  something nobody chose by name.
+  Both are shifted because every unshifted mnemonic is taken: `⌘S` is share,
+  `⌘F` is the browser's find, `⌘R` is reload. `⌘⇧R` was the obvious pair for
+  "random" and is refused — it is hard-reload everywhere, and taking that from
+  a reader to save a letter is a worse trade than `⌘⇧L` already documents.
+- **A command row may carry a tooltip its subtitle cannot hold.** The subtitle
+  is one line in a fixed-height row; a caveat that needs a sentence — what a
+  pick is drawn from, what it will do to the selection as a side effect — goes
+  in `Command.hint`, which a reader can go looking for and never has to read
+  past. It falls back to the subtitle, so every row has one.
 - Inline keybind hints on every row. Persistent hint bar on the **top edge**,
   flat text under the same fade-to-void the axis uses, not a pill. It was
   pinned bottom-right until the axis footer had something to say; the two

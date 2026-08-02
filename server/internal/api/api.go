@@ -41,6 +41,7 @@ func (s *Server) Handler() http.Handler {
 
 	mux.HandleFunc("GET /v1/about", s.handleAbout)
 	mux.HandleFunc("GET /v1/search", s.handleSearch)
+	mux.HandleFunc("GET /v1/random", s.handleRandom)
 	mux.HandleFunc("GET /v1/path/{key}", s.handlePath)
 	mux.HandleFunc("GET /v1/paths", s.handlePaths)
 	mux.HandleFunc("GET /v1/node/{key}", s.handleNode)
@@ -115,8 +116,27 @@ func (s *Server) writeJSON(w http.ResponseWriter, r *http.Request, code int, v a
 		h.Set("Cache-Control", "no-store")
 	}
 	w.WriteHeader(code)
-	enc := json.NewEncoder(w)
-	if err := enc.Encode(v); err != nil {
+	s.encode(w, r, v)
+}
+
+// writeVolatileJSON emits a response that must **not** be cached or ETag'd.
+//
+// The package note says everything is immutable within a build, and everything
+// is — except the one thing that is deliberately not a function of the build:
+// a random pick. Sending it through writeJSON would stamp it with the build's
+// ETag and a one-year `immutable`, so the second press of the command would be
+// answered from the browser cache with the first press's answer, forever. The
+// endpoint would appear to work and would never pick twice.
+func (s *Server) writeVolatileJSON(w http.ResponseWriter, r *http.Request, code int, v any) {
+	h := w.Header()
+	h.Set("Content-Type", "application/json; charset=utf-8")
+	h.Set("Cache-Control", "no-store")
+	w.WriteHeader(code)
+	s.encode(w, r, v)
+}
+
+func (s *Server) encode(w http.ResponseWriter, r *http.Request, v any) {
+	if err := json.NewEncoder(w).Encode(v); err != nil {
 		s.Log.Error("encoding response", "path", r.URL.Path, "err", err)
 	}
 }
@@ -502,6 +522,73 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.writeJSON(w, r, http.StatusOK, body)
+}
+
+// --- /v1/random ----------------------------------------------------------
+
+// randomBody is one draw from one of the two corpora.
+//
+// Two lists rather than one field of a union type, and for the same reason
+// /v1/search has two: a node and a PBDB taxon are different things with
+// different actions, and a client that had to unpack a tagged union would be
+// doing that work in order to arrive back at the two lists it wanted. Only one
+// is ever non-empty, and `kind` says which was asked for.
+type randomBody struct {
+	Kind    string               `json:"kind"`
+	Results []store.SearchResult `json:"results"`
+	Fossils []store.Fossil       `json:"fossils"`
+	// False when the corpus this draw needs has not been built — no
+	// `node_image.climb`, or no fossil/`fossil_image` tables. An empty list
+	// with no flag reads as "the dice came up empty", which cannot happen.
+	Available bool `json:"available"`
+}
+
+// handleRandom draws from a pool of taxa that carry their own drawing.
+//
+// `limit` exists so a caller can skip picks already on its canvas without a
+// second round trip. Adding a species that is already there is a no-op, and the
+// confirmation that follows it would be a false statement — the cheapest fix is
+// to hand the client a few candidates and let it take the first unused one.
+func (s *Server) handleRandom(w http.ResponseWriter, r *http.Request) {
+	kind := r.URL.Query().Get("kind")
+	if kind == "" {
+		kind = "species"
+	}
+	if kind != "species" && kind != "fossil" {
+		s.fail(w, r, http.StatusBadRequest, `kind must be "species" or "fossil"`)
+		return
+	}
+	limit := 1
+	if v := r.URL.Query().Get("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n <= 0 {
+			s.fail(w, r, http.StatusBadRequest, "limit must be a positive integer")
+			return
+		}
+		limit = n
+	}
+
+	body := randomBody{Kind: kind, Results: []store.SearchResult{}, Fossils: []store.Fossil{}}
+	if kind == "fossil" {
+		fos, err := s.St.RandomFossils(r.Context(), limit)
+		if err != nil {
+			s.Log.Error("random fossil", "err", err)
+			s.fail(w, r, http.StatusInternalServerError, "random pick failed")
+			return
+		}
+		body.Fossils = fos
+		body.Available = s.St.Schema.Fossil != nil && s.St.Schema.Fossil.ImageTable != ""
+	} else {
+		res, err := s.St.RandomNodes(r.Context(), limit)
+		if err != nil {
+			s.Log.Error("random species", "err", err)
+			s.fail(w, r, http.StatusInternalServerError, "random pick failed")
+			return
+		}
+		body.Results = res
+		body.Available = s.St.Schema.NodeImage != nil && s.St.Schema.NodeImage.Climb != ""
+	}
+	s.writeVolatileJSON(w, r, http.StatusOK, body)
 }
 
 // --- /v1/path ------------------------------------------------------------
