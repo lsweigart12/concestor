@@ -12,7 +12,7 @@ happen before Concestor deploys on Cloudflare.
 | `.github/workflows/ci.yml` | every push to `main`, every pull request | `commits`, `web`, `server`, `pipeline`, `cloudflare` |
 | `.github/workflows/release.yml` | CI succeeding on `main`, or manual | `release` — semantic-release, fully automatic |
 | `.github/workflows/deploy-web.yml` | a published release, pull request, manual | `deploy` — skipped entirely until Cloudflare credentials exist |
-| `.github/dependabot.yml` | monthly | npm, gomod, uv, github-actions |
+| `.github/dependabot.yml` | monthly | npm, gomod, uv, github-actions — grouped, one pull request each |
 
 The chain is `merge → CI → release → deploy`, and no link in it waits for a
 human.
@@ -216,6 +216,43 @@ every commit this project has ever written, and the rules are **written out
 rather than `extends`-ed**, because commitlint resolves `extends` from the
 repository root, there is no `node_modules` there, and the extended form
 throws `MODULE_NOT_FOUND` under `npx` — which is exactly how CI runs it.
+
+### Dependabot is exempt, and pays for the exemption up front
+
+The first month of dependency updates opened six pull requests and
+**`commits` failed on all six**. Nothing was wrong with any of them: a bot
+writes `Bump actions/checkout from 4 to 7`, which has no type prefix, and a
+grouped update writes its whole group onto one body line — 364 characters
+naming four packages and their four repositories. A check that fails on every
+change of a given kind has stopped saying anything about the change and says
+only who wrote it.
+
+So `commitlint.config.cjs` **ignores commits signed off by
+`dependabot[bot]`**, and `.github/dependabot.yml` settles the type instead,
+before the commit is written rather than after: **`ci` for the workflows,
+`build` for npm, gomod and uv.** Both release nothing, which is the intended
+answer — a dependency bump is not a feature and not a fix, and cutting a
+version for one makes the tag a worse description of what changed than the
+commit already is.
+
+Two things follow that are easy to get wrong. The exemption keys on the
+**sign-off trailer**, not the author, because commitlint is handed a message
+and not a commit. And the test is worth keeping narrow: an unprefixed commit
+from a person still fails, which is the whole point.
+
+### One pull request per ecosystem, not one per dependency
+
+The cadence caps how *often* updates arrive. It does nothing about how many
+arrive at once, and the two are not the same problem: one monthly
+github-actions run opened five pull requests, one per action, every one of
+them the same one-line edit to a `uses:` tag. **Every ecosystem is grouped**,
+so the ceiling is five pull requests a month — npm splits runtime from
+dev-toolchain, because React and TypeScript moving together is exactly the
+case grouping is for and a runtime bump is a different review.
+
+What is deliberately *not* here is auto-merge. Five reviewable pull requests a
+month is a cost worth paying to keep `main`'s history something a person
+agreed to.
 
 ### One version, and the tag is the only place it is written
 

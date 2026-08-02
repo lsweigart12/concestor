@@ -17,6 +17,24 @@
 // `Merge pull request #11 from …` history stays valid.
 
 module.exports = {
+  // Dependabot's commits are exempt, and what buys the exemption is that
+  // `.github/dependabot.yml` pins their type instead — `ci` for the
+  // workflows, `build` for the package ecosystems — so the one thing this
+  // check exists to protect is settled before the commit is written rather
+  // than after.
+  //
+  // What cannot be settled there is the body. Dependabot writes a link list,
+  // and a *grouped* update writes the whole group onto one line: 364
+  // characters naming four packages and their four repositories. Every
+  // ecosystem here is grouped, so that is the normal shape and not the
+  // exception. Hand-wrapping is not available to a bot, and raising
+  // `body-max-line-length` to clear it would raise it for the prose bodies
+  // the rule is actually for.
+  //
+  // The narrow test is the sign-off trailer rather than the author field,
+  // because commitlint is handed a message and not a commit.
+  ignores: [(message) => /^Signed-off-by: dependabot\[bot\]/m.test(message)],
+
   rules: {
     // The types semantic-release's default analyser understands. `feat`
     // bumps the minor and `fix` the patch; the rest release nothing.
