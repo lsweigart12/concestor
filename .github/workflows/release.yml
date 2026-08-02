@@ -1,0 +1,105 @@
+# Cut a release. Fully automatic: nothing here waits for a human.
+#
+# The version is decided by the commits since the last tag, per Conventional
+# Commits — `feat:` bumps the minor, `fix:` the patch, `BREAKING CHANGE:` the
+# major. `.commitlintrc.json` is what keeps them well-formed, and CI rejects a
+# pull request whose commits are not. So the release is a consequence of the
+# commit log rather than a decision taken afterwards, which is the only way
+# "100% automated" is honest rather than "automated, given someone remembered".
+#
+# It runs on CI succeeding on main, not on push to main. The distinction
+# matters: a release must not be cut from a commit whose tests were never
+# green, and `workflow_run` is the only trigger that can know that.
+#
+# What comes out: a git tag, a GitHub Release whose notes are generated from
+# the commits, and four assets — two server binaries, the built frontend, and
+# checksums. Nothing is committed back to this repository. See
+# `.releaserc.json` for why the tag is the only place the version is written.
+
+name: Release
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Work out the next version and print the notes, release nothing"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  # No cancel-in-progress. A cancelled release can leave a tag pushed and no
+  # GitHub Release attached to it, which is a state nobody chose and which the
+  # next run then has to be talked out of.
+  group: release
+
+jobs:
+  release:
+    name: semantic-release
+    runs-on: ubuntu-latest
+    # A failed or cancelled CI run must not reach this. `workflow_run` fires
+    # on completion whatever the conclusion, so the conclusion is the guard.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          # semantic-release reads the whole history to find the last tag and
+          # every commit since it. A shallow clone silently produces a wrong
+          # version rather than an error.
+          fetch-depth: 0
+          persist-credentials: false
+
+      # The checkout above takes main's tip, which is almost always the commit
+      # CI just passed on — but not if something landed in the seconds
+      # between. Releasing the tip in that case would ship a commit whose
+      # tests have not finished, so this stops instead. Nothing is lost: the
+      # newer commit has its own CI run, and its success triggers this again.
+      - name: Is main still the commit CI passed?
+        id: gate
+        if: github.event_name == 'workflow_run'
+        env:
+          TESTED: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          head=$(git rev-parse HEAD)
+          if [ "$head" != "$TESTED" ]; then
+            echo "::notice::main moved from ${TESTED} to ${head} while CI was running. Skipping — the newer commit's own CI run will release it."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.gate.outputs.skip != 'true'
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # Needed by scripts/ci/build-release.sh, which cross-compiles the server
+      # for both Linux architectures before the release is published.
+      - uses: actions/setup-go@v5
+        if: steps.gate.outputs.skip != 'true'
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      - name: semantic-release
+        if: steps.gate.outputs.skip != 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # Pinned to majors rather than floating: a release pipeline that
+        # changes behaviour because an upstream published on a Tuesday is not
+        # a pipeline. commit-analyzer, release-notes-generator and github ship
+        # inside semantic-release; exec does not.
+        run: |
+          npx --yes \
+            -p semantic-release@24 \
+            -p @semantic-release/exec@6 \
+            semantic-release ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && '--dry-run' || '' }}

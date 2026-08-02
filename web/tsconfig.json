@@ -17,5 +17,10 @@
     "resolveJsonModule": true,
     "noEmit": true
   },
-  "include": ["src", "vite.config.ts", "vitest.config.ts"]
+  // `worker/` is not part of the bundle — vite never sees it, wrangler builds
+  // it separately — but it is typechecked here rather than in a second
+  // tsconfig, because it is small, it uses only Request/Response, and a
+  // deploy-path file nobody typechecks is exactly the file that breaks on the
+  // first deploy.
+  "include": ["src", "worker", "vite.config.ts", "vitest.config.ts"]
 }

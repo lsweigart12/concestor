@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/lsweigart12/concestor/server/internal/testenv"
 )
 
 // write produces a .npy file the way numpy does: magic, version, header
@@ -255,10 +257,7 @@ func TestDictValue(t *testing.T) {
 // that matters: a hand-rolled generator agreeing with a hand-rolled reader
 // proves nothing on its own.
 func TestRealPipelineArrays(t *testing.T) {
-	dir := repoBuildTopology(t)
-	if dir == "" {
-		t.Skip("build/topology not present")
-	}
+	dir := testenv.RequireTopology(t)
 	for _, c := range []struct {
 		file  string
 		descr string
@@ -287,24 +286,4 @@ func TestRealPipelineArrays(t *testing.T) {
 		}
 		_ = a.Close()
 	}
-}
-
-func repoBuildTopology(t *testing.T) string {
-	t.Helper()
-	wd, err := os.Getwd()
-	if err != nil {
-		return ""
-	}
-	for range 6 {
-		p := filepath.Join(wd, "build", "topology")
-		if st, err := os.Stat(p); err == nil && st.IsDir() {
-			return p
-		}
-		parent := filepath.Dir(wd)
-		if parent == wd {
-			break
-		}
-		wd = parent
-	}
-	return ""
 }

@@ -1,0 +1,26 @@
+# Monthly, not weekly. Three ecosystems on a weekly cadence is a pull request
+# every couple of days on a project whose dependency surface is deliberately
+# small — six runtime packages in web/, two in pipeline/, and a driver in
+# server/. Security advisories are not rate-limited by this setting.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /web
+    schedule: { interval: monthly }
+    groups:
+      # React, TypeScript and vite move together often enough that separate
+      # pull requests just mean resolving the same conflict three times.
+      dev-toolchain:
+        dependency-type: development
+
+  - package-ecosystem: gomod
+    directory: /server
+    schedule: { interval: monthly }
+
+  - package-ecosystem: uv
+    directory: /pipeline
+    schedule: { interval: monthly }
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: monthly }

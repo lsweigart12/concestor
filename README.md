@@ -74,7 +74,7 @@ docs/          specification and design documents
 pipeline/      the offline build pipeline
 server/        the read API
 web/           the frontend
-scripts/       serve.sh and dev.sh — the two launch configurations
+scripts/       serve.sh and dev.sh — the two launch configurations — and check.sh
 snapshot/      pinned upstream sources (gitignored except manifest.json)
 build/         derived artifacts (gitignored)
 ```
@@ -118,7 +118,23 @@ cd server && go test ./...
 
 # web
 cd web && npm install && npm run build && npm test
+
+# all of the above, plus the tests that need a built dataset
+scripts/check.sh
 ```
+
+Commits follow [Conventional Commits](https://www.conventionalcommits.org) —
+the type prefix and nothing more, so `feat: Make the card say what a thing is,
+and let the reader walk from it` is a valid subject. Merging to `main` cuts a
+release automatically: the version comes from those prefixes, the notes from
+the commits, and neither is written by hand.
+
+CI runs the same checks on every pull request, on a clean checkout — which
+means no `build/`, which means **82 of the 99 Go tests and 47 of the pipeline's
+skip themselves and both suites still report success**. `scripts/check.sh`
+finds a build, sets `CONCESTOR_REQUIRE_BUILD=1` so a skip becomes a failure,
+and is the run to trust before merging anything that reads the artifacts.
+[docs/ci.md](docs/ci.md) covers that and the Cloudflare deployment path.
 
 The pipeline is fully annotated and `ty check` must run clean. Use the dtype
 aliases in `concestor_build/typing_.py` rather than bare `np.ndarray` — the dtypes

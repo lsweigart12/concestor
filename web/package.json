@@ -8,7 +8,9 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "cf:check": "wrangler deploy --dry-run --outdir .wrangler/dry-run",
+    "cf:dev": "wrangler dev"
   },
   "dependencies": {
     "@xyflow/react": "^12.3.5",
@@ -21,6 +23,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "typescript": "^5.7.2",
     "vite": "^6.0.5",
-    "vitest": "^2.1.9"
+    "vitest": "^2.1.9",
+    "wrangler": "^4.118.0"
   }
 }

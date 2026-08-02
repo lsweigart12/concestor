@@ -1,0 +1,124 @@
+# Deploy the frontend to Cloudflare Workers.
+#
+# The frontend only. The read API mmaps the baked arrays and opens a 2 GB
+# SQLite database read-only; it is a container, and `web/worker/index.ts`
+# proxies /v1 to wherever that container runs. docs/ci.md §3 is the whole
+# argument, including what it would cost to move the API to the edge.
+#
+# Nothing is configured yet, and this workflow is written so that costs
+# nothing: with no credentials in the repository every deploy step is skipped
+# and the run is green with a notice saying why. It is not a failure to have
+# no Cloudflare account; it is a failure to discover on the day you get one
+# that the pipeline was never wired up.
+#
+# To turn it on, set in the repository:
+#   secret CLOUDFLARE_API_TOKEN    — scoped to "Edit Cloudflare Workers"
+#   secret CLOUDFLARE_ACCOUNT_ID
+#   variable CONCESTOR_API_ORIGIN  — https origin of the Go read API
+
+name: Deploy web
+
+# Production deploys on a *release*, not on every push to main. That is the
+# whole point of having a release pipeline: what is in production has a version
+# number, appears in the changelog, and can be named in a rollback. A deploy
+# per merge has none of those and cannot be talked about afterwards.
+#
+# Pull requests still get a preview version, because a preview is for looking
+# at a change before it is a release.
+on:
+  release:
+    types: [published]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Not cancel-in-progress. Cancelling a deploy halfway leaves the account in
+  # a state nobody chose; queueing costs a few minutes and never does.
+  group: deploy-web-${{ github.ref }}
+
+jobs:
+  deploy:
+    name: ${{ github.event_name == 'pull_request' && 'preview' || 'production' }}
+    runs-on: ubuntu-latest
+    environment: ${{ github.event_name == 'pull_request' && 'preview' || 'production' }}
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      API_ORIGIN: ${{ vars.CONCESTOR_API_ORIGIN }}
+      # A deploy job should not phone home about its own tooling.
+      WRANGLER_SEND_METRICS: "false"
+    steps:
+      # Secrets are unreadable in a job-level `if`, and a fork's pull request
+      # has none at all, so the guard is a step whose output every later step
+      # keys off. This is also what makes fork PRs safe: they get a skipped
+      # deploy rather than a failed one.
+      - name: Is Cloudflare configured?
+        id: guard
+        run: |
+          if [ -n "$CLOUDFLARE_API_TOKEN" ] && [ -n "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No Cloudflare credentials in this repository — skipping the deploy. See .github/workflows/deploy-web.yml for what to set."
+          fi
+          if [ -z "$API_ORIGIN" ]; then
+            echo "::warning::CONCESTOR_API_ORIGIN is unset; the Worker will answer /v1 with 503 until it is set."
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.guard.outputs.configured == 'true'
+        with:
+          # On a release, the tag — not main's tip. Between the tag being cut
+          # and this job starting, main can have moved, and deploying that
+          # would put code in production that the release notes do not
+          # describe. Empty elsewhere, which checks out the triggering ref.
+          ref: ${{ github.event.release.tag_name }}
+
+      - uses: actions/setup-node@v4
+        if: steps.guard.outputs.configured == 'true'
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build
+        if: steps.guard.outputs.configured == 'true'
+        working-directory: web
+        env:
+          # The same version the release compiled into the server binary, so
+          # a frontend and an API can be compared without guessing. Falls back
+          # to the sha on a preview, which has no version by definition.
+          VITE_APP_VERSION: ${{ github.event.release.tag_name || github.sha }}
+        # Rebuilt here rather than pulled from CI's artifact: a deploy that
+        # depends on another workflow's output can ship a bundle whose source
+        # nobody can name. `tsc -b` runs as part of `build`, so a type error
+        # still stops it.
+        run: |
+          npm ci
+          npm run build
+
+      # A version upload, not a deploy: it publishes a preview URL and does
+      # not move production traffic. `--preview-alias` gives the branch a
+      # stable hostname instead of a new hash on every push.
+      - name: Upload preview version
+        if: steps.guard.outputs.configured == 'true' && github.event_name == 'pull_request'
+        working-directory: web
+        run: |
+          npx wrangler versions upload \
+            --var "API_ORIGIN:${API_ORIGIN}" \
+            --preview-alias "pr-${{ github.event.number }}" \
+            --message "PR #${{ github.event.number }} — ${{ github.sha }}"
+
+      - name: Deploy
+        if: steps.guard.outputs.configured == 'true' && github.event_name != 'pull_request'
+        working-directory: web
+        # --var overrides wrangler.jsonc's empty API_ORIGIN. It is a plaintext
+        # variable and must stay one: it is a public origin the browser
+        # already sends every request to, not a secret.
+        run: |
+          npx wrangler deploy \
+            --var "API_ORIGIN:${API_ORIGIN}" \
+            --message "${{ github.event.release.tag_name || github.sha }}"

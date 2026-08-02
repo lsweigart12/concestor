@@ -1,0 +1,66 @@
+// Conventional Commits, with this repository's voice left intact.
+//
+// The type prefix decides the version bump, and it is the whole of what is
+// being imposed. `feat: Make the card say what a thing is, and let the reader
+// walk from it` is five characters longer than the commit that actually
+// shipped and says exactly the same thing.
+//
+// The rules are written out rather than pulled in with
+// `extends: ["@commitlint/config-conventional"]`, and that is not a style
+// preference. commitlint resolves `extends` relative to *this file's*
+// directory, and the repository root has no node_modules — so the extended
+// form throws MODULE_NOT_FOUND under `npx`, which is exactly how CI runs it.
+// Written out, the only dependency is the linter itself. It also puts the
+// type list where the comment explaining it can sit next to it.
+//
+// Merge commits are ignored by commitlint's own defaults, so the
+// `Merge pull request #11 from …` history stays valid.
+
+module.exports = {
+  rules: {
+    // The types semantic-release's default analyser understands. `feat`
+    // bumps the minor and `fix` the patch; the rest release nothing.
+    // `perf` deliberately does not bump — a faster induced-subtree walk is
+    // not a new capability, and shipping it as one would make the version
+    // number a worse description of the change than the commit already is.
+    "type-enum": [
+      2,
+      "always",
+      [
+        "build",
+        "chore",
+        "ci",
+        "docs",
+        "feat",
+        "fix",
+        "perf",
+        "refactor",
+        "revert",
+        "style",
+        "test",
+      ],
+    ],
+    "type-empty": [2, "never"],
+    "type-case": [2, "always", "lower-case"],
+    "scope-case": [2, "always", "lower-case"],
+
+    "subject-empty": [2, "never"],
+    "subject-full-stop": [2, "never", "."],
+
+    // Note what is *not* here: `subject-case`. config-conventional forbids a
+    // sentence-case subject, which would reject every commit this project has
+    // ever written. The subject here is a sentence; that is the point of it.
+
+    // 100 characters, with room to spare: the longest subject in the log —
+    // "Make the mouse a first-class path, and stop negotiating with the
+    // browser" — is 71, and 77 with a prefix. Still catches a paragraph
+    // pasted into the subject line.
+    "header-max-length": [2, "always", 100],
+
+    // The bodies here are prose explaining a decision, hand-wrapped at 72.
+    // Raised rather than disabled, so a wall of unwrapped text is caught.
+    "body-max-line-length": [2, "always", 100],
+    "body-leading-blank": [2, "always"],
+    "footer-leading-blank": [2, "always"],
+  },
+};

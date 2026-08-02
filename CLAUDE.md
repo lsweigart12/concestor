@@ -26,6 +26,7 @@ wrong and these docs record the corrections.
 | [docs/witness-ceiling.md](docs/witness-ceiling.md) | Raising the divergence witness off nodes and onto fossil attachment points. **Shipped**; §9 is what it actually cost |
 | [docs/fossil-grafts.md](docs/fossil-grafts.md) | Drawing a fossil *in* the tree at its own date. **Shipped**; §2 is why grafting into the baked arrays was refused |
 | [docs/worktrees.md](docs/worktrees.md) | Why the preview works in a parallel session's worktree |
+| [docs/ci.md](docs/ci.md) | What CI checks, what a green run does *not* mean, and what can deploy on Cloudflare |
 
 **This product is for curious people interested in evolution, not for evolutionary
 biologists.** Identifying an MRCA, drawing the tree well, and showing useful
@@ -66,6 +67,7 @@ assigns `x` by depth and here `x` is time.
 ```bash
 cd web && npm install && npm run build && npm test   # 220 tests
 cd server && go test ./... && go run . -build ../build
+scripts/check.sh          # everything CI runs, plus the dataset tests it can't
 ```
 
 **Running in a worktree.** `scripts/serve.sh` and `scripts/dev.sh` are the two
@@ -74,11 +76,24 @@ session's worktree, which has the source but neither `build/` (2.9 GB) nor
 `snapshot/` (1.7 GB). They borrow both, read-only, from the main checkout.
 **`go test` does not.** `testenv.BuildDir` walks six parents for
 `build/concestor.db` and from `<worktree>/server/internal/store` that stops one
-level short — so 70 of 87 tests skip and the suite still prints `ok`. Symlink
-`build` into the worktree root (it is gitignored) before trusting a green run.
+level short — so **82 of 99** tests skip and the suite still prints `ok`. Run
+`scripts/check.sh`, which symlinks `build` into the worktree root (it is
+gitignored) and sets `CONCESTOR_REQUIRE_BUILD=1` so a skip becomes a failure;
+`docs/ci.md` §2 is why a green `go test` on its own means very little here.
 Nothing may hardcode a port. `docs/worktrees.md` explains the split; the rule
 to keep is that borrowed paths are pipeline output nobody edits, and `web/`
 always belongs to the worktree.
+
+**Commits carry a Conventional Commits type, and nothing else about them
+changes.** `feat:` bumps the minor, `fix:` the patch, `BREAKING CHANGE:` in a
+body the major; `docs`, `chore`, `ci`, `refactor`, `test`, `build`, `style`,
+`revert` and `perf` release nothing. The subject stays a sentence in this
+project's voice — `feat: Make the card say what a thing is, and let the reader
+walk from it` — because `subject-case` is off in `commitlint.config.cjs` for
+exactly that reason. Getting the type wrong is not cosmetic: merging to `main`
+cuts a release, and the version is computed from these prefixes and nothing
+else. `docs/ci.md` §4 has the rest, including why there is no `CHANGELOG.md`
+and why the pipeline never runs in CI.
 
 `web/src/tree/induced.ts` and the Go equivalent are both ports of `render.py`'s
 `induced_subtree`, each pinned to the Python reference by a test built from the
