@@ -498,41 +498,64 @@ export function TimeAxis({
       <div className="axis-foot">
         {legend}
         {/*
-          One word and its key, and it is a control.
+          Both scales, the live one lit, and the non-default lit *louder*.
 
           It used to read "millions of years before present · symlog": a units
           caption with the scale mode tacked on, and the two most important
           facts about it — that there is another scale, and that you can have it
-          — were the two it did not state. It is now the state and the switch at
-          once, in the word the reader would use.
+          — were the two it did not state. A single word naming the live scale
+          fixed half of that and left the other half undone: `linear` alone
+          still never says a second scale exists, and a lone label on a button
+          is ambiguous in the way every one-sided toggle is, because nothing on
+          it distinguishes *what you are on* from *what you would get*.
 
-          "logarithmic" rather than "symlog", which is the name of the
-          transform and not of anything a reader is looking at. The knee is
-          already labelled on the axis where it happens, which is where that
-          detail belongs; the tooltip carries the rest, including the units the
-          line no longer spells out.
+          Showing both segments answers all of it at once. The reader sees the
+          alternative without hovering, the lit segment is unmistakably the
+          state, and going back is pressing the one you want rather than
+          knowing that the same button reverses.
 
-          It wears the control bar's anatomy — badge first, then the word — for
-          the same reason the bar does: it is the one binding not on the bar,
-          and a key that is never printed is a key nobody learns. This is where
-          `L` gets printed, because it is where the thing it changes lives.
+          **`is-modified` is the quiet-default rule.** Linear is the default
+          (see `DEFAULT` in `state/store.ts`), so on linear the lit segment is
+          plain ink and the control says nothing. Logarithmic is a departure —
+          whether the reader pressed `L`, or followed a link carrying
+          `axis=log`, or opened the one opening that asks for it — and a
+          departure the reader did not make is exactly the one worth marking,
+          so the whole control picks up the accent. That is the standard
+          filter-chip grammar: neutral at rest, accented when set.
+
+          "log" rather than "logarithmic" only because the pair has to fit a
+          footer that already carries the key; beside "linear" it cannot be
+          misread, and the tooltip and `aria-label` both say it in full.
+          `symlog` stays out of it — the name of a transform, not of anything
+          on screen — and the knee is labelled on the axis where it happens.
+
+          The `L` badge stays, and stays outside both segments: it is the one
+          binding not drawn on the control bar, it toggles rather than selects,
+          and a key that is never printed is a key nobody learns.
         */}
-        <button
-          type="button"
-          className="axis-mode"
-          onClick={() => onAxisMode(axisMode === "log" ? "linear" : "log")}
-          title={
-            axisMode === "log"
-              ? "Time scale: logarithmic, and linear below 1 Ma. Ticks are millions of years before present. Click, or press L, for a linear axis."
-              : "Time scale: linear, which puts every recent divergence in one pixel. Ticks are millions of years before present. Click, or press L, for a logarithmic axis."
-          }
-          aria-label={`Time scale: ${axisMode === "log" ? "logarithmic" : "linear"}. Click to switch.`}
+        <div
+          className={`axis-mode${axisMode === "log" ? " is-modified" : ""}`}
+          role="group"
+          aria-label="Time scale"
         >
           <span className="kbd">{kbd("axis")}</span>
-          <span className="axis-mode-label">
-            {axisMode === "log" ? "logarithmic" : "linear"}
-          </span>
-        </button>
+          {(["linear", "log"] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              className={`axis-seg${axisMode === m ? " is-on" : ""}`}
+              aria-pressed={axisMode === m}
+              onClick={() => onAxisMode(m)}
+              title={
+                m === "log"
+                  ? "Logarithmic, and linear below 1 Ma: room for recent splits when a tree also reaches deep time. Ticks are millions of years before present."
+                  : "Linear, the default: true proportions, so recent splits crowd the present. Ticks are millions of years before present."
+              }
+            >
+              {m === "log" ? "log" : "linear"}
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );

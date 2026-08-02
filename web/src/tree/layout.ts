@@ -56,10 +56,14 @@ export const PAD_X = 150;
  * Fraction of the axis for an age, present at 0 and deep time at 1.
  *
  * log(0) is undefined at the present, which is where a naive implementation
- * emits -Infinity and the layout silently collapses. Linear time is also
- * useless here: it puts every hominin divergence inside one pixel next to the
- * Cambrian. The knee gets a visible tick, because a scale that bends without
- * saying so misleads.
+ * emits -Infinity and the layout silently collapses — hence the linear stretch
+ * below `SYMLOG_T0`. The knee gets a visible tick, because a scale that bends
+ * without saying so misleads.
+ *
+ * **This is no longer the default scale**, though it is still the only one that
+ * can hold a tree spanning a hominin divergence and the Cambrian at once. That
+ * is what it is for, and one opening asks for it by name. `DEFAULT` in
+ * `state/store.ts` has the reasoning for preferring true proportions elsewhere.
  */
 export function symlogFrac(age: number, maxAge: number): number {
   if (!Number.isFinite(age) || age <= 0) return 0;
