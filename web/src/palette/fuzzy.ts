@@ -78,6 +78,12 @@ export function fuzzy(needle: string, haystack: string): Match | null {
  * recognise as what they typed.
  *
  * Returns [] when there is no such run, which renders as plain text.
+ *
+ * A regular plural of a typed word counts as that word. Vernaculars are stored
+ * plural and people type singular, so without this the top result for
+ * "butterfly" — Papilionidae, "swallowtail butterflies" — was the only row on
+ * the page with nothing lit, which reads as *this one does not match* directly
+ * above three that do.
  */
 export function litRanges(needle: string, haystack: string): [number, number][] {
   const n = needle.trim().toLowerCase();
@@ -86,12 +92,14 @@ export function litRanges(needle: string, haystack: string): [number, number][] 
   const out: [number, number][] = [];
   // Each whitespace-separated word of the query, wherever it appears whole.
   for (const word of n.split(/\s+/).filter(Boolean)) {
-    let from = 0;
-    for (;;) {
-      const at = h.indexOf(word, from);
-      if (at < 0) break;
-      out.push([at, at + word.length]);
-      from = at + word.length;
+    for (const form of surfaceForms(word)) {
+      let from = 0;
+      for (;;) {
+        const at = h.indexOf(form, from);
+        if (at < 0) break;
+        out.push([at, at + form.length]);
+        from = at + form.length;
+      }
     }
   }
   if (out.length === 0) return [];
@@ -103,6 +111,20 @@ export function litRanges(needle: string, haystack: string): [number, number][] 
     else merged.push(r);
   }
   return merged;
+}
+
+/**
+ * The forms of a typed word a reader would recognise as the same word: itself
+ * and its regular plural. Three characters minimum, so "go" does not claim
+ * "goes" — the same guard, and for the same reason, as `samePlural` in the
+ * server's band rule. This is deliberately not a stemmer: three fixed suffixes,
+ * each of which a reader reading the row would agree is the word they typed.
+ */
+function surfaceForms(word: string): string[] {
+  if (word.length < 3) return [word];
+  const forms = [word, `${word}s`, `${word}es`];
+  if (word.endsWith("y")) forms.push(`${word.slice(0, -1)}ies`);
+  return forms;
 }
 
 /** Split a string into alternating plain / highlighted chunks for rendering. */

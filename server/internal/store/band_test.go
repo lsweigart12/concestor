@@ -7,7 +7,12 @@ func TestMatchBand(t *testing.T) {
 		name, q string
 		want    int
 	}{
-		{"dog family", "dog", bandToken},
+		// "family" is a rank word, so the head of "dog family" is "dog".
+		// Without that, Canidae falls behind every one-species taxon named
+		// something-dog and drops off the page for "dog" entirely.
+		{"dog family", "dog", bandHead},
+		{"owl order", "owl", bandHead},
+		{"sea eagle genus", "eagle", bandHead},
 		{"dogbane family", "dog", bandPrefix},
 		{"dogbane", "dog", bandPrefix},
 		{"Canidae", "dog", bandNone},
@@ -16,12 +21,23 @@ func TestMatchBand(t *testing.T) {
 		// A plural is the same word. This asserted bandPrefix until the plural
 		// rule landed, which was the defect that made "animal" rank Arthropoda
 		// over Metazoa: vernaculars are stored plural and people type singular.
-		{"mackerel sharks", "shark", bandToken},
-		{"animals", "animal", bandToken},
-		{"animal", "animals", bandToken},
-		{"arthropod animal", "animal", bandToken},
-		{"dog family", "dogs", bandToken},
-		{"finches", "finch", bandToken},
+		{"mackerel sharks", "shark", bandHead},
+		{"animals", "animal", bandHead},
+		{"animal", "animals", bandHead},
+		{"arthropod animal", "animal", bandHead},
+		{"dog family", "dogs", bandHead},
+		{"finches", "finch", bandHead},
+		// consonant + y → -ies. Papilionidae is headlined "swallowtail
+		// butterflies" and Danaini "Milkweed Butterflies"; neither matched
+		// "butterfly" at all before this case existed.
+		{"swallowtail butterflies", "butterfly", bandHead},
+		{"butterfly", "butterflies", bandHead}, // same word, not the same string
+		{"butterfly orchid", "butterfly", bandToken},
+		// Head position is the whole of what separates these two.
+		{"Oak moss", "oak", bandToken},
+		{"Sessile Oak", "oak", bandHead},
+		{"eagle rays", "eagle", bandToken},
+		{"Sea eagles", "eagle", bandHead},
 		// Still a prefix, not a plural: "bane" is not a suffix that makes one.
 		{"dogbane family", "dog", bandPrefix},
 		// Too short to pluralise safely — otherwise "go" matches "goes" as a
@@ -32,7 +48,7 @@ func TestMatchBand(t *testing.T) {
 		{"Homo sapiens neanderthalensis", "homo sapiens", bandToken},
 		{"Homo sapiens", "homo sap", bandPrefix},
 		{"T. rex", "t. rex", bandExact},
-		{"Tyrannosaurus rex", "rex", bandToken},
+		{"Tyrannosaurus rex", "rex", bandHead},
 		{"Tyrannosaurus rex", "tyranno", bandPrefix},
 		{"Cantharellales", "can", bandPrefix},
 		{"human lice", "human", bandToken},

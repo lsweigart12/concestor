@@ -56,8 +56,15 @@ type SearchResult struct {
 	NAttachmentPoints *int `json:"n_attachment_points,omitempty"`
 
 	// sort keys, not serialised
-	exact bool
-	band  int
+	band int
+	// The best band reached by a name the *taxonomy* gives this taxon — its
+	// scientific name, a generated abbreviation, a synonym. Kept apart from
+	// `band` because only a vernacular's exactness can be withdrawn: see
+	// decorate. A taxon whose scientific name is the query is never demoted.
+	bandOwn int
+	// Set by decorate when this row's exactness rests on a common name the
+	// taxon is not headlined by, and so has to answer to clade size.
+	withdrawable bool
 	// Whether the name matched is one the taxon still goes by. Derived from
 	// MatchedOn unless tierSet, because MatchedOn answers "which name should I
 	// report?" and this answers "is that name deprecated?" — a node can match
@@ -93,6 +100,18 @@ const (
 	// Below this token length the FTS prefix enumeration costs more than the
 	// hot-name cache, which answers the same query from memory.
 	minFTSToken = 3
+	// How much larger a clade has to be, in species, before a head-word match
+	// on it withdraws an exact match's exactness. See decorate.
+	//
+	// The corpus fixes the bounds and they are two orders of magnitude apart,
+	// which is the whole reason this is a threshold worth having rather than a
+	// number fitted to an example. It must NOT fire for "cow": Bos taurus is
+	// headlined "Domestic Cattle" and carries "cow" as an alias, against
+	// Sirenia's "sea cows" at 7 tips — a ratio of 7, and Bos taurus is the
+	// right answer. It MUST fire for "butterfly": Chaetodon capistratus is
+	// headlined "Kete" and carries "Butterfly" as one of nine Caribbean
+	// aliases, against Papilionidae's 1,080 tips — a ratio of 1,080.
+	outrankRatio = 100
 )
 
 func longestToken(q string) int {
@@ -154,7 +173,6 @@ func (s *Store) Search(ctx context.Context, q string, limit int) ([]SearchResult
 			add(r)
 		}
 	}
-	exactVern := map[int]struct{}{}
 	if s.Schema.Vernacular != nil {
 		// node_fts already indexes vernaculars (search_name.kind = 3), so the
 		// separate prefix scan over the vernacular table is only needed when
@@ -170,11 +188,13 @@ func (s *Store) Search(ctx context.Context, q string, limit int) ([]SearchResult
 			}
 		}
 		// A node whose common name *is* the query has to be a candidate even
-		// if the capped prefix scan missed it.
+		// if the capped prefix scan missed it. This is candidate generation
+		// only — the band it earns is computed in decorate, against every name
+		// the node carries, because an exact common name is not on its own
+		// enough to say the reader meant this taxon.
 		if ev, err := s.exactVernacularMatches(ctx, q); err != nil {
 			s.log.Warn("exact vernacular lookup failed", "err", err)
 		} else {
-			exactVern = ev
 			missing := make([]int, 0, len(ev))
 			for idx := range ev {
 				if _, have := byIdx[idx]; !have {
@@ -202,7 +222,7 @@ func (s *Store) Search(ctx context.Context, q string, limit int) ([]SearchResult
 	// slice.
 	results = append(results, s.searchBroken(qFold)...)
 
-	if err := s.decorate(ctx, results, qFold, exactVern); err != nil {
+	if err := s.decorate(ctx, results, qFold); err != nil {
 		return nil, err
 	}
 
@@ -550,9 +570,12 @@ func (s *Store) searchFTS(ctx context.Context, q string, limit int) ([]*SearchRe
 	qFold := strings.ToLower(q)
 	var order []int
 	kinds := map[int]string{}
-	exact := map[int]bool{}
 	// Best band across every name this node matched through.
 	bands := map[int]int{}
+	// Best band across only those names the taxonomy itself gives the taxon —
+	// scientific, abbreviation, synonym. Only a *vernacular's* exactness can be
+	// withdrawn, so decorate has to be able to tell the two apart.
+	ownBands := map[int]int{}
 	// Best *tier* across them, which is a separate question — see below.
 	tiers := map[int]int{}
 	for rows.Next() {
@@ -584,6 +607,7 @@ func (s *Store) searchFTS(ctx context.Context, q string, limit int) ([]*SearchRe
 			order = append(order, idx)
 			kinds[idx] = "" // strength 0, so any real kind wins
 			bands[idx] = bandNone
+			ownBands[idx] = bandNone
 			tiers[idx] = 1 // demoted until some current name says otherwise
 		}
 		kn := ""
@@ -597,9 +621,6 @@ func (s *Store) searchFTS(ctx context.Context, q string, limit int) ([]*SearchRe
 		band := bandNone
 		if name.Valid {
 			band = matchBand(name.String, qFold)
-			if strings.EqualFold(name.String, qFold) {
-				exact[idx] = true
-			}
 		}
 
 		// One row, three questions, and they had been sharing one answer.
@@ -624,6 +645,9 @@ func (s *Store) searchFTS(ctx context.Context, q string, limit int) ([]*SearchRe
 			kinds[idx] = kn
 		} else if band == bands[idx] && matchStrength(kn) > matchStrength(kinds[idx]) {
 			kinds[idx] = kn
+		}
+		if kn != "vernacular" && band < ownBands[idx] {
+			ownBands[idx] = band
 		}
 		// The tier is the best across every name matched, never the tier of the
 		// one picked to display.
@@ -668,11 +692,13 @@ func (s *Store) searchFTS(ctx context.Context, q string, limit int) ([]*SearchRe
 		if k, ok := kinds[*r.Idx]; ok && k != "" {
 			r.MatchedOn = k
 		}
-		if exact[*r.Idx] {
-			r.exact = true
-		}
 		if b, ok := bands[*r.Idx]; ok {
 			r.band = b
+		}
+		// Absent a `kind` column every name reads as the taxon's own, so the
+		// withdrawal below never fires — which is the safe direction.
+		if b, ok := ownBands[*r.Idx]; ok {
+			r.bandOwn = b
 		}
 		// The final ranking calls matchTier on MatchedOn, which reports the
 		// strongest name and so can say "synonym" for a node that also matched
@@ -802,6 +828,9 @@ func scanNodeResults(rows *sql.Rows, matchedOn string) ([]*SearchResult, error) 
 			Kind: "node", Key: key, Idx: &i, Name: nullStr(name),
 			Rank: nullStr(rank), TipCount: &t, MatchedOn: matchedOn,
 			rankTip: tip,
+			// bandExact is 0, so an unset band would silently claim the
+			// strongest possible match. Every band is earned, never defaulted.
+			band: bandNone, bandOwn: bandNone,
 		}
 		if ott.Valid {
 			v := ott.Int64
@@ -852,7 +881,7 @@ func (s *Store) searchBroken(qFold string) []SearchResult {
 		r := SearchResult{
 			Kind: "broken", Key: b.NodeKey, OttID: &ott,
 			MatchedOn: matched, MRCAIdx: b.MRCAIdx,
-			exact: true, band: bandExact, sortName: b.Name,
+			band: bandExact, bandOwn: bandExact, sortName: b.Name,
 		}
 		if b.Name != "" {
 			n := b.Name
@@ -888,25 +917,43 @@ const maxBrokenExplanations = 2
 // against every name a node has, not just its scientific one. "human" must
 // reach Homo (7 tips) rather than Pulex, the human flea (22 tips); "T. rex"
 // must reach Tyrannosaurus rex through its abbreviation.
-func (s *Store) decorate(ctx context.Context, results []SearchResult, qFold string, exactVern map[int]struct{}) error {
+//
+// It also decides where exactness is *withdrawn*, which is the second half of
+// that judgement and the one nothing had. An exact match settles which name
+// the query is; it does not settle which taxon the reader means, because a
+// common name can be filed against a taxon far below the group it names. Two
+// withdrawals, both measured over 77 everyday words, and both only ever
+// demoting a row to bandHead — where clade size decides — never below it:
+//
+//   - **A lone bare word recorded for a single species is a category label.**
+//     PBDB's ColDP vernacular field carries group words ("belemnite" on 33
+//     taxa, "heart urchin" on 25), and when it is the only thing anyone has
+//     written down about a one-species taxon, the word says what kind of thing
+//     it is rather than what it is called. "eagle" is the whole of what is
+//     recorded for Miraquila, a one-species fossil genus, and it ranked above
+//     Haliaeetus, the sea eagles. Restricting this to tip_count ≤ 1 is what
+//     keeps Serpentes ("snake"), Nephropoidea ("lobster") and Salmo
+//     ("salmon") — clades whose one recorded name is genuinely their name.
+//
+//   - **An alias the taxon is not headlined by answers to clade size.** If a
+//     taxon's own headline name does not carry the word at all, an exact match
+//     on one of its other aliases is a coincidence of naming: Chaetodon
+//     capistratus is headlined "Kete" and carries "Butterfly" as one of nine
+//     Caribbean aliases. Withdrawn only against a head-word match on a clade
+//     outrankRatio times larger, which is what keeps Bos taurus ("cow", against
+//     Sirenia's "sea cows") and Rattus norvegicus (headlined "Brown Rat", so
+//     never eligible at all).
+//
+// A taxon whose *scientific* name is the query is never withdrawn — that is
+// what bandOwn is for.
+func (s *Store) decorate(ctx context.Context, results []SearchResult, qFold string) error {
 	idxs := make([]int, 0, len(results))
 	for i := range results {
 		r := &results[i]
-		if r.band == 0 && !r.exact {
-			r.band = bandNone // 0 is bandExact; only searchFTS sets it deliberately
-		}
 		if r.Name != nil {
-			r.band = min(r.band, matchBand(*r.Name, qFold))
+			r.bandOwn = min(r.bandOwn, matchBand(*r.Name, qFold))
 		}
-		if r.Idx != nil {
-			if _, ok := exactVern[*r.Idx]; ok {
-				r.exact = true
-				r.band = bandExact
-			}
-		}
-		if r.exact {
-			r.band = bandExact
-		}
+		r.band = min(r.band, r.bandOwn)
 		if r.Idx == nil {
 			continue
 		}
@@ -950,10 +997,41 @@ func (s *Store) decorate(ctx context.Context, results []SearchResult, qFold stri
 		if r.Idx == nil {
 			continue
 		}
-		for _, n := range allVern[*r.Idx] {
+		names := allVern[*r.Idx]
+		for _, n := range names {
 			if b := matchBand(n, qFold); b < r.band {
 				r.band = b
 			}
+		}
+		if r.band != bandExact || r.bandOwn == bandExact {
+			continue
+		}
+		// A lone bare word recorded for a single species is a label, not a name.
+		if len(names) < 2 && r.TipCount != nil && *r.TipCount <= 1 {
+			r.band = bandHead
+			continue
+		}
+		// Otherwise the taxon's headline name decides. If that name carries the
+		// word, the taxon really is called this and keeps its exactness; if it
+		// does not, the claim answers to clade size below.
+		if h, ok := vern[*r.Idx]; ok && matchBand(h, qFold) <= bandHead {
+			continue
+		}
+		r.withdrawable = true
+	}
+	// The comparison is against head-word matches only, and it is made after
+	// the pass above so that a label demoted there can be the thing a rival is
+	// measured against.
+	var headMax int64
+	for i := range results {
+		if r := &results[i]; r.band == bandHead && r.TipCount != nil {
+			headMax = max(headMax, *r.TipCount)
+		}
+	}
+	for i := range results {
+		r := &results[i]
+		if r.withdrawable && r.TipCount != nil && *r.TipCount*outrankRatio < headMax {
+			r.band = bandHead
 		}
 	}
 	for i := range results {

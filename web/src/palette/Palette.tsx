@@ -132,9 +132,23 @@ export function Palette({ open, onClose, commands, scope, onPick, present }: Pro
       .filter((r): r is Extract<Row, { kind: "cmd" }> => r !== null);
 
     // The server has already ranked on corpus signals it can see and we
-    // cannot — subtree size, silhouette coverage, age quality. Preserve that
-    // order and layer the session signal on top rather than re-sorting from
-    // scratch, which would throw away the better signal of the two.
+    // cannot — subtree size, silhouette coverage, age quality, and how well
+    // the query sits inside *every* name the taxon has rather than the two
+    // fields on the wire. Preserve that order and layer the session signal on
+    // top rather than re-sorting from scratch, which would throw away the
+    // better signal of the two.
+    //
+    // The fuzzy score used to be in here at score/40, and it silently undid
+    // the server's answer. It is worth up to 42 points against a server rank
+    // step of 10, so it moved rows four places — and its failure mode is
+    // one-sided: a row whose match the client cannot see scores 0 while its
+    // neighbour scores 32. "butterfly" is the case that showed it. The server
+    // ranks Papilionidae first on "swallowtail butterflies"; `fuzzy` cannot
+    // find "butterfly" in "butterflies" at all, so Papilionidae scored zero
+    // and *Thecosomata*, a sea snail called "sea butterfly", took the top of
+    // the palette while the API underneath was answering correctly. Matching
+    // is a display question here, not a ranking one: `litRanges` still says
+    // why a row is on the page, and says nothing when it cannot tell.
     //
     // Broken taxa are excluded here rather than styled differently: they are
     // not answers, they cannot be added, and anything in this list is
@@ -142,11 +156,10 @@ export function Palette({ open, onClose, commands, scope, onPick, present }: Pro
     const hitRows: Row[] = hits.map((hit, i) => {
       if (hit.kind === "broken") return null;
       const hay = hit.name ?? hit.key;
-      const m = fuzzy(needle, hay) ?? fuzzy(needle, hit.vernacular ?? "");
       return {
         kind: "hit" as const,
         hit,
-        score: 4000 - i * 10 + sessionBoost(`n:${hit.idx}`) + (m?.score ?? 0) / 40,
+        score: 4000 - i * 10 + sessionBoost(`n:${hit.idx}`),
         // Show the reader why this row is here — on whichever field it is
         // actually true of, and not at all when neither contains what they
         // typed (a synonym or an abbreviation got them here instead).

@@ -147,6 +147,56 @@ SPOT_CHECKS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("sponge", ("Porifera",)),
 )
 
+# The words above are carried *bare* by the taxon a person means. These three
+# are not, and no amount of crawling will change that:
+#
+#   butterfly  the bare word is on a Caribbean reef fish and nowhere else;
+#              Papilionidae is "swallowtail butterflies"
+#   eagle      the bare word is PBDB's category label on a fossil genus;
+#              Haliaeetus is "Sea eagles"
+#   oak        **no node carries it at all.** *Quercus* is non-monophyletic in
+#              the synthesis and is a broken taxon, so it is not a node and is
+#              never asked for by the crawl. The oaks are reachable only one
+#              species at a time, through names like "Pedunculate Oak"
+#
+# So the corpus claim they need is a weaker one, and it is the claim the
+# server's ranking rests on: some taxon a person means carries an English name
+# whose **head word** is the query. `server/internal/store/band.go` is
+# authoritative on what a head word is; `_head_word` here asserts only that the
+# names exist, which is phase 6's business rather than the ranking's.
+GROUP_WORD_CHECKS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("butterfly", ("Papilionidae", "Danaini", "Libytheinae")),
+    ("eagle", ("Haliaeetus", "Aquila chrysaetos", "Hieraaetus pennatus")),
+    ("oak", ("Quercus petraea", "Quercus robur", "Quercus castaneifolia")),
+    # Held alongside them so the head-word claim is not tested only where it
+    # was needed: these already worked and must keep working.
+    ("frog", ("Anura", "Hylidae", "Ranidae")),
+    ("bird", ("Aves",)),
+)
+
+# Rank words a common name ends with when it names a rank rather than a thing.
+# Kept in step with `rankWords` in band.go — this list is the short one, since
+# it only has to cover the names GROUP_WORD_CHECKS reaches.
+_RANK_WORDS = frozenset({"family", "order", "genus", "group", "species"})
+
+
+def _head_word(name: str) -> str:
+    """The word a common name is *about*: its last, skipping any rank word."""
+    parts = [p for p in name.lower().replace("-", " ").split() if p]
+    while len(parts) > 1 and parts[-1] in _RANK_WORDS:
+        parts.pop()
+    return parts[-1] if parts else ""
+
+
+def head_word_is(name: str, word: str) -> bool:
+    """Is `word` the head of `name`, allowing a regular English plural?"""
+    head, w = _head_word(name), word.lower()
+    if head == w:
+        return True
+    if len(w) < 3:
+        return False
+    return head in {f"{w}s", f"{w}es"} or (w.endswith("y") and head == f"{w[:-1]}ies")
+
 
 @dataclass(slots=True)
 class RawRow:
@@ -1097,6 +1147,34 @@ def run(use_api: bool = True) -> int:
         else:
             g.observe(
                 f"'{common}' resolves to a taxon",
+                got,
+                expect,
+                note="wikidata crawl incomplete; re-run to resume",
+            )
+
+    for common, expect in GROUP_WORD_CHECKS:
+        got = [
+            n
+            for n, v in con.execute(
+                "SELECT n.name, v.name FROM vernacular v JOIN node n ON n.idx = v.idx "
+                "WHERE v.lang = 'en' AND n.name IN "
+                f"({','.join('?' * len(expect))})",
+                expect,
+            )
+            if head_word_is(v, common)
+        ]
+        if crawl.get("complete") or got:
+            g.require(
+                f"'{common}' is the head of some taxon's common name",
+                sorted(set(got)),
+                expect,
+                ok=bool(got),
+                note="the palette's ranking rests on head position; see "
+                "GROUP_WORD_CHECKS",
+            )
+        else:
+            g.observe(
+                f"'{common}' is the head of some taxon's common name",
                 got,
                 expect,
                 note="wikidata crawl incomplete; re-run to resume",

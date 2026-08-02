@@ -63,7 +63,7 @@ our own; **no dagre, no ELK, no d3-hierarchy**, because a graph-layout engine
 assigns `x` by depth and here `x` is time.
 
 ```bash
-cd web && npm install && npm run build && npm test   # 140 tests
+cd web && npm install && npm run build && npm test   # 148 tests
 cd server && go test ./... && go run . -build ../build
 ```
 
@@ -174,7 +174,12 @@ end.** Every phase is green and `concestor-build package` succeeds; the current
 build is `b48553b2b8a4a2ed`. `docs/handoff.md` §2 has the table and §7 the honest list of what is
 thin. `test_vernaculars.py` asserts the words a person actually types and is
 **green** — `dog`, `cat`, `whale`, `human`, `shark`, `T. rex` all resolve, and
-so now do `frog`, `animal` and `bird`. The P9157 crawl is complete.
+so now do `frog`, `animal` and `bird`. The P9157 crawl is complete, 287/287
+pages. `butterfly`, `eagle` and `oak` are asserted there too, under a weaker
+claim they can actually meet: no taxon carries any of those words *bare*, so
+what phase 6 owes them is a name the word **heads** — "swallowtail
+butterflies", "Sea eagles", "Pedunculate Oak". Ordering is the server's and is
+pinned in `server/internal/store/fts_test.go`.
 
 **A Wikidata item can carry another taxon's OTT id**, and until it was fixed the
 app said *Homo sapiens* is "also known as Homo floresiensis" and returned a
@@ -184,10 +189,20 @@ disagrees with OTT's. Three cheaper rules were tried first and all three fail �
 `vernaculars.py` records why, and one of them fails by taking "Dog" off *Canis
 lupus familiaris*. Do not re-derive them.
 
-What is still wrong at the front door is *ranking*, not provenance: `butterfly`
-reaches a butterflyfish before Papilionidae, `eagle` a one-tip genus before
-*Haliaeetus*. `oak` is a third thing again — a genuine coverage gap, since no
-node carries the word.
+**Ranking at the front door is fixed too**, and the principle is worth keeping:
+*an exact match settles which **name** the query is, not which **taxon** the
+reader means.* A common name can be filed far below the group it names, so
+exactness is **withdrawn** — demoted one band, never removed — where the word
+is the only thing recorded about a single species (PBDB's "eagle" on
+*Miraquila*) or is an alias the taxon is not headlined by and a clade 100×
+larger carries it as a head word (*Chaetodon capistratus*, headlined "Kete",
+against Papilionidae). Under that sits a **head-word band**, because "oak moss"
+is a moss and "sessile oak" is an oak. `handoff.md` §7 has the bounds, what
+each clause protects, and the two known limits. Two things not to redo: the
+Wikidata crawl cannot fix `oak` (*Quercus* is a **broken taxon**, so it is not
+a node and is never crawled), and **`web/` must not re-sort `/v1/search`** — the
+client's fuzzy score was outweighing four server ranks and silently putting a
+sea snail above the butterflies.
 
 **Decisions in this codebase are made by whoever holds it.** These docs escalate
 nothing and hold nothing open pending approval; where a question was once

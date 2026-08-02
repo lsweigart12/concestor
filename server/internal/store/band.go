@@ -3,22 +3,33 @@ package store
 import "strings"
 
 // How closely a query sits inside a name. This refines architecture §4's
-// "exact match, then tip_count" with the distinction that actually separates
-// "dog" -> Canidae from "dog" -> Apocynaceae:
+// "exact match, then tip_count" with the two distinctions that actually
+// separate the taxon a person means from the one with the larger subtree:
 //
 //	"dog" in "dog family"     is a whole word          -> bandToken
 //	"dog" in "dogbane family" is a prefix of a word    -> bandPrefix
 //
-// Both are legitimate matches, and without the distinction they fall through
-// to tip_count, where a 7,050-tip plant family beats the dogs. A whole-word
-// match is a much stronger signal of what the user meant, so it gets its own
-// band above tip_count. It is orthogonal to search_name.kind, which says
-// *which sort of name* matched rather than *how well*.
+// Both are legitimate matches, and without the first distinction they fall
+// through to tip_count, where a 7,050-tip plant family beats the dogs.
+//
+// The second distinction is **head position**, and it is the one that answers
+// "oak". An English compound noun is named by its last word: "oak moss" is a
+// moss, "sessile oak" is an oak. Without it, "oak" ranked Usnea (a lichen,
+// 1,569 tips) and Enaphalodes (a beetle) above every actual oak, because
+// nothing separated a name the word *modifies* from a name it *is*. Measured
+// over 77 everyday words it also takes "frog" off the froghoppers, "lizard"
+// off the booklice, "deer" off the deer flies and "tiger" off the tiger
+// beetles — the whole class of compound names where the query word qualifies
+// something unrelated.
+//
+// All of this is orthogonal to search_name.kind, which says *which sort of
+// name* matched rather than *how well*.
 const (
 	bandExact  = 0 // the name is the query
-	bandToken  = 1 // the query is a run of whole words inside the name
-	bandPrefix = 2 // the last query word is a prefix of a word in the name
-	bandNone   = 3 // matched some other way (a synonym, an FTS stem, …)
+	bandHead   = 1 // whole words, ending at the last word of the name
+	bandToken  = 2 // a run of whole words further up the name
+	bandPrefix = 3 // the last query word is a prefix of a word in the name
+	bandNone   = 4 // matched some other way (a synonym, an FTS stem, …)
 )
 
 // tokens lower-cases, splits on whitespace, and trims punctuation from each
@@ -60,25 +71,60 @@ func isAlnum(r rune) bool {
 // Metazoa, whose English name is "animals" and which holds 1.49M tips, fell
 // below five-tip bacteria and off the end of the result list entirely.
 //
-// Kept to "s" and "es" on purpose. Real English plurals this misses — mouse,
-// genus, larva — are all cases where the singular is not a prefix of the plural
-// anyway, so they were never reachable through this path and need a stemmer,
-// not a longer list of suffixes. What matters is that it does not *invent*
-// matches: it only ever promotes a pair the prefix rule already accepted.
+// Kept to "s", "es" and consonant-y → -ies on purpose. Real English plurals
+// this misses — mouse, genus, larva — are all cases where nothing regular
+// relates the two strings, so they need a stemmer rather than a longer list of
+// suffixes. The -ies case is here because it is the one irregularity the
+// corpus leans on: "swallowtail butterflies" and "Milkweed Butterflies" are
+// the names Papilionidae and Danaini are headlined by, and neither matched
+// "butterfly" at all until it landed. What matters is that none of these
+// *invent* a match: every one is a pair a reader would call the same word.
 func samePlural(a, b string) bool {
 	if len(a) < len(b) {
 		a, b = b, a
 	}
 	// Three characters before the suffix, so "do"/"does" and "go"/"goes" are
 	// not declared the same word. Nothing shorter is a taxon's common name.
-	if len(b) < 3 || !strings.HasPrefix(a, b) {
+	if len(b) < 3 {
 		return false
 	}
-	switch a[len(b):] {
-	case "s", "es":
-		return true
+	if strings.HasPrefix(a, b) {
+		switch a[len(b):] {
+		case "s", "es":
+			return true
+		}
+		return false
 	}
-	return false
+	// butterfly → butterflies. The singular is not a prefix of the plural, so
+	// this cannot ride on the branch above.
+	return strings.HasSuffix(b, "y") && a == b[:len(b)-1]+"ies"
+}
+
+// rankWords are the words a common name ends with when it is naming a *rank*
+// rather than a thing: "dog family", "owl order", "sea eagle genus". 577 of
+// the 162,466 vernaculars end in one. They have to be stepped over before the
+// head is read, or Canidae's "dog family" is headed by "family" and falls
+// behind every one-species taxon called something-dog.
+var rankWords = map[string]bool{
+	"family": true, "families": true, "order": true, "orders": true,
+	"genus": true, "genera": true, "class": true, "classes": true,
+	"phylum": true, "phyla": true, "kingdom": true, "division": true,
+	"tribe": true, "subfamily": true, "superfamily": true, "suborder": true,
+	"infraorder": true, "subgenus": true, "subclass": true, "superorder": true,
+	"section": true, "series": true, "group": true, "groups": true,
+	"clade": true, "complex": true, "species": true, "subspecies": true,
+	"taxon": true, "taxa": true,
+}
+
+// headIndex is the position of the word the name is *about*: the last one that
+// is not a rank word. A name made entirely of rank words keeps its last token,
+// since there is nothing else it could be about.
+func headIndex(nt []string) int {
+	i := len(nt) - 1
+	for i > 0 && rankWords[nt[i]] {
+		i--
+	}
+	return i
 }
 
 // matchBand scores how well q sits inside name. Lower is better.
@@ -94,6 +140,7 @@ func matchBand(name, q string) int {
 		return bandNone
 	}
 	best := bandNone
+	head := headIndex(nt)
 	for i := 0; i+len(qt) <= len(nt); i++ {
 		exact := true
 		ok := true
@@ -115,10 +162,16 @@ func matchBand(name, q string) int {
 		if !ok {
 			continue
 		}
-		if exact {
-			return bandToken
+		if !exact {
+			best = min(best, bandPrefix)
+			continue
 		}
-		best = bandPrefix
+		// The run is whole words. Where it *ends* is what says whether the
+		// name is about the query or merely qualified by it.
+		if i+len(qt)-1 == head {
+			return bandHead
+		}
+		best = min(best, bandToken)
 	}
 	return best
 }

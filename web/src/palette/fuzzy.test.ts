@@ -52,7 +52,9 @@ describe("highlight ranges are an explanation, not a match report", () => {
   });
 
   it("lights the contiguous run when there is one", () => {
-    expect(litRanges("shark", "Bamboo sharks")).toEqual([[7, 12]]);
+    // The run covers the plural, not just the letters typed: the reader typed
+    // a word, and "sharks" is that word. See the plural block below.
+    expect(litRanges("shark", "Bamboo sharks")).toEqual([[7, 13]]);
   });
 
   it("is case-insensitive and merges abutting occurrences into one run", () => {
@@ -71,5 +73,26 @@ describe("highlight ranges are an explanation, not a match report", () => {
   it("returns nothing for an empty or whitespace query", () => {
     expect(litRanges("", "anything")).toEqual([]);
     expect(litRanges("   ", "anything")).toEqual([]);
+  });
+});
+
+describe("a regular plural is the word the reader typed", () => {
+  it("lights the plural of a typed singular", () => {
+    // Papilionidae is headlined "swallowtail butterflies". Without this it was
+    // the one row on the page for "butterfly" with nothing lit — directly
+    // above three that had, which reads as "this one does not match".
+    expect(litRanges("butterfly", "swallowtail butterflies")).toEqual([[12, 23]]);
+    expect(litRanges("shark", "mackerel sharks")).toEqual([[9, 15]]);
+    expect(litRanges("finch", "Darwin's finches")).toEqual([[9, 16]]);
+  });
+
+  it("still lights nothing when the word is genuinely absent", () => {
+    expect(litRanges("butterfly", "Papilionidae")).toEqual([]);
+    expect(litRanges("oak", "Sphagnum")).toEqual([]);
+  });
+
+  it("will not pluralise anything short enough to be an accident", () => {
+    // "go" must not claim "goes"; the substring hit at 0 is all it earns.
+    expect(litRanges("go", "goes nowhere")).toEqual([[0, 2]]);
   });
 });

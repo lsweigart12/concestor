@@ -19,10 +19,12 @@ from concestor_build.vernaculars import (
     EXPECT_PBDB_AMBIGUOUS,
     EXPECT_PBDB_ROWS,
     EXPECT_PBDB_UNMATCHED,
+    GROUP_WORD_CHECKS,
     ISO3_TO_BCP47,
     LANGS,
     PBDB_ZIP,
     SPOT_CHECKS,
+    head_word_is,
     read_pbdb,
 )
 
@@ -189,3 +191,39 @@ def test_the_words_a_person_actually_types(con, common, expected):
     ]
     assert got, f"{common!r} resolves to nothing"
     assert set(got) & set(expected), got
+
+
+def test_head_word_skips_rank_words_and_regular_plurals():
+    assert head_word_is("swallowtail butterflies", "butterfly")
+    assert head_word_is("Sea eagles", "eagle")
+    assert head_word_is("Pedunculate Oak", "oak")
+    assert head_word_is("dog family", "dog")  # the rank word is stepped over
+    assert head_word_is("mackerel sharks", "shark")
+    # The word qualifies something else, which is the whole distinction.
+    assert not head_word_is("Oak moss", "oak")
+    assert not head_word_is("eagle rays", "eagle")
+    assert not head_word_is("butterfly orchid", "butterfly")
+    assert not head_word_is("Human Fleas", "human")
+    # Too short to pluralise safely.
+    assert not head_word_is("goes nowhere", "go")
+
+
+@built
+@pytest.mark.parametrize(("common", "expected"), GROUP_WORD_CHECKS)
+def test_the_group_words_a_person_actually_types(con, common, expected):
+    """The words no taxon carries bare — `butterfly`, `eagle`, `oak`.
+
+    They are answerable only because some taxon a person means carries a name
+    the word *heads*, so that is what phase 6 has to keep true. Ordering is the
+    server's job and is pinned in `server/internal/store/fts_test.go`.
+    """
+    got = [
+        n
+        for n, v in con.execute(
+            "SELECT n.name, v.name FROM vernacular v JOIN node n ON n.idx = v.idx "
+            f"WHERE v.lang = 'en' AND n.name IN ({','.join('?' * len(expected))})",
+            expected,
+        )
+        if head_word_is(v, common)
+    ]
+    assert got, f"no taxon in {expected} carries a name headed by {common!r}"

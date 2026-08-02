@@ -170,7 +170,7 @@ symptom is quietly stale answers.
 
 ```bash
 cd web && npm install && npm run build   # the server picks up web/dist
-npm test                                 # 140 tests
+npm test                                 # 148 tests
 ```
 
 The client owns the topology after first paint (architecture §4): it fetches
@@ -383,6 +383,33 @@ because everything in that list is something Enter will act on. The union in
 `api.ts` makes `idx: null` unrepresentable on a hit that can be added, which is
 what stops the two identity bugs coming back. A broken key arriving from an
 older shared link is reported once and dropped from the selection.
+
+### Search: an exact name is evidence about the name, not about the taxon
+
+`butterfly`, `eagle` and `oak` were the last three front-door failures, and the
+fix is a change of principle rather than three special cases. The band treated
+string equality as unanswerable, so a Caribbean nickname on one reef fish
+outranked the swallowtails and a fossil genus PBDB had labelled "eagle"
+outranked the sea eagles. Exactness is now **withdrawn** in two measured cases
+and demoted exactly one band, never removed; §7 has both, their bounds and what
+each one protects. A head-word band sits under it, because "oak moss" is a moss
+and "sessile oak" is an oak.
+
+Three things decided along the way, all on evidence, all recorded in §7 where
+they bite:
+
+- **No pipeline phase was re-run, and `oak` is why that is a finding.** The
+  crawl looked like the obvious fix and it is already **complete at 287/287
+  pages** — §7's "75 of 287" was stale. *Quercus* is a **broken taxon**, so it
+  is not a node and the crawl never asks about it. Nothing upstream could have
+  closed this.
+- **Broken taxa still get no vernaculars.** One WDQS page would give `oak` the
+  *Quercus* explanation, and §3's whole-name rule extends to it cleanly — but
+  it would add a dead end beside an answer that now works. After `BrokenNote`
+  has somewhere to go, not before.
+- **The client does not re-rank search results.** `Palette.tsx`'s fuzzy score
+  was outweighing four server ranks and failing silently on exactly the names
+  the server had just got right. Ranking is server-side; the client highlights.
 
 ### Silhouettes: the PhyloPic corpus is what ships
 
@@ -1064,11 +1091,10 @@ Note what that costs: nothing. "Human" survives on *Homo sapiens* and
 at once. Build `a2b513305e2ddb95` when measured; the pre-P225 checkpoint is kept at
 `build/vernaculars/wikidata_pre_p225/`.
 
-*Still wrong, and not this defect.* `butterfly` returns *Chaetodon capistratus*
-("Kete") above Papilionidae and `eagle` returns a one-tip *Miraquila* above
-*Haliaeetus* — both are legitimate single-item vernaculars that simply outrank
-the taxon a person means, so they are a ranking problem rather than a
-provenance one.
+*The ranking failures that survived it are fixed too* — `butterfly`, `eagle`
+and `oak`. See **Group words reach the group** below; the short version is that
+an exact match settles which *name* the query is and was being read as settling
+which *taxon* the reader means.
 
 **Three cheaper rules were tried first and all three fail.** Recorded so nobody
 re-derives them:
@@ -1084,29 +1110,49 @@ than a missing one — is the rule this project applies everywhere else, and her
 it breaks the single most important query in the product. The gate caught it,
 which is what the `dog` spot check is for.
 
-**Vernacular coverage: the front door works, the tail is missing.** 148,515
-names, of which 142,071 come from Wikidata P9157 (OTT id join, no name
-matching), 5,884 from the PBDB ColDP archive and 560 from a bounded `wdt:P225`
-name pass. `dog` → *Canis lupus familiaris*, `cat` → *Felidae*, `whale` →
-*Cetacea*, `human` → *Homo*, `shark` → *Selachii*, `T. rex` →
-*Tyrannosaurus rex*. `test_vernaculars.py` asserts the words a person actually
-types and is green.
+**Vernacular coverage: the crawl is finished, and the ceiling is the corpus.**
+`build/phase6_gates.json` is the source for all of this, 29/29 green:
+**162,466 rows**, 159,961 of them resolved to a node — 156,270 from Wikidata
+P9157 (OTT id join, no name matching), 5,633 from the PBDB ColDP archive and
+563 from the bounded `wdt:P225` name pass, harvested out of 2,048,691 Wikidata
+rows of which 1,828,252 were dropped as a repeat of the taxon's own scientific
+name. `dog` → *Canis lupus familiaris*, `cat` → *Felidae*, `whale` → *Cetacea*,
+`human` → *Homo*, `shark` → *Selachii*, `T. rex` → *Tyrannosaurus rex*.
+`test_vernaculars.py` asserts the words a person actually types and is green.
 
-Two numbers, and the gap between them is the whole story: **3.71% of named
-nodes** have an English common name, but **56.74% weighted by `tip_count`** —
+Two numbers, and the gap between them is the whole story: **4.26% of named
+nodes** have an English common name, but **54.32% weighted by `tip_count`** —
 which is the number a palette experiences, because people search for inclusive
-clades. Of the 100 largest clades, 61% have a name; the 39% that do not mostly
-genuinely have none in English (Opisthokonta, Holozoa, Panarthropoda).
+clades. Of the 100 largest clades, 58% have a name; the 42% that do not mostly
+genuinely have none in English (Opisthokonta, Holozoa, Panarthropoda). Down the
+ranks it falls away fast: top 1k 43.3%, top 10k 19.8%, top 100k 7.6%.
 
-A concrete miss: `oak` returns *Usnea* ("Oak moss") and *Enaphalodes* ("Oak
-Borer") because **no node carries the vernacular "oak" or "oaks"** — a coverage
-problem, not a search one.
+**The id-keyed crawl is 287/287 pages — complete.** Earlier revisions of this
+section said 75 of 287 and quoted the coverage of that partial run; both were
+left behind by the P225 re-crawl above and the figures in this section are now
+read off the gate file rather than remembered. There is nothing left to resume:
+`uv run concestor-build vernaculars` re-verifies and fetches nothing.
 
-**The crawl is 75 of 287 pages done and resumes cleanly.** It is ordered
-clades-first then tips by ascending OTT id, a notability proxy that puts
-*Canis lupus familiaris* 82,865th of 2.46M — so the notable end is complete and
-the remainder is genuinely tail. WDQS runs at ~50 s/page, so finishing is ~3.5
-unattended hours: `uv run concestor-build vernaculars` re-fetches nothing.
+**Which settles `oak`, and not the way anyone expected.** The crawl is
+*finished* and no node carries "oak" or "oaks" — because ***Quercus* is a broken
+taxon**: non-monophyletic in the synthesis, ott 791121, substituted by the
+unnamed `mrcaott37377ott106844` over seven attachment points. It is not a node,
+and `_plan` asks Wikidata about `SELECT ott_id FROM node`. Above *Quercus
+petraea* the lineage runs unnamed all the way up to Fagales. *Fagaceae*,
+*Aquila* and *Papilionoidea* are broken in exactly the same way, which is why
+none of the three words in **Group words** below has a group node to land on.
+**No amount of crawling was ever going to close this**, and the fix had to be —
+and is — a ranking one.
+
+**Broken taxa are never asked for vernaculars, and could be.** Nine thousand
+OTT ids is one WDQS page, ~50 s, and it would let `oak` produce the *Quercus*
+explanation the way `Dinosauria` produces its own — §3's whole-name rule
+extends to a vernacular cleanly, since a common name typed in full is a whole
+name and not a prefix. Not done: the palette now answers `oak` with nine real
+oak species, and management.md's design pass already records that a
+broken-taxon note "names nothing clickable", so this would add a dead end
+beside a working answer rather than replace a wrong one. Worth doing *after*
+`BrokenNote` has somewhere to go.
 
 **The two server ranking divergences are fixed**, and each turned out to be
 worse than recorded.
@@ -1150,12 +1196,91 @@ worse than recorded.
   with real nodes, and the UI renders it as `BrokenNote` rather than a row.
 
 **Search ranking is now banded and behaves**, so this is a note rather than a
-gap: precedence runs band (exact string → exact token → prefix) → current-name
-vs synonym → node vs broken → baked `rank_score` → `tip_count`. Two subtle
-bugs were found and fixed while getting there, both worth knowing about because
-they will come back if the ranking is refactored: candidates were being cut by
-raw `tip_count` *before* the band was known, and synonym hits were outranking
-current names (`Can` reached Elateroidea via "Cantharoidea").
+gap: precedence runs band (exact string → head word → whole word → prefix) →
+current-name vs synonym → node vs broken → baked `rank_score` → `tip_count`.
+Four subtle bugs have been found in it, all worth knowing about because every
+one of them will come back if the ranking is refactored: candidates were being
+cut by raw `tip_count` *before* the band was known; synonym hits were
+outranking current names (`Can` reached Elateroidea via "Cantharoidea"); and
+the two below.
+
+**Group words reach the group.** `butterfly` returned *Chaetodon capistratus*,
+a Caribbean reef fish, above Papilionidae; `eagle` returned the one-species
+fossil genus *Miraquila* above *Haliaeetus*; `oak` returned *Usnea* ("Oak
+moss", a lichen) and *Enaphalodes* ("Oak Borer", a beetle) above every actual
+oak. Three symptoms, two causes, and the first cause is the general one:
+
+***An exact match settles which name the query is. It does not settle which
+taxon the reader means.*** A common name can be filed against a taxon far below
+the group it names, and the band treated a bare string equality as the
+strongest possible evidence with nothing able to answer it. Two withdrawals,
+both in `decorate`, both demoting a row to the head-word band — where clade
+size decides — and never further:
+
+- **A lone bare word recorded for a single species is a category label.** PBDB's
+  ColDP vernacular field carries group words — "belemnite" on 33 taxa, "heart
+  urchin" on 25 — and "eagle" is the whole of what anyone has written down
+  about *Miraquila*. Restricted to `tip_count ≤ 1`, which is what keeps
+  Serpentes ("snake", 4,156 tips), Nephropoidea ("lobster", 73) and *Salmo*
+  ("salmon", 65): a clade's one recorded name is genuinely its name.
+- **An alias the taxon is not headlined by answers to clade size.** *Chaetodon
+  capistratus* is headlined "Kete" and carries "Butterfly" as one of nine local
+  aliases. Withdrawn only against a head-word match on a clade **100×** larger.
+  The corpus fixes both bounds and they are two orders of magnitude apart: it
+  must not fire for `cow` (*Bos taurus*, headlined "Domestic Cattle", against
+  Sirenia's "sea cows" at 7 tips — ratio 7) and must fire for `butterfly`
+  (ratio 1,080). *Rattus norvegicus* is headlined "Brown Rat", so it is never
+  eligible at all — which is the clause that saves `rat` from Muridae's "mice
+  and rats" at 1,060 tips, a ratio the threshold alone could not have split.
+
+**The second cause is head position, and it is the one worth stealing.** An
+English compound noun is named by its last word: "oak moss" is a moss, "sessile
+oak" is an oak. Splitting the whole-word band on where the match *ends* is what
+answers `oak` outright — the palette now returns nine *Quercus* species — and
+measured across 77 everyday words it also takes `frog` off the froghoppers,
+`lizard` off the booklice (Caeciliusidae, 817 tips, "lizard barklice"), `deer`
+off the deer flies, `tiger` off the tiger beetles, `pigeon` off *Polytrichum*
+and `tree` off a one-species legume. `fern` went from *Cryptogramma* (11 tips)
+to Polypodiopsida (13,408) in second place.
+
+Two things it needs, both measured rather than guessed:
+
+- **Rank words are stepped over.** 577 of the 162,466 vernaculars end in
+  "family", "genus", "order" and the like. Without skipping them the head of
+  "dog family" is "family", and Canidae falls behind six one-species taxa
+  called something-dog and off the page entirely — which is exactly the failure
+  `TestWholeWordMatchOutranksMidWordPrefix` exists to catch, arriving from the
+  other side.
+- **`samePlural` gained consonant-y → -ies.** Papilionidae is headlined
+  "swallowtail butterflies" and Danaini "Milkweed Butterflies", and neither
+  matched `butterfly` *at all* before that landed.
+
+**Known limit, left alone:** a coordinated name is multi-headed and this reads
+only the last conjunct, so Hymenoptera's "wasps, ants and bees" is headed by
+"bees" and `wasp` now answers Ichneumonidae instead. Treating each conjunct as
+a head is a real refinement and it also hands `butterfly` to Lepidoptera
+("Butterflies and Moths", 184,203 tips) over Papilionidae, which is a different
+product judgement and wants deciding on its own evidence rather than as a side
+effect. `bandPrefix` is likewise flat — it has no head/modifier split — so
+mid-typing `butterfl` answers Lepidoptera and the final `y` flips it to
+Papilionidae.
+
+**The client was quietly undoing all of it, and that is the fourth bug.**
+`Palette.tsx` scored each hit `4000 - i*10 + sessionBoost + fuzzy/40`, and the
+fuzzy term is worth up to 42 points against a server rank step of 10 — four
+places. Worse, it is one-sided: a row whose match the client cannot see scores
+0 while its neighbour scores 32. `fuzzy` cannot find "butterfly" in
+"butterflies", so with the server correctly answering Papilionidae first, the
+palette on screen still showed *Thecosomata* — a sea snail called "sea
+butterfly" — at the top. **Matching is a display question in the client, not a
+ranking one.** The term is gone; `litRanges` still says why a row is on the
+page and still says nothing when it cannot tell, and it now lights a regular
+plural of the typed word, because the top result being the only unlit row reads
+as *this one does not match*.
+
+The whole of the ranking is server-side. `web/` must not re-sort `/v1/search`
+on anything it can compute from the two fields on the wire — the server has
+every name the taxon carries and the client has two.
 
 **The fossil layer is drawn.** Clicking a segment opens a lane beneath the
 chronogram sharing its time axis; Amniota → *Homo sapiens* shows 8 of 2,657

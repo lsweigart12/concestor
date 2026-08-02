@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 	"testing"
 
@@ -450,4 +451,93 @@ func TestAnOccurrenceRangeIsNeverAnAge(t *testing.T) {
 			"them to, so either the sample or the assumption is wrong")
 	}
 	t.Logf("%d of %d sampled nodes have no certain extent", empty, len(idxs))
+}
+
+// A common word that names a group must reach the group, not a taxon that
+// happens to be labelled with it. All three of these were wrong in the running
+// app and each was wrong for a different reason (handoff.md §7):
+//
+//   - "butterfly" returned *Chaetodon capistratus*, a butterflyfish headlined
+//     "Kete" and carrying "Butterfly" as one of nine Caribbean aliases
+//   - "eagle" returned *Miraquila*, a one-species fossil genus whose only
+//     recorded common name is PBDB's category label "eagle"
+//   - "oak" returned *Usnea* ("Oak moss", a lichen) and *Enaphalodes* ("Oak
+//     Borer", a beetle), because no node carries the bare word at all and
+//     nothing separated a name the word modifies from a name it is
+func TestGroupWordsReachTheGroup(t *testing.T) {
+	st := open(t)
+	if st.Schema.Vernacular == nil {
+		t.Skip("vernaculars not built")
+	}
+	cases := []struct {
+		q    string
+		want []string
+		why  string
+	}{
+		{"butterfly", []string{"Papilionidae"},
+			"a nine-alias local name on one fish must not outrank the swallowtails"},
+		{"eagle", []string{"Haliaeetus", "Aquila", "Aquila chrysaetos", "Accipitridae"},
+			"a fossil genus labelled 'eagle' must not outrank the living eagles"},
+		{"oak", []string{"Quercus petraea", "Quercus robur", "Quercus castaneifolia"},
+			"Quercus is a broken taxon, so an oak species is the best answer there is"},
+		// The guards. Each of these is a taxon whose exactness must survive.
+		{"dog", []string{"Canis lupus familiaris", "Canis familiaris", "Canis lupus"},
+			"the Dog is what 'dog' means, against six taxa called something-dog"},
+		{"cow", []string{"Bos taurus"},
+			"headlined 'Domestic Cattle', so 'cow' is an alias — but Sirenia's " +
+				"'sea cows' is only 7 tips and must not take it"},
+		{"rat", []string{"Rattus norvegicus"},
+			"headlined 'Brown Rat', which carries the word, so never withdrawable"},
+		{"human", []string{"Homo", "Homo sapiens"},
+			"one recorded common name, but seven tips — not a category label"},
+		{"snake", []string{"Serpentes"},
+			"one recorded common name on 4,156 tips is that clade's name"},
+		{"beetle", []string{"Coleoptera"}, "the same, at 287,458 tips"},
+	}
+	for _, c := range cases {
+		res, err := st.Search(t.Context(), c.q, 10)
+		if err != nil {
+			t.Fatalf("%q: %v", c.q, err)
+		}
+		if len(res) == 0 || res[0].Name == nil {
+			t.Errorf("%q returned nothing usable", c.q)
+			continue
+		}
+		if !slices.Contains(c.want, *res[0].Name) {
+			t.Errorf("%q -> %q, want one of %v (%s); got %v",
+				c.q, *res[0].Name, c.want, c.why, names(res))
+		}
+	}
+}
+
+// The withdrawal demotes a row by one band. It never removes it, and it never
+// touches the taxon's own name — which is the promise that makes the rule
+// safe to apply on evidence as thin as "this is a bare word on one species".
+//
+// *Chaetodon capistratus* is still on the page for "butterfly", 30 rows down
+// among the butterflies, which is where a fish called Butterfly belongs.
+// *Miraquila* is not, and that is the band doing its job rather than an
+// exception to it: there are more than fifty living eagles above it.
+func TestAWithdrawnExactMatchKeepsItsOwnName(t *testing.T) {
+	st := open(t)
+	if st.Schema.Vernacular == nil {
+		t.Skip("vernaculars not built")
+	}
+	res, err := st.Search(t.Context(), "butterfly", 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(names(res), "Chaetodon capistratus") {
+		t.Errorf("\"butterfly\" no longer returns Chaetodon capistratus at all: %v",
+			names(res))
+	}
+	for _, name := range []string{"Chaetodon capistratus", "Miraquila"} {
+		res, err := st.Search(t.Context(), name, 5)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(res) == 0 || res[0].Name == nil || *res[0].Name != name {
+			t.Errorf("%q no longer answers itself: %v", name, names(res))
+		}
+	}
 }
