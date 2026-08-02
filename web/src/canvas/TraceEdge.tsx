@@ -37,6 +37,17 @@ export interface TraceEdgeData extends Record<string, unknown> {
    * is a selection, which is exactly what luminance is reserved for.
    */
   drilled: boolean;
+  /**
+   * A fossil's connector rather than a branch of the tree.
+   *
+   * It is not a segment: there is nothing between its ends to drill into, and
+   * the position it leaves the lineage from is the *deepest* node the taxon is
+   * known to sit below rather than the point it actually parted. So it is drawn
+   * as an attachment and not as descent — sparser, dimmer, and with no hit
+   * target, because the one interaction a branch offers is the one thing this
+   * line cannot honestly do.
+   */
+  attachment: boolean;
   /** Changes when a new draw should run; null means "already settled". */
   drawToken: number | null;
   /** ms after the interaction start, per the signature sequence. */
@@ -153,6 +164,7 @@ export function TraceEdge({ id, data }: EdgeProps) {
         TIER_CLASS[d.tier] ?? "tier-measured",
         d.unbounded ? "trace-unbounded" : "",
         d.drilled ? "trace-drilled" : "",
+        d.attachment ? "trace-attachment" : "",
         d.dim ? "dimmed" : "",
       ]
         .filter(Boolean)
@@ -163,8 +175,9 @@ export function TraceEdge({ id, data }: EdgeProps) {
           can click and the drill-down is a first-class interaction rather than
           a power-user affordance. This is what xyflow's `interactionWidth`
           does for its own edge types; ours draws its own paths and so has to
-          carry it. */}
-      <path className="trace-hit" d={d.d} />
+          carry it. An attachment gets none: it is not a segment, so a click
+          would open a lane for a branch that does not exist. */}
+      {!d.attachment && <path className="trace-hit" d={d.d} />}
       <path className="trace-halo" d={d.d} stroke={stroke} />
       <path ref={coreRef} className="trace-core" d={d.d} stroke={stroke} />
     </g>

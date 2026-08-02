@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -32,6 +33,13 @@ type FossilSchema struct {
 	IsExtant   string `json:"is_extant,omitempty"`
 	IsPrimary  string `json:"is_primary,omitempty"`
 	AcceptedNo string `json:"accepted_no,omitempty"`
+	// TaxonNo is the PBDB primary key. It is the only stable identity a fossil
+	// has — it is not a node, so it has no `node_key` and no OTT id — and a
+	// graft cannot go in a shareable URL without one.
+	TaxonNo string `json:"taxon_no,omitempty"`
+	// AttachWalk is how many PBDB parent_no hops the resolution took, and so
+	// how loose the placement is. Zero means the taxon is itself in the tree.
+	AttachWalk string `json:"attach_walk,omitempty"`
 	Brackets   bool   `json:"brackets"`
 	MethodName string `json:"attach_method_table,omitempty"`
 	// ImageTable maps a PBDB taxon to a drawing. A fossil is not a node, so
@@ -60,6 +68,8 @@ func (s *Schema) resolveFossil() {
 		IsExtant:   s.col(t, "is_extant"),
 		IsPrimary:  s.col(t, "is_primary"),
 		AcceptedNo: s.col(t, "accepted_no"),
+		TaxonNo:    s.col(t, "pbdb_taxon_no", "taxon_no"),
+		AttachWalk: s.col(t, "attach_walk"),
 	}
 	f.Brackets = s.col(t, "fea") != "" && s.col(t, "fla") != "" &&
 		s.col(t, "lea") != "" && s.col(t, "lla") != ""
@@ -76,9 +86,16 @@ func (s *Schema) resolveFossil() {
 
 // Fossil is one PBDB taxon attached to a segment.
 type Fossil struct {
-	Name       string  `json:"name"`
-	Rank       *string `json:"rank"`
-	AttachIdx  int     `json:"attach_idx"`
+	Name string `json:"name"`
+	// PBDB's own primary key, and the only identity this taxon has. Zero on a
+	// build whose fossil table predates the column. Nothing may address the
+	// *tree* with it — see the warning on `divergence_pbdb_taxon_no`.
+	TaxonNo   int64   `json:"pbdb_taxon_no,omitempty"`
+	Rank      *string `json:"rank"`
+	AttachIdx int     `json:"attach_idx"`
+	// PBDB parent_no hops taken to reach AttachIdx. Zero is a materially
+	// different claim from eight and the caption may not flatten them.
+	AttachWalk *int64  `json:"attach_walk,omitempty"`
 	NOccs      int64   `json:"n_occs"`
 	IsExtant   *bool   `json:"is_extant"`
 	Difference *string `json:"difference,omitempty"`
@@ -114,15 +131,15 @@ const maxSegmentFossils = 200
 //
 // The three penalties, and why each:
 //
-//   extant (8)   a living group is not a fossil taxon. PBDB lists Tetrapoda
-//                below Tetrapoda; that is true and useless. Unknown extancy
-//                is 4 — suspected rather than convicted.
-//   undrawn (2)  a drawing is the strongest notability signal in the corpus,
-//                because somebody chose to illustrate it, and it is also what
-//                makes the row worth looking at. It outranks specificity so a
-//                drawn family beats an undrawn genus.
-//   broad (1)    species and genera are animals a reader can picture; orders
-//                and unranked clades are filing.
+//	extant (8)   a living group is not a fossil taxon. PBDB lists Tetrapoda
+//	             below Tetrapoda; that is true and useless. Unknown extancy
+//	             is 4 — suspected rather than convicted.
+//	undrawn (2)  a drawing is the strongest notability signal in the corpus,
+//	             because somebody chose to illustrate it, and it is also what
+//	             makes the row worth looking at. It outranks specificity so a
+//	             drawn family beats an undrawn genus.
+//	broad (1)    species and genera are animals a reader can picture; orders
+//	             and unranked clades are filing.
 //
 // `n_occs` still breaks ties and is still a real signal *within* a tier: a
 // genus with 400 occurrences is one people have heard of, one with a single
@@ -196,7 +213,7 @@ func (s *Store) Fossils(ctx context.Context, attach []int, limit int) (list []Fo
 	sel := []string{
 		"t." + quote(f.AttachIdx), "t." + quote(f.Name), "t." + quote(f.NOccs),
 		colOrNullT(f.Rank), colOrNullT(f.IsExtant), colOrNullT(f.Difference),
-		brackets, image,
+		brackets, image, colOrNullT(f.TaxonNo), colOrNullT(f.AttachWalk),
 	}
 	q := fmt.Sprintf("SELECT %s FROM %q t%s WHERE %s ORDER BY %s, t.%q DESC, t.%q LIMIT %d",
 		strings.Join(sel, ", "), f.Table, join, where, s.notability(f),
@@ -216,8 +233,9 @@ func (s *Store) Fossils(ctx context.Context, attach []int, limit int) (list []Fo
 		var extant sql.NullInt64
 		var fea, fla, lea, lla sql.NullFloat64
 		var image sql.NullString
+		var taxonNo, walk sql.NullInt64
 		if err := rows.Scan(&fo.AttachIdx, &fo.Name, &fo.NOccs, &rank, &extant, &diff,
-			&fea, &fla, &lea, &lla, &image); err != nil {
+			&fea, &fla, &lea, &lla, &image, &taxonNo, &walk); err != nil {
 			return nil, 0, err
 		}
 		// PBDB carries a row per taxon_no, and synonyms collapse onto the same
@@ -235,9 +253,78 @@ func (s *Store) Fossils(ctx context.Context, attach []int, limit int) (list []Fo
 		}
 		fo.FEA, fo.FLA, fo.LEA, fo.LLA = nullF(fea), nullF(fla), nullF(lea), nullF(lla)
 		fo.PhylopicID = nullStr(image)
+		fo.TaxonNo = taxonNo.Int64
+		if walk.Valid {
+			w := walk.Int64
+			fo.AttachWalk = &w
+		}
 		list = append(list, fo)
 	}
 	return list, total, rows.Err()
+}
+
+// FossilByTaxonNo returns one PBDB taxon by its own key, or nil when there is
+// no such row.
+//
+// This exists for exactly one reason: a graft is view state, so it goes in the
+// URL, so a cold load has to be able to rebuild it from an id alone. The
+// segment query cannot serve that — it is keyed on the branch, and a shared
+// link may arrive with no lane open and no segment to ask about.
+//
+// Deliberately not filtered by `is_primary`. The segment listing shows accepted
+// taxa only, but a link already made against a row is a row the reader saw, and
+// silently resolving it to nothing would break the share rather than correct it.
+func (s *Store) FossilByTaxonNo(ctx context.Context, taxonNo int64) (*Fossil, error) {
+	f := s.Schema.Fossil
+	if f == nil || f.TaxonNo == "" {
+		return nil, nil
+	}
+	brackets := "NULL, NULL, NULL, NULL"
+	if f.Brackets {
+		brackets = `t."fea", t."fla", t."lea", t."lla"`
+	}
+	join, image := "", "NULL"
+	if f.ImageTable != "" {
+		join = fmt.Sprintf(" LEFT JOIN %q img ON img.%q = t.%q",
+			f.ImageTable, f.ImageKey, f.AcceptedNo)
+		image = "img." + quote(f.ImageID)
+	}
+	sel := []string{
+		"t." + quote(f.AttachIdx), "t." + quote(f.Name), "t." + quote(f.NOccs),
+		colOrNullT(f.Rank), colOrNullT(f.IsExtant), colOrNullT(f.Difference),
+		brackets, image, colOrNullT(f.TaxonNo), colOrNullT(f.AttachWalk),
+	}
+	q := fmt.Sprintf("SELECT %s FROM %q t%s WHERE t.%q = ?",
+		strings.Join(sel, ", "), f.Table, join, f.TaxonNo)
+
+	var fo Fossil
+	var rank, diff sql.NullString
+	var extant sql.NullInt64
+	var fea, fla, lea, lla sql.NullFloat64
+	var img sql.NullString
+	var no, walk sql.NullInt64
+	err := s.DB.QueryRowContext(ctx, q, taxonNo).Scan(
+		&fo.AttachIdx, &fo.Name, &fo.NOccs, &rank, &extant, &diff,
+		&fea, &fla, &lea, &lla, &img, &no, &walk)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	fo.Rank, fo.Difference = nullStr(rank), nullStr(diff)
+	if extant.Valid {
+		b := extant.Int64 != 0
+		fo.IsExtant = &b
+	}
+	fo.FEA, fo.FLA, fo.LEA, fo.LLA = nullF(fea), nullF(fla), nullF(lea), nullF(lla)
+	fo.PhylopicID = nullStr(img)
+	fo.TaxonNo = no.Int64
+	if walk.Valid {
+		w := walk.Int64
+		fo.AttachWalk = &w
+	}
+	return &fo, nil
 }
 
 // colOrNullT is colOrNull for a column on the aliased fossil table.

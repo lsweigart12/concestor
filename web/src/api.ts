@@ -392,9 +392,24 @@ export function hitSilhouette(
  */
 export interface FossilTaxon {
   name: string;
+  /**
+   * PBDB's own primary key, and the only identity this taxon has — it is not a
+   * node, so it has no `node_key` and no OTT id. It is what a graft is keyed on
+   * and therefore what goes in the URL. Absent on a build whose fossil table
+   * predates the column, which `makeGraft` refuses rather than works around.
+   *
+   * **Nothing may address the tree with it.** See `divergence_pbdb_taxon_no`.
+   */
+  pbdb_taxon_no?: number;
   rank: string | null;
   /** The tree node it resolves to. Always on the segment we asked about. */
   attach_idx: number;
+  /**
+   * PBDB `parent_no` hops taken to reach `attach_idx`, and so how loose the
+   * placement is. Zero means the taxon is itself in the synthesis tree; eight
+   * is a statement about a family. `placementNote` turns it into words.
+   */
+  attach_walk?: number | null;
   n_occs: number;
   is_extant: boolean | null;
   /**
@@ -606,6 +621,15 @@ export const api = {
 
   segment: (upper: number, lower: number) =>
     get<SegmentResponse>(`/v1/segment/${upper}/${lower}`),
+
+  /**
+   * One PBDB taxon by its own key.
+   *
+   * The segment listing is how a reader normally meets a fossil, and it is
+   * keyed on the branch. A graft is view state, so it survives in the URL, so a
+   * cold load arrives holding an id and no lane to have found it in.
+   */
+  fossil: (taxonNo: number) => get<FossilTaxon>(`/v1/fossil/${taxonNo}`),
 
   timescale: () => get<{ intervals: TimescaleInterval[] }>("/v1/timescale"),
 

@@ -212,6 +212,26 @@ body {
   stroke-dasharray: 2 6;
 }
 
+/*
+ * A fossil's connector, which is not descent and must not read as it.
+ *
+ * Every other line here says *this lineage became that one*. This one says
+ * only *this taxon belongs somewhere along that branch* — phase 3 resolved it
+ * by name and phase 4 hung it on the deepest node anyone could, and where along
+ * the branch it actually parted is not known and is not knowable from this
+ * data. So it is drawn as a tether rather than a trace: the widest gaps in the
+ * file, thinner than a branch, and no halo at all. It should read as an
+ * annotation on the tree, because that is exactly what it is.
+ */
+.trace-attachment .trace-core {
+  stroke-dasharray: 1.5 5.5;
+  stroke-width: 1.1px;
+  opacity: 0.6;
+}
+.trace-attachment .trace-halo {
+  opacity: 0;
+}
+
 /* Unselected lineages recede to dim and desaturated. Contrast does the
    wayfinding, not labels. */
 .dimmed {
@@ -261,6 +281,47 @@ body {
 .mark:hover .mark-dot,
 .mark.is-focus .mark-dot {
   transform: scale(1.45);
+}
+
+/*
+ * A fossil is not a position in the topology, and its mark may not be a circle
+ * — every circle here is a node, and a reader who learns that in the first ten
+ * seconds must not then be shown a fossil wearing the same shape.
+ *
+ * It gets the ammonite the age slot already uses for a fossil range, rather
+ * than a shape of its own: the glyph beside this mark's own range and the mark
+ * itself are then the same figure, which is one vocabulary instead of two.
+ *
+ * Centred on the box rather than filling it. The box is 10px because React
+ * Flow needs a declared size and the position is offset by half of it, so the
+ * *centre* is the coordinate — the glyph is larger than that and has to be
+ * centred on the same point rather than laid into the corner.
+ */
+.mark-fossil {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 15px;
+  height: 15px;
+  transform: translate(-50%, -50%);
+  transition: transform 180ms var(--spring);
+}
+.mark-fossil .age-glyph {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  opacity: 1;
+  vertical-align: initial;
+  /* The mark is the node's hit target; the glyph inside it must not take the
+     pointer separately or the tooltip fights the click. */
+  pointer-events: none;
+}
+.mark.is-graft:hover .mark-fossil,
+.mark.is-graft.is-focus .mark-fossil {
+  transform: translate(-50%, -50%) scale(1.4);
+}
+.mark.is-focus .mark-fossil .age-glyph {
+  filter: drop-shadow(0 0 5px currentColor);
 }
 
 /*

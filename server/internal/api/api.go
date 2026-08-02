@@ -45,6 +45,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/paths", s.handlePaths)
 	mux.HandleFunc("GET /v1/node/{key}", s.handleNode)
 	mux.HandleFunc("GET /v1/segment/{upper}/{lower}", s.handleSegment)
+	mux.HandleFunc("GET /v1/fossil/{id}", s.handleFossil)
 	mux.HandleFunc("GET /v1/timescale", s.handleTimescale)
 	mux.HandleFunc("GET /v1/silhouette/{file}", s.handleSilhouette)
 	mux.HandleFunc("/v1/", func(w http.ResponseWriter, r *http.Request) {
@@ -720,6 +721,37 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request) {
 		body.ParentIdx = &v
 	}
 	s.writeJSON(w, r, http.StatusOK, body)
+}
+
+// --- /v1/fossil ----------------------------------------------------------
+
+// handleFossil resolves one PBDB taxon by its own key.
+//
+// The segment listing is how a reader normally meets a fossil, and it is keyed
+// on the branch. A *graft* is view state and therefore lives in the URL, so a
+// cold load arrives holding an id and no segment to ask about. This is the only
+// way back from an id to a taxon.
+func (s *Server) handleFossil(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		s.fail(w, r, http.StatusBadRequest, "fossil id must be an integer")
+		return
+	}
+	if s.St.Schema.Fossil == nil {
+		s.fail(w, r, http.StatusNotFound, "the fossil table has not been built (ingest phase 4)")
+		return
+	}
+	fo, err := s.St.FossilByTaxonNo(r.Context(), id)
+	if err != nil {
+		s.Log.Error("fossil", "err", err)
+		s.fail(w, r, http.StatusInternalServerError, "fossil lookup failed")
+		return
+	}
+	if fo == nil {
+		s.fail(w, r, http.StatusNotFound, "no PBDB taxon with that id")
+		return
+	}
+	s.writeJSON(w, r, http.StatusOK, fo)
 }
 
 // --- /v1/segment ---------------------------------------------------------

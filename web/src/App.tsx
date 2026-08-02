@@ -26,6 +26,7 @@ import { Graph } from "./canvas/Graph";
 import { Silhouette } from "./canvas/Silhouette";
 import { mayDrawExemplar, witnessOn } from "./canvas/witness";
 import { ageLabel, DerivedName, isScientificItalic } from "./canvas/NodeMark";
+import { buildGrafts } from "./tree/graft";
 import { Palette, type Command, type Scope } from "./palette/Palette";
 import { resetUsage } from "./palette/fuzzy";
 import { useTree } from "./state/store";
@@ -359,12 +360,139 @@ export default function App() {
    * §3.4's claim is "this taxon belongs somewhere below X", and X is the only
    * thing on the canvas the reader can act on.
    */
+  /**
+   * The fossils currently drawn against the tree.
+   *
+   * Rebuilt from the induced subtree rather than stored, because *where* a
+   * fossil hangs is a fact about the current selection and not about the
+   * fossil: adding a species can promote a suppressed node to a rendered one
+   * and move the branch a graft belongs to. Deriving it means the picture
+   * cannot go stale, which is the same reason `Graph` re-checks the open drill
+   * lane against the segments instead of trusting the URL.
+   */
+  const graftSet = useMemo(
+    () =>
+      buildGrafts(
+        tree.view.fossils
+          .map((n) => tree.fossils.get(n))
+          .filter((f): f is FossilTaxon => f !== undefined),
+        tree.induced,
+        tree.nodes,
+      ),
+    [tree.view.fossils, tree.fossils, tree.induced, tree.nodes],
+  );
+  const grafts = graftSet.grafts;
+
+  /**
+   * Say when a fossil in the view is not being drawn, and why.
+   *
+   * A graft that silently fails to appear is indistinguishable from a broken
+   * canvas — the same reasoning the broken-taxon and unresolved-key notices
+   * above are built on. `off-tree` is the one that happens in ordinary use, and
+   * it is recoverable rather than fatal: removing the species a fossil hung
+   * from takes its branch off the canvas, and putting one back brings the
+   * fossil with it. So the fossil stays in the URL and the notice says what to
+   * do, instead of the view quietly dropping it.
+   *
+   * Announced once per fossil per reason. The refusal set is recomputed on
+   * every selection change, so toasting off the set itself would repeat the
+   * message on every unrelated add.
+   *
+   * **Not while the tree is still resolving.** `off-tree` is computed against
+   * the induced subtree, and the induced subtree is empty until the paths land
+   * — so on a cold load with fossils in the URL, *every* graft is briefly
+   * off-tree and every one of them was announced a frame before being drawn.
+   * The gate is what makes the notice mean "this cannot be drawn" rather than
+   * "this is not drawn yet". A graft that later becomes drawable clears its
+   * mark, so removing its clade a second time says so a second time.
+   */
+  const announcedRefusals = useRef(new Set<string>());
+  useEffect(() => {
+    for (const g of grafts) {
+      for (const reason of ["off-tree", "no-range", "no-identity"]) {
+        announcedRefusals.current.delete(`${g.fossil.pbdb_taxon_no}:${reason}`);
+      }
+    }
+    if (tree.loading || tree.induced.rendered.length === 0) return;
+    for (const { fossil: f, reason } of graftSet.refused) {
+      const seen = `${f.pbdb_taxon_no ?? f.name}:${reason}`;
+      if (announcedRefusals.current.has(seen)) continue;
+      announcedRefusals.current.add(seen);
+      toast(
+        reason === "off-tree" ? (
+          <>
+            <strong>{f.name}</strong> is not drawn: the branch it attaches to is
+            not on the canvas. Add the clade it sits in and it will appear.
+          </>
+        ) : reason === "no-range" ? (
+          <>
+            <strong>{f.name}</strong> has no appearance interval recorded, so
+            there is nowhere in time to put it. PBDB records none for about a
+            fifth of its taxa.
+          </>
+        ) : (
+          <>
+            <strong>{f.name}</strong> cannot be drawn: this build's fossil table
+            carries no identifier for it.
+          </>
+        ),
+        true,
+      );
+    }
+  }, [graftSet.refused, grafts, tree.loading, tree.induced.rendered.length, toast]);
+
   const fossilCommands: Command[] = useMemo(() => {
     const f = pickedFossil;
     if (!f) return [];
     const host = tree.nodes.get(f.attach_idx);
     const hostName = host?.name ?? "the clade it attaches to";
-    const out: Command[] = [
+    const taxonNo = f.pbdb_taxon_no ?? 0;
+    const drawn = taxonNo > 0 && tree.view.fossils.includes(taxonNo);
+    const out: Command[] = [];
+    // Offered first, because it is now the thing a reader most wants from a
+    // fossil row and the thing they came here believing was impossible.
+    if (taxonNo > 0) {
+      out.push(
+        drawn
+          ? {
+              id: "fossil-undraw",
+              title: `Remove ${f.name} from the tree`,
+              subtitle: "Stop drawing it against the lineage",
+              icon: "−",
+              section: "This fossil",
+              contextual: true,
+              run: () => {
+                tree.removeFossil(taxonNo);
+                setPaletteOpen(false);
+                setScoped(false);
+                toast(
+                  <>
+                    Removed <strong>{f.name}</strong>
+                  </>,
+                );
+              },
+            }
+          : {
+              id: "fossil-draw",
+              title: `Draw ${f.name} on the tree`,
+              subtitle: "Placed at its own date, hanging off the branch it belongs to",
+              icon: "◇",
+              section: "This fossil",
+              contextual: true,
+              run: () => {
+                tree.addFossil(taxonNo);
+                setPaletteOpen(false);
+                setScoped(false);
+                toast(
+                  <>
+                    Drew <strong>{f.name}</strong>
+                  </>,
+                );
+              },
+            },
+      );
+    }
+    out.push(
       {
         id: "fossil-host",
         title: `Show ${hostName}`,
@@ -378,7 +506,7 @@ export default function App() {
           setScoped(false);
         },
       },
-    ];
+    );
     if (host && !tree.induced.leaves.includes(f.attach_idx)) {
       out.push({
         id: "fossil-add-host",
@@ -552,6 +680,7 @@ export default function App() {
         fitSignal={fitSignal}
         drill={tree.view.drill}
         onDrill={tree.setDrill}
+        grafts={grafts}
         onPickFossil={(f) => {
           setPickedFossil(f);
           setScoped(true);

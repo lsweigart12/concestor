@@ -24,6 +24,7 @@ wrong and these docs record the corrections.
 | [docs/phase3-pbdb-path.md](docs/phase3-pbdb-path.md) | How fossils resolve to the tree, measured |
 | [docs/phase5c-decision.md](docs/phase5c-decision.md) | Generated outlines from Wikimedia photos — **optional future enhancement, not scheduled**. Kept complete and measured. Four rejected approaches, with numbers |
 | [docs/witness-ceiling.md](docs/witness-ceiling.md) | Raising the divergence witness off nodes and onto fossil attachment points. **Shipped**; §9 is what it actually cost |
+| [docs/fossil-grafts.md](docs/fossil-grafts.md) | Drawing a fossil *in* the tree at its own date. **Shipped**; §2 is why grafting into the baked arrays was refused |
 | [docs/worktrees.md](docs/worktrees.md) | Why the preview works in a parallel session's worktree |
 
 **This product is for curious people interested in evolution, not for evolutionary
@@ -307,6 +308,18 @@ corpus: 548 forks → 885, spanning 207 → **192**. It went *down* because 14 o
 old 207 spanned only by running to the present, *Moho braccatus* — a bird that
 died in 1987 — across Passeriformes at a 52 Ma gap among them. `MIN_SPANNING_WITNESSES`
 carries the comparison.
+
+**A fossil can now be drawn *in* the tree, and it is still not a node.** A
+*graft* is a synthetic occurrence-tier node built client-side, placed at its own
+`lla`, hanging off the branch its `attach_idx` sits on, showing its own
+`fossil_image` drawing. It never enters `Induced`, so it can never move an MRCA,
+and its index is `-(pbdb_taxon_no)` precisely so that any code path mistaking it
+for a node fails on the array lookup instead of answering about a neighbour.
+Read `docs/fossil-grafts.md` §2 before proposing that fossils be grafted into the
+baked arrays instead — that costs a confident crown age on ~7,000 undated
+divergences, and the numbers are there. Three refusals, none of them
+approximated: no bracket (21.4% of PBDB), attach node not on a drawn branch, no
+`pbdb_taxon_no`.
 
 Which of the two to draw depends on how the reader reached the node, so **only
 the client can decide it**, and `web/src/canvas/witness.ts` is where that
