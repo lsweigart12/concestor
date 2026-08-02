@@ -1,0 +1,173 @@
+# Every check that runs on a clean checkout, with no dataset.
+#
+# The three halves share only files, so they get three independent jobs and a
+# failure in one says exactly which half broke. Nothing here needs build/
+# (2.9 GB) or snapshot/ (1.7 GB), and nothing here should ever try to produce
+# them: the pipeline is a release-cadence job measured in hours against
+# academic APIs that have no rate limiting because nobody implemented it.
+#
+# What that costs is stated rather than hidden. On a checkout with no build/,
+# 82 of the 99 Go tests and 47 of the 291 pipeline tests skip themselves, and
+# `go test` still prints `ok`. The `server` job prints the split into the run
+# summary and refuses a run in which the dataset-free tests have disappeared
+# too; `scripts/check.sh` is the local counterpart that runs the full suite
+# against a real build and turns those skips into failures.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    name: web (typecheck, test, build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # `ci`, not `install`: the lockfile is the input, and a job that quietly
+      # resolves a different tree is testing something the reviewer cannot see.
+      - run: npm ci
+        working-directory: web
+
+      - run: npm run typecheck
+        working-directory: web
+
+      - run: npm test
+        working-directory: web
+
+      - run: npm run build
+        working-directory: web
+
+      # Handed to the `cloudflare` job so the deployable artifact is built
+      # exactly once, by the job that also typechecked and tested it.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist
+          retention-days: 7
+
+  server:
+    name: server (vet, test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          # The toolchain line in go.mod is the single source of truth; a
+          # version pinned here as well would drift from it silently.
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      - name: gofmt
+        working-directory: server
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "::error::gofmt would rewrite these files:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - run: go vet ./...
+        working-directory: server
+
+      - run: go build ./...
+        working-directory: server
+
+      # -json so the pass/skip split can be counted rather than eyeballed.
+      # The `|| true` is deliberate: the summary must be written even when
+      # tests fail, and go-test-summary.py exits non-zero on any failure it
+      # sees in the stream.
+      - name: go test
+        working-directory: server
+        run: go test -json ./... > "$RUNNER_TEMP/gotest.json" || true
+
+      - name: Test summary and dataset-coverage floor
+        working-directory: server
+        run: python3 ../scripts/ci/go-test-summary.py "$RUNNER_TEMP/gotest.json"
+
+  pipeline:
+    name: pipeline (format, lint, types, test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: pipeline/uv.lock
+
+      # --locked, because uv.lock is checked in and a CI run that silently
+      # re-resolves it is not testing the tree anyone else has.
+      - name: uv sync
+        working-directory: pipeline
+        run: uv sync --locked
+
+      # The four gates CLAUDE.md requires of every pipeline change, in the
+      # same order and with the versions resolved by the dev group rather
+      # than whatever a system install happens to be.
+      - run: uv run ruff format --check src tests
+        working-directory: pipeline
+
+      - run: uv run ruff check src tests
+        working-directory: pipeline
+
+      - run: uv run ty check
+        working-directory: pipeline
+
+      # -rs so the reason for each skip is on the log rather than a bare `s`.
+      # With no build/ these are all "run `concestor-build …` first".
+      - run: uv run pytest -q -rs
+        working-directory: pipeline
+
+  cloudflare:
+    name: cloudflare (worker config)
+    needs: web
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci
+        working-directory: web
+
+      # wrangler validates the config against the built assets directory, so
+      # the dry run needs a real dist rather than an empty one.
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist
+
+      # Bundles the worker and validates wrangler.jsonc without credentials
+      # and without deploying. This is the check that keeps the deploy path
+      # honest on a repository that does not deploy yet: a broken worker or a
+      # config key that a wrangler upgrade renamed fails here, on the pull
+      # request, rather than on the first real deploy.
+      - name: wrangler deploy --dry-run
+        working-directory: web
+        env:
+          # A CI job should not phone home about its own tooling.
+          WRANGLER_SEND_METRICS: "false"
+        run: npx wrangler deploy --dry-run --outdir "$RUNNER_TEMP/worker-bundle"

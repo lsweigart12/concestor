@@ -1,0 +1,42 @@
+{
+  // Cloudflare Workers static assets: web/dist served from the edge, with
+  // worker/index.ts handling /v1 by proxying to the Go read API. Read that
+  // file first — it says why the API itself cannot live here.
+  //
+  // Nothing deploys from this config yet. It exists so that `wrangler deploy
+  // --dry-run` runs on every pull request (see .github/workflows/ci.yml) and
+  // the first real deploy is a credentials problem rather than a config one.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "concestor-web",
+  "main": "worker/index.ts",
+
+  // Pinned, not "today". A compatibility date is the semantics the code was
+  // written against; moving it is a change to the runtime and belongs in a
+  // commit that says so.
+  "compatibility_date": "2026-06-01",
+
+  "assets": {
+    "directory": "./dist",
+
+    // The app is a single-page application with client-side routing — a
+    // shared link is `/?sel=…`, but a reload of any other path must still
+    // reach index.html rather than a 404.
+    "not_found_handling": "single-page-application",
+
+    // Without this, single-page-application handling answers *every*
+    // unmatched path with index.html and the Worker never runs — /v1/search
+    // would return the HTML shell with a 200, which the client would try to
+    // parse as JSON. The API prefix has to be routed to the Worker first.
+    "run_worker_first": ["/v1/*"],
+  },
+
+  "vars": {
+    // Empty here on purpose: the real value is supplied at deploy time from
+    // the CONCESTOR_API_ORIGIN repository variable, so the same config can
+    // point a preview at staging and production at production. The Worker
+    // answers 503 with an explanatory message when it is unset.
+    "API_ORIGIN": "",
+  },
+
+  "observability": { "enabled": true },
+}

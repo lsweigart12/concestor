@@ -9,8 +9,13 @@
 # IS tracked.
 /snapshot/*
 !/snapshot/manifest.json
-/build/*
-!/build/.gitkeep
+#
+# `/build`, not `/build/*`: in a worktree the artifacts are borrowed, and
+# `scripts/check.sh` links them in as a *symlink* named build, which `/build/*`
+# does not match. Nothing under build/ has ever been tracked — the old
+# `!/build/.gitkeep` exception was protecting a file that does not exist — so
+# ignoring the name outright costs nothing and covers both shapes.
+/build
 
 .venv/
 __pycache__/
@@ -21,6 +26,9 @@ __pycache__/
 /web/node_modules/
 /web/dist/
 /web/.vite/
+
+# wrangler's local state and the `--dry-run` bundle. wrangler.jsonc IS tracked.
+/web/.wrangler/
 
 # Go
 /server/concestor-serve
