@@ -2268,6 +2268,32 @@ body {
 }
 
 /*
+ * A linked source. Carries the weight and colour the `<strong>` had, so the
+ * paragraph still reads as prose with the sources picked out, plus a hairline
+ * that says it is reachable.
+ *
+ * Deliberately not the accent at rest, unlike `.wiki-links a`: there is one of
+ * those on a card and seven of these in a single paragraph, and seven cyan
+ * words is a link list wearing a sentence. The accent arrives on hover and
+ * focus, where it is about one link rather than all of them.
+ */
+.about-src {
+  font-weight: var(--w-med);
+  color: var(--ink-2);
+  text-decoration: none;
+  border-bottom: 1px solid var(--hairline-strong);
+  transition:
+    color 120ms ease,
+    border-color 120ms ease;
+}
+.about-src:hover,
+.about-src:focus-visible {
+  outline: none;
+  color: var(--accent);
+  border-bottom-color: var(--accent-dim);
+}
+
+/*
  * The carousel inside the panel. Narrower arrows than on the canvas, where it
  * has a whole viewport; here it shares a 560px dialog with running text, and
  * the arrows sitting hard against the text column read as part of the prose.

@@ -22,6 +22,28 @@ import type { About as AboutPayload } from "../api";
 import { OpeningCarousel } from "./OpeningCarousel";
 import type { Opening } from "../openings";
 
+/**
+ * A named source, linked to the page a curious reader would want.
+ *
+ * Each target is the thing itself rather than its homepage where the two
+ * differ: Open Tree goes to the browsable tree, Duke et al. to the Zenodo
+ * deposit that carries the CC-BY the ages are used under — not the preprint —
+ * and the ICS to the chart rather than to the commission. It replaces the
+ * `<strong>` these used to be, which named every source and reached none of
+ * them.
+ *
+ * `noreferrer noopener` and a new tab, the same as every other outbound link
+ * here: the canvas is a working surface and a reader following a citation has
+ * not asked to lose the tree they assembled.
+ */
+function Src({ href, children }: { href: string; children: React.ReactNode }) {
+  return (
+    <a className="about-src" href={href} target="_blank" rel="noreferrer noopener">
+      {children}
+    </a>
+  );
+}
+
 export function About({
   about,
   onOpen,
@@ -88,14 +110,16 @@ export function About({
 
         <h3 className="about-h">Where this comes from</h3>
         <p className="about-p">
-          Topology from the <strong>Open Tree of Life</strong> (synthesis v16.1,
-          OTT 3.7.3). Divergence ages from <strong>Duke et al. 2026</strong>.
-          Silhouettes from <strong>PhyloPic</strong>, each credited to its artist
-          on the node card. Fossil ranges from the{" "}
-          <strong>Paleobiology Database</strong>, geologic intervals from the{" "}
-          <strong>ICS</strong>, common names from <strong>Wikidata</strong>, and
-          descriptions from <strong>Wikipedia</strong>, fetched as you open a
-          card.
+          Topology from the <Src href="https://tree.opentreeoflife.org/">Open Tree of Life</Src>{" "}
+          (synthesis v16.1, OTT 3.7.3). Divergence ages from{" "}
+          <Src href="https://doi.org/10.5281/zenodo.19049120">Duke et al. 2026</Src>.
+          Silhouettes from <Src href="https://www.phylopic.org/">PhyloPic</Src>, each
+          credited to its artist on the node card. Fossil ranges from the{" "}
+          <Src href="https://paleobiodb.org/">Paleobiology Database</Src>, geologic
+          intervals from the <Src href="https://stratigraphy.org/chart">ICS</Src>,
+          common names from <Src href="https://www.wikidata.org/">Wikidata</Src>, and
+          descriptions from <Src href="https://www.wikipedia.org/">Wikipedia</Src>,
+          fetched as you open a card.
         </p>
 
         <div className="about-foot">
