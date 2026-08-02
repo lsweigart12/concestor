@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -285,6 +286,55 @@ func (s *Store) Vernaculars(ctx context.Context, idx int) ([]Vernacular, error) 
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Preferred && !out[j].Preferred })
 	return out, rows.Err()
+}
+
+// WikidataQID returns the Wikidata item this node is, or "" if none is known.
+//
+// It is read off the vernacular crawl because that is where it was gathered,
+// and it is worth more than the names it arrived with: it is a *stable
+// identifier for the taxon*, so a link built from it lands on an article about
+// this node rather than on a search for its name. The difference matters
+// exactly where a reader is most likely to be misled — *Ivesia* is both an
+// Ediacaran rangeomorph and a rose-family plant, and a name-shaped link cannot
+// tell them apart.
+//
+// The claim it carries is only as strong as the crawl's own check, and that
+// check is the strongest one available: phase 6 refuses any item whose own
+// `wdt:P225` names a different taxon from OTT's. Items carrying no P225 at all
+// are kept, there and here, because absent evidence of a bad claim is not
+// evidence of one — and re-testing that at request time would query the same
+// missing triple and learn nothing.
+//
+// Rows are ordered so a node claimed by more than one item (six of 108,293)
+// answers the same way on every request rather than at the whim of the query
+// planner.
+func (s *Store) WikidataQID(ctx context.Context, idx int) (string, error) {
+	v := s.Schema.Vernacular
+	if v == nil || v.SourceID == "" {
+		return "", nil
+	}
+	// A source column is not required — a table carrying only Wikidata rows
+	// needs no filter — but where it exists it is what keeps PBDB's `txn:N`
+	// identifiers out. The `Q%` test does that unaided, and both run.
+	src := "1=1"
+	if v.Source != "" {
+		src = fmt.Sprintf("%q LIKE 'wikidata%%'", v.Source)
+	}
+	q := fmt.Sprintf(
+		"SELECT %q FROM %q WHERE %q = ? AND %s AND %q LIKE 'Q%%' ORDER BY %q LIMIT 1",
+		v.SourceID, v.Table, v.Idx, src, v.SourceID, v.SourceID)
+	var qid sql.NullString
+	err := s.DB.QueryRowContext(ctx, q, idx).Scan(&qid)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if !qid.Valid {
+		return "", nil
+	}
+	return qid.String, nil
 }
 
 // BestVernaculars returns one common name per node for a batch, for search

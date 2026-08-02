@@ -59,12 +59,22 @@ type FTSSchema struct {
 
 // VernacularSchema maps common names onto nodes. Priority-one work per
 // handoff §1: a palette that returns nothing for "dog" is broken at the door.
+//
+// Source and SourceID are not about names at all — they are the only place in
+// the built database that records *which Wikidata item* a node is, and that
+// identifier is what lets a card link out to an encyclopaedia article about the
+// right taxon rather than a search for a string. They ride here because the
+// crawl that produced them was a vernacular crawl; a node with no common name
+// therefore has no QID either, which is the honest shape of what was gathered
+// and not a bug to route around.
 type VernacularSchema struct {
 	Table     string `json:"table"`
 	Idx       string `json:"idx"`
 	Name      string `json:"name"`
 	Lang      string `json:"lang,omitempty"`
 	Preferred string `json:"preferred,omitempty"`
+	Source    string `json:"source,omitempty"`
+	SourceID  string `json:"source_id,omitempty"`
 }
 
 // SilhouetteSchema carries PhyloPic attribution. Creator and uploader are
@@ -256,6 +266,8 @@ func (s *Schema) resolveVernacular() {
 		Name:      name,
 		Lang:      s.col(t, "lang", "language", "lang_code", "languagecode"),
 		Preferred: s.col(t, "is_preferred", "preferred", "is_primary", "primary_name"),
+		Source:    s.col(t, "source"),
+		SourceID:  s.col(t, "source_id", "external_id"),
 	}
 }
 

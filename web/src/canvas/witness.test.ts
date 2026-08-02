@@ -62,6 +62,13 @@ describe("witnessFor", () => {
       spans: true,
       gapMa: 0,
       attachWalk: 0,
+      // The PBDB taxon, which is what a card link targets. Asserted here
+      // rather than beside the attachment point because the two are easy to
+      // swap and the swap is silent: `attachIdx` addresses a *node*, so a link
+      // built from it resolves cleanly to a clade of 378,328 tips instead of
+      // failing.
+      pbdbTaxonNo: 83043,
+      attachIdx: 594502,
     });
   });
 
@@ -175,6 +182,11 @@ describe("witnessTitle", () => {
     spans: true,
     gapMa: 0,
     attachWalk: 0,
+    // What the card links to. A witness is a fossil, so it opens a fossil card
+    // — never the node it hangs below, which is a clade thousands of times its
+    // size and not the thing the reader clicked.
+    pbdbTaxonNo: 87542,
+    attachIdx: 594474,
   };
 
   it("puts both dates in front of the reader", () => {

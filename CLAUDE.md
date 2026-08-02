@@ -64,7 +64,7 @@ our own; **no dagre, no ELK, no d3-hierarchy**, because a graph-layout engine
 assigns `x` by depth and here `x` is time.
 
 ```bash
-cd web && npm install && npm run build && npm test   # 188 tests
+cd web && npm install && npm run build && npm test   # 220 tests
 cd server && go test ./... && go run . -build ../build
 ```
 
@@ -221,6 +221,43 @@ rows, so a key cannot print one thing and do another. Two consequences worth
 knowing before changing it: **share has no key** on purpose, and **clear is the
 one action with a confirmation dialog** — one unshifted letter beside two
 others, and the only one that can destroy an hour of work.
+
+**The detail card leads with what a thing is, and the tree prose is folded
+away.** `web/src/detail/` is the whole surface — common name, a Wikipedia
+description, the classification, the figures, then one collapsed disclosure
+holding every caveat about tier, placement and what the picture depicts. No
+caveat was shortened; they moved. The one sentence that stayed on the face of
+the card is a divergence's derived name, because for an `mrcaott…` node that is
+the only identity it has. Three things not to redo: **the classification is the
+ancestor path** (`/v1/path` already carries a rank on every entry, already
+cached), **its gaps are named rather than filled** — *Homo sapiens* has no
+ranked order and **Hominidae is not a node at all**, so five rungs and silence
+looks broken to anyone who knows humans are hominids — and **the description is
+fetched at read time on purpose**. That is not a crack in architecture §9: it is
+not part of the dataset, no gate touches it, it covers the 523,112 fossil taxa a
+QID-keyed crawl cannot, and the card is complete without it. The guard is the
+whole difficulty — with a QID (108,293 nodes, served on `/v1/node` off
+`vernacular.source_id`) phase 6 already refused any item whose `wdt:P225`
+disagrees with OTT, and **without one the item must prove itself by `P225` or
+there is no answer**, because PBDB has genera called *Ares*, *Iris* and *Nike*.
+`docs/handoff.md` §3 has the rest, including why the article thumbnail is
+deliberately not read.
+
+**The card is also the second navigation surface.** Every name on it that names
+a taxon opens that taxon's card, and it carries its own add/remove control. The
+two arrived together and had to: a link that could only reach *drawn* nodes is a
+dead end, and a control that could only remove is half an answer. So
+`focusedIdx` now means only "which mark to light" and `selectedNodeKey` means
+"which card to show", asking the API directly. Four things not to redo: **a
+witness links to the fossil, never to its attachment point** (a node, therefore
+the tempting target, and a clade tens of thousands of species wide); **`idx:N`
+is a real key** for the nodes we hold no key for, and `idxFromKey` matches it
+exactly because `Number("")` is 0 and the first draft selected the root; **a
+node not in `induced.rendered` is a clade the reader *chose***, so it keeps its
+exemplar rather than drawing a witness for a fork it is not sitting at; and the
+add button has **three** states, because a drawn divergence exists only as long
+as the selections that induced it and "Add" over something already visible
+promises a change the press does not make. `docs/handoff.md` §3 has the rest.
 
 **Decisions in this codebase are made by whoever holds it.** These docs escalate
 nothing and hold nothing open pending approval; where a question was once

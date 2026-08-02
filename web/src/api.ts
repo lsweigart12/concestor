@@ -159,6 +159,20 @@ export interface Witness {
    * a node and the question did not arise.
    */
   attachWalk: number | null;
+  /**
+   * The PBDB taxon, which is what the card links to.
+   *
+   * **A witness opens a fossil card, never a node card**, and this field is what
+   * enforces it. The tempting alternative is to link the witness's *attachment
+   * point* instead, since that is a node and nodes are what the canvas draws —
+   * but the attachment point is a clade the fossil sits somewhere below, often
+   * tens of thousands of species wide, and sending a reader who clicked
+   * *Pakicetus* to Artiodactyla answers a question they did not ask. Null on a
+   * build predating the field.
+   */
+  pbdbTaxonNo: number | null;
+  /** The deepest node it is known to sit below — offered *beside* the taxon. */
+  attachIdx: number | null;
 }
 
 /**
@@ -187,6 +201,8 @@ export function witnessFor(node: PathNode): Witness | null {
     spans: node.divergence_gap_ma === 0,
     gapMa: node.divergence_gap_ma ?? null,
     attachWalk: node.divergence_attach_walk ?? null,
+    pbdbTaxonNo: node.divergence_pbdb_taxon_no ?? null,
+    attachIdx: node.divergence_attach_idx ?? null,
   };
 }
 
@@ -278,6 +294,18 @@ export interface NodeDetail extends PathNode {
   child_count: number;
   synonyms: string[];
   vernaculars: string[];
+  /**
+   * The Wikidata item this node *is*, on the 108,293 nodes the vernacular crawl
+   * reached — which are close to exactly the ones a reader has heard of.
+   *
+   * An identifier, not a name, and that is the whole of its value: a link built
+   * from it lands on an article about this taxon, where a link built from a
+   * name lands on an article about whatever else is called that. It is absent
+   * on the other 2.6M nodes and on every build predating the field, and
+   * `detail/wiki.ts` falls back to a *checked* name lookup rather than an
+   * unchecked one.
+   */
+  wikidata_qid?: string | null;
   silhouette: {
     phylopic_id: string;
     license_url: string;

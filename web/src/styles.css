@@ -1557,7 +1557,10 @@ body {
   position: fixed;
   top: var(--s4);
   right: var(--s4);
-  width: 330px;
+  /* 30px wider than it was. The card stopped being a caption the moment it
+     carried a paragraph of prose and a classification ladder, and a measure
+     this narrow was already making the ladder's rank column wrap. */
+  width: 360px;
   max-height: calc(100vh - 130px);
   overflow-y: auto;
   z-index: 25;
@@ -1585,7 +1588,10 @@ body {
     left: var(--s3);
     right: var(--s3);
     top: 46px;
-    max-height: 42vh;
+    /* 42vh was sized for a card that was four numbers and a note. It now holds
+       a description and a lineage, and at 42vh the scroll thumb is longer than
+       the window it moves in. */
+    max-height: 58vh;
   }
 }
 
@@ -1661,6 +1667,300 @@ body {
   color: var(--ink-3);
   border-left: 2px solid var(--hairline-strong);
   padding-left: var(--s3);
+}
+
+/* ------------------------------------------------- detail card: the blocks -- */
+
+/*
+ * The word the reader knows, under the name the canvas uses.
+ *
+ * Under, not instead of. Every other surface in this app — the label on the
+ * mark, the palette row's title, the URL — identifies a taxon by its scientific
+ * name, and a card that answered to "cat" where the canvas says "Felidae" would
+ * make a reader check they had clicked the right thing. It is brighter than the
+ * rank beneath it because it is the more useful of the two to this audience,
+ * and dimmer than the heading because it is not the identity.
+ */
+.detail .common-name {
+  margin: 2px 0 3px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+/*
+ * A name that opens that thing's card.
+ *
+ * A dotted underline, not a solid one and not a colour: on this card the
+ * clickable names are *most of the nouns*, and painting them all accent would
+ * make the classification block read as a menu with a taxon hidden in it. The
+ * design rule is that brightness encodes selection, so a link at rest is the
+ * same ink as the text around it and only the underline says it is live.
+ *
+ * Inherits size, weight and italics so a linked genus is typographically the
+ * same object as an unlinked one — the difference between *Homo* here and
+ * *Homo* two lines up is availability, not identity.
+ */
+.detail .taxon-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: inherit;
+  border-bottom: 1px dotted var(--hairline-strong);
+  transition: color 90ms linear, border-color 90ms linear;
+}
+.detail .taxon-link:hover,
+.detail .taxon-link:focus-visible {
+  color: var(--accent);
+  border-bottom-color: var(--accent-dim);
+}
+/* Over the image the watermark is already a chip; the underline would double it. */
+.detail .detail-watermark .taxon-link {
+  border-bottom: 0;
+}
+
+/* --- add / remove --- */
+
+/*
+ * The card's own control, directly under the name.
+ *
+ * Wider and quieter than a primary button: it is the most-used thing on the
+ * card and still not the *subject* of it. Add and remove are one button in two
+ * states — see `CardActions` — so the sign carries the difference and the hue
+ * only confirms it.
+ */
+.detail .card-actions {
+  margin-top: var(--s3);
+}
+.detail .card-action {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  width: 100%;
+  padding: 6px var(--s3);
+  border: 1px solid var(--hairline-strong);
+  border-radius: 5px;
+  background: rgba(150, 200, 210, 0.045);
+  font: inherit;
+  font-size: 11.5px;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: background 110ms linear, border-color 110ms linear, color 110ms linear;
+}
+.detail .card-action:hover,
+.detail .card-action:focus-visible {
+  background: rgba(150, 200, 210, 0.1);
+  border-color: var(--accent-dim);
+  color: var(--ink);
+}
+.detail .card-action-sign {
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1;
+  color: var(--ink-4);
+}
+.detail .card-action:hover .card-action-sign {
+  color: var(--accent);
+}
+/* Removal is not destructive here — the back button restores it — so it gets no
+   warning colour, only the sign and the verb. */
+.detail .card-action.remove:hover .card-action-sign {
+  color: var(--ink-2);
+}
+
+.detail .card-action-hint {
+  margin: var(--s1) 0 0;
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: var(--ink-4);
+}
+
+/* A refusal replaces the button rather than disabling it: a control that
+   cannot work is a question the reader has to answer for themselves. */
+.detail .card-actions-refusal {
+  margin-top: var(--s3);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ink-4);
+  border-left: 2px solid var(--hairline);
+  padding-left: var(--s3);
+}
+
+.detail h3 {
+  margin: var(--s4) 0 var(--s2);
+  font-size: 10px;
+  font-weight: var(--w-med);
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+}
+
+/* --- the encyclopaedia block --- */
+
+.detail .wiki {
+  margin-top: var(--s4);
+}
+
+/*
+ * The pending line holds the space the paragraph will take.
+ *
+ * It is a sentence rather than a shimmer because a skeleton block is a promise
+ * that something is definitely coming, and for most of the corpus nothing is.
+ * Breathing rather than spinning: nothing in this instrument animates except
+ * data arriving, and this is data arriving.
+ */
+.detail .wiki-pending {
+  margin: var(--s4) 0 0;
+  font-size: 11.5px;
+  color: var(--ink-4);
+  animation: wiki-breathe 1.8s ease-in-out infinite;
+}
+
+@keyframes wiki-breathe {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+
+.detail .wiki-extract {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--ink-2);
+}
+.detail .wiki-extract.clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 7;
+  line-clamp: 7;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/*
+ * A word, not a control. The card has one real button on it — the licence link
+ * — and a filled affordance here would out-rank the taxon name.
+ */
+.detail .wiki-more {
+  display: block;
+  margin-top: var(--s1);
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 11px;
+  color: var(--accent-dim);
+  cursor: pointer;
+}
+.detail .wiki-more:hover {
+  color: var(--accent);
+}
+
+/* The scope warning sits above the paragraph it qualifies — see the component. */
+.detail .wiki-scope {
+  margin: 0 0 var(--s2);
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--ink-4);
+}
+
+.detail .wiki-links {
+  margin: var(--s2) 0 0;
+  font-size: 11px;
+  color: var(--ink-4);
+}
+.detail .wiki-links a {
+  color: var(--accent-dim);
+  text-decoration: none;
+  border-bottom: 1px solid var(--hairline-strong);
+}
+.detail .wiki-links a:hover {
+  color: var(--accent);
+}
+/* A licence condition, not a footnote — the extract above is CC BY-SA. */
+.detail .wiki-licence {
+  color: var(--ink-4);
+}
+
+/* --- the classification block --- */
+
+/*
+ * `display: contents` so each row's rank and name join the parent grid
+ * directly. The rows exist as elements only to carry a React key; making them
+ * grid items instead would put a whole ladder in the first column.
+ */
+.detail .cl-row {
+  display: contents;
+}
+
+.detail .lineage {
+  margin-top: var(--s2);
+}
+.detail .lineage > summary,
+.detail .why > summary {
+  cursor: pointer;
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+  list-style: none;
+}
+.detail .lineage > summary::-webkit-details-marker,
+.detail .why > summary::-webkit-details-marker {
+  display: none;
+}
+.detail .lineage > summary::before,
+.detail .why > summary::before {
+  content: "▸ ";
+  color: var(--ink-4);
+}
+.detail .lineage[open] > summary::before,
+.detail .why[open] > summary::before {
+  content: "▾ ";
+}
+.detail .lineage > summary:hover,
+.detail .why > summary:hover {
+  color: var(--ink-3);
+}
+
+/*
+ * The full ancestry as one wrapped chain rather than a column of rows.
+ *
+ * Twenty rows of one word each is a list of twenty things; a chain is one
+ * thing, which is what a lineage is — and it is the shape the canvas draws.
+ */
+.detail .lineage-chain {
+  margin: var(--s2) 0 0;
+  font-size: 11.5px;
+  line-height: 1.65;
+  color: var(--ink-3);
+}
+.detail .lineage-sep {
+  color: var(--ink-4);
+}
+
+/* --- names, and the folded provenance --- */
+
+.detail .names-label {
+  color: var(--ink-4);
+  text-transform: uppercase;
+  font-size: 9.5px;
+  letter-spacing: 0.09em;
+}
+
+.detail .why {
+  margin-top: var(--s4);
+  padding-top: var(--s3);
+  border-top: 1px solid var(--hairline);
+}
+/* Inside the disclosure the first note needs no extra gap above it. */
+.detail .why > .note:first-of-type {
+  margin-top: var(--s2);
 }
 
 /* ------------------------------------------------------------------ boot -- */

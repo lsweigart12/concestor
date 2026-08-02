@@ -720,6 +720,12 @@ type nodeBody struct {
 	Synonyms    []string           `json:"synonyms"`
 	Vernaculars []store.Vernacular `json:"vernaculars"`
 	Silhouette  *store.Attribution `json:"silhouette"`
+	// The Wikidata item this node is, when the vernacular crawl found one —
+	// 108,293 of 2.7M nodes, which are close to exactly the ones a reader has
+	// heard of. It is here so the card can offer an article about *this taxon*
+	// instead of a search for its name; see store.WikidataQID for how much the
+	// identifier is warranted to mean.
+	WikidataQID string `json:"wikidata_qid,omitempty"`
 	// The witness's own credit. A separate block because it is a separate
 	// drawing by a separate artist, and the canvas draws it: CC-BY applies to
 	// whatever is on screen, so an image the card cannot credit is an image
@@ -775,6 +781,13 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request) {
 		s.Log.Warn("vernaculars", "idx", idx, "err", err)
 		vern = []store.Vernacular{}
 	}
+	// A missing identifier costs the card one optional link, so it is warned
+	// about and stepped over rather than failing the request.
+	qid, err := s.St.WikidataQID(ctx, idx)
+	if err != nil {
+		s.Log.Warn("wikidata qid", "idx", idx, "err", err)
+		qid = ""
+	}
 	var attrib *store.Attribution
 	if entries[0].PhylopicID != nil {
 		attrib, err = s.St.SilhouetteAttribution(ctx, *entries[0].PhylopicID)
@@ -827,6 +840,7 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request) {
 		Entry: entries[0], Flags: meta.Flags,
 		ChildCount: int64(s.St.Arrays.ChildCount[idx]),
 		Synonyms:   syn, Vernaculars: vern, Silhouette: attrib,
+		WikidataQID:          qid,
 		DivergenceSilhouette: witAttrib,
 	}
 	if p := s.St.Arrays.Parent[idx]; p != topo.NoParent {

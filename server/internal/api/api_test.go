@@ -523,6 +523,7 @@ func TestNodeDetail(t *testing.T) {
 		Synonyms    []string `json:"synonyms"`
 		Vernaculars []any    `json:"vernaculars"`
 		Silhouette  any      `json:"silhouette"`
+		WikidataQID string   `json:"wikidata_qid"`
 	}
 	resp := getJSON(t, ts, "/v1/node/ott770315", &body)
 	if resp.StatusCode != 200 {
@@ -551,6 +552,15 @@ func TestNodeDetail(t *testing.T) {
 	}
 	if body.Synonyms == nil || body.Vernaculars == nil {
 		t.Error("synonyms and vernaculars must be arrays, never null")
+	}
+	// The identifier the card links out on. Asserted by value rather than by
+	// presence, because the failure this guards against is not an absent QID —
+	// it is the *wrong* taxon's, which is what P9157 hands out unguarded and
+	// what put "Giant Bullfrog" on a domain of archaea. Q15978631 is Wikidata's
+	// Homo sapiens; Q5 is the human being, and a link to it would be a
+	// different and much more embarrassing article.
+	if body.WikidataQID != "Q15978631" {
+		t.Errorf("Homo sapiens wikidata_qid = %q, want Q15978631", body.WikidataQID)
 	}
 
 	// An internal node with children.

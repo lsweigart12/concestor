@@ -15,8 +15,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   api,
   ping,
-  TIER_OCCURRENCE,
-  TIER_STRUCTURAL,
   type About,
   type FossilTaxon,
   type FossilDetail,
@@ -25,23 +23,17 @@ import {
   type SearchHit,
   type TimescaleInterval,
 } from "./api";
-import { bracketGeom, bracketTitle, endedSpanLabel, gapLabel } from "./canvas/Bracket";
 import { Graph } from "./canvas/Graph";
-import { Silhouette } from "./canvas/Silhouette";
-import { mayDrawExemplar, witnessOn } from "./canvas/witness";
-import {
-  ageLabel,
-  DerivedName,
-  isScientificItalic,
-  placementNote,
-} from "./canvas/NodeMark";
+import { isScientificItalic } from "./canvas/NodeMark";
+import { Detail } from "./detail/Detail";
+import { FossilCard } from "./detail/FossilCard";
+import { idxFromKey, selectionKeyFor } from "./detail/target";
 import {
   buildGrafts,
   graftIdx,
   isGraftIdx,
   makeGraft,
   parseGraftKey,
-  type Graft,
   type GraftRefusal,
 } from "./tree/graft";
 import { Palette, type Command, type PaletteFilter, type Scope } from "./palette/Palette";
@@ -49,15 +41,9 @@ import { Confirm } from "./chrome/Confirm";
 import { Controls, type ControlAction } from "./chrome/Controls";
 import { kbd, matchKey } from "./chrome/bindings";
 import { resetUsage } from "./palette/fuzzy";
-import { useTree } from "./state/store";
+import { toApiKey, useTree } from "./state/store";
 import { laneHue } from "./tree/layout";
-import {
-  branchProse,
-  divergenceFor,
-  nestedSelections,
-  UNNAMED,
-  type Divergence,
-} from "./tree/naming";
+import { divergenceFor, nestedSelections } from "./tree/naming";
 
 interface Toast {
   id: number;
@@ -158,6 +144,12 @@ export default function App() {
     // walks the topology can act on it.
     if (focusedTaxonNo !== null) return graftIdx(focusedTaxonNo);
     const k = tree.view.selected;
+    // `idx:N` is what a link into a node we hold no key for produces. It is a
+    // real key the API answers, and resolving it here is what keeps a link into
+    // something already on the canvas from opening the card while leaving every
+    // mark unlit — which reads as the click having half worked.
+    const byIdx = idxFromKey(k);
+    if (byIdx !== null) return tree.nodes.has(byIdx) ? byIdx : null;
     const direct = tree.idxOf.get(k) ?? tree.idxOf.get(`ott${k}`);
     if (direct !== undefined) return direct;
     const n = [...tree.nodes.values()].find(
@@ -166,22 +158,43 @@ export default function App() {
     return n?.idx ?? null;
   }, [tree.view.selected, focusedTaxonNo, tree.idxOf, tree.nodes]);
 
+  /**
+   * The key the node card is about — which is the selection itself, and no
+   * longer whatever the canvas managed to resolve it to.
+   *
+   * The card used to be fetched through `focusedIdx`, so it could only open on
+   * something already in `tree.nodes` — something drawn, or on the path of
+   * something drawn. That was invisible while the only way to select was to
+   * click a mark. It is the whole question now that a classification rung is a
+   * link: *Carnivora* is three rungs above *Felidae* and is not on the canvas,
+   * and under the old rule clicking it changed the URL and nothing else.
+   *
+   * So the two are decoupled. `focusedIdx` still means "which mark to light",
+   * and is null for a taxon that has none; this means "which card to show", and
+   * asks the API directly.
+   */
+  const selectedNodeKey = focusedTaxonNo === null ? tree.view.selected : null;
+
   useEffect(() => {
-    if (focusedIdx === null || focusedTaxonNo !== null) {
+    if (!selectedNodeKey) {
       setDetail(null);
       return;
     }
-    const n = tree.nodes.get(focusedIdx);
-    if (!n) return;
     let cancelled = false;
     api
-      .node(n.key)
-      .then((d) => !cancelled && setDetail(d))
+      .node(toApiKey(selectedNodeKey))
+      .then((d) => {
+        // `/v1/node` explains a broken taxon rather than 404ing, and that
+        // payload has no `idx` — rendering it as a card would print `undefined`
+        // against every figure. The canvas already announces broken taxa in the
+        // reader's language; here the card simply does not open.
+        if (!cancelled) setDetail(typeof d.idx === "number" ? d : null);
+      })
       .catch(() => !cancelled && setDetail(null));
     return () => {
       cancelled = true;
     };
-  }, [focusedIdx, focusedTaxonNo, tree.nodes]);
+  }, [selectedNodeKey]);
 
   // The fossil card's own payload. A separate fetch from the node card's and a
   // separate piece of state, because the two cards show different things: this
@@ -250,6 +263,53 @@ export default function App() {
           Added{" "}
           <strong className={isScientificItalic(hit.rank) ? "sci-italic" : undefined}>
             {hit.name ?? hit.key}
+          </strong>
+        </>,
+      );
+    },
+    [tree, toast],
+  );
+
+  /**
+   * What a link on a card selects.
+   *
+   * A string is already a key. A number is a **node index**, and is turned into
+   * the nicest key that addresses it: the node's own if we hold it, `idx:N`
+   * otherwise. Both open the same card, so this is entirely about what the URL
+   * a reader copies says — `ott244265` names a taxonomy, `idx:588427` names a
+   * position in this build's arrays and means nothing outside it.
+   */
+  const selectTaxon = useCallback(
+    (target: string | number) => tree.select(selectionKeyFor(target, tree.nodes)),
+    [tree],
+  );
+
+  const addNode = useCallback(
+    (d: NodeDetail) => {
+      tree.add(d.key);
+      toast(
+        <>
+          Added{" "}
+          <strong className={isScientificItalic(d.rank) ? "sci-italic" : undefined}>
+            {d.name ?? d.key}
+          </strong>
+        </>,
+      );
+    },
+    [tree, toast],
+  );
+
+  const removeNode = useCallback(
+    (d: NodeDetail) => {
+      // `remove` clears the selection when it removes the selected key, so the
+      // card closes on the press that emptied it. That is right: the card is
+      // about a lineage on the canvas, and there is no longer one.
+      tree.remove(d.key);
+      toast(
+        <>
+          Removed{" "}
+          <strong className={isScientificItalic(d.rank) ? "sci-italic" : undefined}>
+            {d.name ?? d.key}
           </strong>
         </>,
       );
@@ -1134,16 +1194,54 @@ export default function App() {
           fossil={fossilDetail}
           hue={laneHue(graftIdx(focusedTaxonNo))}
           graft={grafts.find((g) => g.idx === graftIdx(focusedTaxonNo)) ?? null}
+          onSelect={selectTaxon}
+          drawn={tree.view.fossils.includes(focusedTaxonNo)}
+          // `drawFossil` rather than `tree.addFossil`, because a fossil card is
+          // now routinely open on something whose host branch is nowhere near
+          // the canvas — a witness reached from a divergence, a search hit — and
+          // the bare add would put it in the URL and draw nothing.
+          onDraw={() => void drawFossil(fossilDetail)}
+          onRemove={() => {
+            tree.removeFossil(focusedTaxonNo);
+            toast(
+              <>
+                Removed <strong>{fossilDetail.name}</strong>
+              </>,
+            );
+          }}
         />
       )}
 
-      {detail && focusedNode && (
+      {/*
+        Gated on the payload, not on the canvas. `focusedNode` is the mark to
+        light and is absent for every taxon reached by a link, which is most of
+        them now — see `selectedNodeKey`. The hue comes from the node's own
+        index, so a lineage keeps its colour whether or not it is drawn.
+      */}
+      {detail && focusedTaxonNo === null && (
         <Detail
           detail={detail}
-          hue={laneHue(focusedNode.idx)}
-          divergence={divergenceFor(focusedNode.idx, tree.induced, tree.nodes)}
-          nested={nestedSelections(focusedNode.idx, tree.induced, tree.nodes)}
-          isLeaf={tree.induced.leaves.includes(focusedNode.idx)}
+          hue={laneHue(detail.idx)}
+          divergence={divergenceFor(detail.idx, tree.induced, tree.nodes)}
+          nested={nestedSelections(detail.idx, tree.induced, tree.nodes)}
+          // "A clade the reader chose" — which a taxon reached by a link is,
+          // just as much as one they searched for. The rule this feeds is
+          // `witness.ts`'s: a *divergence* draws its witness because its own
+          // exemplar would be a crown group younger than the split, while a
+          // clade somebody picked keeps its exemplar. A node that is not drawn
+          // at all is not a divergence between anything — nobody arrived at it,
+          // they named it — so without the second clause every link into an
+          // undrawn clade answered "what does a carnivoran look like" with a
+          // fossil from below the fork it is not sitting at.
+          isLeaf={
+            tree.induced.leaves.includes(detail.idx) ||
+            !tree.induced.rendered.includes(detail.idx)
+          }
+          onSelect={selectTaxon}
+          inSelection={tree.selectionIdx.includes(detail.idx)}
+          isDrawn={tree.induced.rendered.includes(detail.idx)}
+          onAdd={() => addNode(detail)}
+          onRemove={() => removeNode(detail)}
         />
       )}
 
@@ -1202,439 +1300,6 @@ export default function App() {
   );
 }
 
-/**
- * The card for a fossil.
- *
- * The same slot and the same anatomy as {@link Detail}, and deliberately not
- * the same content — because the two are answers to different questions and a
- * card that pretended otherwise would be the borrowed-silhouette mistake in
- * text. A node card leads with an age, a species count and a depth; a fossil
- * has none of those. What it has is a range in the rock, a count of
- * occurrences, and an attachment point whose looseness is the real caveat.
- *
- * Three things it must do that the node card does not:
- *
- *   - **Credit the drawing.** A graft puts a PhyloPic image on the canvas and
- *     CC-BY applies to whatever is on screen. Until this card existed there was
- *     nowhere for that credit to go, which was a licensing gap and not a polish
- *     item.
- *   - **Say it is not a node**, in the reader's language, once and plainly.
- *     Everything else on this canvas has a position in the tree.
- *   - **State the placement and the date as two separate uncertainties.** Where
- *     it hangs and when it lived are independent, and letting one stand in for
- *     the other is what `placementNote` exists to prevent.
- */
-function FossilCard({
-  fossil,
-  hue,
-  graft,
-}: {
-  fossil: FossilDetail;
-  hue: number;
-  /** Present when it is actually drawn; absent when the card is open cold. */
-  graft: Graft | null;
-}) {
-  const bounds = [fossil.fea, fossil.fla, fossil.lea, fossil.lla].filter(
-    (v): v is number => typeof v === "number" && Number.isFinite(v),
-  );
-  const span = bounds.length
-    ? endedSpanLabel(Math.max(...bounds), Math.min(...bounds))
-    : null;
-  const sil = fossil.silhouette ?? null;
-  const host = fossil.attach ?? null;
-  const walk = fossil.attach_walk ?? null;
-  return (
-    <aside className="detail" style={{ color: `hsl(${hue} 60% 62%)` }}>
-      {sil && (
-        <div className="detail-image">
-          <Silhouette phylopicId={sil.phylopic_id} size={110} />
-          {/* No watermark. On a node card it says whose portrait this really
-              is, because the drawing is nearly always of a relative. Here it
-              is of this taxon — `fossil_image` matches PBDB and PhyloPic on the
-              same name and never inherits — so a watermark would repeat the
-              heading. */}
-        </div>
-      )}
-      <h2
-        className={
-          fossil.rank === "species" || fossil.rank === "genus"
-            ? "sci-italic"
-            : undefined
-        }
-        style={{ color: "var(--ink)" }}
-      >
-        {fossil.name}
-      </h2>
-      <div className="rank">{fossil.rank ? `fossil · ${fossil.rank}` : "fossil"}</div>
-
-      <dl>
-        {/* No `age` row, and its absence is the point rather than an omission.
-            Every age in this app comes from a chronogram of living species and
-            an extinct taxon has no counterpart in one. */}
-        <dt>fossils</dt>
-        <dd className="num">{span ?? "no range recorded"}</dd>
-        {fossil.n_occs > 0 && (
-          <>
-            <dt>occurrences</dt>
-            <dd className="num">{fossil.n_occs.toLocaleString()}</dd>
-          </>
-        )}
-        <dt>below</dt>
-        <dd>{host?.name ?? `node ${fossil.attach_idx}`}</dd>
-        <dt>PBDB</dt>
-        <dd className="num">{fossil.pbdb_taxon_no}</dd>
-      </dl>
-
-      <p className="note">
-        This is a fossil taxon, not a node in the tree. Nobody has resolved
-        where its lineage branches, so it has no position of its own and no
-        divergence age — what is known is where it turns up in the rock, which
-        is an observation rather than an estimate.
-        {walk !== null && placementNote(walk)}
-      </p>
-
-      {graft && span && (
-        <p className="note">
-          It is drawn hanging from{" "}
-          <strong>{host?.name ?? "the branch above it"}</strong>, at its own
-          date. The line meets the branch{" "}
-          {graft.joinAt === "first-appearance" ? (
-            <>
-              at its first appearance, which is the latest its lineage can have
-              parted from the rest.
-            </>
-          ) : graft.joinAt === "anchor" ? (
-            <>
-              at that point because it first appears later — its lineage parted
-              somewhere below there, off the branches drawn here.
-            </>
-          ) : (
-            <>
-              as far back as the branch is drawn, because it is older than all
-              of it.
-            </>
-          )}
-        </p>
-      )}
-
-      {sil && (
-        <p className="credit">
-          Silhouette{sil.attribution ? ` by ${sil.attribution}` : ""}
-          {sil.contributor && sil.contributor !== sil.attribution
-            ? `, uploaded by ${sil.contributor}`
-            : ""}{" "}
-          ·{" "}
-          <a href={sil.license_url} target="_blank" rel="noreferrer noopener">
-            licence
-          </a>{" "}
-          · PhyloPic
-        </p>
-      )}
-    </aside>
-  );
-}
-
-function Detail({
-  detail,
-  hue,
-  divergence,
-  nested,
-  isLeaf,
-}: {
-  detail: NodeDetail;
-  hue: number;
-  /** Set only where the taxonomy has no name and one was derived. */
-  divergence: Divergence | null;
-  /** Chosen species classified inside this one. Almost always empty. */
-  nested: string[];
-  /** A species the reader chose, rather than a divergence they arrived at. */
-  isLeaf: boolean;
-}) {
-  const age = ageLabel(detail.age_ma, detail.tier);
-  // Geometry is not wanted here — the card states the span in words — but
-  // `bracketGeom` is what decides `absent` from `range`, and having one place
-  // make that call keeps the card and the drill-down lane from disagreeing
-  // about what a partial row means.
-  const occurrence =
-    detail.tier === TIER_OCCURRENCE && detail.occurrence
-      ? bracketGeom(detail.occurrence, () => 0)
-      : null;
-  // The card must show what the canvas shows, and by the same rule, or the two
-  // disagree about what a node looks like. A divergence draws its witness or
-  // nothing; only a clade the reader chose draws its group's exemplar. The
-  // ordinary silhouette is therefore not shown *or credited* on a fork, since
-  // it is not on screen and crediting an image nobody can see is noise.
-  const place = { node: detail, isLeaf };
-  const witness = witnessOn(place);
-  const witnessCredit = witness ? (detail.divergence_silhouette ?? null) : null;
-  const sil = mayDrawExemplar(place) ? detail.silhouette : null;
-  // A picture that is not of this node is a picture of something inside the
-  // clade, and the card is where that gets said in full rather than in a
-  // tooltip. `clade_name` is null for the unnamed `mrcaott…` nodes, and there
-  // is nothing useful to name in that case.
-  const borrowed = sil && sil.source_idx !== detail.idx ? sil : null;
-  // What the watermark says. Normally the clade, because how far the
-  // resemblance is being claimed to reach is the thing a reader needs. But an
-  // unillustrated group's clade is itself — nobody drew Elminae, somebody drew
-  // a riffle beetle inside it — and stamping ELMINAE across the picture on the
-  // Elminae card repeats the heading instead of adding to it. There the
-  // drawing's own subject is the new fact, and the credit line below carries
-  // the group in full either way.
-  const watermark = borrowed
-    ? borrowed.clade_name && borrowed.clade_name !== detail.name
-      ? borrowed.clade_name
-      : borrowed.source_name
-    : null;
-  return (
-    <aside className="detail" style={{ color: `hsl(${hue} 60% 62%)` }}>
-      {witness && (
-        <div className="detail-image">
-          <Silhouette phylopicId={witness.phylopicId} size={110} />
-          {witness.name && (
-            // The witness's own name, for the same reason the borrowed case
-            // stamps its clade: the fact the picture adds is what it is *of*.
-            <span
-              className="detail-watermark"
-              title={`What this drawing is of. Not ${detail.name ?? "this node"} itself — a fossil taxon from somewhere below it, dated to about this split.`}
-            >
-              {witness.name}
-            </span>
-          )}
-        </div>
-      )}
-      {sil && (
-        <div className="detail-image">
-          <Silhouette phylopicId={sil.phylopic_id} size={110} />
-          {watermark && (
-            // Watermarked onto the image rather than captioned beside it: the
-            // claim is about *this picture*, and on the canvas the same fact
-            // was wide enough to run across a neighbouring lineage.
-            <span
-              className="detail-watermark"
-              title={`What this drawing is of. Not ${detail.name ?? "this node"} itself.`}
-            >
-              {watermark}
-            </span>
-          )}
-        </div>
-      )}
-      <h2
-        className={
-          !divergence && isScientificItalic(detail.rank) ? "sci-italic" : undefined
-        }
-        style={{ color: "var(--ink)" }}
-      >
-        {divergence ? (
-          <DerivedName divergence={divergence} />
-        ) : (
-          (detail.name ?? UNNAMED)
-        )}
-      </h2>
-      {divergence ? (
-        <div className="rank">divergence</div>
-      ) : (
-        detail.rank && <div className="rank">{detail.rank}</div>
-      )}
-
-      <dl>
-        <dt>age</dt>
-        <dd className="num">{age ?? "not estimated"}</dd>
-        {occurrence && (
-          // Its own row, below the age and never in place of it. The two are
-          // different kinds of claim — one is when lineages parted, the other
-          // is what is in the rock — and putting a range in the `age` slot
-          // would say they are the same kind, which is what this tier exists
-          // not to say.
-          <>
-            <dt>fossils</dt>
-            <dd className="num" title={bracketTitle(detail.name ?? "This taxon", occurrence)}>
-              {occurrence.kind === "range"
-                ? endedSpanLabel(occurrence.oldest, occurrence.youngest)
-                : "no range recorded"}
-            </dd>
-          </>
-        )}
-        {witness && witness.oldest !== null && witness.youngest !== null && (
-          // Its own row, and never in the `age` slot. The witness's range is a
-          // fact about a *different taxon* from the one this card is about —
-          // putting it where this node's age goes would read as this node's
-          // age, which is two wrong claims at once.
-          <>
-            <dt>witness</dt>
-            <dd className="num">
-              {endedSpanLabel(witness.oldest, witness.youngest)}
-            </dd>
-          </>
-        )}
-        <dt>species below</dt>
-        <dd className="num">{detail.tip_count.toLocaleString()}</dd>
-        <dt>depth</dt>
-        <dd className="num">{detail.depth}</dd>
-        {detail.ott_id !== null && (
-          <>
-            <dt>OTT</dt>
-            <dd className="num">{detail.ott_id}</dd>
-          </>
-        )}
-      </dl>
-
-      {divergence && (
-        <p className="note">
-          The Open Tree taxonomy has no name for this node, so it is described
-          by what it separates: it is the last common ancestor of{" "}
-          {branchProse(divergence.branches)}. That is a statement about the
-          tree, not a name anyone has given it.
-        </p>
-      )}
-      {nested.length > 0 && (
-        <p className="note">
-          {branchProse(nested)}{" "}
-          {nested.length === 1 ? "is classified" : "are classified"} inside this
-          taxon rather than beside it, so the branch to{" "}
-          {nested.length === 1 ? "it" : "them"} leaves from here. This node is
-          both a species you chose and the divergence you are looking for.
-        </p>
-      )}
-      {detail.tier === TIER_STRUCTURAL && (
-        <p className="note">
-          No age is shown because none has been estimated for this node. Its
-          position on the axis is ordinal — it sits between its nearest dated
-          ancestor and descendant, and in this region the horizontal axis means
-          nesting depth rather than time.
-        </p>
-      )}
-      {detail.tier === TIER_OCCURRENCE && (
-        <p className="note">
-          No age is shown because none has been estimated for this node: every
-          age here comes from a tree of <em>living</em> species, and this taxon
-          has no counterpart in one. What is known instead is where it turns up
-          in the rock, which is an observation rather than an estimate — a
-          range, and deliberately never a single date.
-        </p>
-      )}
-      {detail.tier === 1 && age && (
-        <p className="note">
-          This clade is a subset of the one the chronogram dates, so{" "}
-          <span className="num">{age}</span> is an upper bound on its true age,
-          not an estimate of it.
-        </p>
-      )}
-
-      {witness && (
-        <p className="note">
-          The picture is{" "}
-          <em className={isScientificItalic(witness.rank) ? "sci-italic" : undefined}>
-            {witness.name ?? "a taxon from below this fork"}
-          </em>
-          , not this whole group — a fossil taxon from somewhere below this
-          fork, and the nearest in time that anyone has drawn. The most
-          familiar thing below a split is nearly always a living group that did
-          not exist when the split happened, so this shows something that did
-          instead. Its dates are observations of where it turns up in the rock,
-          never an estimate of when these lineages parted.
-          {witness.attachWalk !== null && witness.attachWalk > 0 && (
-            // Where the fossil hangs is a separate uncertainty from when it
-            // lived, and the card is where both get stated rather than one
-            // standing in for the other. It is not in the tree at all — it was
-            // placed by walking its own classification upward until something
-            // was — so "below this fork" is the strongest true statement.
-            <>
-              {" "}
-              It is not itself in the tree:{" "}
-              {witness.attachWalk <= 2
-                ? "it is known to sit just below this point"
-                : "all that is known is that it belongs somewhere below this point"}
-              , not where on the branch.
-            </>
-          )}
-          {age === null ? (
-            <>
-              {" "}
-              This fork has no estimated age, so the match was made against
-              where it is <em>drawn</em> on the axis rather than against a date.
-              Read the pairing loosely: the picture is the closest available,
-              not a claim that the two coincide.
-            </>
-          ) : witness.spans ? (
-            <> Its range does contain this split.</>
-          ) : (
-            // The gap is spelled out rather than left for the reader to
-            // subtract, because at these scales rounding hides it: the
-            // horse–rhino fork is dated 56.26 Ma and Eohippus tops out at 56.0,
-            // so both figures above read "56" and the sentence looks like a
-            // contradiction. Saying "by 0.3 Ma" is the only thing that resolves
-            // it, and it is worth saying at every size.
-            <>
-              {" "}
-              Its range does not reach this split
-              {witness.gapMa !== null && witness.gapMa > 0 ? (
-                <>
-                  {" "}
-                  — it stops <span className="num">
-                    {gapLabel(witness.gapMa)}
-                  </span>{" "}
-                  short
-                </>
-              ) : null}
-              . Read the picture as the nearest available, not a contemporary.
-            </>
-          )}
-        </p>
-      )}
-      {detail.vernaculars.length > 0 && (
-        <p className="note">Also known as {detail.vernaculars.slice(0, 6).join(", ")}.</p>
-      )}
-
-      {witnessCredit && (
-        // Credited on its own terms: a different drawing by a different artist
-        // from the one `sil` would have carried, and it is the one on screen.
-        <div className="credit">
-          Silhouette of <em>{witnessCredit.source_name ?? "a taxon from below this fork"}</em>
-          {" — "}
-          {witnessCredit.attribution
-            ? `by ${witnessCredit.attribution}`
-            : "creator not recorded"}
-          {witnessCredit.contributor &&
-          witnessCredit.contributor !== witnessCredit.attribution
-            ? `, uploaded by ${witnessCredit.contributor}`
-            : ""}
-          .
-        </div>
-      )}
-      {sil && (
-        <div className="credit">
-          Silhouette{" "}
-          {borrowed ? (
-            <>
-              of <em>{borrowed.source_name ?? "a relative"}</em>
-              {borrowed.clade_name ? (
-                <>
-                  , the closest relative anyone has drawn — both are within{" "}
-                  <em>{borrowed.clade_name}</em>
-                  {borrowed.clade_tip_count
-                    ? `, ${borrowed.clade_tip_count.toLocaleString()} species`
-                    : ""}
-                </>
-              ) : (
-                ", the closest relative anyone has drawn"
-              )}
-              {" — "}
-            </>
-          ) : null}
-          {sil.attribution ? `by ${sil.attribution}` : "creator not recorded"}
-          {sil.contributor && sil.contributor !== sil.attribution
-            ? `, uploaded by ${sil.contributor}`
-            : ""}
-          .{" "}
-          <a href={sil.license_url} target="_blank" rel="noreferrer noopener">
-            licence
-          </a>
-        </div>
-      )}
-    </aside>
-  );
-}
-
 /** The credits view is a command, not a settings panel. */
 function showCredits(about: About | null, toast: (b: React.ReactNode) => void) {
   toast(
@@ -1643,7 +1308,8 @@ function showCredits(about: About | null, toast: (b: React.ReactNode) => void) {
       v16.1 and OTT 3.7.3. Ages from Duke et al. 2026 (CC-BY, Zenodo
       10.5281/zenodo.19049120). Silhouettes from PhyloPic, credited per image in
       the node card. Geologic timescale from ICS. Fossil occurrences from the
-      Paleobiology Database.
+      Paleobiology Database. Descriptions from Wikipedia (CC BY-SA), fetched as
+      you open a card and credited on it.
       {about?.build_id ? (
         <>
           {" "}

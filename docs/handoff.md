@@ -499,6 +499,156 @@ missing — reusing `drawFossil`'s existing path — because a random fossil alm
 always attaches to a branch nobody has drawn, and without it the command's usual
 outcome would be a refusal notice for something nobody chose by name.
 
+### The detail card: what a thing is, before why it is drawn that way
+
+The card used to be a name, four numbers, and up to six paragraphs about the
+tree — why no age is shown, what tier the age is, what the picture is actually
+of, how loosely the witness is placed. Every one of those paragraphs still
+exists and **none has been shortened**, because each stops a specific wrong
+reading and deleting one lets that reading back in.
+
+What was wrong was the order. A reader clicks a badger to find out what a badger
+is; the first thing the card said was that the horizontal axis is ordinal in this
+region. So the provenance is now one collapsed disclosure below the facts, and
+above it sits the common name, a description, and the classification.
+`web/src/detail/` is the whole surface — `App.tsx` lost 400 lines and holds no
+card markup at all.
+
+**One sentence stayed on the face of the card:** a divergence's derived name.
+For an `mrcaott…` node, "the last common ancestor of X and Y" is not provenance,
+it is the only identity the node has.
+
+Four things worth knowing before changing it:
+
+- **The classification is the ancestor path.** There is no taxonomy table and
+  none is needed; `/v1/path` already carries a rank on every entry and is
+  already cached from the selection that opened the card. `lineageOf` splits it
+  into a **ladder** (the major Linnaean rungs, which is the question people ask)
+  and a **full lineage** (every named ancestor, folded away, which is the more
+  interesting list — *Bilateria*, *Primates*, *Opisthokonta* are all `no rank`).
+- **The gaps in the ladder are real and are not filled.** *Homo sapiens* has no
+  ranked **order** and no ranked **family** on its path: *Primates* is filed
+  `no rank` and **Hominidae is not a node at all**, having not survived
+  synthesis. Five rungs and silence looks broken to anyone who knows humans are
+  hominids, so the missing rungs are *named* in a note. Reaching for a second
+  taxonomy to fill them would put a claim on the card that the tree behind it
+  does not make.
+- **`no rank` is never printed as a rank.** It is what OTT files an unranked
+  clade under, and rendered under a heading it reads as a statement about the
+  clade — *Boreoeutheria* wore "NO RANK".
+- **A fossil's classification is its attachment point's**, captioned as such —
+  except at `attach_walk = 0`, where PBDB's taxon is itself in the synthesis
+  tree and the attachment point *is* this taxon. Without that branch
+  *Tyrannosaurus rex* is described as the node *Tyrannosaurus rex* hangs
+  beneath, with itself as the last rung of its own lineage.
+
+### The card is the second navigation surface
+
+Every name on a card that names a taxon opens that taxon's card, and the card
+carries its own add/remove control. The two arrived together and had to: each is
+what makes the other honest.
+
+**A link that could only reach drawn nodes would be a dead end.** The card used
+to be fetched through `focusedIdx`, so it opened only on something already in
+`tree.nodes` — drawn, or on the path of something drawn. *Carnivora* is three
+rungs above *Felidae* and is neither, so under the old rule clicking it changed
+the URL and nothing else. `focusedIdx` now means only "which mark to light" and
+is null for a taxon with none; `selectedNodeKey` means "which card to show" and
+asks the API directly.
+
+**A control that could only remove would be half an answer.** Selection no
+longer implies drawing, so the reader needs a way to say "and put this one on
+the canvas" about a thing with no mark to click. That is the whole reason the
+old objection to clickable rungs — *it opens a card for something the canvas
+does not show* — no longer stands.
+
+Five things worth knowing:
+
+- **A witness links to the fossil, never to its attachment point.** The
+  attachment point is a node, and nodes are what the canvas draws, so it is the
+  tempting target — but it is a clade the fossil sits somewhere below, often
+  tens of thousands of species wide. `Witness.pbdbTaxonNo` exists to make the
+  right one the easy one, and `witness.test.ts` asserts both fields by value
+  because swapping them fails *silently*: an index resolves cleanly to a real
+  and unrelated clade.
+- **`idx:N` is a real key**, and it is what a link into a node we hold no key
+  for produces — the silhouette's subject, a clade, a witness's attachment
+  point, all of which arrive as bare references into the arrays.
+  `selectionKeyFor` prefers a node's own key when we have one, purely so a
+  shared URL says `ott244265` rather than a position in this build's arrays.
+  `idxFromKey` parses it back so a link into something *already* drawn still
+  lights its mark. Its first draft used `Number(key.slice(4))`, and
+  **`Number("")` is 0** — the malformed key `idx:` selected the root of the
+  tree. A test caught it; the match is now exact.
+- **An undrawn clade is a clade the reader *chose*.** `isLeaf` feeds
+  `witness.ts`'s rule that a divergence draws its witness and a chosen clade
+  keeps its exemplar. A node not in `induced.rendered` is not a divergence
+  between anything — nobody arrived at it, they named it — so without that
+  clause every link into an undrawn clade answered "what does a carnivoran look
+  like" with a fossil from a fork it is not sitting at.
+- **The button has three states, because "on the canvas" and "chosen" are
+  different things.** A drawn divergence is there only as long as the
+  selections that induced it: *Boreoeutheria* while a human and a cat both are.
+  Labelling that "Add to the canvas" promises a visible change and the press
+  then appears to do nothing, so it reads **Pin**, with one line saying why.
+- **A fossil card draws through `drawFossil`, not `addFossil`.** It is now
+  routinely open on something whose host branch is nowhere near the canvas — a
+  witness reached by a link, a search hit — and the bare add would put it in the
+  URL and draw nothing. The two refusals no selection can fix (no bracket, no
+  identifier) replace the button with a sentence rather than disabling it.
+
+### The description is fetched at read time, and that is not a crack in §9
+
+`docs/architecture.md` §9 is emphatic that the Open Tree API is a build-time
+oracle and never a runtime dependency, and nothing here weakens it. The
+encyclopaedia block is a different kind of thing:
+
+- **It is not part of the dataset.** A build id has to mean the same tree every
+  time. A description of a badger is prose about a badger — no gate touches it,
+  and freezing a 2026 revision into the artifact would make the app *staler*.
+- **It covers the corpus a crawl cannot.** 108,293 nodes carry a Wikidata QID;
+  the 523,112 PBDB fossil taxa carry none, so a QID-keyed crawl leaves every
+  fossil card exactly as bare as it was.
+- **It costs nothing when it fails.** The card is complete before it resolves
+  and complete without it. Offline, the block does not appear.
+
+The cost, stated plainly: opening a card sends a taxon name to the Wikimedia
+Foundation. That is the whole privacy surface, and it happens only on a click.
+
+**The guard is the whole of the difficulty.** A name-shaped link is how a Greek
+war god ends up on a fossil card — PBDB has genera called *Ares*, *Iris* and
+*Nike*, and the same trap already cost this project a phase-3 fix
+(`refuse_disagreements`) and a phase-6 one (the `P225` check in
+`vernaculars.py`). So:
+
+- **With a QID, nothing is re-checked**, because phase 6 already refused any
+  item whose own `wdt:P225` names a different taxon from OTT's. Re-testing would
+  fetch the same triple and learn nothing — and where the triple is absent it
+  would learn nothing there either, which is the documented residual both ends
+  live with. The QID reaches the client on `/v1/node`, read off
+  `vernacular.source_id`; it rides in the vernacular table because that is where
+  the crawl put it, so a node with no common name has no QID either.
+- **Without one, the item must prove itself.** Found by its English article
+  title, then refused unless its `P225` names the taxon asked about. An item
+  with *no* `P225` is refused here — the opposite of what phase 6 does with the
+  same absence, and right for the opposite reason: there a QID had already been
+  tied to a node by an explicit identifier, and here the only thing linking them
+  is the string. *Ares* is verified refused against the live API.
+
+Two smaller calls that are load-bearing:
+
+- **A binomial that resolves to nothing is retried as its genus**, because
+  Wikipedia files most extinct species under the genus and a sitelink lookup
+  does not follow redirects. The result carries `broaderThanAsked` and the card
+  **must** print it — an article about *Tyrannosaurus* under a heading reading
+  *Tyrannosaurus rex*, unlabelled, is the borrowed-silhouette mistake in prose.
+- **The REST summary's thumbnail is deliberately not read.** A photograph would
+  be the one warm, high-detail object on an instrument whose whole visual
+  argument is a dark field and flat silhouettes, and it arrives with a Commons
+  attribution obligation the PhyloPic credit block cannot carry.
+  `docs/phase5c-decision.md` is the standing record of what Wikimedia imagery
+  costs here.
+
 ---
 
 ## 4. Corrections to the design docs

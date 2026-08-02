@@ -263,6 +263,62 @@ below is that one rule applied to the three things that overlap on the canvas.
 - Three tiers: glowing point → point + label → full detail card.
 - `F` fit all · `⇧F` fit selection · `/` isolate path to root.
 
+## The detail card
+
+The third zoom tier, and the only surface in the product that is *read* rather
+than scanned. Its order is the design:
+
+1. **The silhouette**, watermarked with what it is actually of when that is not
+   this taxon.
+2. **The scientific name**, then the common name under it, then the rank. Under,
+   not instead of — the canvas label, the palette row and the URL all identify a
+   taxon by its scientific name, and a card that answered to "cat" where the
+   canvas says *Felidae* would make a reader check they had clicked the right
+   thing. An unranked clade shows no rank rather than the words "no rank".
+3. **One control: put it on the canvas, or take it off.** Directly under the
+   name, above anything a reader might scroll past. One button in two states,
+   not a pair with one greyed out.
+4. **A description**, from Wikipedia, clamped to seven lines with the rest one
+   click away, credited and linked. It is fetched when the card opens and the
+   card is complete without it.
+5. **The classification** — the major Linnaean rungs present, the ones absent
+   named rather than skipped, and the complete named ancestry folded into a
+   disclosure as one wrapped chain rather than a column of rows. Twenty rows of
+   one word each is a list of twenty things; a chain is one thing, which is what
+   a lineage is.
+6. **The figures** — age, ranges, counts, identifiers. Mono, right-aligned.
+7. **The other names** it goes by.
+8. **"Why it is drawn this way"**, collapsed: every caveat about tier,
+   placement, and what the picture depicts.
+
+**Provenance is secondary and identity is not.** The rule that decides which
+side of the disclosure a sentence falls on is whether it tells the reader what
+the thing *is*. A divergence's derived name — "the last common ancestor of X and
+Y" — is the only name an `mrcaott…` node has, so it stays on the face of the
+card while everything around it folds away.
+
+**Every name on the card that names a taxon opens that taxon's card**, and the
+card is therefore the second navigation surface — the first being the canvas.
+Classification rungs, the full lineage, the silhouette's subject and the clade
+it speaks for, a witness, a fossil's attachment point. Three rules hold it
+together:
+
+- **A link goes to what the name names.** A witness opens a *fossil* card, not
+  the node it hangs below — that node is a clade thousands of times its size and
+  is not what the reader clicked.
+- **Selection does not require the thing to be drawn.** Most of these ancestors
+  are suppressed from the induced subtree; the card opens on them anyway, and
+  the control at the top is how they get onto the canvas. A lineage you can
+  click through is a lineage you can walk up and pull from.
+- **A link with nothing to point at is plain text**, never a dead control. Half
+  the targets are optional fields — a clade is null for the unnamed `mrcaott…`
+  nodes, a witness on an older build carries no PBDB number.
+
+A link is a dotted underline in the surrounding ink, not an accent colour: on
+this card most of the nouns are clickable, and colouring them all would make the
+classification read as a menu with a taxon hidden in it. The two real anchors —
+Wikipedia and the licence — leave the app, and look different because they do.
+
 ## Motion
 
 - Motion preserves object identity across state changes and rewards the add
