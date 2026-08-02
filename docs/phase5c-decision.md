@@ -1,8 +1,36 @@
 # Phase 5c — generated outlines from Wikimedia photographs
 
-**Status: planned, not built.** Every figure here was measured on 2026-08-01
-against the live services and build `b48553b2b8a4a2ed`. Do not re-research them;
-several cost hours to establish and two of them contradict the obvious approach.
+**Status: an optional future enhancement. Not built, and not scheduled.** The
+app ships and is functional on the PhyloPic corpus alone: every node carries a
+drawing, and the median picture speaks for a clade of 3,153 tips after
+`images.py` was rewritten to resolve to the closest drawn *relative*. This phase
+would improve that number by an order of magnitude; it does not fix anything
+broken.
+
+**Nothing here is invalidated by the deferral, and none of it should be
+re-derived.** Every figure was measured on 2026-08-01 against the live services
+and build `b48553b2b8a4a2ed`. Several cost hours to establish and two of them
+contradict the obvious approach. The document is written to be picked up cold.
+
+What deferring it costs, and what picking it up would cost:
+
+- **The cost of not doing it** is §3's table — 27.8% of nodes show a picture
+  claiming more than 10,000 tips, against a simulated 10.5%. That is honest and
+  captioned on screen, not a defect.
+- **The cost of doing it** is §8 — two to three days of continuous polite
+  fetching, which is the whole expense, plus the identity migration in
+  `image-store.md` §9 that has to happen at the same time.
+- **It is macOS-only** (§11). Every other phase builds anywhere.
+
+Reasonable triggers for picking it up: user testing says the borrowed drawings
+read as wrong rather than as approximate; a second image source arrives and
+forces the `image-store.md` migration anyway; or Vision's substitute on Linux
+(§11) becomes good enough that the phase stops being a Mac-only build step.
+
+---
+
+**If it is built, the design below is settled.** The rest of this document is
+the decision as taken, not a menu.
 
 The figures drawn from phase 5a — §2's corpus table and §3's propagation
 simulation — were taken from `build/` while `main` was moving underneath this

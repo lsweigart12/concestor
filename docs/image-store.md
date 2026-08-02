@@ -6,8 +6,12 @@ generated outlines, and anything added later. It is deliberately not inside
 `phase5c-decision.md`, because whoever next touches the PhyloPic path needs to
 find it.
 
-**Status: designed, not built.** Phase 5a currently implements the "before"
-column throughout.
+**Status: designed, not built, and not scheduled.** Phase 5a currently
+implements the "before" column throughout, and that is fine: with PhyloPic as
+the only source, one node has one drawing and nothing in §1's list of futures is
+being asked for. This design exists so that the *first* of them costs a
+migration rather than a rewrite — see §9 for what triggers it and what may
+safely wait.
 
 ---
 
@@ -224,7 +228,11 @@ run diff itself against this one.
 
 ## 9. Migration order
 
-Do in phase 5c, because doing it after is a rewrite:
+**Nothing here is needed while PhyloPic is the only source**, which is why none
+of it is built. The trigger is a *second* source of drawings — `phase5c-decision.md`'s
+generated outlines if that phase is ever picked up, or anything else that has no
+`phylopic_id`. Do these five with that source, in the same change, because doing
+them afterwards is a rewrite rather than a migration:
 
 1. `image` and `image_node`, with `silhouette` backfilled as `source='phylopic'`.
 2. `node_image` rewritten as a materialization of `image_node` — same columns,
@@ -240,5 +248,6 @@ Safe to defer indefinitely, because none of it changes a stored shape:
 - any third source
 - ranker training
 
-The only real cost above what phase 5c must build anyway is splitting `image`
-from `silhouette` instead of widening `silhouette`, and nesting the JSON.
+The only real cost above what a second source must build anyway is splitting
+`image` from `silhouette` instead of widening `silhouette`, and nesting the
+JSON.

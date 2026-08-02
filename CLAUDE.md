@@ -18,11 +18,11 @@ wrong and these docs record the corrections.
 | [docs/management.md](docs/management.md) | The standing brief for whoever owns the project |
 | [docs/data-sources.md](docs/data-sources.md) | Verified facts and corrections. Read this before the architecture doc |
 | [docs/architecture.md](docs/architecture.md) | Data model, storage, backend, rendering |
-| [docs/image-store.md](docs/image-store.md) | How drawings are identified, stored, ranked and served. Governs every image source |
+| [docs/image-store.md](docs/image-store.md) | How drawings are identified, stored, ranked and served. Governs every image source. Designed, not built — the migration is only needed when a *second* source arrives |
 | [docs/ingest.md](docs/ingest.md) | The six build phases and their validation gates |
 | [docs/phase2-decision.md](docs/phase2-decision.md) | The dating decision — accepted, with the evidence |
 | [docs/phase3-pbdb-path.md](docs/phase3-pbdb-path.md) | How fossils resolve to the tree, measured |
-| [docs/phase5c-decision.md](docs/phase5c-decision.md) | Generated outlines from Wikimedia photos — planned. Four rejected approaches, with numbers |
+| [docs/phase5c-decision.md](docs/phase5c-decision.md) | Generated outlines from Wikimedia photos — **optional future enhancement, not scheduled**. Kept complete and measured. Four rejected approaches, with numbers |
 | [docs/witness-ceiling.md](docs/witness-ceiling.md) | Raising the divergence witness off nodes and onto fossil attachment points. **Shipped**; §9 is what it actually cost |
 | [docs/worktrees.md](docs/worktrees.md) | Why the preview works in a parallel session's worktree |
 
@@ -262,6 +262,13 @@ node and the drawing — is the size of the claim the picture makes. That is the
 number the gates measure and the UI must render; coverage is 100% and always
 was, and it means nothing. Read `docs/handoff.md` §5 before changing the
 resolution.
+
+**The PhyloPic corpus is the ceiling, and shipping on it is accepted.** The
+whole corpus declares 9,461 distinct OTT ids, so better seeding is worth
+thousands of nodes at most. Expanding the image set with generated outlines is
+an **optional future enhancement and not current work** —
+`docs/phase5c-decision.md` holds the design and its measurements, and
+`docs/handoff.md` §3 records why it is deferred and what would reopen it.
 
 **A divergence carries a second silhouette, and the two tables must stay
 apart.** `node_image` answers "what does something in this clade look like" and

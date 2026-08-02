@@ -1,6 +1,6 @@
 # Handoff — current state
 
-Last updated 2026-08-01. This is the living state document: it should read as
+Last updated 2026-08-02. This is the living state document: it should read as
 *where things stand*, not as a log of how they got here. Keep it current as part
 of the work — if it drifts, whoever comes next re-derives things already settled.
 
@@ -383,6 +383,37 @@ because everything in that list is something Enter will act on. The union in
 `api.ts` makes `idx: null` unrepresentable on a hit that can be added, which is
 what stops the two identity bugs coming back. A broken key arriving from an
 older shared link is reported once and dropped from the selection.
+
+### Silhouettes: the PhyloPic corpus is what ships
+
+**The current image set is enough, and expanding it is deferred.** Every node
+carries a drawing, and since resolution was rewritten to find a node's closest
+drawn *relative* the median picture speaks for 3,153 tips rather than 1,208,417
+(§5). Nothing about the images is broken.
+
+**Generated outlines traced from Wikimedia photographs —
+[phase5c-decision.md](phase5c-decision.md) — are an optional future
+enhancement and are not scheduled.** The phase is fully specified and every
+figure in it is measured; it is deferred on cost and priority, not on doubt:
+
+- it would take the median clade a picture speaks for from 3,153 tips to 270,
+  and the share of nodes claiming over 10,000 tips from 27.8% to 10.5% — a large
+  improvement to a number that is currently *honest and captioned*, not wrong
+- the crawl is 50–73 hours of throttled fetching at ~0.8 img/s, which is the
+  entire cost of the phase
+- it is **macOS-only**, since it depends on Apple's Vision framework. Every
+  other phase builds anywhere
+- it drags [image-store.md](image-store.md) §9's identity migration in with it,
+  because a second image source has no `phylopic_id`
+
+That migration is likewise unscheduled and unnecessary while PhyloPic is the
+only source. Both documents are kept complete and are written to be picked up
+cold; **do not re-derive their figures, and do not delete either one.** The
+triggers worth watching for are named in `phase5c-decision.md`'s status
+section — chiefly user testing finding that borrowed drawings read as *wrong*
+rather than as approximate.
+
+§2 gains a row if this is ever built. It deliberately has none.
 
 ---
 
@@ -895,7 +926,8 @@ it cannot deliver.
   seeded nodes against 2,725,682. Every remaining idea (deeper lifts, fuzzy
   names, synonym tables) is worth tens of nodes, not thousands. More
   silhouettes on screen is now a threshold and rendering question, or a
-  second-corpus project — not a resolution one.
+  second-corpus project — not a resolution one. The second corpus is specified
+  and deferred; see §3 and [phase5c-decision.md](phase5c-decision.md).
 - **Mirrored PhyloPic SVGs hardcode `fill="#000000"`.** Architecture §7's
   `fill: currentColor` is true of the shape and false of the file: through
   `<img src>` or `background-image` an SVG is an opaque image and nothing in the
@@ -1386,6 +1418,12 @@ would serve a reader better than a caption admitting it. **No non-specialist
 has looked at any of this**; the threshold at 10,000 tips is a stated product
 judgement, not a validated one, and it is the first thing user testing should
 attack.
+
+The ceiling is **accepted rather than open** — the app is functional on this
+corpus, so the fix for it (generated outlines from Wikimedia photographs) is an
+optional future enhancement and not current work. §3 records the decision and
+what would reopen it; [phase5c-decision.md](phase5c-decision.md) holds the
+design and the measurements intact.
 
 **Bloom cost is unverified under load.** design-reference.md asks for this
 early. The current implementation is two stacked strokes plus a CSS blur rather
