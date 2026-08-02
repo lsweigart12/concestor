@@ -11,7 +11,7 @@ const OPTS = { rowH: 74, maxTextWidth: 240 };
 
 function node(over: Partial<LabelInput> & { idx: number; x: number; y: number }): LabelInput {
   return {
-    isLeaf: false,
+    terminal: false,
     name: "Clade",
     trailing: "",
     trailingGlyph: false,
@@ -73,7 +73,7 @@ describe("label placement", () => {
       idx: 2,
       x: 600,
       y: 0,
-      isLeaf: true,
+      terminal: true,
       name: "Canis lupus familiaris",
       meta: "SUBSPECIES",
       priority: 1e9,
@@ -114,7 +114,7 @@ describe("label placement", () => {
         idx: 4,
         x: 150,
         y: 24,
-        isLeaf: true,
+        terminal: true,
         name: "Canis lupus familiaris",
         meta: "SUBSPECIES · silhouette: Mammalia",
         hasSilhouette: true,
@@ -142,7 +142,7 @@ describe("label placement", () => {
       idx: 1,
       x: 0,
       y: 0,
-      isLeaf: true,
+      terminal: true,
       name: "Homo sapiens",
       priority: 1e9,
     });
@@ -156,7 +156,7 @@ describe("label placement", () => {
 
   it("routes a label around another node's point, not over it", () => {
     // A luminous dot with text printed across it is unreadable both ways.
-    const subject = node({ idx: 1, x: 0, y: 0, isLeaf: true, priority: 1e9 });
+    const subject = node({ idx: 1, x: 0, y: 0, terminal: true, priority: 1e9 });
     const neighbour = node({ idx: 2, x: 22, y: 0, priority: 10 });
     const b = placeLabels([subject, neighbour], [], OPTS).get(1)!;
     expect(Math.abs(b.dy)).toBeGreaterThan(0);
@@ -191,7 +191,7 @@ describe("label placement", () => {
   it("reports bounds that contain every label", () => {
     const inputs = [
       node({ idx: 1, x: 0, y: 0, name: "Eukaryota", trailing: "1781 Ma" }),
-      node({ idx: 2, x: 400, y: 74, isLeaf: true, name: "Homo sapiens", priority: 1e9 }),
+      node({ idx: 2, x: 400, y: 74, terminal: true, name: "Homo sapiens", priority: 1e9 }),
     ];
     const boxes = placeLabels(inputs, [], OPTS);
     const bounds = labelBounds(inputs, boxes)!;

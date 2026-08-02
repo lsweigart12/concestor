@@ -312,6 +312,10 @@ export function buildGrafts(
   // Deterministic, and not by insertion order: the same URL must draw the same
   // picture whichever order the fossils happened to resolve in. Oldest first
   // within an anchor, so a stack of grafts on one branch reads down the axis.
+  //
+  // This is the *base* order, not the drawn one. Row order within a slot is a
+  // layout question — it is what decides whether two connectors cross — and
+  // `graftOrder` in `layout.ts` settles it, stably, on top of this.
   grafts.sort(
     (a, b) => a.anchor - b.anchor || b.node.age_layout - a.node.age_layout || a.idx - b.idx,
   );

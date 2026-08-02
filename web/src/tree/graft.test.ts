@@ -322,3 +322,151 @@ describe("the layout places a graft without disturbing the tree", () => {
     expect(IND.segments.has(graftIdx(108454))).toBe(false);
   });
 });
+
+/**
+ * Several fossils on one branch, which is the ordinary case and not the exotic
+ * one: PBDB resolves most hominins to the same node, so asking for three at
+ * once puts three connectors on the same point.
+ *
+ *   1 root (100)
+ *   └ 2 Homininae (6.7)
+ *     ├ 3 the H. sapiens / H. erectus divergence (2.2)
+ *     │ ├ 4 Homo sapiens
+ *     │ └ 6 Homo erectus
+ *     └ 5 Pan
+ *
+ * The numbers are the real ones. *H. floresiensis* and *H. neanderthalensis*
+ * first appear at 0.129 and 0.774 Ma — *younger* than the divergence they hang
+ * from — so both connectors clamp to node 3 and leave the lineage at the same
+ * x. *H. georgicus* first appears at 2.58, older than the fork, so its
+ * connector leaves further up the branch and has further to travel right.
+ */
+const STACK_PATHS: Record<number, number[]> = {
+  4: [1, 2, 3, 4],
+  6: [1, 2, 3, 6],
+  5: [1, 2, 5],
+};
+
+const STACK_NODES = new Map<number, PathNode>([
+  [1, node(1, "root", 100, 5)],
+  [2, node(2, "Homininae", 6.7, 4)],
+  [3, node(3, "Homo sapiens / H. erectus", 2.2, 3)],
+  [4, node(4, "Homo sapiens", 0)],
+  [5, node(5, "Pan", 0)],
+  [6, node(6, "Homo erectus", 0)],
+]);
+
+const STACK_IND = induced([4, 5, 6], (i) => STACK_PATHS[i]);
+
+const GEORGICUS = fossil({ attach_idx: 3 });
+const FLORESIENSIS = fossil({
+  name: "Homo floresiensis",
+  pbdb_taxon_no: 91487,
+  attach_idx: 3,
+  fea: 0.129,
+  fla: 0.0117,
+  lea: 0.129,
+  lla: 0.0117,
+});
+const NEANDERTHALENSIS = fossil({
+  name: "Homo neanderthalensis",
+  pbdb_taxon_no: 83087,
+  attach_idx: 3,
+  fea: 0.774,
+  fla: 0.129,
+  lea: 0.129,
+  lla: 0.0117,
+});
+
+/**
+ * Do two graft connectors cross?
+ *
+ * Each is the L that `orthPath` draws: a vertical at `joinX` from the anchor's
+ * row down to the fossil's, then a horizontal along the fossil's row out to the
+ * mark. Written as the segments themselves rather than as a rule about ordering,
+ * so the test measures the picture and not the implementation of the picture.
+ */
+function crosses(
+  a: { joinX: number; joinY: number; x: number; y: number },
+  b: { joinX: number; joinY: number; x: number; y: number },
+): boolean {
+  const spans = (lo: number, hi: number, v: number) =>
+    v > Math.min(lo, hi) && v < Math.max(lo, hi);
+  // b's vertical through a's horizontal, and the mirror.
+  return (
+    (spans(a.joinX, a.x, b.joinX) && spans(b.joinY, b.y, a.y)) ||
+    (spans(b.joinX, b.x, a.joinX) && spans(a.joinY, a.y, b.y))
+  );
+}
+
+describe("connectors on one branch do not cross each other", () => {
+  const { grafts } = buildGrafts(
+    [GEORGICUS, FLORESIENSIS, NEANDERTHALENSIS],
+    STACK_IND,
+    STACK_NODES,
+  );
+  const out = layout(STACK_IND, STACK_NODES, { grafts });
+
+  it("draws the deepest join lowest", () => {
+    // georgicus joins at 2.58 Ma, above the fork; the other two clamp to the
+    // fork itself. Ordered by last appearance instead, georgicus came first
+    // and its run cut through the vertical carrying the other two down.
+    const ys = new Map(out.graftLinks.map((l) => [l.graft.fossil.name, l.y]));
+    expect(ys.get("Homo georgicus")).toBeGreaterThan(ys.get("Homo floresiensis")!);
+    expect(ys.get("Homo georgicus")).toBeGreaterThan(
+      ys.get("Homo neanderthalensis")!,
+    );
+  });
+
+  it("puts them below the whole clade they hang from, not inside it", () => {
+    // The existing rule, still holding: the fossils follow node 3's block
+    // rather than splitting H. sapiens from H. erectus.
+    for (const l of out.graftLinks) {
+      expect(l.y).toBeGreaterThan(out.placed.get(4)!.y);
+      expect(l.y).toBeGreaterThan(out.placed.get(6)!.y);
+    }
+  });
+
+  it("has no pair of connectors intersecting", () => {
+    expect(out.graftLinks).toHaveLength(3);
+    for (const a of out.graftLinks) {
+      for (const b of out.graftLinks) {
+        if (a === b) continue;
+        expect([a.graft.fossil.name, b.graft.fossil.name, crosses(a, b)]).toEqual([
+          a.graft.fossil.name,
+          b.graft.fossil.name,
+          false,
+        ]);
+      }
+    }
+  });
+
+  it("puts each fossil's name beside its own mark", () => {
+    // A graft is terminal: its connector arrives from the left and stops, so
+    // the margin to its right is clear and the label belongs in it. Typed as a
+    // divergence — which it was, because `isLeaf` means *chosen* — it went down
+    // a candidate list that does not offer `dy: 0` until its ninth entry, and
+    // every fossil's name and silhouette sat a half-row above the ammonite it
+    // named. With three of them stacked, the reader has to guess the pairing.
+    for (const l of out.graftLinks) {
+      const box = out.labels.get(l.idx);
+      expect([l.graft.fossil.name, box?.side, box?.dy]).toEqual([
+        l.graft.fossil.name,
+        "right",
+        0,
+      ]);
+    }
+  });
+
+  it("still draws the same picture whatever order the fossils resolved in", () => {
+    const other = buildGrafts(
+      [NEANDERTHALENSIS, GEORGICUS, FLORESIENSIS],
+      STACK_IND,
+      STACK_NODES,
+    ).grafts;
+    const flipped = layout(STACK_IND, STACK_NODES, { grafts: other });
+    expect(flipped.graftLinks.map((l) => [l.idx, l.y])).toEqual(
+      out.graftLinks.map((l) => [l.idx, l.y]),
+    );
+  });
+});

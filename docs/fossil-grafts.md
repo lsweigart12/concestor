@@ -56,7 +56,7 @@ enters `Induced`.
 | | |
 |---|---|
 | **x** | its own `lla` — the latest end of the last appearance |
-| **y** | a row of its own, after the last row of its anchor's subtree |
+| **y** | a row of its own, after the last row of its anchor's subtree; deepest join lowest |
 | **join** | its own **first appearance**, clamped to the branch |
 | **idx** | `-(pbdb_taxon_no)` |
 | **tier** | `occurrence`, so `markAge` prints a range and never a figure |
@@ -97,6 +97,64 @@ reverse of the truth on screen.
 *Dimetrodon* is the `anchor` case — 299–267 Ma hanging off Amniota at 323 — and
 a single "clamped" flag captioned it "its lineage parted somewhere earlier",
 which is backwards. It parted later, inside Amniota.
+
+### Row order among grafts, and why it is not a matter of taste
+
+Several fossils on one branch is the ordinary case, not the exotic one: PBDB
+resolves most hominins to the same node, so asking for three at once puts three
+connectors on the same point. Ordering them by last appearance — the obvious
+choice, and the one that shipped first — drew this:
+
+> *H. sapiens*, *H. erectus* selected; *H. georgicus*, *H. floresiensis* and
+> *H. neanderthalensis* grafted. georgicus took the first fossil row and its
+> horizontal run cut straight through the vertical carrying the other two down.
+
+The crossing is not a near-miss to be nudged apart. It follows from where the
+connectors start. `joinAge` is clamped to be no younger than the anchor, so
+**`joinX` is never right of the anchor**: every connector leaves the lineage at
+or above the branch's top and then has to travel right. georgicus first appears
+at 2.58 Ma, *older* than the fork it hangs from, so its join sits up the branch;
+floresiensis and neanderthalensis first appear at 0.129 and 0.774, *younger* than
+the fork, so both clamp to the fork itself. The one that leaves furthest back has
+furthest to travel, and anything drawn below it is in the way.
+
+So the order is forced. For two grafts on one slot, `i` above `j`, the only
+possible crossing is `j`'s vertical through `i`'s horizontal, which needs
+`joinX(i) < joinX(j) < x(i)`. Sorting so `joinX` only ever *decreases* down the
+rows makes that unsatisfiable, and `i`'s own vertical stops at `i`'s row so it
+can never reach `j`'s run either. **Deepest join lowest**, stated as ascending
+`joinAge` so it holds under both axis modes and at every zoom.
+
+The same argument covers the tree, which is why nothing else had to change:
+`joinX ≤ anchorX`, and every horizontal in the anchor's subtree starts at or
+right of `anchorX`, so a connector cannot cross the clade it hangs from. Grafts
+crossing *each other* was the only case left open, and it is now closed by
+construction rather than by tuning. `graft.test.ts` asserts it as intersecting
+segments rather than as an expected order, so the test measures the picture and
+not the implementation of the picture.
+
+`buildGrafts`' sort survives as the *base* order — it is what makes the picture a
+function of the URL — with the layout's stable sort on top of it.
+
+### `isLeaf` means *chosen*, and label placement wanted the other question
+
+The same hominin view showed every fossil's silhouette, name and range sitting
+half a row above the ammonite it belonged to. With three fossils stacked, the
+pairing had to be guessed.
+
+`placeLabels` picks a candidate list from `LabelInput.isLeaf`, and a graft was
+passed `false` — correctly, because on `Placed` that flag means *one of the
+reader's selections*, which is what decides whether a mark may draw a borrowed
+exemplar and a graft may not. But the candidate list is a question about
+**geometry**: a leaf tries right-at-`dy: 0` first because nothing continues past
+it, while a clade defaults above-left and does not offer `dy: 0` until its ninth
+entry. Anything terminal sent down the clade list is displaced by half a row even
+when the space beside it is completely clear.
+
+A graft is terminal without being chosen: its connector arrives from the left and
+stops at the fossil. So the field is now `terminal`, named for what it actually
+asks, and `layout` sets it from `p.isLeaf || p.graft !== undefined`. The two
+meanings had been the same thing only because grafts did not exist yet.
 
 **The mark is the ammonite, not a shape of its own.** Every circle on the canvas
 is a position in the topology and a graft is not one, so it may not wear the
