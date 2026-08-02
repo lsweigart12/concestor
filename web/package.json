@@ -5,19 +5,21 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && tsc -p tsconfig.worker.json && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc -b --noEmit",
+    "typecheck": "tsc -b --noEmit && tsc -p tsconfig.worker.json",
     "test": "vitest run",
     "cf:check": "wrangler deploy --dry-run --outdir .wrangler/dry-run",
     "cf:dev": "wrangler dev"
   },
   "dependencies": {
+    "@cloudflare/containers": "^0.3.7",
     "@xyflow/react": "^12.3.5",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260801.1",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.4",

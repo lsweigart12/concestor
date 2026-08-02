@@ -1,39 +1,83 @@
 /**
- * The Cloudflare entry point: static assets, plus a reverse proxy for /v1.
+ * The Cloudflare entry point: static assets, plus `/v1` on a Container.
  *
- * Only the frontend can live here. The read API mmaps ~2 GB of `.npy` arrays
- * and opens a 2,004 MB SQLite database `immutable=1` at startup — that is a
- * container on a machine with page cache, not a Worker, and no amount of D1
- * or R2 makes it one without discarding the design in `docs/architecture.md`
- * §4. `docs/ci.md` §3 has the reasoning and what the alternatives would cost.
+ * The whole app runs on Cloudflare. This Worker serves `web/dist` and routes
+ * `/v1/*` to a Container running the Go read API unchanged — the same static
+ * binary, the same mmap'd `.npy` arrays, the same `immutable=1` SQLite
+ * database, on a machine with a page cache. `docs/deployment.md` is the
+ * decision and the measurements; the short version is that the working set is
+ * 463 MB against a 2.2 GB artifact set, which a `standard-1` instance holds
+ * comfortably and a 128 MB Worker isolate cannot hold at all.
  *
- * So this proxies rather than serves. `web/src/api.ts` fetches `/v1/...`
- * same-origin, which is true in every environment the project has today: the
- * Go binary serves both, `scripts/dev.sh` proxies to it, and here the Worker
- * does. Keeping that true is the whole point — the alternative is a base-URL
- * setting in the client plus CORS on the server, which is two more things to
- * configure and two more ways for a deploy to be subtly wrong.
+ * The container has no public hostname — it is reachable only through the
+ * binding below. That is what keeps `web/src/api.ts`'s same-origin `/v1`
+ * fetch true here by construction rather than by configuration, as it already
+ * is under the Go binary and under `scripts/dev.sh`'s vite proxy.
  *
- * Typed against the DOM's Request/Response rather than @cloudflare/workers-types.
- * The handler touches only `url`, method, headers and body pass-through, all
- * of which are the same shape in both, and one tsconfig already covers this
- * file and src/.
+ * Typed against @cloudflare/workers-types via web/tsconfig.worker.json, which
+ * is a separate project from the app's: this file now declares a Durable
+ * Object class and no longer "uses only Request/Response".
  */
+import { Container, getRandom } from "@cloudflare/containers";
 
 interface Env {
+  /** The read API, one Container class over the Go binary. */
+  READ_API: DurableObjectNamespace<ReadApi>;
   /**
-   * Origin of the Go read API — scheme and host, no trailing path. Set at
-   * deploy time from the CONCESTOR_API_ORIGIN repository variable, so the
-   * frontend can be pointed at a different backend without a code change.
+   * Development override. When set, `/v1` is proxied to this origin and the
+   * container is not started — which is what makes `wrangler dev` usable
+   * against a locally running `scripts/serve.sh` instead of requiring Docker
+   * and a 2.2 GB image on a laptop.
+   *
+   * Empty in production, where the binding is the answer. It stays here for a
+   * second reason: it is also the fallback if the API ever moves back off
+   * Cloudflare, and that should be a variable rather than a rewrite.
    */
   API_ORIGIN?: string;
 }
 
 /**
+ * The read API container.
+ *
+ * `docs/architecture.md` §4's binary, in its own image with the artifact set
+ * baked in. The image is referenced by registry tag in wrangler.jsonc rather
+ * than built from a Dockerfile, because the 2.2 GB of pipeline output it
+ * contains must never exist in CI — and because a Dockerfile makes
+ * `wrangler deploy --dry-run` require Docker, which would break the one check
+ * that keeps this config honest before there is an account.
+ */
+export class ReadApi extends Container<Env> {
+  /** `server/main.go`'s default listen address. */
+  defaultPort = 8080;
+
+  /**
+   * Long on purpose. A cold start is 1–3 s to pull the image plus a measured
+   * 0.78 s to open the database and map the arrays, and the first interaction
+   * this app has with anyone is them typing a species name into the palette.
+   * The memory bill for staying awake is the price of not doing that to them;
+   * `docs/deployment.md` §2 has the arithmetic.
+   */
+  sleepAfter = "6h";
+}
+
+/**
+ * How many container instances `/v1` is spread over.
+ *
+ * One, deliberately. Every `/v1` response except `/v1/random` is
+ * `Cache-Control: immutable` keyed by build id, so the edge absorbs the
+ * repeats and one instance is enough at this project's traffic. Cloudflare has
+ * no built-in autoscaling yet — the documented pattern is exactly this, a
+ * fixed count with random routing — so raising this number is the scaling
+ * knob, and it is a decision someone takes rather than something the platform
+ * will take for us.
+ */
+const API_INSTANCES = 1;
+
+/**
  * Headers that describe a hop rather than the request, and must not be
- * forwarded to the origin. `host` is the loud one: sending Cloudflare's
- * hostname to the API makes every request look like it was meant for the
- * edge, which breaks any origin doing virtual hosting or TLS SNI matching.
+ * forwarded upstream. `host` is the loud one: sending Cloudflare's hostname to
+ * an external origin makes every request look like it was meant for the edge,
+ * which breaks any origin doing virtual hosting or TLS SNI matching.
  */
 const HOP_BY_HOP = new Set([
   "host",
@@ -57,41 +101,38 @@ export default {
       return new Response("Not found", { status: 404 });
     }
 
-    const origin = env.API_ORIGIN;
-    if (!origin) {
-      // 503 rather than 500: the deployment is incomplete, not broken, and
-      // the message names the variable that fixes it. A blank canvas because
-      // the API is unset looks identical to a blank canvas because the app is
-      // broken, and the difference costs whoever hits it an hour — the same
-      // reasoning as scripts/serve.sh refusing to start without build/.
-      return new Response(
-        "API_ORIGIN is not configured on this Worker. Set the " +
-          "CONCESTOR_API_ORIGIN repository variable and redeploy.",
-        { status: 503, headers: { "content-type": "text/plain" } },
-      );
-    }
+    if (env.API_ORIGIN) return proxy(request, url, env.API_ORIGIN);
 
-    const target = new URL(url.pathname + url.search, origin);
-
-    const headers = new Headers();
-    request.headers.forEach((value, name) => {
-      if (!HOP_BY_HOP.has(name.toLowerCase())) headers.set(name, value);
-    });
-
-    const upstream = await fetch(target, {
-      method: request.method,
-      headers,
-      body: request.body,
-      redirect: "manual",
-    });
-
-    // Returned as-is. The API's own cache headers are load-bearing and must
-    // not be second-guessed here: /v1 responses are `Cache-Control: immutable`
-    // keyed by build id because the data cannot change within a build, and
-    // /v1/random is the one deliberate exception, served `no-store` with no
-    // ETag. Caching it at the edge would give every visitor the same
-    // "random" species forever — an endpoint that appears to work and never
-    // picks twice.
-    return upstream;
+    // Returned as-is, like the proxy below. The API's own cache headers are
+    // load-bearing and must not be second-guessed here: `/v1` responses are
+    // `Cache-Control: immutable` keyed by build id because the data cannot
+    // change within a build, and `/v1/random` is the one deliberate
+    // exception, served `no-store` with no ETag. Caching that would give
+    // every visitor the same "random" species forever — an endpoint that
+    // appears to work and never picks twice.
+    //
+    // If edge caching is ever added in front of this, it must decide from the
+    // upstream response's own Cache-Control and never from a list of
+    // cacheable paths kept in this file. A path allowlist is a list somebody
+    // eventually forgets to add the next `/v1/random` to.
+    const instance = await getRandom(env.READ_API, API_INSTANCES);
+    return instance.fetch(request);
   },
 };
+
+/** Forward a request to an external API origin, verbatim. */
+function proxy(request: Request, url: URL, origin: string): Promise<Response> {
+  const target = new URL(url.pathname + url.search, origin);
+
+  const headers = new Headers();
+  request.headers.forEach((value, name) => {
+    if (!HOP_BY_HOP.has(name.toLowerCase())) headers.set(name, value);
+  });
+
+  return fetch(target, {
+    method: request.method,
+    headers,
+    body: request.body,
+    redirect: "manual",
+  });
+}
