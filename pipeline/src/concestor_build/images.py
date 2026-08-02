@@ -1005,11 +1005,19 @@ def load_fossil_candidates(
     picture; a candidate needs one because a witness with no drawing is nothing
     to put on a canvas.
 
-    **Dated.** Both `fea` and `lla`, so `[lla, fea]` is the whole of when the
-    taxon might have been alive. Phase 4's finding that `fea` is junk-wide is
-    about *placing* a taxon at it and does not carry here: this is a containment
-    test and `fea` is never read as a position. What a wide bracket costs a
-    candidate is the tie-break, which prefers the narrower one.
+    **Dated.** Both `fea` and a young end, so `[young, fea]` is the whole of
+    when the taxon might have been alive. Phase 4's finding that `fea` is
+    junk-wide is about *placing* a taxon at it and does not carry here: this is
+    a containment test and `fea` is never read as a position. What a wide
+    bracket costs a candidate is the tie-break, which prefers the narrower one.
+
+    The young end is `lla_drawn`, not `lla`. Phase 4 finds 10,655 taxa whose
+    own young end rests on `sp.`/`indet.` material no identified member
+    reaches, and *widening a bracket at the young end is exactly how a taxon
+    wins a fork it has no business at* — a range stretched toward the present
+    cannot fail to contain a recent split. That is the crown-group failure
+    `HOLOCENE_MA` exists to stop, arriving through a different door, and it
+    reached 41 of the 885 witnesses before this read the corrected end.
 
     **Extinct**, and this one will quietly undo the feature if it is dropped.
     PBDB carries *Mammalia* at 239.5–0 Ma, *Viverridae* at 56–0 and *Panthera*
@@ -1044,25 +1052,40 @@ def load_fossil_candidates(
     if not have:
         return out, stats
 
+    has_drawn = bool(
+        con.execute(
+            "SELECT count(*) FROM pragma_table_info('fossil') WHERE name = 'lla_drawn'"
+        ).fetchone()[0]
+    )
+    stats["young_end_corrected"] = has_drawn
+
     stats["extant_excluded"] = int(
         con.execute(
             "SELECT count(*) FROM fossil WHERE is_primary = 1 AND fea IS NOT NULL "
             "AND lla IS NOT NULL AND (is_extant IS NULL OR is_extant = 1)"
         ).fetchone()[0]
     )
+    ended_col = "coalesce(lla_drawn, lla)" if has_drawn else "lla"
     stats["unended"] = int(
         con.execute(
-            "SELECT count(*) FROM fossil WHERE is_primary = 1 AND is_extant = 0 "
-            "AND fea IS NOT NULL AND lla IS NOT NULL AND lla <= ?",
+            f"SELECT count(*) FROM fossil WHERE is_primary = 1 AND is_extant = 0 "
+            f"AND fea IS NOT NULL AND {ended_col} IS NOT NULL AND {ended_col} <= ?",
             (HOLOCENE_MA,),
         ).fetchone()[0]
     )
+    # `lla_drawn` rather than `lla`, and this is a containment test so the
+    # difference decides which forks a taxon is offered for. PBDB's own young
+    # end is stretched by `sp.`/`indet.` material on 10,655 taxa, and a bracket
+    # widened at the young end cannot fail to contain a recent split — the same
+    # failure `HOLOCENE_MA` exists to stop, arriving through a different door.
+    # `coalesce` keeps a build whose fossil table predates the column working.
+    young = "coalesce(lla_drawn, lla)" if has_drawn else "lla"
     for row in con.execute(
-        "SELECT pbdb_taxon_no, accepted_no, name, rank, attach_idx, attach_walk, "
-        "       fea, lla, n_occs "
-        "  FROM fossil "
-        " WHERE is_primary = 1 AND is_extant = 0 AND attach_idx >= 0 "
-        "   AND fea IS NOT NULL AND lla > ?",
+        f"SELECT pbdb_taxon_no, accepted_no, name, rank, attach_idx, attach_walk, "
+        f"       fea, {young}, n_occs "
+        f"  FROM fossil "
+        f" WHERE is_primary = 1 AND is_extant = 0 AND attach_idx >= 0 "
+        f"   AND fea IS NOT NULL AND {young} > ?",
         (HOLOCENE_MA,),
     ):
         taxon_no, accepted_no, name, rank, attach, walk, fea, lla, n_occs = row

@@ -36,6 +36,7 @@ def taxon(
     fla: float | None = 9.0,
     lea: float | None = 8.0,
     lla: float | None = 7.0,
+    flags: str = "",
 ) -> PbdbTaxon:
     return PbdbTaxon(
         taxon_no=taxon_no,
@@ -53,6 +54,7 @@ def taxon(
         fla=fla,
         lea=lea,
         lla=lla,
+        flags=flags,
     )
 
 
@@ -167,6 +169,226 @@ def test_build_rows_reports_walk_and_method_distributions():
 def test_the_attach_method_dictionary_is_a_bijection():
     assert len(fossils.ATTACH_METHOD_NAME) == len(ATTACH_METHOD_CODE)
     assert fossils.ATTACH_METHOD_NAME[ROOT] == "root_fallback"
+
+
+# --- the unwitnessed young end ------------------------------------------------
+#
+# The real case, reduced: a genus PBDB stops at 93.9 Ma because of one
+# occurrence catalogued `Stegosaurus sp.`, whose named species all end at 143.1.
+
+
+def _species(
+    parent: int, first: int, n: int, lla: float, occs: int = 5, fea: float = 1e4
+) -> list[PbdbTaxon]:
+    """`fea` defaults absurdly old so the bracket never binds; the tests that
+    care about it set one."""
+    return [
+        taxon(
+            first + i, parent_no=parent, rank="species", fea=fea, lla=lla, n_occs=occs
+        )
+        for i in range(n)
+    ]
+
+
+def test_a_young_end_below_every_descendant_is_unwitnessed_and_moves():
+    taxa = [taxon(1, fea=1e4, lla=93.9, n_occs=86), *_species(1, 10, 4, 143.1)]
+    ends, stats = fossils.young_ends(taxa)
+
+    assert stats["unwitnessed"] == 1
+    assert stats["clamped"] == 1
+    got = ends[1]
+    assert got.identified == 143.1, "the youngest end an identified member reaches"
+    assert got.occs == 20, "four species at five occurrences each"
+    assert got.drawn == 143.1
+    assert got.clamped
+
+
+def test_pbdbs_own_number_is_never_overwritten():
+    """`lla` is what PBDB says and stays that. Only the position moves."""
+    taxa = [taxon(1, fea=1e4, lla=93.9, n_occs=86), *_species(1, 10, 4, 143.1)]
+    ends, _ = fossils.young_ends(taxa)
+    rows, _, _ = fossils.build_rows(
+        taxa, Attacher({1: (7, NAME)}, {t.taxon_no: t.parent_no for t in taxa}), ends
+    )
+    genus = next(r for r in rows if r.pbdb_taxon_no == 1)
+    assert genus.lla == 93.9, "untouched"
+    assert genus.lla_drawn == 143.1
+    assert genus.lla_identified == 143.1
+
+
+def test_a_young_end_a_descendant_reaches_is_left_alone():
+    taxa = [taxon(1, fea=1e4, lla=143.1, n_occs=86), *_species(1, 10, 4, 143.1)]
+    ends, stats = fossils.young_ends(taxa)
+    assert stats["unwitnessed"] == 0
+    assert ends[1].drawn == 143.1
+    assert not ends[1].clamped
+
+
+def test_an_ichnotaxon_keeps_its_own_young_end():
+    """For a trace fossil the genus-level id is the finest one that exists.
+
+    *Gyrolithes* really does run from the Cambrian to the Recent, and the
+    corroboration would happily clamp it 475 Myr in the wrong direction.
+    """
+    taxa = [
+        taxon(1, fea=1e4, lla=2.58, n_occs=90, flags="I"),
+        *_species(1, 10, 4, 477.1),
+    ]
+    ends, stats = fossils.young_ends(taxa)
+    assert stats["unwitnessed"] == 1, "still detected — the test is exact"
+    assert stats["refused_form"] == 1
+    assert ends[1].drawn == 2.58, "and never acted on"
+    assert not ends[1].clamped
+
+
+def test_an_uncorroborated_alternative_is_refused():
+    """The *Tasmanites* case: 56 occurrences, one species, one record.
+
+    Clamping here would be a 1,595 Myr error — far worse than the young end
+    it would be correcting. Refusing falls back to PBDB's own number.
+    """
+    taxa = [
+        taxon(1, fea=1e4, lla=5.333, n_occs=56),
+        *_species(1, 10, 1, 1600.0, occs=1),
+    ]
+    ends, stats = fossils.young_ends(taxa)
+    assert stats["unwitnessed"] == 1
+    assert stats["refused_sparse"] == 1
+    assert ends[1].identified == 1600.0, "the alternative is still recorded"
+    assert ends[1].drawn == 5.333, "it is just not used"
+    assert not ends[1].clamped
+
+
+def test_the_correction_carries_up_the_hierarchy():
+    """Otherwise the fix is defeated one rank up.
+
+    The single genus-level occurrence that stretches *Stegosaurus* stretches
+    *Stegosauridae* too, and a reader who selects the family would meet the
+    same error.
+    """
+    taxa = [
+        taxon(1, rank="family", fea=1e4, lla=93.9, n_occs=193),
+        taxon(2, parent_no=1, rank="genus", fea=1e4, lla=93.9, n_occs=86),
+        *_species(2, 10, 4, 143.1),
+    ]
+    ends, _ = fossils.young_ends(taxa)
+    assert ends[2].drawn == 143.1, "the genus moves"
+    assert ends[1].drawn == 143.1, "and so does the family above it"
+
+
+def test_a_real_younger_member_holds_the_family_where_it_is():
+    """Propagation must not overshoot. A Cretaceous stegosaurid is a real one."""
+    taxa = [
+        taxon(1, rank="family", fea=1e4, lla=93.9, n_occs=193),
+        taxon(2, parent_no=1, rank="genus", fea=1e4, lla=93.9, n_occs=86),
+        *_species(2, 10, 4, 143.1),
+        # Wuerhosaurus, genuinely Early Cretaceous and identified.
+        taxon(20, parent_no=1, rank="genus", fea=1e4, lla=100.5, n_occs=9),
+    ]
+    ends, _ = fossils.young_ends(taxa)
+    assert ends[2].drawn == 143.1
+    assert ends[1].drawn == 100.5, "the family stops at its youngest real member"
+
+
+def test_a_child_reaching_younger_than_its_parent_is_recorded_not_acted_on():
+    """PBDB's aggregate is not monotone — 440 taxa are like this."""
+    taxa = [taxon(1, fea=1e4, lla=468.0, n_occs=40), *_species(1, 10, 1, 66.0, occs=35)]
+    ends, stats = fossils.young_ends(taxa)
+    assert stats["non_monotone"] == 1
+    assert stats["unwitnessed"] == 0, "the test only fires on an *older* end"
+    assert ends[1].drawn == 468.0
+
+
+def test_the_last_appearance_bracket_moves_as_a_pair():
+    """`[lea, lla]` is one bracket and both ends come from the same records.
+
+    *Stegosaurus* has `lea` 100.5 and `lla` 93.9, and both are the single
+    Cenomanian `Stegosaurus sp.`. Moving `lla` alone would leave the older end
+    of the very occurrence being refused.
+    """
+    taxa = [
+        taxon(1, fea=161.5, fla=149.2, lea=100.5, lla=93.9, n_occs=86),
+        *[
+            taxon(
+                10 + i,
+                parent_no=1,
+                rank="species",
+                fea=154.8,
+                fla=149.2,
+                lea=149.2,
+                lla=143.1,
+                n_occs=5,
+            )
+            for i in range(4)
+        ],
+    ]
+    ends, _ = fossils.young_ends(taxa)
+    rows, _, _ = fossils.build_rows(
+        taxa, Attacher({1: (7, NAME)}, {t.taxon_no: t.parent_no for t in taxa}), ends
+    )
+    genus = next(r for r in rows if r.pbdb_taxon_no == 1)
+    assert (genus.lea, genus.lla) == (100.5, 93.9), "PBDB's own, untouched"
+    assert genus.lla_drawn == 143.1
+    assert genus.lea_drawn == 149.2, "the partner end came with it"
+    assert genus.lea_drawn is not None and genus.lla_drawn is not None
+    assert genus.lea_drawn >= genus.lla_drawn, "still a bracket"
+
+
+def test_a_row_is_never_drawn_outside_its_own_bracket():
+    """PBDB files three *Paronychodon* rows with three different first
+    appearances against one accepted taxon. The clamp is right for the accepted
+    row and would put the narrow ones older than their own `fea`.
+    """
+    taxa = [
+        taxon(1, fea=154.8, lla=66.0, n_occs=40),
+        *_species(1, 10, 4, 89.8),
+        taxon(2, accepted_no=1, fea=72.2, lla=66.0, difference="misspelling of"),
+    ]
+    ends, _ = fossils.young_ends(taxa)
+    assert ends[1].clamped and ends[1].drawn == 89.8
+    rows, _, _ = fossils.build_rows(
+        taxa, Attacher({1: (7, NAME)}, {t.taxon_no: t.parent_no for t in taxa}), ends
+    )
+    wide = next(r for r in rows if r.pbdb_taxon_no == 1)
+    narrow = next(r for r in rows if r.pbdb_taxon_no == 2)
+    assert wide.lla_drawn == 89.8, "89.8 sits inside 154.8–66.0"
+    assert narrow.lla_drawn == 66.0, "but not inside 72.2–66.0, so it stays put"
+
+
+def test_a_fossil_synonym_of_a_living_genus_is_not_dragged_to_the_present():
+    """The other direction, and the one the gate actually caught.
+
+    *Crassispira* is a living genus whose `lla` is 0 and whose identified end
+    is 0.0117. Its synonym *Tripia* is an Eocene row ending at 37.71, and
+    inheriting 0.0117 would move a fossil 37 Myr forward into the Holocene.
+    """
+    taxa = [
+        taxon(1, fea=1e4, lla=0.0, n_occs=90, is_extant=1),
+        *_species(1, 10, 4, 0.0117),
+        taxon(2, accepted_no=1, fea=48.07, lla=37.71, difference="synonym of"),
+    ]
+    ends, _ = fossils.young_ends(taxa)
+    assert ends[1].clamped and ends[1].drawn == 0.0117
+    rows, _, _ = fossils.build_rows(
+        taxa, Attacher({1: (7, NAME)}, {t.taxon_no: t.parent_no for t in taxa}), ends
+    )
+    fossil_row = next(r for r in rows if r.pbdb_taxon_no == 2)
+    assert fossil_row.lla_drawn == 37.71, "its own number, not its genus's"
+
+
+def test_a_synonym_inherits_its_accepted_taxons_verdict():
+    taxa = [
+        taxon(1, fea=1e4, lla=93.9, n_occs=86),
+        *_species(1, 10, 4, 143.1),
+        taxon(2, accepted_no=1, fea=1e4, lla=93.9, difference="subjective synonym of"),
+    ]
+    ends, _ = fossils.young_ends(taxa)
+    rows, _, _ = fossils.build_rows(
+        taxa, Attacher({1: (7, NAME)}, {t.taxon_no: t.parent_no for t in taxa}), ends
+    )
+    syn = next(r for r in rows if r.pbdb_taxon_no == 2)
+    assert syn.lla == 93.9
+    assert syn.lla_drawn == 143.1, "the same animal, so the same position"
 
 
 # --- reporting helpers --------------------------------------------------------

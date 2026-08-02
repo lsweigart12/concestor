@@ -649,6 +649,51 @@ Two smaller calls that are load-bearing:
   `docs/phase5c-decision.md` is the standing record of what Wikimedia imagery
   costs here.
 
+### A fossil's young end can be a fact about the catalogue, not the animal
+
+Reported as a bug against the app: *Stegosaurus* was drawn with a last
+appearance of 93.9 Ma, and it is famously Late Jurassic.
+
+The number was PBDB's, copied faithfully. **One occurrence of 86** put it
+there — `Stegosaurus sp.`, Mussentuchit Member of the Cedar Mountain Formation,
+a genus-level indeterminate identification — against every named species ending
+at 143.1. PBDB's `lastapp_min_ma` aggregates a taxon's whole subtree, which
+makes the diagnosis exact rather than a guess: **a young end below every
+descendant's cannot come from an identified member**, so it can only rest on
+`sp.`/`indet.` material. No threshold, no occurrence-level data, and the whole
+sweep runs offline over `pbdb_taxa.csv`.
+
+It is common enough to matter. **10,655 taxa** corpus-wide; inside Dinosauria,
+71 stretched by ≥10 Ma of which **not one** has an identified species at its
+young end, 52 resting on a single occurrence and 20 on records hedged `?`,
+`cf.` or `aff.` by the identifier. *Iguanodon* and *Megalosaurus* were both
+drawn at 66.0 Ma, each on one hedged record — the two great wastebasket genera
+of nineteenth-century naming, showing straight through into the layout.
+
+What shipped: `lla` untouched, three new columns carrying the reading, and the
+position — and only the position — moving on 7,802 rows. The full rule, its
+four refusals and the numbers behind each are in
+[fossil-grafts.md](fossil-grafts.md) §3. Four things not to redo:
+
+- **The share of a record identified to species does not discriminate.**
+  *Stegosaurus* is 20.9% identified — most of its own record is `Stegosaurus
+  sp.` too, exactly like *Tasmanites*, whose alternative would be a 1,595 Myr
+  error. Corroboration *at the identified end* is what separates them.
+- **Ichnotaxa must be exempt**, and PBDB's `I`/`F` flags do it cleanly. For
+  *Gyrolithes* a genus-level identification is the finest that exists.
+- **The correction has to propagate**, or it is defeated one rank up and the
+  reader meets the same error by selecting the family.
+- **The witness layer was affected too**, and in the direction that hurts: a
+  bracket widened toward the present cannot fail to contain a recent split.
+  Spanning witnesses 192 → 190, and the two lost are the false ones.
+
+Two gate assumptions were wrong and both were caught by writing them down.
+PBDB's aggregate is **not monotone** (440 taxa have a descendant reaching
+younger than they do), and the invariant `lla ≤ lla_drawn ≤ fea` has to be
+enforced **per row** rather than per accepted taxon — 414 rows would otherwise
+have been dragged to the Holocene, because *Crassispira* is a living genus
+whose synonym *Tripia* is an Eocene fossil.
+
 ---
 
 ## 4. Corrections to the design docs

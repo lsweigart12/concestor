@@ -25,8 +25,8 @@
  * claim than a node card's and is captioned as one.
  */
 
-import type { FossilDetail } from "../api";
-import { endedSpanLabel } from "../canvas/Bracket";
+import { drawnBounds, youngEndIsIndeterminate, type FossilDetail } from "../api";
+import { endedSpanLabel, maLabel } from "../canvas/Bracket";
 import { Silhouette } from "../canvas/Silhouette";
 import { placementNote } from "../canvas/NodeMark";
 import type { Graft } from "../tree/graft";
@@ -60,12 +60,30 @@ export function FossilCard({
   onDraw: () => void;
   onRemove: () => void;
 }) {
-  const bounds = [fossil.fea, fossil.fla, fossil.lea, fossil.lla].filter(
+  // The range as it may be *drawn*, so the figure on the card and the glyph on
+  // the canvas are the same statement. PBDB's own is printed beside it in the
+  // disclosure wherever the two differ — it is not hidden, it is just not the
+  // headline, because the headline was asserting a date the catalogue does not
+  // support for the named animal.
+  const shown = drawnBounds(fossil);
+  const bounds = [shown.fea, shown.fla, shown.lea, shown.lla].filter(
     (v): v is number => typeof v === "number" && Number.isFinite(v),
   );
   const span = bounds.length
     ? endedSpanLabel(Math.max(...bounds), Math.min(...bounds))
     : null;
+  // PBDB's young end against the youngest one an *identified* member reaches.
+  // Where they differ the later date rests on material catalogued no finer
+  // than the taxon itself, and the reader is owed that in words: the range on
+  // the card is PBDB's and stays PBDB's, so without a sentence the number and
+  // the glyph's position would simply disagree.
+  const indeterminate = youngEndIsIndeterminate(fossil);
+  const movedTo =
+    indeterminate &&
+    typeof fossil.lla_drawn === "number" &&
+    fossil.lla_drawn !== fossil.lla
+      ? fossil.lla_drawn
+      : null;
   const sil = fossil.silhouette ?? null;
   const host = fossil.attach ?? null;
   const walk = fossil.attach_walk ?? null;
@@ -210,6 +228,32 @@ export function FossilCard({
           is an observation rather than an estimate.
           {walk !== null && placementNote(walk)}
         </p>
+        {indeterminate && (
+          <p className="note">
+            The later end of that range is not one any identified member of{" "}
+            <strong>{fossil.name}</strong> reaches. The youngest that is
+            recorded is {maLabel(fossil.lla_identified as number)} Ma; everything
+            after it rests on material catalogued no more precisely than the
+            group itself — a specimen filed as <em>{fossil.name}</em> sp. or
+            indet., which says where something in the group turned up and not
+            where this one did.{" "}
+            {movedTo !== null ? (
+              <>
+                So the range above ends at {maLabel(movedTo)} Ma, where its own
+                named record ends, and that is where it is drawn.{" "}
+                <strong>PBDB's own figure for the taxon is{" "}
+                {maLabel(fossil.lla as number)} Ma</strong>, and this is the
+                only difference between the two.
+              </>
+            ) : (
+              <>
+                Too little is recorded at the earlier date to put it there
+                instead, so it stays where PBDB has it and this note is the
+                whole of the correction.
+              </>
+            )}
+          </p>
+        )}
         {graft && span && (
           <p className="note">
             It is drawn hanging from{" "}

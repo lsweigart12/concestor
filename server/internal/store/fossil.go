@@ -41,6 +41,11 @@ type FossilSchema struct {
 	// how loose the placement is. Zero means the taxon is itself in the tree.
 	AttachWalk string `json:"attach_walk,omitempty"`
 	Brackets   bool   `json:"brackets"`
+	// YoungEnd is whether phase 4's reading of the last-appearance young end is
+	// present: `lla_identified`, `young_end_occs` and `lla_drawn` together. A
+	// build predating them serves `lla` alone and the UI draws as it always
+	// did, so the three travel as one flag rather than three.
+	YoungEnd   bool   `json:"young_end"`
 	MethodName string `json:"attach_method_table,omitempty"`
 	// ImageTable maps a PBDB taxon to a drawing. A fossil is not a node, so
 	// node_image cannot reach it and this is the only join that can.
@@ -73,6 +78,9 @@ func (s *Schema) resolveFossil() {
 	}
 	f.Brackets = s.col(t, "fea") != "" && s.col(t, "fla") != "" &&
 		s.col(t, "lea") != "" && s.col(t, "lla") != ""
+	f.YoungEnd = f.Brackets && s.col(t, "lla_identified") != "" &&
+		s.col(t, "young_end_occs") != "" && s.col(t, "lla_drawn") != "" &&
+		s.col(t, "lea_drawn") != ""
 	if it := s.firstTable("fossil_image"); it != "" && f.AcceptedNo != "" {
 		key, id := s.col(it, "accepted_no"), s.col(it, "phylopic_id")
 		if key == "" || id == "" {
@@ -109,6 +117,28 @@ type Fossil struct {
 	FLA *float64 `json:"fla"`
 	LEA *float64 `json:"lea"`
 	LLA *float64 `json:"lla"`
+	// The young end of that last bracket, read for what it is worth. PBDB's
+	// `lla` above is its own number and is never overwritten.
+	//
+	// LLAIdentified is the youngest last appearance an *identified* member of
+	// this taxon reaches. When it is older than LLA, the taxon's own young end
+	// rests on material catalogued no finer than the taxon itself — a
+	// `Stegosaurus sp.` — and says nothing about where the named animal's
+	// record ends. That comparison is exact: PBDB aggregates upward, so a young
+	// end below every descendant's cannot come from an identified one.
+	//
+	// LLADrawn is where the taxon may be *drawn*. It equals LLA except on the
+	// 4,819 taxa whose alternative is corroborated enough to act on, and it is
+	// the value a graft's position must read. Null on a build predating it.
+	LLAIdentified *float64 `json:"lla_identified,omitempty"`
+	YoungEndOccs  *int64   `json:"young_end_occs,omitempty"`
+	LLADrawn      *float64 `json:"lla_drawn,omitempty"`
+	// The other end of the same last-appearance bracket, moved with LLADrawn.
+	// `[lea, lla]` is one bracket and both of its ends come from the same
+	// occurrences, so a consumer that took LLADrawn and PBDB's own LEA would
+	// be assembling a bracket out of two different records — for Stegosaurus,
+	// a corrected 143.1 against a 100.5 that is the very occurrence refused.
+	LEADrawn *float64 `json:"lea_drawn,omitempty"`
 }
 
 // maxSegmentFossils caps a drill-down lane. A single node has 12,964 children
@@ -186,10 +216,14 @@ func fossilRow(f *FossilSchema) (sel, join string) {
 			f.ImageTable, f.ImageKey, f.AcceptedNo)
 		image = "img." + quote(f.ImageID)
 	}
+	young := "NULL, NULL, NULL, NULL"
+	if f.YoungEnd {
+		young = `t."lla_identified", t."young_end_occs", t."lla_drawn", t."lea_drawn"`
+	}
 	cols := []string{
 		"t." + quote(f.AttachIdx), "t." + quote(f.Name), "t." + quote(f.NOccs),
 		colOrNullT(f.Rank), colOrNullT(f.IsExtant), colOrNullT(f.Difference),
-		brackets, image, colOrNullT(f.TaxonNo), colOrNullT(f.AttachWalk),
+		brackets, image, colOrNullT(f.TaxonNo), colOrNullT(f.AttachWalk), young,
 	}
 	return strings.Join(cols, ", "), join
 }
@@ -205,9 +239,18 @@ func scanFossil(sc scanner) (Fossil, error) {
 	var extant sql.NullInt64
 	var fea, fla, lea, lla sql.NullFloat64
 	var taxonNo, walk sql.NullInt64
+	var identified, drawn, drawnLea sql.NullFloat64
+	var endOccs sql.NullInt64
 	if err := sc.Scan(&fo.AttachIdx, &fo.Name, &fo.NOccs, &rank, &extant, &diff,
-		&fea, &fla, &lea, &lla, &image, &taxonNo, &walk); err != nil {
+		&fea, &fla, &lea, &lla, &image, &taxonNo, &walk,
+		&identified, &endOccs, &drawn, &drawnLea); err != nil {
 		return fo, err
+	}
+	fo.LLAIdentified, fo.LLADrawn = nullF(identified), nullF(drawn)
+	fo.LEADrawn = nullF(drawnLea)
+	if endOccs.Valid {
+		n := endOccs.Int64
+		fo.YoungEndOccs = &n
 	}
 	fo.Rank, fo.Difference = nullStr(rank), nullStr(diff)
 	if extant.Valid {

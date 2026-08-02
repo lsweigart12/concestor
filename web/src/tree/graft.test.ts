@@ -4,6 +4,7 @@ import { induced } from "./induced";
 import {
   buildGrafts,
   fossilSpan,
+  graftYoungest,
   graftIdx,
   graftKey,
   isGraftIdx,
@@ -112,6 +113,40 @@ describe("fossilSpan reduces the two brackets without collapsing them", () => {
   });
 });
 
+describe("the glyph sits at the young end an identified member reaches", () => {
+  // *Stegosaurus*: PBDB stops the genus at 93.9 Ma on one occurrence
+  // catalogued `Stegosaurus sp.` in the Mussentuchit Member, while every named
+  // species ends at 143.1. At 93.9 the animal is drawn in the Cenomanian, 50
+  // Myr after it lived.
+  const stego = {
+    fea: 161.5,
+    fla: 149.2,
+    lea: 100.5,
+    lla: 93.9,
+    lla_drawn: 143.1,
+  };
+
+  it("prefers the corrected end over PBDB's own", () => {
+    expect(graftYoungest(stego, fossilSpan(stego)!)).toBe(143.1);
+  });
+
+  it("leaves the bracket itself alone — it is still PBDB's", () => {
+    expect(fossilSpan(stego)).toEqual({ oldest: 161.5, youngest: 93.9 });
+  });
+
+  it("falls back to the bracket on a build without the column", () => {
+    const old = { fea: 161.5, fla: 149.2, lea: 100.5, lla: 93.9 };
+    expect(graftYoungest(old, fossilSpan(old)!)).toBe(93.9);
+  });
+
+  it("never leaves the bracket, whatever the column says", () => {
+    // Phase 4 holds `lla <= lla_drawn <= fea`, so this cannot arise from a
+    // build of this pipeline. It is the guard for one that disagrees.
+    const wild = { ...stego, lla_drawn: 900 };
+    expect(graftYoungest(wild, fossilSpan(wild)!)).toBe(161.5);
+  });
+});
+
 describe("locateAttachment finds the branch a fossil hangs on", () => {
   it("anchors on the node itself when that node is rendered", () => {
     expect(locateAttachment(4, IND)).toEqual({ anchor: 4, joinIdx: 4 });
@@ -172,6 +207,45 @@ describe("a graft is an occurrence-tier node carrying its own picture", () => {
     // `fea` is junk-wide — measured, the first-appearance bracket *widens*
     // with occurrence count — so the layout reads the latest end and only it.
     expect(g.node.age_layout).toBe(0.774);
+  });
+
+  it("takes the corrected young end into the node it synthesises", () => {
+    const moved = makeGraft(
+      fossil({ fea: 161.5, fla: 149.2, lea: 100.5, lla: 93.9, lla_drawn: 143.1 }),
+      IND,
+      NODES,
+    );
+    expect(typeof moved).not.toBe("string");
+    if (typeof moved === "string") return;
+    expect(moved.node.age_layout).toBe(143.1);
+  });
+
+  it("corrects the last-appearance bracket as a pair, not just its young end", () => {
+    // `lea` 100.5 and `lla` 93.9 are the *same* Cenomanian occurrence. Taking
+    // the corrected 143.1 and leaving 100.5 would rebuild the bracket out of
+    // the record being refused, and the bar would still run into the
+    // Cretaceous under a glyph sitting in the Jurassic.
+    const moved = makeGraft(
+      fossil({
+        fea: 161.5,
+        fla: 149.2,
+        lea: 100.5,
+        lla: 93.9,
+        lla_drawn: 143.1,
+        lea_drawn: 149.2,
+      }),
+      IND,
+      NODES,
+    );
+    if (typeof moved === "string") throw new Error(moved);
+    expect(moved.node.occurrence).toEqual({
+      fea: 161.5,
+      fla: 149.2,
+      lea: 149.2,
+      lla: 143.1,
+    });
+    // `fea`/`fla` are untouched: they are wide for a different reason.
+    expect(moved.node.occurrence?.fea).toBe(161.5);
   });
 
   it("owns its drawing, so no borrowed-image caption applies", () => {

@@ -98,6 +98,112 @@ reverse of the truth on screen.
 a single "clamped" flag captioned it "its lineage parted somewhere earlier",
 which is backwards. It parted later, inside Amniota.
 
+### The young end a graft sits at is not always PBDB's
+
+A graft is placed at the young end of the last-appearance bracket, and for
+**7,802 rows** that end is one *no identified member of the taxon reaches*.
+
+PBDB's `lastapp_min_ma` aggregates a taxon's whole subtree. So when a taxon's
+young end is younger than every one of its descendants', it cannot be coming
+from any identified member — it can only rest on material catalogued no finer
+than the taxon itself, an `sp.` or an `indet.`. **That test is structural and
+exact**: no threshold, no occurrence-level data, and the whole of it falls out
+of `pbdb_taxa.csv`, which phase 0 already pins.
+
+*Stegosaurus* is the case it was built for. PBDB stops the genus at 93.9 Ma on
+the strength of **one** occurrence — `Stegosaurus sp.`, Mussentuchit Member of
+the Cedar Mountain Formation, a "small collection" — while every named species
+ends at 143.1. Drawn at 93.9, a Late Jurassic animal sits in the Cenomanian,
+50 Myr after it lived, beside things it never met.
+
+It is not a curiosity. Inside Dinosauria, 71 taxa are stretched by ≥10 Ma and
+**not one** of the 71 has its young end supported by an identified species; 52
+rest on a single occurrence and 20 on records the identifier themself hedged
+with `?`, `cf.` or `aff.`. *Iguanodon* and *Megalosaurus* — the two classic
+wastebasket genera — were both drawn at **66.0 Ma**, each on one hedged record.
+
+**Detecting it is exact; correcting it is a judgement**, and the two are kept
+apart. `lla` is never overwritten. Three columns carry the reading, on the same
+principle that keeps `age_ma`, `age_tier` and `age_layout` separate — what PBDB
+says, how to read it, and where to draw are different claims:
+
+| column | meaning |
+|---|---|
+| `lla` | PBDB's own young end. Untouched, and named in the card's disclosure |
+| `lla_identified` | youngest end an *identified* member reaches. `> lla` is the exact test |
+| `young_end_occs` | occurrences sitting at it — how much the alternative is worth |
+| `lla_drawn` | where the taxon may be drawn. `lla` except where the clamp is trusted |
+| `lea_drawn` | the **other end of the same bracket**, moved with it |
+
+The position moves only when the alternative survives four refusals, and each
+one falls back to PBDB's own number rather than to a worse one:
+
+- **Ichno- and form taxa** (PBDB's `I`/`F` flags), 327. For *Gyrolithes* or
+  *Deltapodus* a genus-level identification is the *finest that exists*, so a
+  Cambrian-to-Recent range is simply true. The flag is clean: every ichnogenus
+  checked carries it and *Stegosaurus*, *Iguanodon* and *Camarasauridae* carry
+  neither.
+- **Uncorroborated alternatives**, 5,497 — fewer than `MIN_YOUNG_END_OCCS` = 5
+  occurrences at the identified end. *Tasmanites* has 56 occurrences but two
+  species entered, one with none of them and one with a single Proterozoic
+  record, so its "identified young end" is 1600 Ma against an own end of 5.33.
+  Clamping would be a **1,595 Myr** error, far worse than the one being fixed.
+- **Contradicting the taxon's own first appearance**, 12. Where the identified
+  end is older than `fea` the whole bracket disagrees with its own children,
+  not just the young end.
+- **Per row, bounds that cannot hold it.** The verdict belongs to the accepted
+  taxon and the bounds are the row's own, and PBDB lets them differ in both
+  directions — three *Paronychodon* rows carry first appearances of 154.8, 85.7
+  and 72.2 against one accepted taxon, and *Crassispira* is a living genus
+  whose synonym *Tripia* is an Eocene row ending at 37.71. The invariant
+  `lla ≤ lla_drawn ≤ fea` is enforced per row, and it is what a gate found:
+  414 rows would otherwise have been dragged to the Holocene.
+
+**The share of a record identified to species is not the discriminator** and
+was tried first. *Stegosaurus* is only 20.9% identified — most of its own
+record is `Stegosaurus sp.` too, exactly like *Tasmanites*. What separates them
+is corroboration at the identified end: *Camarasauridae* 167, *Iguanodon* 23,
+*Stegosaurus* 18, *Megalosaurus* 10, against *Krausella* 2 and *Tasmanites* 1.
+
+**The correction propagates**, and has to. The single occurrence stretching
+*Stegosaurus* stretches *Stegosauridae* through it, so a parent reads its
+children's *corrected* positions; otherwise the fix is defeated one rank up and
+a reader meets the same error by selecting the family. Propagation does not
+overshoot — a family stops at its youngest genuinely identified member, which
+is why a real Early Cretaceous stegosaurid still holds *Stegosaurinae* where it
+is.
+
+**The last-appearance bracket moves as a pair, and every surface that prints
+it has to move with it.** `[lea, lla]` is one bracket and both ends come from
+the same occurrences: *Stegosaurus* has `lea` 100.5 and `lla` 93.9, and both
+are the single Cenomanian record. Correcting `lla` alone rebuilds the bracket
+out of the very occurrence being refused, and the solid bar still runs into the
+Cretaceous under a glyph sitting in the Jurassic. Three consumers print it and
+all three read the corrected pair — the graft's own `occurrence` block, the
+card's range, and **phase 4's `occurrence` table**, which is the node-level
+range for the `occurrence` tier. The last of those was missed at first and it
+showed: the *Stegosaurus* node read `162–94 Ma` directly above a graft of the
+same taxon reading `162–143`, the same number disagreeing with itself on one
+screen. 45 node ranges move.
+
+**`fea` and `fla` are never touched, and the reason is worth stating** because
+it looks like the same problem and is not. *Stegosaurus* reaches **161.5 Ma**
+at the old end, ~6 Myr before the animal, and that comes from **one** of its 86
+occurrences being logged only as `"Late Jurassic"` — an epoch whose base is
+161.5. No specimen is dated there; the record is simply coarse. That is
+*stratigraphic resolution*, not misidentification, and the faded envelope is
+already the honest rendering of it (architecture §7). 84 of the 86 occurrences
+are Kimmeridgian–Tithonian, 154.8–143.1, which is the animal.
+
+Two things the card must do, and does: **name PBDB's own young end in the
+disclosure**, so nothing is hidden, and say in words that the later end is not
+one any identified member reaches.
+
+**PBDB's aggregate is not monotone**, which the first version of this gate
+assumed. 440 taxa have a descendant reaching younger than they do —
+*Planolites montanus* at 66.0 under a genus PBDB stops at 468.0. Nothing acts
+on those; the test only ever fires when the identified end is *older*.
+
 ### Row order among grafts, and why it is not a matter of taste
 
 Several fossils on one branch is the ordinary case, not the exotic one: PBDB
