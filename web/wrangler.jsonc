@@ -1,7 +1,8 @@
 {
-  // Cloudflare Workers static assets: web/dist served from the edge, with
-  // worker/index.ts handling /v1 by proxying to the Go read API. Read that
-  // file first — it says why the API itself cannot live here.
+  // The whole app on Cloudflare: web/dist as Workers static assets, and /v1
+  // on a Container running the Go read API unchanged. `docs/deployment.md` is
+  // the decision, the alternatives and the measurements behind them; read
+  // worker/index.ts for what this file wires together.
   //
   // Nothing deploys from this config yet. It exists so that `wrangler deploy
   // --dry-run` runs on every pull request (see .github/workflows/ci.yml) and
@@ -30,11 +31,50 @@
     "run_worker_first": ["/v1/*"],
   },
 
+  // The read API. `docs/deployment.md` §5 is why this is a registry reference
+  // and not a Dockerfile path, and both halves are load-bearing:
+  //
+  //   - The image carries 2.2 GB of pipeline output that is not in this
+  //     repository and must never be built in CI, so it is pushed from a
+  //     checkout that has build/ — scripts/deploy/push-api-image.sh.
+  //   - With a Dockerfile here, `wrangler deploy --dry-run` refuses to run
+  //     without Docker, *even in a dry run*. That would break the cloudflare
+  //     job in ci.yml, which is the only check this design has until there is
+  //     an account. With a registry reference the dry run passes clean.
+  //
+  // ACCOUNT_ID is substituted by the deploy workflow: wrangler does not
+  // interpolate environment variables into this file, and a literal
+  // ${CLOUDFLARE_ACCOUNT_ID} would be pushed through to the registry path
+  // verbatim. The tag is a build id and is *committed*, so that rolling the
+  // Worker back rolls the dataset back with it — `:latest` would make "roll
+  // back the frontend" quietly mean "keep the new database".
+  "containers": [
+    {
+      "class_name": "ReadApi",
+      "image": "registry.cloudflare.com/ACCOUNT_ID/concestor-api:unpublished",
+
+      // 4 GiB and 8 GB of disk against a measured 463 MB working set and a
+      // 2,229 MB image. `basic` fits on both axes and fits nothing else;
+      // docs/deployment.md §2 has the table.
+      "instance_type": "standard-1",
+      "max_instances": 1,
+    },
+  ],
+
+  "durable_objects": {
+    "bindings": [{ "name": "READ_API", "class_name": "ReadApi" }],
+  },
+
+  // A container class is a Durable Object class and needs a migration to
+  // exist. It stores nothing — the dataset is in the image, read-only — but
+  // the platform requires the declaration.
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ReadApi"] }],
+
   "vars": {
-    // Empty here on purpose: the real value is supplied at deploy time from
-    // the CONCESTOR_API_ORIGIN repository variable, so the same config can
-    // point a preview at staging and production at production. The Worker
-    // answers 503 with an explanatory message when it is unset.
+    // Empty in production, where the container binding is the answer. Set it
+    // to proxy /v1 to an external origin instead — that is how `wrangler dev`
+    // runs against a local `scripts/serve.sh`, and it is the one-variable
+    // fallback if the API ever moves back off Cloudflare.
     "API_ORIGIN": "",
   },
 

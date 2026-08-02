@@ -1,0 +1,29 @@
+{
+  // The deploy path, typechecked separately from the app.
+  //
+  // `worker/` used to live in tsconfig.json on the grounds that it was small
+  // and used only Request/Response. It now declares a Durable Object class
+  // and imports @cloudflare/containers, which needs the Workers runtime types
+  // — and those conflict with the app's DOM lib, so the two cannot share a
+  // project. What has not changed is why it is typechecked at all: a
+  // deploy-path file nobody typechecks is exactly the file that breaks on the
+  // first deploy, and this repository has no account to discover that on.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "types": ["@cloudflare/workers-types"],
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "noEmit": true
+  },
+  "include": ["worker"]
+}

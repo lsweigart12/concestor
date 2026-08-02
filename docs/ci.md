@@ -102,45 +102,42 @@ floor, not the check.
 
 ## 3. Cloudflare: what can actually deploy there
 
-**The frontend can. The read API cannot.**
+**All of it**, since Containers went generally available on 2026-04-13. One
+Worker serves `web/dist` as static assets and routes `/v1/*` to a Container
+running `docs/architecture.md` §4's binary unchanged — same mmap'd arrays,
+same `immutable=1` SQLite, on a machine with a page cache.
 
-`docs/architecture.md` §4 is one static binary that mmaps the topology arrays
-and opens `concestor.db` with `immutable=1`, both at startup, both read-only.
-The artifact set is **2,004 MB** (`docs/handoff.md` §4 — architecture §11's
-700 MB estimate predates the resolution layer and the silhouette map). A
-Worker has a few hundred megabytes of memory and no mmap, so this is not a
-porting exercise; it is a different backend. The honest alternatives, none of
-which is scheduled:
+**[docs/deployment.md](deployment.md) is the decision, the alternatives and the
+measurements.** It supersedes this section's earlier answer, which was
+frontend-here-API-elsewhere and was correct when it was written. The three
+numbers that decided it: a Worker isolate is capped at **128 MB** and the
+artifact set is **2,229 MB**, so the binary genuinely does not port; the
+process's measured working set is **463 MB**, which a 4 GiB instance holds with
+room; and `/v1/path` answers in **0.4 ms**, which is 41 dependent array reads
+and rules out every design that turns them into round trips.
 
-- **Move the data to D1 or R2.** D1 caps well below 2 GB and is not a drop-in
-  for a 41-row-deep ancestor walk plus an FTS5 index. R2 with range reads
-  could serve the `.npy` arrays — they are a 128-byte header followed by raw
-  little-endian values, so a range request *is* an array read — but every
-  `path()` call is 41 dependent lookups, and 41 sequential round trips to
-  object storage is not the 41 array reads architecture §4 costs it at.
-- **Keep the API on a container** — Fly, Cloud Run, a VM — and put Cloudflare
-  in front of the frontend only. This is what the config assumes.
+Three things about the deploy path belong here rather than there.
 
-So `web/wrangler.jsonc` deploys `web/dist` as Workers static assets, and
-`web/worker/index.ts` proxies `/v1/*` to `API_ORIGIN`. The proxy exists to
-keep one invariant true: `web/src/api.ts` fetches `/v1` **same-origin**, as it
-does under the Go binary and under `scripts/dev.sh`'s vite proxy. The
-alternative is a base-URL setting in the client plus CORS on the server, which
-is two more things to configure and two more ways for a deploy to be subtly
-wrong.
+**The API image is never built in CI, and cannot be.** It carries 2.2 GB of
+pipeline output that is not in this repository — §5's rule, unchanged. So
+`scripts/deploy/push-api-image.sh` builds and pushes it from a checkout that
+has `build/`, and `web/wrangler.jsonc` names it by **registry tag**. That form
+is not cosmetic: with a Dockerfile in that config, `wrangler deploy --dry-run`
+refuses to run without Docker *even in a dry run*, which would break the
+`cloudflare` job below. With a registry reference the dry run passes clean, no
+Docker and no credentials.
 
-Two details in that config are load-bearing:
+**`assets.run_worker_first: ["/v1/*"]` is load-bearing.** Without it,
+`not_found_handling: "single-page-application"` answers *every* unmatched path
+with `index.html` and the Worker never runs — `/v1/search` would return the
+HTML shell with a 200 and the client would try to parse it as JSON.
 
-- `assets.run_worker_first: ["/v1/*"]`. Without it, `not_found_handling:
-  "single-page-application"` answers *every* unmatched path with `index.html`
-  and the Worker never runs — `/v1/search` would return the HTML shell with a
-  200 and the client would try to parse it as JSON.
-- The Worker returns the upstream response unmodified. `/v1` is
-  `Cache-Control: immutable` keyed by build id because the data cannot change
-  within a build, and `/v1/random` is the one deliberate exception, `no-store`
-  with no ETag. Caching that at the edge would hand every visitor the same
-  "random" species forever — an endpoint that appears to work and never picks
-  twice.
+**The Worker returns the upstream response unmodified.** `/v1` is
+`Cache-Control: immutable` keyed by build id because the data cannot change
+within a build, and `/v1/random` is the one deliberate exception, `no-store`
+with no ETag. Caching that at the edge would hand every visitor the same
+"random" species forever — an endpoint that appears to work and never picks
+twice.
 
 ### Turning the deploy on
 
@@ -152,29 +149,38 @@ was never wired up. Meanwhile the `cloudflare` job in `ci.yml` still bundles
 the Worker and validates the config on every pull request, so the first real
 deploy is a credentials problem rather than a config one.
 
-To enable it, set in the repository:
+The order matters, because a Worker whose container image does not exist yet
+will not deploy. `docs/deployment.md` §5 has it in full; in short, push the
+image first and commit the tag it prints, then set:
 
 | | Name | Value |
 |---|---|---|
-| secret | `CLOUDFLARE_API_TOKEN` | scoped to *Edit Cloudflare Workers* |
-| secret | `CLOUDFLARE_ACCOUNT_ID` | |
-| variable | `CONCESTOR_API_ORIGIN` | `https://` origin of the Go read API |
+| secret | `CLOUDFLARE_API_TOKEN` | *Edit Cloudflare Workers*, plus registry write to push images |
+| secret | `CLOUDFLARE_ACCOUNT_ID` | substituted into the image reference at deploy time |
+| variable | `CONCESTOR_API_ORIGIN` | **optional.** Set it only to route `/v1` to an API *outside* Cloudflare |
 
-Then a push to `main` runs `wrangler deploy`, and a pull request from this
-repository runs `wrangler versions upload --preview-alias pr-N`, which
-publishes a preview URL without moving production traffic. Pull requests from
-forks have no secrets and skip the deploy, which is the correct behaviour
-rather than a limitation to work around.
+Then a release runs `wrangler deploy`, and a pull request from this repository
+runs `wrangler versions upload --preview-alias pr-N`, which publishes a preview
+URL without moving production traffic. Pull requests from forks have no secrets
+and skip the deploy, which is the correct behaviour rather than a limitation to
+work around.
 
 `CONCESTOR_API_ORIGIN` is passed with `--var`, not as a secret, deliberately:
-it is a public origin the browser already sends every request to.
+it is a public origin the browser already sends every request to. Leaving it
+unset is the normal case and is what uses the container; setting it is both the
+local-development path and the one-variable fallback if the API ever moves back
+off Cloudflare.
 
 Locally:
 
 ```bash
 npm --prefix web run cf:check   # the same dry run CI does
-npm --prefix web run cf:dev     # wrangler dev, needs API_ORIGIN set
+npm --prefix web run cf:dev     # wrangler dev; set API_ORIGIN at a local server
 ```
+
+`cf:dev` wants `API_ORIGIN` pointed at a running `scripts/serve.sh` rather than
+the container: starting the real one locally means Docker and a 2.2 GB image,
+which is not a thing to ask of someone changing a button.
 
 ---
 
@@ -239,8 +245,9 @@ the built frontend, and `SHA256SUMS`. The binaries are static
 `modernc.org/sqlite` rather than a cgo wrapper) and carry the version through
 `-ldflags -X main.version`.
 
-**The dataset is not in the release and never will be.** 2,004 MB of baked
-artifacts move on the pipeline's cadence, not the code's. A running instance
+**The dataset is not in the release and never will be.** Two gigabytes of baked
+artifacts move on the pipeline's cadence, not the code's; their vehicle is the
+container image of §3, tagged with the build id it contains. A running instance
 reports both on `/v1/about`: `release` is the tag it was built from, `build_id`
 is the artifact set it has mmap'd. Conflating them would be the same mistake as
 merging `age_ma` into `age_layout` to save 10 MB — one number where the honest
@@ -270,8 +277,11 @@ manually with `dry_run` left on.
 
 - **No pipeline run in CI.** Release cadence, not per commit, and the upstream
   APIs are a build-time oracle that must be paced.
-- **No deployment of the read API.** There is nowhere to deploy it to yet, and
-  a workflow that pretends otherwise is worse than none.
+- **No workflow that builds the read API's image.** The API does deploy now —
+  as a Container, per §3 — but its image contains the dataset, and a workflow
+  that builds it would need the pipeline's output in CI. `scripts/deploy/push-api-image.sh`
+  runs where `build/` already is, on the pipeline's cadence rather than the
+  code's, and prints a tag for someone to commit.
 - **No coverage percentage.** The number that matters on this repo is the
   pass/skip split in §2, and a coverage badge computed without a dataset would
   report the 17-test figure as the truth.

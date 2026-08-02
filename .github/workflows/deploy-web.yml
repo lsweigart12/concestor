@@ -1,9 +1,12 @@
-# Deploy the frontend to Cloudflare Workers.
+# Deploy Concestor to Cloudflare: the Worker, its static assets, and the
+# Container binding that runs the Go read API.
 #
-# The frontend only. The read API mmaps the baked arrays and opens a 2 GB
-# SQLite database read-only; it is a container, and `web/worker/index.ts`
-# proxies /v1 to wherever that container runs. docs/ci.md §3 is the whole
-# argument, including what it would cost to move the API to the edge.
+# It does not build the API image. That image carries 2.2 GB of pipeline
+# output which is not in this repository and must never be produced in CI, so
+# it is pushed by `scripts/deploy/push-api-image.sh` from a checkout that has
+# build/, and web/wrangler.jsonc names it by tag. This workflow deploys the
+# Worker that points at it. docs/deployment.md is the decision and §5 is the
+# deploy mechanics; docs/ci.md §3 is the short version.
 #
 # Nothing is configured yet, and this workflow is written so that costs
 # nothing: with no credentials in the repository every deploy step is skipped
@@ -12,9 +15,12 @@
 # that the pipeline was never wired up.
 #
 # To turn it on, set in the repository:
-#   secret CLOUDFLARE_API_TOKEN    — scoped to "Edit Cloudflare Workers"
+#   secret CLOUDFLARE_API_TOKEN    — "Edit Cloudflare Workers", and registry
+#                                    write if the image is ever pushed from CI
 #   secret CLOUDFLARE_ACCOUNT_ID
-#   variable CONCESTOR_API_ORIGIN  — https origin of the Go read API
+#   variable CONCESTOR_API_ORIGIN  — optional. Set it only to route /v1 to an
+#                                    API *outside* Cloudflare; leaving it
+#                                    unset is what uses the container.
 
 name: Deploy web
 
@@ -64,8 +70,8 @@ jobs:
             echo "configured=false" >> "$GITHUB_OUTPUT"
             echo "::notice::No Cloudflare credentials in this repository — skipping the deploy. See .github/workflows/deploy-web.yml for what to set."
           fi
-          if [ -z "$API_ORIGIN" ]; then
-            echo "::warning::CONCESTOR_API_ORIGIN is unset; the Worker will answer /v1 with 503 until it is set."
+          if [ -n "$API_ORIGIN" ]; then
+            echo "::notice::CONCESTOR_API_ORIGIN is set — /v1 will be proxied to it and the Container will not be used."
           fi
 
       - uses: actions/checkout@v4
@@ -94,11 +100,34 @@ jobs:
           VITE_APP_VERSION: ${{ github.event.release.tag_name || github.sha }}
         # Rebuilt here rather than pulled from CI's artifact: a deploy that
         # depends on another workflow's output can ship a bundle whose source
-        # nobody can name. `tsc -b` runs as part of `build`, so a type error
-        # still stops it.
+        # nobody can name. `tsc -b` runs as part of `build`, and so does the
+        # worker's own typecheck, so a type error on the deploy path still
+        # stops it.
         run: |
           npm ci
           npm run build
+
+      # Wrangler does not interpolate environment variables into
+      # wrangler.jsonc — a literal ${CLOUDFLARE_ACCOUNT_ID} is pushed straight
+      # through to the registry path — so the account id is substituted here.
+      # The committed placeholder is what lets ci.yml's dry run validate the
+      # config on a repository with no account at all.
+      #
+      # The *tag* is not substituted. It is committed, because pinning it is
+      # what makes rolling the Worker back roll the dataset back with it.
+      - name: Resolve the container image reference
+        if: steps.guard.outputs.configured == 'true'
+        working-directory: web
+        run: |
+          if ! grep -q 'registry.cloudflare.com/ACCOUNT_ID/' wrangler.jsonc; then
+            echo "::error::wrangler.jsonc has no ACCOUNT_ID placeholder to substitute. Did the image reference change shape?"
+            exit 1
+          fi
+          if grep -q 'concestor-api:unpublished' wrangler.jsonc; then
+            echo "::error::The container image tag is still 'unpublished'. Run scripts/deploy/push-api-image.sh from a checkout with build/, then commit the tag it prints. docs/deployment.md §5."
+            exit 1
+          fi
+          sed -i "s|registry.cloudflare.com/ACCOUNT_ID/|registry.cloudflare.com/${CLOUDFLARE_ACCOUNT_ID}/|" wrangler.jsonc
 
       # A version upload, not a deploy: it publishes a preview URL and does
       # not move production traffic. `--preview-alias` gives the branch a
@@ -115,9 +144,11 @@ jobs:
       - name: Deploy
         if: steps.guard.outputs.configured == 'true' && github.event_name != 'pull_request'
         working-directory: web
-        # --var overrides wrangler.jsonc's empty API_ORIGIN. It is a plaintext
-        # variable and must stay one: it is a public origin the browser
-        # already sends every request to, not a secret.
+        # --var overrides wrangler.jsonc's empty API_ORIGIN. Empty is the
+        # normal case and means "use the Container"; a value routes /v1 to an
+        # external origin instead. It is a plaintext variable and must stay
+        # one: it is a public origin the browser already sends every request
+        # to, not a secret.
         run: |
           npx wrangler deploy \
             --var "API_ORIGIN:${API_ORIGIN}" \
