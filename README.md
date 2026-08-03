@@ -209,3 +209,43 @@ re-researching.
 | [serving-binary.md](docs/serving-binary.md) | Why the read API is Go, and what it serves |
 | [management.md](docs/management.md) | The standing brief for whoever owns the project |
 | [worktrees.md](docs/worktrees.md) | Running from a parallel git worktree |
+
+---
+
+## Contributing
+
+Issues and pull requests are welcome — [CONTRIBUTING.md](CONTRIBUTING.md) covers
+the checks, the commit convention, and the two habits that will otherwise waste
+your time. Security reports go through
+[private vulnerability reporting](https://github.com/lsweigart12/concestor/security/advisories/new)
+rather than an issue; [SECURITY.md](SECURITY.md) describes what the attack
+surface actually is, which is smaller than the repository's size suggests.
+
+---
+
+## Licence
+
+**The software is [Apache 2.0](LICENSE).** That covers the build pipeline, the
+read API, the frontend, the design documents, and the mascot artwork in
+`brand/`.
+
+**It does not cover the data.** The scientific sources the pipeline downloads,
+the artifact set it bakes into `build/`, and the silhouette mirror each carry
+their own upstream terms. [NOTICE](NOTICE) sets them out in full, source by
+source. Anyone redistributing a built dataset — as a release artifact, a
+container image, or a hosted service — is redistributing that upstream data and
+is bound by those terms rather than by the Apache licence.
+
+Three of them will decide what you can do with this:
+
+- **Attribution is required** for the dated tree (Duke et al. 2026, CC-BY 4.0)
+  and the ICS timescale (CC-BY 4.0), and per-image for much of PhyloPic.
+- **5.8% of the silhouette corpus is NonCommercial.** The pipeline applies no
+  NonCommercial filter, deliberately, because this project is not commercial.
+  **Any commercial use must filter them out first** — and that includes
+  advertising or sponsorship on an otherwise free hosted instance. The
+  `license_url` column carries everything needed, and NOTICE measures what
+  filtering costs.
+- **TimeTree is excluded outright.** Its terms prohibit redistributing its data
+  or transformations of it. No TimeTree-derived age appears anywhere in this
+  project, and none may be added.

@@ -2,6 +2,9 @@
 name = "concestor-build"
 version = "0.1.0"
 description = "Offline build pipeline producing Concestor's immutable artifact set"
+# The Apache licence covers this pipeline's code. It does not cover the data
+# the pipeline downloads or the artifact set it bakes — see NOTICE.
+license = "Apache-2.0"
 requires-python = ">=3.14"
 dependencies = [
     "numpy>=2.3",
