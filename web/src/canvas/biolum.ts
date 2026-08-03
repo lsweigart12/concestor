@@ -1,33 +1,31 @@
 /**
- * Bioluminescence: the shared seeds and the spill bus.
+ * Bioluminescence: the shared seeds, and what the marks contribute.
  *
  * **The data is the light source.** That is styles.css's standing rule and this
- * mode does not get to relax it — it gets to take it *literally*. There is no
- * ambient light in this mode. Nothing in the background emits. Every photon on
- * the canvas either is a branch, or is a mark, or **came out of one**: the
- * particles suspended in the water are spilled by the nodes, drift away from
- * them, twinkle, and go out. Turn the mode on over an empty canvas and the
- * water is black, because there is nothing to have lit it.
+ * mode does not get to relax it — it gets to take it *literally*. Nothing in
+ * the background emits. Every photon on the canvas is a branch or a mark, and
+ * the only other thing visible is what *reflects* them: the marine snow, which
+ * emits nothing at all and is dark wherever the tree is not.
  *
- * That reframing is what makes the whole thing defensible. An earlier cut had
- * drifting caustics and shafts of surface light, and they were pretty and they
- * were wrong: they were a second light source competing with the graph, exactly
- * what the rule forbids, and at low opacity across the whole viewport they read
- * as astigmatism rather than as depth.
+ * That is a stronger reading of the rule than the mode's first cut managed. It
+ * had a field of particles spilled *out* of the nodes, drifting away and going
+ * on shining on their own — pretty, and a second light source in all but name,
+ * which is what made the canvas read as sparkly. Snow cannot do that. It has no
+ * light of its own to carry away.
  *
  * Three effects, and each one is a *behaviour of the data*:
  *
- *   flow      a branch is a tentacle with a luminescent reaction being pushed
- *             down it — ancestor to descendant, always that way. `flow.ts`
- *             solves it as an actual one-dimensional fluid
- *   spill     every node leaks light into the water around it
- *   strum     running a pointer across a branch plucks it, and the branch sheds
- *             a burst of light where it was touched
+ *   river     a branch is a tentacle with a luminescent reaction running down
+ *             it — ancestor to descendant, always that way. `flow.ts` and
+ *             `gl/tuning.ts` hold its constants; the motion is closed-form
+ *   glow      every mark leaks light into the water around it
+ *   touch     running a pointer across a branch plucks it and it surges;
+ *             pointing at a mark makes it flare. Neither throws anything out
  *
  * The channels the instrument reserves are untouched in both states. The dash
  * pattern and the tier desaturation say what is known and what is guessed, and
- * they say it identically with every light in the room on. `mayPump` and the
- * tier rules in styles.css are where that is enforced.
+ * they say it identically with every light in the room on. `mayPump` and
+ * `tierBrightness` are where that is enforced.
  */
 
 /* ------------------------------------------------------------- randomness -- */
@@ -36,10 +34,16 @@
  * A small deterministic generator.
  *
  * Anything derived from a node or an edge is seeded from its own id, so it is
- * the same on every render. That is not tidiness: a branch whose flow was
+ * the same on every render. That is not tidiness: a branch whose river was
  * reseeded from `Math.random` on each React pass would visibly restart every
- * time an unrelated node was added, and the eye reads a restart as an event. Particles are the exception and use `Math.random` freely — they live
- * for seconds and are never re-derived, so there is nothing to keep stable.
+ * time an unrelated node was added, and the eye reads a restart as an event.
+ *
+ * Nothing on the canvas is exempt any more. The old field's motes could use
+ * `Math.random` freely because they lived for seconds and were never
+ * re-derived; every pinpoint and every flake is now a pure function of its
+ * index, so all of them are derived on every frame and none of them may drift.
+ * The GPU side has its own hash for that — see `pcg3d` in `gl/shaders.ts`, and
+ * why the cheap one was not good enough.
  */
 export function seeded(seed: number): () => number {
   let s = (Math.trunc(seed) ^ 0x9e3779b9) >>> 0;
@@ -70,59 +74,49 @@ export function hashKey(key: string): number {
   return Math.abs(h);
 }
 
-/* ----------------------------------------------------------------- spill -- */
+/* ----------------------------------------------------------------- marks -- */
 
 /**
- * Where a burst of light came from, in **layout coordinates**.
+ * When each mark was last pointed at.
  *
- * Layout and not screen, because the water belongs to the tree: pan and zoom
- * carry the particles with the branches that shed them, which is the whole
- * reason they read as suspended in the same volume rather than as a filter over
- * the top of it.
+ * Module-level rather than carried on the emitter, and for the same reason
+ * `flow.ts` keeps its surges outside the source objects: the emitter list is
+ * rebuilt from the layout on every pass, so a flare stored on one would be
+ * discarded the moment anything else on the canvas changed. Keyed by the node's
+ * own key, which survives a re-layout.
+ *
+ * It replaces a burst of particles puffed out of the mark. Same gesture, same
+ * moment, and the light now stays where it was made — which is the whole point
+ * of the redesign, and is also why the snow around a pointed-at node brightens
+ * without anything here knowing that snow exists.
  */
-export interface Spill {
-  x: number;
-  y: number;
-  hue: number;
-  count: number;
-  /** Initial speed, layout px per second. */
-  speed: number;
-  /** Radians. `TAU` is an even burst; a smaller arc aimed by `aim` is a spray. */
-  spread?: number;
-  aim?: number;
+const flares = new Map<string, number>();
+
+export function flareMark(key: string, at: number = performance.now()): void {
+  flares.set(key, at);
 }
 
-type SpillListener = (s: Spill) => void;
-const listeners = new Set<SpillListener>();
+export function flareOf(key: string): number | undefined {
+  return flares.get(key);
+}
 
 /**
- * A one-line event bus, and it earns its keep.
+ * A mark leaking light into the water around it, continuously.
  *
- * The things that shed light are a trace and a mark; the thing that draws the
- * water is a canvas three levels up. Threading a callback down would mean a new
- * field on `TraceEdgeData` and on `MarkData`, both of which are handed through
- * React Flow's `data` bag as `Record<string, unknown>` — so the callback would
- * be re-created on every layout pass and would defeat the memo on every edge
- * and every node on the canvas, to deliver an event that has nothing to do with
- * React's render at all. A burst of particles is not state. It is a thing that
- * happened.
+ * `power` is **the selection channel**, which is the one thing luminance is
+ * already allowed to encode: a species the reader chose and the common ancestor
+ * they came for shine harder than an intermediate divergence. That is the same
+ * statement the corona and the label brightness already make, said a third way,
+ * rather than a new channel carrying a new fact. It is deliberately *not* keyed
+ * to age, tier or tip count — those are data values, and a mark that glowed
+ * harder because a clade was large would be exactly the failure this mode is
+ * written to avoid.
  */
-export function spill(s: Spill): void {
-  for (const fn of listeners) fn(s);
-}
-
-export function onSpill(fn: SpillListener): () => void {
-  listeners.add(fn);
-  return () => {
-    listeners.delete(fn);
-  };
-}
-
-/** A node leaking light into the water around it, continuously. */
 export interface Emitter {
   x: number;
   y: number;
   hue: number;
-  /** Particles per second. See `EMIT_BASE` in `particles.ts`. */
-  rate: number;
+  power: number;
+  /** Read live, so a flare that starts mid-frame is not lost until re-layout. */
+  flareAt?: () => number | undefined;
 }

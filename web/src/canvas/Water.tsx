@@ -1,139 +1,40 @@
 /**
- * The canvas the spilled light drifts in.
+ * The water, and the one canvas everything luminous in this mode is drawn on.
  *
- * It has no content of its own — no gradient, no texture, no ambient anything.
- * It is a transparent additive layer holding {@link Field}'s particles, every
- * one of which was shed by a mark or by a plucked branch. With nothing on the
- * tree it draws nothing at all, which is the property that keeps this mode
- * honest about where the light comes from.
+ * Behind React Flow rather than over it, so the tree's names are always in
+ * front and a flake never sits on top of a word. It paints no background of its
+ * own beyond the deep water itself — with nothing on the canvas there is
+ * nothing lit, because the only things that emit here are the branches and the
+ * marks.
  *
- * Behind React Flow rather than over it, so the tree is always the brightest
- * thing and a mote never sits in front of a name. Additive compositing, so
- * overlapping particles genuinely sum — which is what a suspension of scattering
- * flecks does, and is why this is a canvas and not six hundred DOM nodes.
+ * **The snow emits nothing at all.** That is the change this mode is built
+ * around and it is worth being exact about: the old field's particles left a
+ * node and went on shining on their own, drifting away, which is what made the
+ * canvas read as sparkly and which was a second light source in all but name.
+ * Marine snow is only ever *lit*. It is barely visible over most of the
+ * viewport, and where it drifts near a river it catches that river's light,
+ * twinkles with it, and takes more of its hue the more of it is nearby. Turn a
+ * branch off and the snow beside that branch goes dark.
  *
  * Three refusals:
  *
- *   - **The loop stops when nothing can see it.** Hidden tab, mode off, or an
- *     empty field. It does not idle at sixty frames a second over black.
- *   - **`prefers-reduced-motion` gets a still field**, not an empty one. The
- *     particles are the setting; removing them removes the setting rather than
- *     removing motion from it. They are drawn once, from a single seeded burst,
- *     and never move.
- *   - **Device pixel ratio is capped.** Every pixel here is a soft radial with
- *     no edge in it, so a retina buffer costs 78% more fill for a difference
- *     nobody can point at.
+ *   - **The loop stops when nothing can see it.** Hidden tab or mode off. It
+ *     does not idle at sixty frames a second over black.
+ *   - **`prefers-reduced-motion` gets a still frame**, not an empty one. The
+ *     light is the setting; removing it removes the setting rather than
+ *     removing motion from it. The clock is simply held.
+ *   - **No WebGL2, no mode.** `BiolumRenderer.supported()` is asked before
+ *     anything mounts, and `Graph.tsx` hides the switch rather than offering
+ *     one that turns the canvas black.
  */
 
 import { useEffect, useRef } from "react";
-import { onSpill, type Emitter } from "./biolum";
-import { alphaOf, Field, LIFE_MAX } from "./particles";
-import { flowSources, tracerXY } from "./flow";
-
-const MAX_DPR = 1.5;
-/** Sprite tints are bucketed; `laneHue` only ever returns seven values anyway. */
-const HUE_BUCKET = 8;
-/**
- * Screen px, floor on the *halo* radius.
- *
- * Not a cosmetic minimum: the bright core is a fixed fraction of whatever this
- * ends up being, so a halo allowed to shrink takes its own pinpoint below one
- * pixel and the particle stops being drawn at all. Pulled right back, the water
- * thins because the tree is small, not because its light stopped rendering.
- */
-const MIN_SCREEN_R = 5;
-
-/**
- * Two light profiles, and the difference is not decoration.
- *
- * `mote` is scattered fallout — a hard pinpoint inside a wide faint halo, which
- * is what a fleck catching light in open water looks like. `spark` is a *source*:
- * the reaction itself, seen through the glass of a tube, so it carries a much
- * larger bright centre.
- *
- * They cannot share one profile, and the reason is the downscale. A mote's core
- * is 7% of its radius, which is right at the sprite's own 128px and right on
- * screen where a mote is drawn 8–22px across. A tracer inside a branch is drawn
- * at the floor, ~10px, so 7% is a third of a pixel — the core is averaged away
- * and all that survives is the faint halo. Measured, that left every branch's
- * stream present in the buffer and invisible on screen, which is the same
- * failure the water's own particles had at their first numbers.
- */
-export type Glow = "mote" | "spark";
-
-const spriteCache = new Map<string, HTMLCanvasElement>();
-
-/**
- * One soft light, pre-rendered per hue and blitted.
- *
- * A hot near-white core inside a coloured falloff. That two-part shape is what
- * makes a fleck read as *scattering* rather than as a coloured dot: real
- * biological light is white where it is dense enough to saturate and takes its
- * colour in the halo.
- */
-function sprite(hue: number, kind: Glow = "mote"): HTMLCanvasElement {
-  const key = `${kind}:${hue}`;
-  const hit = spriteCache.get(key);
-  if (hit) return hit;
-  // 128 and not 48, and the reason is the core below. At a tenth of the radius
-  // a 48px sprite gives the point 2.4 source pixels to be drawn in, which is
-  // already mush before the downscale to screen touches it. Seven of these
-  // exist — `laneHue` returns seven values — so the whole cache is 448 KB of
-  // texture, once, for the life of the page.
-  const size = 128;
-  const c = document.createElement("canvas");
-  c.width = size;
-  c.height = size;
-  const g = c.getContext("2d");
-  if (g) {
-    const grad = g.createRadialGradient(
-      size / 2,
-      size / 2,
-      0,
-      size / 2,
-      size / 2,
-      size / 2,
-    );
-    /*
-      A pinpoint, and the light it puts into the water.
-
-      The two are one gradient but they are doing separate jobs, and the ratio
-      between them is the whole look. The first tenth of the radius is the
-      *source* — near-white, effectively opaque, and small enough on screen to
-      read as a point rather than as a dot. Everything past it is what that
-      point is throwing into the water: an order of magnitude fainter, and
-      reaching most of the way out, so a particle is a hard spark inside a soft
-      volume rather than a blob with a bright middle.
-
-      A wider core was the previous shape, and it was wrong for the same reason
-      a wide bloom on the branches was wrong: it turned every point into an
-      area, and an area has no position. The floor on the halo radius in
-      `MIN_SCREEN_R` is what keeps this ratio affordable — shrink the halo and
-      the core goes subpixel with it.
-    */
-    if (kind === "spark") {
-      grad.addColorStop(0, `hsl(${hue} 100% 97% / 1)`);
-      grad.addColorStop(0.15, `hsl(${hue} 100% 90% / 0.92)`);
-      grad.addColorStop(0.28, `hsl(${hue} 100% 76% / 0.4)`);
-      grad.addColorStop(0.52, `hsl(${hue} 100% 66% / 0.12)`);
-      grad.addColorStop(1, `hsl(${hue} 100% 60% / 0)`);
-    } else {
-      grad.addColorStop(0, `hsl(${hue} 100% 96% / 1)`);
-      grad.addColorStop(0.07, `hsl(${hue} 100% 88% / 0.95)`);
-      grad.addColorStop(0.11, `hsl(${hue} 100% 74% / 0.34)`);
-      grad.addColorStop(0.22, `hsl(${hue} 100% 64% / 0.1)`);
-      grad.addColorStop(0.5, `hsl(${hue} 100% 58% / 0.028)`);
-      grad.addColorStop(1, `hsl(${hue} 100% 55% / 0)`);
-    }
-    g.fillStyle = grad;
-    g.fillRect(0, 0, size, size);
-  }
-  spriteCache.set(key, c);
-  return c;
-}
+import type { Emitter } from "./biolum";
+import { flowGeneration, flowSources, surgeOf } from "./flow";
+import { BiolumRenderer, type MarkLight } from "./gl/renderer";
 
 export interface WaterProps {
-  /** Live viewport transform: particles live in layout space. */
+  /** Live viewport transform: the tree's light lives in layout space. */
   tx: number;
   ty: number;
   zoom: number;
@@ -149,8 +50,8 @@ export function Water({ tx, ty, zoom, emitters, active, reduced }: WaterProps) {
     The transform and the emitter list are read from refs inside the loop rather
     than closed over. Both change constantly — the transform on every frame of a
     drag, the emitters on every layout pass — and closing over them would tear
-    the animation down and rebuild it that often, which is both a stutter and a
-    field that resets to empty mid-gesture.
+    the animation down and rebuild it that often, which is a stutter and a
+    renderer that reallocates its buffers mid-gesture.
   */
   const view = useRef({ tx, ty, zoom });
   view.current = { tx, ty, zoom };
@@ -160,170 +61,77 @@ export function Water({ tx, ty, zoom, emitters, active, reduced }: WaterProps) {
   useEffect(() => {
     const cv = ref.current;
     if (!cv || !active) return;
-    const ctx = cv.getContext("2d", { alpha: true });
-    if (!ctx) return;
 
-    const field = new Field();
-    let w = 0;
-    let h = 0;
+    let renderer: BiolumRenderer;
+    try {
+      renderer = new BiolumRenderer(cv);
+    } catch (err) {
+      /*
+        A swallowed failure here is an empty canvas and nothing else — no
+        error, no fallback, no clue. Every way this throws is a *build* fault
+        rather than a runtime one (a shader that does not compile, a uniform
+        renamed on one side only), so it will be the same on every machine and
+        it needs to be loud the first time somebody sees it.
+      */
+      console.error("bioluminescence: renderer failed to start", err);
+      return;
+    }
+
     let raf = 0;
+    let seen = -1;
+    let clock = 0;
     let last = performance.now();
-    const dpr = Math.min(window.devicePixelRatio || 1, MAX_DPR);
 
     const resize = () => {
-      const rect = cv.getBoundingClientRect();
-      w = Math.max(1, Math.round(rect.width));
-      h = Math.max(1, Math.round(rect.height));
-      cv.width = Math.round(w * dpr);
-      cv.height = Math.round(h * dpr);
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const r = cv.getBoundingClientRect();
+      renderer.resize(Math.max(1, r.width), Math.max(1, r.height));
     };
     resize();
 
-    // Reused across every tracer on every frame, so projecting a thousand of
-    // them allocates nothing.
-    const at = { x: 0, y: 0 };
-
-    /**
-     * The streams inside the branches.
-     *
-     * On this canvas rather than in each edge's SVG, and that is what makes the
-     * tubes read as *lit from inside*: the wall is a mostly transparent stroke
-     * over the top, so what a reader sees through it is this layer, summed.
-     * Where tracers bunch the tube brightens; where the stream has strung out
-     * it goes almost dark. A per-edge renderer could not do that — it would
-     * have nothing to sum against.
-     */
-    const drawStreams = (px: number, py: number, z: number) => {
-      for (const src of flowSources()) {
-        if (src.pts.length < 2) continue;
-        const spr = sprite(Math.round(src.hue / HUE_BUCKET) * HUE_BUCKET, "spark");
-        for (const p of src.flow.tracers) {
-          const a = src.flow.alphaOf(p) * src.gain;
-          if (a <= 0.005) continue;
-          tracerXY(src, p, at);
-          const sx = at.x * z + px;
-          const sy = at.y * z + py;
-          const box = Math.max(MIN_SCREEN_R * 2, p.r * z * 2);
-          if (sx < -box || sy < -box || sx > w + box || sy > h + box) continue;
-          ctx.globalAlpha = Math.min(1, a);
-          ctx.drawImage(spr, sx - box / 2, sy - box / 2, box, box);
-        }
+    const marks: MarkLight[] = [];
+    const syncMarks = () => {
+      marks.length = 0;
+      for (const e of emit.current) {
+        marks.push({ x: e.x, y: e.y, hue: e.hue, power: e.power, flareAt: e.flareAt?.() });
       }
     };
 
     const draw = () => {
-      ctx.clearRect(0, 0, w, h);
-      ctx.globalCompositeOperation = "lighter";
-      const { tx: px, ty: py, zoom: z } = view.current;
-      drawStreams(px, py, z);
-      for (const p of field.particles) {
-        const a = alphaOf(p);
-        if (a <= 0.005) continue;
-        const sx = p.x * z + px;
-        const sy = p.y * z + py;
-        // A particle scaled with the tree would vanish when the reader pulls
-        // back, taking the water with it. The floor keeps the volume present at
-        // any zoom while the *positions* still travel with the branches.
-        const box = Math.max(MIN_SCREEN_R * 2, p.r * z * 2);
-        if (sx < -box || sy < -box || sx > w + box || sy > h + box) continue;
-        ctx.globalAlpha = a;
-        ctx.drawImage(
-          sprite(Math.round(p.hue / HUE_BUCKET) * HUE_BUCKET),
-          sx - box / 2,
-          sy - box / 2,
-          box,
-          box,
+      // The branch set is rebuilt by the layout, not by the frame. Adopting it
+      // only when it actually changed is what keeps the glass geometry and the
+      // centreline texture off the per-frame path.
+      const gen = flowGeneration();
+      if (gen !== seen) {
+        seen = gen;
+        renderer.setBranches(
+          flowSources().map((s) => ({ ...s, surgeAt: () => surgeOf(s.id) })),
         );
       }
-      ctx.globalAlpha = 1;
-      ctx.globalCompositeOperation = "source-over";
-    };
-
-    const unsubscribe = onSpill((s) => {
-      if (reduced) return;
-      field.emit(s);
-    });
-
-    if (reduced) {
-      // A still field, run out to the same steady state and then stopped.
-      // Enough light in the water to say what the mode is, and none of it
-      // moving. Deferred rather than run here for the same reason the live
-      // priming is: on a cold load the marks have not arrived yet.
-      let drawn = false;
-      const settle = () => {
-        if (drawn || emit.current.length === 0) return;
-        const step = 1 / 8;
-        const steps = Math.ceil(LIFE_MAX * 1.15 * 8);
-        for (let i = 0; i < steps; i++) {
-          field.trickle(emit.current, step);
-          field.step(step);
-        }
-        // The streams prime themselves on registration, so they already hold a
-        // plausible still frame; nothing here has to advance them.
-        draw();
-        drawn = true;
-      };
-      const poll = window.setInterval(settle, 250);
-      const onResize = () => {
-        resize();
-        draw();
-      };
-      window.addEventListener("resize", onResize);
-      return () => {
-        window.clearInterval(poll);
-        unsubscribe();
-        window.removeEventListener("resize", onResize);
-      };
-    }
-
-    /**
-     * Fast-forward the water to a steady state before the first frame is shown.
-     *
-     * Without it, switching the mode on gives a black volume that takes the
-     * best part of a particle lifetime to fill — so the effect a reader just
-     * asked for arrives, invisibly, about ten seconds after they asked. Priming
-     * runs the same simulation at a coarse step until the field is as full as it
-     * is ever going to be, and costs a few hundred iterations over an array that
-     * tops out in the hundreds.
-     *
-     * Lazily, on the first tick that has emitters, and not at mount. On a cold
-     * load carrying `bio=1` the paths are still in flight when this effect
-     * runs, so there is nothing on the canvas to have spilled anything yet —
-     * priming then would prime an empty tree and the flag would say it was
-     * done.
-     */
-    let primed = false;
-    const prime = () => {
-      // Long enough to cover a full lifetime, or the field arrives half full
-      // and goes on filling for the next half minute in front of the reader.
-      // Coarse steps: this is a fast-forward, not a simulation anybody sees.
-      const step = 1 / 8;
-      const steps = Math.ceil(LIFE_MAX * 1.15 * 8);
-      for (let i = 0; i < steps; i++) {
-        field.trickle(emit.current, step);
-        field.step(step);
-      }
-      primed = true;
+      syncMarks();
+      renderer.frame(clock, performance.now(), view.current, marks);
     };
 
     const tick = (now: number) => {
-      // Clamped, so returning to a backgrounded tab integrates one plausible
-      // frame rather than a minute of drift in a single step.
-      const dt = Math.min(0.05, Math.max(0, (now - last) / 1000));
+      // Clamped, so returning to a backgrounded tab advances one plausible
+      // frame rather than a minute of river in a single step.
+      clock += Math.min(0.05, Math.max(0, (now - last) / 1000));
       last = now;
-      if (!primed && emit.current.length > 0) prime();
-      field.trickle(emit.current, dt);
-      field.step(dt);
-      // One loop for everything suspended in the water, the branches' own
-      // streams included. Eighteen edges each running their own would be
-      // eighteen callbacks a frame to advance eighteen tiny solvers.
-      for (const src of flowSources()) src.flow.step(dt);
       draw();
       raf = window.requestAnimationFrame(tick);
     };
+
+    const onLost = (e: Event) => {
+      e.preventDefault();
+      renderer.onContextLost();
+      if (raf) window.cancelAnimationFrame(raf);
+      raf = 0;
+    };
+    cv.addEventListener("webglcontextlost", onLost);
+
     const start = () => {
-      if (!raf) {
+      // A lost context never comes back, and a loop over a dead renderer is
+      // sixty wake-ups a second to return immediately.
+      if (!raf && !reduced && !renderer.isLost) {
         last = performance.now();
         raf = window.requestAnimationFrame(tick);
       }
@@ -332,18 +140,67 @@ export function Water({ tx, ty, zoom, emitters, active, reduced }: WaterProps) {
       if (raf) window.cancelAnimationFrame(raf);
       raf = 0;
     };
-
     const onVisibility = () => (document.hidden ? stop() : start());
-    const onResize = () => resize();
+    const onResize = () => {
+      resize();
+      if (reduced) draw();
+    };
     window.addEventListener("resize", onResize);
     document.addEventListener("visibilitychange", onVisibility);
-    start();
 
+    if (reduced) {
+      /*
+        A still frame, redrawn whenever the *canvas* changes but never
+        because time passed.
+
+        `prefers-reduced-motion` asks for no motion. It does not ask for a
+        picture of a tree that is no longer on screen — and the first version
+        of this drew once, latched, and then showed the previous selection's
+        rivers for the rest of the session, because everything it reads arrives
+        through refs and none of it re-enters the effect. Adding a species left
+        its branch unlit; removing one left a river hanging in the water. Only
+        resizing the window recovered it.
+
+        So the poll never stops. It compares the two things that can change what
+        should be drawn — which branches are registered, and which marks are
+        emitting — and redraws on a change and on nothing else. The clock never
+        advances, so the picture is identical each time: still, and current.
+
+        It also has to be a *retry* rather than a single draw, because on a cold
+        load carrying the mode on the paths are still in flight when this effect
+        runs and there is nothing registered yet. The clock is held at a figure
+        that puts the rivers mid-branch rather than at zero, where every branch
+        would be empty at its descendant end.
+      */
+      clock = 7.3;
+      let lastGen = -1;
+      let lastMarks: readonly Emitter[] | null = null;
+      const settle = () => {
+        const gen = flowGeneration();
+        if (gen === lastGen && emit.current === lastMarks) return;
+        if (flowSources().length === 0 && emit.current.length === 0) return;
+        lastGen = gen;
+        lastMarks = emit.current;
+        draw();
+      };
+      const poll = window.setInterval(settle, 250);
+      settle();
+      return () => {
+        window.clearInterval(poll);
+        window.removeEventListener("resize", onResize);
+        document.removeEventListener("visibilitychange", onVisibility);
+        cv.removeEventListener("webglcontextlost", onLost);
+        renderer.dispose();
+      };
+    }
+
+    start();
     return () => {
       stop();
-      unsubscribe();
       window.removeEventListener("resize", onResize);
       document.removeEventListener("visibilitychange", onVisibility);
+      cv.removeEventListener("webglcontextlost", onLost);
+      renderer.dispose();
     };
   }, [active, reduced]);
 

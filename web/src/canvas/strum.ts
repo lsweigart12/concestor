@@ -97,13 +97,26 @@ export function samplePath(path: Samplable, n = STRUM_SAMPLES): StrumPoint[] {
     const b = pts[Math.min(n, i + 1)]!;
     const dx = b.x - a.x;
     const dy = b.y - a.y;
-    const m = Math.hypot(dx, dy) || 1;
+    const m = Math.hypot(dx, dy);
+    /*
+      A degenerate chord gets a real unit normal, not a zero one.
+
+      `|| 1` on the magnitude was not a guard: it divides `(0, 0)` by one and
+      yields `(0, 0)`, which is a normal of length zero. Harmless while these
+      points only bent an SVG path; the renderer now interpolates between
+      adjacent normals and calls `normalize` on the result, and normalising a
+      zero vector is NaN — which propagates into a vertex position and silently
+      drops whatever was riding on it. Any unit vector will do at a point that
+      has no direction; what may not happen is returning something that is not
+      one.
+    */
+    const unit = m > 1e-9;
     out.push({
       x: pts[i]!.x,
       y: pts[i]!.y,
       // Rotate the tangent a quarter turn.
-      nx: -dy / m,
-      ny: dx / m,
+      nx: unit ? -dy / m : 0,
+      ny: unit ? dx / m : 1,
       t: i / n,
     });
   }

@@ -24,8 +24,17 @@ import {
   TIER_STRUCTURAL,
   type Tier,
 } from "../api";
-import { hashKey, spill } from "./biolum";
-import { Flow, registerFlow, samplesFor, tierBrightness } from "./flow";
+import { hashKey } from "./biolum";
+import {
+  branchParams,
+  onLanding,
+  PATH_SAMPLES,
+  registerFlow,
+  surgeBranch,
+  surgeOf,
+  tierBrightness,
+} from "./flow";
+import { LANDING_AMP, LANDING_AT, revealAt } from "./gl/tuning";
 import {
   nearestOn,
   samplePath,
@@ -151,6 +160,23 @@ export function TraceEdge({ id, data }: EdgeProps) {
   const bendRef = useRef<((t: number) => number) | null>(null);
   /** The sampled centreline, shared by the stream and the pluck. */
   const ptsRef = useRef<StrumPoint[] | null>(null);
+  /** The live ring's frame handle, so it can be called off. */
+  const ringRef = useRef(0);
+  /**
+   * When this branch's draw-on began, or null once it is settled.
+   *
+   * The river inside the stroke is revealed from the same clock, so the light
+   * and the line arrive together — see `revealAt`. Null means "fully lit",
+   * which is what a settled canvas and a mid-session mode toggle both want.
+   */
+  const drawFrom = useRef<number | null>(null);
+  /**
+   * The rest shape, read at the moment the ring ends rather than captured when
+   * it started. A ring outlives layout changes and the geometry it has to
+   * restore is whatever the branch has become since.
+   */
+  const restRef = useRef(d.d);
+  restRef.current = d.d;
   const streaming = d.biolum && mayPump(d) && !d.reduced;
 
   useEffect(() => {
@@ -159,15 +185,18 @@ export function TraceEdge({ id, data }: EdgeProps) {
     if (!core || !group || d.drawToken === null) return;
 
     if (d.reduced) {
-      // Cut to the final state and keep the glow static.
+      // Cut to the final state and keep the glow static. `drawFrom` stays null,
+      // so the river is fully lit rather than frozen part-drawn.
       core.style.removeProperty("stroke-dasharray");
       core.style.removeProperty("stroke-dashoffset");
+      drawFrom.current = null;
       return;
     }
 
     const len = core.getTotalLength();
     core.style.strokeDasharray = `${len}`;
     core.style.strokeDashoffset = `${len}`;
+    drawFrom.current = performance.now();
 
     const draw = core.animate(
       [{ strokeDashoffset: len }, { strokeDashoffset: 0 }],
@@ -190,6 +219,7 @@ export function TraceEdge({ id, data }: EdgeProps) {
       // provenance tier lives.
       core.style.removeProperty("stroke-dasharray");
       core.style.removeProperty("stroke-dashoffset");
+      drawFrom.current = null;
     };
     draw.finished.then(done).catch(() => {});
 
@@ -201,16 +231,20 @@ export function TraceEdge({ id, data }: EdgeProps) {
   }, [d.drawToken, d.delay, d.reduced, d.d]);
 
   /**
-   * Register the branch's stream.
+   * Register the branch's river.
    *
-   * No loop of its own. The tracers are stepped and drawn by `Water.tsx`,
-   * because they belong on the additive canvas every other light on this canvas
-   * is composited into — that is what lets the tube's glass wall be lit by
-   * whatever is passing through it rather than by a uniform glow of its own.
+   * No loop and no solver of its own. Every pinpoint in every branch is drawn
+   * by one instanced call in `gl/renderer.ts`, into the one light buffer the
+   * marine snow reads to know how much light is near it and the glass reads to
+   * know what to reflect. A branch drawing its own would light nothing and be
+   * lit by nothing.
    *
    * What this owns is the *geometry*: the centreline is sampled **once per
    * geometry**, not per frame. `getPointAtLength` is not free and this runs for
-   * every branch on the canvas.
+   * every branch on the canvas. The count is fixed at {@link PATH_SAMPLES}
+   * because it is a texture row — a per-branch count would need either a
+   * ragged texture or a second lookup, and forty-eight samples of a path is
+   * cheaper than either.
    */
   useEffect(() => {
     const core = coreRef.current;
@@ -218,25 +252,105 @@ export function TraceEdge({ id, data }: EdgeProps) {
     const len = core.getTotalLength();
     if (!(len > 0)) return;
 
-    const pts: StrumPoint[] = samplePath(core, samplesFor(len));
+    // `samplePath` walks `0..=n`, so it returns n+1 points. The texture row is
+    // exactly PATH_SAMPLES wide and the glass strip is built from the same
+    // array, so asking for one fewer is what keeps the river and the tube it
+    // runs in the same length — off by one here left the river ending 2% short
+    // of its own wall.
+    const pts: StrumPoint[] = samplePath(core, PATH_SAMPLES - 1);
     if (pts.length < 2) return;
-    const flow = new Flow(len, hashKey(id));
-    // Mid-stream on its first frame. A canvas where every branch starts empty
-    // and fills together is a canvas that beats, and a beat reads as an
-    // announcement about the data.
-    flow.prime();
     ptsRef.current = pts;
 
     return registerFlow({
-      flow,
+      id,
       pts,
+      len,
       hue: d.hue,
       gain: tierBrightness(d.tier, d.unbounded),
-      // Read live rather than captured, so a pluck bends the stream that is in
+      params: branchParams(hashKey(id), len),
+      // Read live rather than captured, so a pluck bends the river that is in
       // the tube at the time without re-registering anything.
       bend: () => bendRef.current,
+      surgeAt: () => surgeOf(id),
+      reveal: () => revealAt(performance.now(), drawFrom.current, d.delay, DRAW_MS),
     });
-  }, [id, d.d, d.hue, d.tier, d.unbounded, streaming]);
+  }, [id, d.d, d.hue, d.tier, d.unbounded, d.delay, streaming]);
+
+  /**
+   * Ring the branch, from wherever it was disturbed.
+   *
+   * Extracted from the pluck because the entrance fires the same physics from a
+   * clock rather than a pointer — see {@link onLanding}. One implementation, so
+   * a tree locking into place and a reader running across a branch cannot drift
+   * into being two different animations.
+   *
+   * **And it surges.** This used to throw a burst of particles out across the
+   * branch. It does not any more, and the reason is the whole redesign: light
+   * leaving an organism and going on shining on its own is the image this mode
+   * gave up. A disturbed tentacle fires *harder*, in place — so the river
+   * brightens, the glass around it brightens with it because the wall is lit
+   * from inside, and the marine snow drifting past brightens too, because the
+   * vicinity field it reads went up. Three things respond to one float, and
+   * none of them was told about the pluck.
+   *
+   * The ring is 620ms of writing straight to two `d` attributes, and it can
+   * outlive the geometry it started on. Two consequences, both handled rather
+   * than hoped away. It restores `restRef` and not the `d.d` it was called
+   * with, because adding a species mid-ring gives the branch a new path and the
+   * captured one would be put back over it. And it is cancellable, because a
+   * component that unmounts mid-ring would otherwise go on calling
+   * `setAttribute` on detached nodes for the rest of the 620ms.
+   */
+  const startRing = useCallback(
+    (pts: readonly StrumPoint[], at: number, amp?: number) => {
+      const core = coreRef.current;
+      const halo = haloRef.current;
+      if (!core) return;
+      strumAtRef.current = performance.now();
+      const walls = [halo, core].filter((el): el is SVGPathElement => el !== null);
+      surgeBranch(id);
+
+      const t0 = performance.now();
+      const frame = (now: number) => {
+        const elapsed = now - t0;
+        if (elapsed >= STRUM_MS) {
+          for (const el of walls) el.setAttribute("d", restRef.current);
+          bendRef.current = null;
+          strumAtRef.current = null;
+          ringRef.current = 0;
+          return;
+        }
+        bendRef.current = (t) => strumAt(t, elapsed, amp, at);
+        const rung = strumPath(pts, elapsed, amp, at);
+        for (const el of walls) el.setAttribute("d", rung);
+        ringRef.current = window.requestAnimationFrame(frame);
+      };
+      ringRef.current = window.requestAnimationFrame(frame);
+    },
+    [id],
+  );
+
+  /**
+   * The landing.
+   *
+   * The entrance reaches out of the root a wave at a time, and when the last
+   * branch has arrived the whole tree locks in with one ring — harder than a
+   * pointer's and struck at the middle, because what arrived is the *branch*
+   * rather than a place somebody touched.
+   *
+   * Attachments are excluded by the same rule that already denies them a pump
+   * and a hit target: a tether is not a branch and may not behave like one.
+   */
+  useEffect(() => {
+    if (!d.biolum || d.reduced || !mayPump(d)) return;
+    return onLanding(() => {
+      const core = coreRef.current;
+      if (!core || strumAtRef.current !== null) return;
+      const pts = ptsRef.current;
+      if (!pts || pts.length < 2) return;
+      startRing(pts, LANDING_AT, LANDING_AMP);
+    });
+  }, [d.biolum, d.reduced, d.attachment, startRing]);
 
   /**
    * Plucking it.
@@ -264,7 +378,6 @@ export function TraceEdge({ id, data }: EdgeProps) {
   const strum = useCallback(
     (e: React.PointerEvent<SVGPathElement>) => {
       const core = coreRef.current;
-      const halo = haloRef.current;
       if (!core || d.reduced || !d.biolum) return;
       if (strumAtRef.current !== null) return;
       const pts = ptsRef.current ?? samplePath(core, 24);
@@ -290,39 +403,20 @@ export function TraceEdge({ id, data }: EdgeProps) {
       const hitAt = nearestOn(pts, local.x, local.y);
       if (!hitAt) return;
 
-      strumAtRef.current = performance.now();
-      const walls = [halo, core].filter((el): el is SVGPathElement => el !== null);
-
-      // The burst comes off the contact point, and across the branch in one
-      // direction or the other — the line is shaking that way, so that is the
-      // way it throws.
-      spill({
-        x: hitAt.x,
-        y: hitAt.y,
-        hue: d.hue,
-        count: 14,
-        speed: 34,
-        spread: 1.1,
-        aim: Math.atan2(hitAt.ny, hitAt.nx) + (Math.random() < 0.5 ? 0 : Math.PI),
-      });
-
-      const t0 = performance.now();
-      const frame = (now: number) => {
-        const elapsed = now - t0;
-        if (elapsed >= STRUM_MS) {
-          for (const el of walls) el.setAttribute("d", d.d);
-          bendRef.current = null;
-          strumAtRef.current = null;
-          return;
-        }
-        bendRef.current = (t) => strumAt(t, elapsed, undefined, hitAt.t);
-        const rung = strumPath(pts, elapsed, undefined, hitAt.t);
-        for (const el of walls) el.setAttribute("d", rung);
-        window.requestAnimationFrame(frame);
-      };
-      window.requestAnimationFrame(frame);
+      startRing(pts, hitAt.t);
     },
-    [d.reduced, d.biolum, d.hue, d.d],
+    [d.reduced, d.biolum, startRing],
+  );
+
+  /** Call off any ring still running when this edge goes away. */
+  useEffect(
+    () => () => {
+      if (ringRef.current) window.cancelAnimationFrame(ringRef.current);
+      ringRef.current = 0;
+      bendRef.current = null;
+      strumAtRef.current = null;
+    },
+    [],
   );
 
   const stroke = traceStroke(d.hue, d.tier);

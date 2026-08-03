@@ -83,8 +83,10 @@ import { laneHeight, laneRows } from "./lane";
 import { mayDrawExemplar, witnessOn } from "./witness";
 import { Water } from "./Water";
 import type { Emitter } from "./biolum";
-import { EMIT_BASE } from "./particles";
+import { flareOf } from "./biolum";
+import { land } from "./flow";
 import { BiolumToggle } from "../chrome/BiolumToggle";
+import { BiolumRenderer } from "./gl/renderer";
 import { AgesToggle, LabelsToggle } from "../chrome/LabelModes";
 import { PaletteFab } from "../chrome/PaletteFab";
 import { prefersReduced } from "../chrome/motion";
@@ -151,6 +153,15 @@ const REVEAL_DELAY = 140;
 const T_FLARE = 80;
 const T_DRAW = 120;
 const STAGGER = 96;
+
+/**
+ * Whether this browser can draw the bioluminescent mode at all.
+ *
+ * Module scope: it is a property of the machine, it cannot change while the
+ * page is open, and probing it per render would create and discard a WebGL
+ * context on every pass.
+ */
+const BIOLUM_AVAILABLE = BiolumRenderer.supported();
 
 export interface GraphProps {
   induced: Induced;
@@ -445,14 +456,9 @@ function Inner(props: GraphProps) {
    * are the layout's, so the light drifts in the same space the branches
    * occupy and pan and zoom carry both together.
    *
-   * The rate ladder is **the selection channel**, which is the one thing
-   * luminance is already allowed to encode: a species the reader chose and the
-   * common ancestor they came for shed more light than an intermediate
-   * divergence. That is the same statement the corona and the label brightness
-   * already make, said a third way, rather than a new channel carrying a new
-   * fact. It is deliberately *not* keyed to age, tier or tip count — those are
-   * data values, and a mark that glittered harder because a clade was large
-   * would be exactly the failure this mode is written to avoid.
+   * The power ladder is **the selection channel** — see `Emitter` in
+   * `biolum.ts` for why that is the one thing luminance is allowed to encode
+   * here, and why it may not be keyed to age, tier or tip count.
    *
    * Recomputed with the layout, and cheap: it is at most `2|L| − 1` entries.
    */
@@ -462,7 +468,10 @@ function Inner(props: GraphProps) {
       x: p.x,
       y: p.y,
       hue: p.hue,
-      rate: EMIT_BASE * (p.isMRCA ? 1.9 : p.isLeaf ? 1.5 : 1),
+      power: p.isMRCA ? 1 : p.isLeaf ? 0.8 : 0.45,
+      // Read live rather than captured: a hover that starts between layout
+      // passes must not wait for the next one to be seen.
+      flareAt: () => flareOf(String(p.idx)),
     }));
   }, [lay, biolum]);
 
@@ -496,6 +505,10 @@ function Inner(props: GraphProps) {
     return m;
   }, [delta]);
 
+  /** See the landing below: the mode is read, never depended on. */
+  const biolumRef = useRef(biolum);
+  biolumRef.current = biolum;
+
   // Fire the flare at t=80 and hand the delta back once the whole sequence
   // has had time to run, so a rapid second add interrupts cleanly rather than
   // queueing.
@@ -506,6 +519,34 @@ function Inner(props: GraphProps) {
       () => setFlaring(delta.flare),
       reduced ? 0 : T_FLARE,
     );
+    /*
+      The landing, and it is *not* the same moment as the cleanup below.
+
+      The draw reaches out of the root a wave at a time; the last wave starts
+      at `T_DRAW + (waves − 1) · STAGGER` and takes `DRAW_MS` to arrive. That
+      instant — not `DECAY_MS` later, when the flare has finished settling — is
+      when the tree has stopped moving, and it is where the ring belongs. Fired
+      a decay later it reads as a second, unrelated event.
+
+      Only in the bioluminescent mode. The ring is that mode's physics and
+      `TraceEdge`'s own listener refuses it otherwise; this is the cheaper half
+      of the same refusal, so a neutral canvas never schedules the timer at all.
+
+      **Read from a ref, and the mode is deliberately not a dependency.** This
+      effect is guarded by `playedToken`, so re-running it for any reason other
+      than a new delta hits that guard and returns — after the cleanup has
+      already cancelled every timer it owns. Adding the toggle to the array
+      therefore means: press `B` while a tree is drawing, and `onDeltaPlayed`
+      never fires, the delta is never handed back, and the flare stays on the
+      canvas. The switch would leave the app wedged, once, for anyone who
+      pressed it at the wrong second.
+    */
+    const landAt = biolumRef.current && !reduced
+      ? window.setTimeout(
+          land,
+          T_DRAW + Math.max(0, delta.drawOrder.length - 1) * STAGGER + DRAW_MS,
+        )
+      : 0;
     const clearAt = window.setTimeout(
       () => {
         setFlaring(null);
@@ -518,6 +559,7 @@ function Inner(props: GraphProps) {
     return () => {
       window.clearTimeout(flareAt);
       window.clearTimeout(clearAt);
+      if (landAt) window.clearTimeout(landAt);
     };
   }, [delta, onDeltaPlayed, reduced]);
 
@@ -1129,7 +1171,17 @@ function Inner(props: GraphProps) {
         <div className="canvas-modes">
           <LabelsToggle mode={labels} onChange={onLabels} />
           <AgesToggle on={ages} onChange={onAges} />
-          <BiolumToggle on={biolum} onChange={onBiolum} />
+          {/*
+            No WebGL2, no switch.
+
+            The mode is one instanced draw call and six passes on the GPU; there
+            is no software path and there is not going to be one. A switch that
+            is offered and then turns the canvas black is worse than a switch
+            that is not offered, and this is an optional flourish on a canvas
+            that is complete without it. Asked once, at module scope, because
+            the answer cannot change during a session.
+          */}
+          {BIOLUM_AVAILABLE && <BiolumToggle on={biolum} onChange={onBiolum} />}
         </div>
       )}
       {/*

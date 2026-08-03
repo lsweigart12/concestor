@@ -4108,27 +4108,37 @@ body {
  */
 
 /*
- * A deeper, bluer black — and that is the whole of the background change.
+ * A deeper, bluer black — and the renderer draws it, not this rule.
  *
  * The deep sea is not a different *brightness* from the instrument's void, it
  * is a different *hue*: the water absorbs red first, so everything that is not
- * emitting settles toward blue-green. Two near-black steps, exactly as the
- * neutral canvas has, shifted along that axis. No gradient carrying light, and
- * no vignette — a vignette is a lamp somewhere, and there is no lamp.
+ * emitting settles toward blue-green. That ellipse still exists, unchanged in
+ * intent; it lives in `gl/shaders.ts`'s tone pass, because the water canvas
+ * covers the whole viewport and writes an opaque pixel. **Anything painted
+ * behind it is invisible by construction**, so the gradient that used to sit
+ * here could not affect one pixel — and a rule that cannot is worse than no
+ * rule, because the next reader tunes it and nothing happens.
+ *
+ * What is left is the fallback, and it earns its keep: it is what a reader sees
+ * for the frame between the class landing and the first GL frame, and it is
+ * what they see if the context is lost.
  */
 .canvas.biolum {
-  background:
-    radial-gradient(ellipse 120% 92% at 60% 46%, #05101a 0%, #02070c 74%),
-    #02060a;
+  background: #010406;
 }
 
-/* The grid stays, tinted to the water. It is the one piece of ambient
-   structure the instrument already had, and taking it away in the mode that is
-   about depth would be backwards. */
+/*
+ * The grid goes, and the marine snow takes its place.
+ *
+ * They are the same thing doing the same job — the one piece of the canvas that
+ * is not data, there so the void has structure to read depth against — so this
+ * is a replacement rather than an addition, and the mode still carries exactly
+ * one ambient element. The snow is the better of the two for it: a grid is
+ * drawn whether or not anything is on the canvas, where a flake is only visible
+ * where the tree's light reaches it.
+ */
 .canvas.biolum::before {
-  background-image:
-    linear-gradient(hsl(186 70% 60% / 0.05) 1px, transparent 1px),
-    linear-gradient(90deg, hsl(186 70% 60% / 0.05) 1px, transparent 1px);
+  background-image: none;
 }
 
 /*
@@ -4160,26 +4170,26 @@ body {
  *
  * **The dash pattern is what stops this going further.** It is the one channel
  * saying whether anybody has estimated a date, and it lives on this stroke — so
- * the wall may become glass but it may not become invisible, and 0.5 is where
- * the dashes are still unambiguous against the void. `flow.ts`'s
- * `tierBrightness` carries the other half of the same obligation, dimming the
- * stream itself on the tiers that concede most.
+ * the wall may become glass but it may not become invisible. It is lower than
+ * it was, because the renderer now draws the branch's own body and its lit
+ * walls: two walls at full strength read as a doubled line rather than as one
+ * tube. `flow.ts`'s `tierBrightness` carries the other half of the same
+ * obligation, dimming the river itself on the tiers that concede most.
  */
 .biolum .trace-core {
-  opacity: 0.62;
+  opacity: 0.34;
 }
 
 /*
- * The halo is the light caught in the wall, not a bloom of its own.
+ * The halo goes entirely.
  *
- * Tighter and fainter than the instrument's, because the stream behind it is
- * now supplying the glow: a wide soft halo on top of a lit interior reads as
- * the astigmatic smear this mode was rebuilt to get rid of.
+ * It was the instrument's way of making a line glow, and there is nothing left
+ * for it to do: the branch is lit from inside by its own river and the renderer
+ * carries a real bloom off the light buffer. A blurred stroke on top of that is
+ * the astigmatic smear this mode was rebuilt to get rid of, added back by hand.
  */
 .biolum .trace-halo {
-  stroke-width: 5;
-  opacity: 0.16;
-  filter: blur(2.5px);
+  opacity: 0;
 }
 
 /* ---- the marks: photophores ---- */
