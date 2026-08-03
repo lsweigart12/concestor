@@ -13,8 +13,9 @@
 # six of that month's pull requests, which is a check that has stopped saying
 # anything about the change and started saying only who wrote it.
 #
-# The prefixes are chosen to release nothing: `ci` for the workflows,
-# `build` for the three package ecosystems. A dependency bump is not a
+# The prefixes are chosen from the types `release.config.cjs` does not bump:
+# `ci` for the workflows, `build` for the three package ecosystems. A
+# dependency bump is not a
 # feature and not a fix, and cutting a version for one would make the tag a
 # worse description of what changed than the commit already is.
 version: 2

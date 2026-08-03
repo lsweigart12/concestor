@@ -1,9 +1,10 @@
 # Cut a release. Fully automatic: nothing here waits for a human.
 #
 # The version is decided by the commits since the last tag, per Conventional
-# Commits — `feat:` bumps the minor, `fix:` the patch, `BREAKING CHANGE:` the
-# major. `.commitlintrc.json` is what keeps them well-formed, and CI rejects a
-# pull request whose commits are not. So the release is a consequence of the
+# Commits; `release.config.cjs`'s `releaseRules` is where the type-to-bump
+# mapping is written down, and is deliberately the only place it is.
+# `commitlint.config.cjs` is what keeps the commits well-formed, and CI rejects
+# a pull request whose commits are not. So the release is a consequence of the
 # commit log rather than a decision taken afterwards, which is the only way
 # "100% automated" is honest rather than "automated, given someone remembered".
 #
@@ -14,7 +15,8 @@
 # What comes out: a git tag, a GitHub Release whose notes are generated from
 # the commits, and four assets — two server binaries, the built frontend, and
 # checksums. Nothing is committed back to this repository. See
-# `.releaserc.json` for why the tag is the only place the version is written.
+# `release.config.cjs` for why the tag is the only place the version is
+# written.
 
 name: Release
 
