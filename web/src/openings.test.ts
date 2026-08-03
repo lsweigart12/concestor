@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { OPENINGS, keysOf } from "./openings";
+import { OPENINGS, keysOf, nextOpening } from "./openings";
 
 describe("openings", () => {
   it("has a unique id per opening", () => {
@@ -70,5 +70,41 @@ describe("openings", () => {
       expect(o.question, o.id).toMatch(/\?$/);
       expect(o.reveal.length, o.id).toBeGreaterThan(20);
     }
+  });
+});
+
+/**
+ * What the flyout offers once one has been answered.
+ *
+ * The array order again, which is this file's own ranking by pull on a
+ * first-time visitor. A reader who keeps pressing *Next* and a reader who lets
+ * the carousel rotate meet these questions in the same sequence, and neither is
+ * handed back the one they have just watched draw itself.
+ */
+describe("nextOpening", () => {
+  it("follows the file order", () => {
+    for (let i = 0; i < OPENINGS.length - 1; i++) {
+      expect(nextOpening(OPENINGS[i]!)?.id, OPENINGS[i]!.id).toBe(
+        OPENINGS[i + 1]!.id,
+      );
+    }
+  });
+
+  it("wraps, so the last question is not a dead end", () => {
+    expect(nextOpening(OPENINGS[OPENINGS.length - 1]!)?.id).toBe(OPENINGS[0]!.id);
+  });
+
+  it("never offers the question just answered", () => {
+    for (const o of OPENINGS) expect(nextOpening(o)?.id, o.id).not.toBe(o.id);
+  });
+
+  it("reaches every opening, so none is unreachable by pressing on", () => {
+    const seen = new Set<string>();
+    let at = OPENINGS[0]!;
+    for (let i = 0; i < OPENINGS.length; i++) {
+      seen.add(at.id);
+      at = nextOpening(at)!;
+    }
+    expect(seen.size).toBe(OPENINGS.length);
   });
 });

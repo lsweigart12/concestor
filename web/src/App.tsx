@@ -47,12 +47,13 @@ import {
 } from "./palette/Palette";
 import { About as AboutPanel } from "./chrome/About";
 import { OpeningCarousel } from "./chrome/OpeningCarousel";
-import { keysOf, type Opening } from "./openings";
+import { keysOf, nextOpening, type Opening } from "./openings";
 import { Confirm } from "./chrome/Confirm";
 import { Controls, type ControlAction } from "./chrome/Controls";
 import { PendingLine, usePending } from "./chrome/Pending";
-import { kbd, matchKey } from "./chrome/bindings";
+import { kbd, matchKey, type ActionId } from "./chrome/bindings";
 import { prefersReduced } from "./chrome/motion";
+import { NextOpening } from "./chrome/NextOpening";
 import { resetUsage } from "./palette/fuzzy";
 import { toApiKey, useTree } from "./state/store";
 import { laneHue } from "./tree/layout";
@@ -85,22 +86,32 @@ const REFUSAL_REASONS: GraftRefusal[] = ["off-tree", "no-range", "no-identity"];
 const RANDOM_CANDIDATES = 12;
 
 /**
- * What to do next, on the end of the sentence that answers the question.
+ * Which controls are pointed at once an opening has finished drawing.
  *
- * An opening finishes with a tree the reader did not build, and until now the
- * animation simply stopped. The one press that turns a canned comparison into
- * their own is adding a species, so that is what this asks for — on the line
- * that was going up anyway, because a panel or a banner at that moment is an
- * interruption rather than an invitation. Both keys are read from
- * `bindings.ts`, so the sentence cannot name a key the app does not answer.
+ * The three ways to put something of your own on the canvas, in the order the
+ * bar already draws them. They were a sentence in the answer's own toast once —
+ * "press S to search, or R for a surprise" — and a sentence is the wrong shape
+ * for this: it teaches the key rather than the button, it competes with the
+ * answer to the question the reader actually asked, and it goes away when the
+ * toast does. A mark on the control stays until the control is used.
  */
-const INVITE = (
-  <>
-    {" "}Now put something of your own beside it:{" "}
-    <span className="kbd">{kbd("species")}</span> to search, or{" "}
-    <span className="kbd">{kbd("random-species")}</span> for a surprise.
-  </>
-);
+const TIPPED: ActionId[] = ["palette", "species", "random-species"];
+
+/**
+ * What is being offered after an opening, and which one it was about.
+ *
+ * Two beats rather than one, and they never overlap: `reveal` is the answer to
+ * the question, pinned until the reader is done with it, and `next` is the
+ * offer of another question, which is only made once they are. Asking somebody
+ * what to do next while they are still reading what just happened is how a
+ * conversion moment becomes an interruption.
+ *
+ * The controls are tipped through both, because the invitation this holds is
+ * not the one the flyout makes: `next` offers another of ours, the tips offer
+ * the reader their own, and the second stands whether or not they want the
+ * first.
+ */
+type Afterglow = { at: "reveal" | "next"; opening: Opening };
 
 export default function App() {
   const tree = useTree();
@@ -462,6 +473,29 @@ export default function App() {
   const owedReveal = useRef<Opening | null>(null);
 
   /**
+   * The two beats after an opening finishes, or null.
+   *
+   * One piece of state for the pinned answer, the flyout and the tipped
+   * controls, because they are one moment and not three. Splitting them was the
+   * first draft and it went wrong immediately: three booleans admit states the
+   * design does not have — an answer pinned under a flyout offering the next
+   * one, tips lit hours after the reader started building their own tree — and
+   * each would have needed its own rule for every way out of here.
+   */
+  const [afterglow, setAfterglow] = useState<Afterglow | null>(null);
+
+  /**
+   * The reader has taken it from here, so stop pointing.
+   *
+   * Called from every action the tips advertise and from anything that puts the
+   * reader in charge of the canvas — searching, rolling a die, clearing,
+   * drawing a different opening. Not from a *pointless* press: moving the
+   * selection or switching the axis is looking at the tree they were given, not
+   * making one, and an invitation withdrawn for that is one nobody got to take.
+   */
+  const settle = useCallback(() => setAfterglow(null), []);
+
+  /**
    * Draw an opening, and get out of its way.
    *
    * Both surfaces that offer one — the empty canvas and the about panel — close
@@ -487,38 +521,60 @@ export default function App() {
     (o: Opening) => {
       setAboutOpen(false);
       setPaletteOpen(false);
+      // Whatever the last opening left on screen goes with the press, including
+      // a flyout offering this very question.
+      setAfterglow(null);
       if (tree.openSequenced(keysOf(o), o.axis, prefersReduced())) {
         owedReveal.current = o;
         toast(o.question);
         return;
       }
-      toast(<>{o.reveal}{INVITE}</>);
+      setAfterglow({ at: "reveal", opening: o });
     },
     [tree, toast],
   );
 
   /**
-   * The sequence has ended: pay the reveal, and ask for one press.
+   * The sequence has ended: pay the answer.
    *
    * The falling edge rather than a completion callback, because a sequence ends
    * two ways and both owe the reader the answer — one that ran to the end, and
    * one they interrupted, which was interrupted in the *telling* and still
    * finished the tree. Withholding it from the second would punish somebody for
    * taking the wheel.
-   *
-   * The invitation rides on that same line rather than becoming a surface of
-   * its own. This is the moment the animation stops and, until now, nothing
-   * asked for anything — which is the whole conversion moment spent on nothing.
    */
   const wasSequencing = useRef(false);
   useEffect(() => {
     if (wasSequencing.current && !tree.sequencing) {
       const o = owedReveal.current;
       owedReveal.current = null;
-      if (o) toast(<>{o.reveal}{INVITE}</>);
+      if (o) setAfterglow({ at: "reveal", opening: o });
     }
     wasSequencing.current = tree.sequencing;
-  }, [tree.sequencing, toast]);
+  }, [tree.sequencing]);
+
+  /**
+   * Done reading the answer — so offer another question.
+   *
+   * The answer is **pinned and not timed**, which is the one thing about it
+   * worth arguing over. Every other toast in this app reports something the
+   * reader did and can be missed without cost: they pressed add, the thing was
+   * added, the canvas says so. This one is the *reply* to a question they asked
+   * and it is the only place the reply is written down — a five-second window on
+   * two lines of prose, arriving at the exact moment a reader is looking at a
+   * tree that has just finished moving, is a reply nobody reads.
+   *
+   * So it stays until it is dismissed, and dismissing it is what says the reader
+   * is ready for something else. That is the whole reason the flyout waits for
+   * this rather than arriving with it.
+   */
+  const dismissAnswer = useCallback(() => {
+    setAfterglow((a) => {
+      if (a?.at !== "reveal") return a;
+      const next = nextOpening(a.opening);
+      return next ? { at: "next", opening: next } : null;
+    });
+  }, []);
 
   /**
    * Rule 2: any interaction ends the sequence, at the finished tree.
@@ -654,6 +710,7 @@ export default function App() {
    */
   const randomPick = useCallback(async () => {
     setPaletteOpen(false);
+    settle();
     setPicking(true);
     try {
       if (randomKind(Math.random()) === "fossil") {
@@ -703,7 +760,7 @@ export default function App() {
     } finally {
       setPicking(false);
     }
-  }, [tree, toast, present, presentFossils, drawFossil]);
+  }, [tree, toast, present, presentFossils, drawFossil, settle]);
 
   /**
    * Nothing on the canvas at all.
@@ -1172,7 +1229,8 @@ export default function App() {
     setScoped(false);
     setFilter(null);
     setPaletteOpen(true);
-  }, []);
+    settle();
+  }, [settle]);
 
   /**
    * The same palette, answering about species only.
@@ -1188,13 +1246,15 @@ export default function App() {
     setScoped(false);
     setFilter("species");
     setPaletteOpen(true);
-  }, []);
+    settle();
+  }, [settle]);
 
   const clearCanvas = useCallback(() => {
     tree.clear();
     setConfirmClear(false);
+    settle();
     toast("Canvas cleared");
-  }, [tree, toast]);
+  }, [tree, toast, settle]);
 
   const stepSelection = useCallback(
     (back: boolean) => {
@@ -1314,7 +1374,16 @@ export default function App() {
           // in. A drill-down lane is a thing you opened over the canvas, so it
           // goes before the selection does; otherwise dismissing it costs two
           // presses and the first one silently does something else.
-          if (tree.view.drill) tree.setDrill(null);
+          //
+          // The two afterglow surfaces come before both, in the order they
+          // arrived: the pinned answer is the newest thing on screen and the
+          // flyout replaces it, so `esc` walks back out of an opening the same
+          // way it walks out of everything else. Neither may swallow the press
+          // when it is not there — the key still has to reach the lane and the
+          // selection for a reader who never pressed an opening at all.
+          if (afterglow?.at === "reveal") dismissAnswer();
+          else if (afterglow?.at === "next") settle();
+          else if (tree.view.drill) tree.setDrill(null);
           else tree.select(null);
           break;
       }
@@ -1334,6 +1403,9 @@ export default function App() {
     confirmClear,
     aboutOpen,
     empty,
+    afterglow,
+    dismissAnswer,
+    settle,
   ]);
 
   /**
@@ -1344,8 +1416,8 @@ export default function App() {
    * reader's hand costs them the button they were reaching for, and the
    * tooltip on a disabled one says what would make it work.
    */
-  const controls: ControlAction[] = useMemo(
-    () => [
+  const controls: ControlAction[] = useMemo(() => {
+    const rows: ControlAction[] = [
       { id: "palette", run: openPalette },
       { id: "species", run: openSpecies },
       { id: "random-species", run: () => void randomPick() },
@@ -1378,17 +1450,24 @@ export default function App() {
         run: () => setConfirmClear(true),
         ...(empty ? { disabledBecause: "The canvas is already empty" } : {}),
       },
-    ],
-    [
-      openPalette,
-      openSpecies,
-      randomPick,
-      stepSelection,
-      tree,
-      focusedIdx,
-      empty,
-    ],
-  );
+    ];
+    // Pointed at only while an opening's answer is still standing, and read
+    // from {@link TIPPED} rather than set row by row — one list, so the bar
+    // cannot light a button the invitation never meant. The rows themselves are
+    // untouched: the tip is a state of the moment, not of the action.
+    if (afterglow === null) return rows;
+    return rows.map((r) => (TIPPED.includes(r.id) ? { ...r, tip: true } : r));
+  }, [
+    openPalette,
+    openSpecies,
+    randomPick,
+    stepSelection,
+    tree,
+    focusedIdx,
+    empty,
+    viewFit,
+    afterglow,
+  ]);
 
   /**
    * The mode, on the document as well as on the canvas.
@@ -1673,7 +1752,39 @@ export default function App() {
             {t.body}
           </div>
         ))}
+        {/*
+          The answer, in the toast column and outside the toast queue.
+
+          It borrows the look because it belongs to the same place on screen —
+          the strip above the axis is where this app says things — but it is not
+          a toast and must not be one: a toast is a receipt for something the
+          reader did, and this is the reply to something they asked. It has no
+          timer, it holds the column while it is up, and it goes when it is
+          dismissed. Last in the stack, so a warning that arrives underneath it
+          is still the newest thing at the bottom.
+        */}
+        {afterglow?.at === "reveal" && (
+          <div className="toast toast-pinned" role="status">
+            <span className="toast-pinned-body">{afterglow.opening.reveal}</span>
+            <button
+              type="button"
+              className="toast-dismiss"
+              onClick={dismissAnswer}
+              aria-label="Dismiss"
+            >
+              <span className="kbd">{kbd("escape")}</span>
+            </button>
+          </div>
+        )}
       </div>
+
+      {afterglow?.at === "next" && (
+        <NextOpening
+          opening={afterglow.opening}
+          onOpen={openOpening}
+          onClose={settle}
+        />
+      )}
 
       {/*
         One signal for "something is in flight", not three. The bar is the

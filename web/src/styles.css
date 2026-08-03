@@ -1590,6 +1590,75 @@ body {
   cursor: default;
 }
 
+/*
+ * Pointed at: this is a way to make the tree on screen yours.
+ *
+ * Set only in the moments after an opening finishes drawing, on the three
+ * controls that add something of the reader's own. It replaced a sentence in
+ * the answer's own toast, and the trade is the point — prose teaches the *key*,
+ * a mark on the button teaches where the button is, which is what a reader who
+ * has only ever pressed a carousel card is missing.
+ *
+ * The button itself only wakes to its ordinary hover weight; the pulse is a
+ * dot, and it is a dot on purpose. Pulsing the whole control would put three
+ * breathing objects along the top edge of a canvas whose entire argument is
+ * that the graph is the only thing worth looking at, and this is chrome asking
+ * for attention rather than data claiming any.
+ *
+ * `position: relative` on the button and not on `.control` generally: the base
+ * rule has no positioning and nothing else here needs one.
+ */
+.control.is-tip {
+  position: relative;
+  border-color: var(--hairline);
+  color: var(--ink-2);
+}
+.control.is-tip .kbd {
+  border-color: var(--accent-dim);
+  color: var(--accent);
+}
+
+/* Riding the corner of the badge rather than the corner of the button, so the
+   three dots sit at the same distance from the letter a reader is being asked
+   to press instead of drifting apart with the label widths. */
+.control.is-tip::after {
+  content: "";
+  position: absolute;
+  top: 1px;
+  left: 23px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: tip-pulse 2200ms ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* Once the reader is pointing at it they have found it, so the dot stops
+   asking. The tip itself is cleared by the press, not by the hover — pointing
+   is not taking. */
+.control.is-tip:hover::after {
+  animation: none;
+  opacity: 0.9;
+}
+
+/* Under reduced motion the dot needs no rule of its own: the global block at
+   the foot of this file cuts the animation to 1ms and one iteration, and with
+   the default `fill-mode: none` the element then sits at its *base* style —
+   accent, fully opaque, no glow. That is the static lit dot this state wants,
+   which is why the resting keyframe is the dim one and not the lit one. */
+@keyframes tip-pulse {
+  0%,
+  100% {
+    opacity: 0.32;
+    box-shadow: 0 0 0 0 transparent;
+  }
+  50% {
+    opacity: 1;
+    box-shadow: 0 0 7px 1px hsl(var(--accent-h) 80% 60% / 0.5);
+  }
+}
+
 .control .kbd {
   /* The loudest thing on the button. Everything else on this bar is 11.5px
      sans at --ink-3; the badge keeps its border and its mono. */
@@ -1830,6 +1899,212 @@ body {
   from {
     opacity: 0;
     transform: translateY(6px);
+  }
+}
+
+/*
+ * The pinned one: an opening's answer, which is a reply rather than a receipt.
+ *
+ * Every other toast reports something the reader just did and can be missed
+ * without cost — they pressed add, the thing was added, the canvas says so.
+ * This is the reply to a question they asked, it is the only place that reply
+ * is written down, and it arrives while they are watching a tree that has just
+ * stopped moving. Five seconds of that is a reply nobody reads, so it has no
+ * timer and a control instead.
+ *
+ * It takes one step more contrast than a toast and an accent hairline, because
+ * it is asking to be read rather than glanced at, and it lays the body and the
+ * dismiss on one row so the control is beside the sentence it closes rather
+ * than under it.
+ */
+.toast-pinned {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s3);
+  border-color: var(--accent-dim);
+  color: var(--ink);
+  padding: 10px 10px 10px 14px;
+}
+
+.toast-pinned-body {
+  line-height: 1.45;
+}
+
+/*
+ * The dismiss, which is the `esc` badge and nothing else.
+ *
+ * No word beside it and no ✕. Every other key in this app is printed on the
+ * thing it operates — that is the control bar's whole design — and the badge
+ * *is* the label here: it says what closes this, and it is also the thing you
+ * can click to close it. A ✕ would teach the mouse and leave the key
+ * undiscovered, which is the arrangement this project spent a release undoing.
+ */
+.toast-dismiss {
+  flex: none;
+  margin-top: -1px;
+  padding: 2px 3px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: none;
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease;
+}
+.toast-dismiss:hover {
+  background: var(--void-3);
+  border-color: var(--hairline);
+}
+.toast-dismiss:hover .kbd {
+  border-color: var(--hairline-strong);
+  color: var(--accent);
+}
+.toast-dismiss:focus-visible {
+  outline: none;
+  border-color: var(--accent-dim);
+}
+
+/* ------------------------------------------------------------- next up -- */
+
+/*
+ * Another question, bottom right, once the last answer has been dismissed.
+ *
+ * The corner is chosen by elimination and not by taste: the top edge is the
+ * control bar, the top right is the detail card, the bottom left is the
+ * bioluminescence switch, and the middle of the bottom is the toast column this
+ * replaces. It sits above the axis on the same `--axis-h` the toasts and the
+ * switch stack on, so the three keep one line and none of them crosses the
+ * ruler.
+ *
+ * It is a **small echo of the carousel**, not a second one: silhouettes and a
+ * question, no reveal, no arrows and no dots. The carousel is a menu on an
+ * empty canvas with nothing else to look at; this is one offer beside a tree
+ * the reader is still reading, and every part of it that is not the picture or
+ * the question would be competing with that tree.
+ */
+.next-up {
+  position: fixed;
+  right: var(--s4);
+  bottom: calc(var(--axis-h) + 48px);
+  /* Under the detail card's 25 and not over it, which is the one stacking
+     decision here worth writing down. Both live in the right-hand column and a
+     long card reaches this far down — but the card is the answer to a click the
+     reader just made and this is an offer they have not taken, so an offer that
+     covered it would be an advertisement over the thing it interrupted. It
+     stays above the canvas and the drill lane's 5. */
+  z-index: 24;
+  display: flex;
+  align-items: flex-start;
+  gap: 2px;
+  max-width: min(280px, 60vw);
+  padding: 4px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: rgba(14, 14, 17, 0.94);
+  animation: next-up-in 260ms var(--spring);
+}
+
+@keyframes next-up-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+/* One target, like the carousel's card: the whole thing draws the tree. */
+.next-up-card {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: none;
+  font-family: var(--sans);
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease;
+}
+.next-up-card:hover,
+.next-up-card:focus-visible {
+  background: var(--void-3);
+  border-color: var(--hairline);
+  outline: none;
+}
+
+.next-up-eyebrow {
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+}
+
+/* Baseline-aligned like the carousel's row, so a jellyfish and a walking human
+   stand on the same ground rather than floating at their own heights. */
+.next-up-art {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  min-height: 22px;
+  opacity: 0.72;
+  transition: opacity 140ms ease;
+}
+.next-up-card:hover .next-up-art,
+.next-up-card:focus-visible .next-up-art {
+  opacity: 1;
+}
+
+.next-up-q {
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--ink-2);
+}
+.next-up-card:hover .next-up-q,
+.next-up-card:focus-visible .next-up-q {
+  color: var(--ink);
+}
+
+/* The same badge that closed the answer above it, so one key walks back out of
+   an opening in the order its parts arrived. */
+.next-up-close {
+  flex: none;
+  margin-top: 6px;
+  padding: 2px 3px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: none;
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease;
+}
+.next-up-close:hover {
+  background: var(--void-3);
+  border-color: var(--hairline);
+}
+.next-up-close:hover .kbd {
+  border-color: var(--hairline-strong);
+  color: var(--accent);
+}
+.next-up-close:focus-visible {
+  outline: none;
+  border-color: var(--accent-dim);
+}
+
+/* Narrow: the card spans what is left beside the axis switch rather than
+   pinning to a corner that is no longer there. */
+@media (max-width: 620px) {
+  .next-up {
+    left: var(--s3);
+    right: var(--s3);
+    max-width: none;
+  }
+  .next-up-card {
+    flex: 1;
+    min-width: 0;
   }
 }
 

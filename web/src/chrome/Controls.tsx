@@ -31,6 +31,22 @@ export interface ControlAction {
   label?: string;
   /** True while the action's effect is the current state. */
   active?: boolean;
+  /**
+   * Point at this one: the reader has just been shown a tree they did not
+   * build, and this is a way to make it theirs.
+   *
+   * A mark on the control itself rather than a sentence somewhere else, and the
+   * difference is the whole reason it exists. Prose naming a key teaches the
+   * key; a dot on the button teaches *where the button is*, which is the thing
+   * a reader who has only ever pressed a carousel card does not know. It also
+   * costs no line of copy, so the answer to the question they asked is the only
+   * thing on screen still saying anything.
+   *
+   * It is not a badge and carries no count. Nothing has happened here — it is
+   * an invitation, so it goes out the moment the action is taken, and the
+   * caller owns that: see `hinting` in `App.tsx`.
+   */
+  tip?: boolean;
 }
 
 export function Controls({
@@ -55,11 +71,15 @@ export function Controls({
       {actions.map((a) => {
         const b = binding(a.id);
         const off = a.disabledBecause !== undefined;
+        // A disabled control is never pointed at. The tip says "you can do this
+        // now", and the two states together would be an invitation to press
+        // something that cannot be pressed.
+        const tip = a.tip === true && !off;
         return (
           <button
             key={a.id}
             type="button"
-            className={`control${b.chrome === "secondary" ? " secondary" : ""}${a.active ? " on" : ""}`}
+            className={`control${b.chrome === "secondary" ? " secondary" : ""}${a.active ? " on" : ""}${tip ? " is-tip" : ""}`}
             disabled={off}
             title={off ? a.disabledBecause : b.hint}
             onClick={a.run}
