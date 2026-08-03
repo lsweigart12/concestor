@@ -16,6 +16,12 @@
 # `!/build/.gitkeep` exception was protecting a file that does not exist — so
 # ignoring the name outright costs nothing and covers both shapes.
 /build
+#
+# The previous build's database, kept beside the new one so the two can be
+# diffed. It sits at the root rather than under build/, so `/build` does not
+# cover it, and at ~1.8 GB a blanket `git add` puts a commit past GitHub's
+# 100 MB file limit — which is only reported by the remote, on push.
+/build.prev-*.db
 
 .venv/
 __pycache__/
