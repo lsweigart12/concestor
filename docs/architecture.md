@@ -321,12 +321,22 @@ deploys on a release cadence rather than per-commit.
 | `GET /v1/timescale` | ICS intervals, ~40 KB, `immutable` | static |
 | `GET /v1/random?kind=` | random taxa that carry their own drawing, from one corpus or the other | one full scan behind `ORDER BY random()`, 83–100 ms |
 
-All responses are `Cache-Control: immutable` keyed by build id, because the data cannot
-change within a build. A CDN in front absorbs essentially all traffic — on Cloudflare
-that is Workers Cache, enabled in `web/wrangler.jsonc`, and `deployment.md` §5 is why
-the header alone was not enough to earn this sentence.
+All responses are long-lived and ETag'd by build id, because the data cannot change
+within a build. A CDN in front absorbs essentially all traffic — on Cloudflare that is
+Workers Cache, enabled in `web/wrangler.jsonc`, and `deployment.md` §5 is why the
+header alone was not enough to earn this sentence.
 
-**The build id in that sentence is the dataset's *and* the binary's**, written
+**Long-lived, not `immutable`, and the lifetime is two numbers.**
+`public, max-age=3600, s-maxage=31536000`: a year for the edge, an hour for the
+browser. The data is immutable within a build and the *URL* names no particular
+build, which is the distinction the original header missed. A deploy is a new Worker
+version and Workers Cache is keyed by version, so the edge starts empty and can be
+trusted with the year; nothing corrects a browser, so it must be able to ask. The
+revalidation it then makes is answered by the edge out of its own fresh copy — a
+round trip to the nearest colo, not a container wake, which is the cost that matters
+(`deployment.md` §6.1).
+
+**The build id in that ETag is the dataset's *and* the binary's**, written
 `<build_id>-<code_id>` — the container image tag's shape, for the container image
 tag's reason. `store.computeBuildID` hashes only the artifacts on disk, so an
 `immutable` keyed on it alone is a promise the server cannot keep about its own
@@ -345,13 +355,13 @@ immutable path a browser would answer every later request from cache with the
 first pick, permanently — an endpoint that appears to work and never picks
 twice. `handoff.md` §3 has the pools and why they are narrow.
 
-`/v1/about` is cacheable but **not immutable**: `max-age=60, must-revalidate`,
-with the same ETag as everything else. It is a function of the build, so the
-validator is correct and the data was never the problem — the *question* was.
-This is the endpoint a deploy check, a monitor or a person asks "what is
-running", and a one-year `immutable` makes "the deploy did not land" a permanent
-answer to it. It is not `no-store`, because it is fetched on every page load and
-that is the one path where a cold burst on half a vCPU is worth collapsing.
+`/v1/about` is cacheable but **short-lived**: `max-age=60, must-revalidate`, with
+the same ETag as everything else. It is a function of the build, so the validator
+is correct and the data was never the problem — the *question* was. This is the
+endpoint a deploy check, a monitor or a person asks "what is running", and even an
+hour is too long to answer it wrongly. It is not `no-store`, because it is fetched
+on every page load and that is the one path where a cold burst on half a vCPU is
+worth collapsing.
 
 ### Search ranking
 

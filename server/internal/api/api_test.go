@@ -29,7 +29,7 @@ func serve(t *testing.T) (*httptest.Server, *store.Store) {
 	}
 	t.Cleanup(func() { _ = st.Close() })
 
-	srv := &Server{St: st, Log: slog.New(slog.DiscardHandler), Immutable: true}
+	srv := &Server{St: st, Log: slog.New(slog.DiscardHandler), PublicCache: true}
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 	return ts, st
@@ -120,8 +120,8 @@ func TestETagAnd304(t *testing.T) {
 	if !strings.HasPrefix(tag, `"`+st.BuildID+`-`) || !strings.HasSuffix(tag, `"`) {
 		t.Fatalf("ETag = %q, want the dataset id %q with a code id after it", tag, st.BuildID)
 	}
-	if cc := resp.Header.Get("Cache-Control"); !strings.Contains(cc, "immutable") {
-		t.Errorf("Cache-Control = %q", cc)
+	if cc := resp.Header.Get("Cache-Control"); !strings.Contains(cc, "s-maxage=31536000") {
+		t.Errorf("Cache-Control = %q, want the edge held for a year", cc)
 	}
 
 	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/v1/path/ott770315", nil)
@@ -265,8 +265,48 @@ func TestEveryCacheableResponseCarriesTheSameETag(t *testing.T) {
 	}
 }
 
-// /v1/about is how a deploy is checked, so it may not be answered from a
-// year-old cache. writeShortLivedJSON is the argument; this is the promise.
+// **No /v1 response may say `immutable`, and the browser's number must stay
+// small.** The corrected ETag above is only worth having if somebody asks: a
+// browser under `immutable` never revalidates, so a code deploy could not
+// reach a warm one whatever the validator said. The edge is a different cache
+// with a different correction — a deploy is a new Worker version and the cache
+// is keyed by version — so it keeps the year, under `s-maxage`.
+func TestNoResponseTellsABrowserNotToAsk(t *testing.T) {
+	ts, _ := serve(t)
+	for _, path := range []string{
+		"/v1/path/ott770315", "/v1/node/ott770315", "/v1/timescale",
+		"/v1/search?q=dog", "/v1/about",
+	} {
+		cc := getJSON(t, ts, path, nil).Header.Get("Cache-Control")
+		if strings.Contains(cc, "immutable") {
+			t.Errorf("GET %s: Cache-Control = %q; these URLs name no particular "+
+				"build, so a browser must be able to find out it holds an old one", path, cc)
+		}
+		if !strings.Contains(cc, "max-age=3600") && !strings.Contains(cc, "max-age=60") {
+			t.Errorf("GET %s: Cache-Control = %q, want a bounded browser lifetime", path, cc)
+		}
+	}
+}
+
+// The dev flag drops the production lifetimes entirely, because an hour of
+// freshness against a rebuilt index is an hour of looking at the last build.
+func TestPublicCacheOffIsNoCache(t *testing.T) {
+	s := &Server{St: &store.Store{BuildID: "abc"}, Commit: "c0ffee"}
+	if got := s.longLivedCC(); got != ccDev {
+		t.Errorf("long-lived with -public-cache=false = %q, want %q", got, ccDev)
+	}
+	if got := s.shortLivedCC(); got != ccDev {
+		t.Errorf("short-lived with -public-cache=false = %q, want %q", got, ccDev)
+	}
+	s.PublicCache = true
+	if s.longLivedCC() == ccDev || s.shortLivedCC() == ccDev {
+		t.Error("the flag is not wired to the lifetimes")
+	}
+}
+
+// /v1/about is how a deploy is checked, so it may not be answered from an
+// hour-old cache either. writeShortLivedJSON is the argument; this is the
+// promise.
 func TestAboutIsCacheableButNotImmutable(t *testing.T) {
 	ts, _ := serve(t)
 	resp := getJSON(t, ts, "/v1/about", nil)

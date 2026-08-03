@@ -53,15 +53,16 @@ fi
 # checkout because it is the thing being worked on. Passing both explicitly
 # makes the first deliberate rather than lucky, and fixes the second.
 #
-# `-immutable=false` drops `Cache-Control: immutable` from /v1 responses. That
-# header is correct in production — the data genuinely cannot change within a
-# build — and actively hostile locally, where it makes the browser serve last
-# hour's search results out of cache after you have rebuilt the index.
+# `-public-cache=false` drops the production `Cache-Control` lifetimes from /v1
+# responses. They are correct in production — the data genuinely cannot change
+# within a build — and actively hostile locally, where an hour of freshness
+# makes the browser serve last hour's search results out of cache after you
+# have rebuilt the index.
 #
 # It does NOT make the dataset hot-reloadable: the arrays are mmap'd and
 # SQLite is opened immutable, both at startup. **Restart this after any
 # pipeline run**, or you are looking at the previous build.
-args=(-addr ":${PORT}" -build "$CONCESTOR_BUILD" -web "$ROOT/web/dist" -immutable=false)
+args=(-addr ":${PORT}" -build "$CONCESTOR_BUILD" -web "$ROOT/web/dist" -public-cache=false)
 [ -n "$CONCESTOR_SILHOUETTES" ] && args+=(-silhouettes "$CONCESTOR_SILHOUETTES")
 
 echo "Concestor on http://localhost:${PORT}  (Ctrl-C to stop)" >&2

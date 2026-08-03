@@ -23,7 +23,7 @@ func benchServer(b *testing.B) *httptest.Server {
 		b.Fatal(err)
 	}
 	b.Cleanup(func() { _ = st.Close() })
-	srv := &Server{St: st, Log: slog.New(slog.DiscardHandler), Immutable: true}
+	srv := &Server{St: st, Log: slog.New(slog.DiscardHandler), PublicCache: true}
 	ts := httptest.NewServer(srv.Handler())
 	b.Cleanup(ts.Close)
 	return ts
