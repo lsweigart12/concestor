@@ -129,11 +129,35 @@ jobs:
           fi
           sed -i "s|registry.cloudflare.com/ACCOUNT_ID/|registry.cloudflare.com/${CLOUDFLARE_ACCOUNT_ID}/|" wrangler.jsonc
 
+      # `wrangler versions upload` refuses outright on a Worker that does not
+      # exist: "You cannot upload a new version of a Worker that does not yet
+      # exist. Please run the `deploy` command first." On a fresh account that
+      # is unavoidable and says nothing about the change under review —
+      # production has never deployed, so there is no Worker to add a version
+      # to. It happened on the pull request that turned this on, and a red
+      # check meaning "this account is new" is the kind of red that teaches
+      # people to stop reading red.
+      #
+      # Deliberately a skip rather than a `continue-on-error`: this must stay
+      # able to fail for every *other* reason. docs/deployment.md §5 has the
+      # bootstrap order, of which this is the half nothing had written down.
+      - name: Does the Worker exist yet?
+        id: worker
+        if: steps.guard.outputs.configured == 'true' && github.event_name == 'pull_request'
+        working-directory: web
+        run: |
+          if npx wrangler versions list >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No Worker deployed on this account yet — a preview version cannot be uploaded before the first production deploy. Skipping the preview, not failing the run."
+          fi
+
       # A version upload, not a deploy: it publishes a preview URL and does
       # not move production traffic. `--preview-alias` gives the branch a
       # stable hostname instead of a new hash on every push.
       - name: Upload preview version
-        if: steps.guard.outputs.configured == 'true' && github.event_name == 'pull_request'
+        if: steps.guard.outputs.configured == 'true' && github.event_name == 'pull_request' && steps.worker.outputs.exists == 'true'
         working-directory: web
         run: |
           npx wrangler versions upload \

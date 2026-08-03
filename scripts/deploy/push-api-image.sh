@@ -134,9 +134,27 @@ fi
 # toolchain and no build stage. Static for the same reason release.yml's
 # binaries are: the SQLite driver is modernc.org/sqlite, not a cgo wrapper,
 # so CGO_ENABLED=0 costs nothing.
+#
+# The version is injected for the same reason scripts/ci/build-release.sh
+# injects it: without -X main.version the binary keeps main.go's honest "dev"
+# default, and the first deploy proved what that costs — /v1/about reported
+# `release: "dev"`, so the one field naming which *code* is live named
+# nothing. docs/ci.md §4 promises that field.
+#
+# `git describe` rather than a bare tag, because this script runs on the
+# pipeline's cadence and not the release's: the commit that holds a dataset is
+# usually some way past the last tag, and `v0.5.0-2-g62f488b` says so where a
+# bare `v0.5.0` would claim to be a release it is not. --dirty is deliberate —
+# an image built from uncommitted edits should say it on /v1/about rather than
+# impersonate the commit it was nearly built from.
+VERSION=$(git -C "$ROOT" describe --tags --always --dirty 2>/dev/null || echo dev)
+COMMIT=$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo "")
+echo "version  $VERSION"
 echo "compiling server for linux/amd64…"
 (cd "$ROOT/server" && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-  go build -trimpath -ldflags "-s -w" -o "$CTX/concestor-server" .)
+  go build -trimpath \
+    -ldflags "-s -w -X main.version=$VERSION -X main.commit=$COMMIT" \
+    -o "$CTX/concestor-server" .)
 
 cp "$ROOT/server/Dockerfile" "$CTX/Dockerfile"
 

@@ -127,9 +127,10 @@ What this buys, in the order the project cares about:
   rule in CLAUDE.md stays at three places.
 - **Version pinning stays structural.** The Go binary and the artifacts are the
   same image. The image tag is in `web/wrangler.jsonc`, so deploying the Worker
-  is what selects which dataset is live, and rolling back to a previous Worker
-  version rolls back the pair. Serving v16.1 dates against a v15.1 topology
-  remains impossible for the same reason it always was.
+  is what selects which dataset is live, and reverting that tag and deploying
+  reverts the pair. Serving v16.1 dates against a v15.1 topology remains
+  impossible for the same reason it always was. **Not** `wrangler rollback` —
+  §5 is why.
 - **One provider, one bill, one place to look at a log.**
 
 `API_ORIGIN` does not disappear — it is demoted to a **development override**.
@@ -386,11 +387,38 @@ identity of the build.
 ### The tag is the manifest's build id, and it is committed
 
 Pinning the tag in the config rather than deploying `:latest` is what keeps
-rollback meaningful. A Worker version carries the image reference that was live
-with it, so rolling back the Worker rolls back the dataset, and shipping a new
-dataset is a commit that says which one. `:latest` would make "roll back the
-frontend" silently also mean "keep the new database", which is the class of
-mistake `docs/ci.md` §4 exists to prevent.
+rollback meaningful: shipping a new dataset is a commit that says which one,
+and reverting to an old one is a commit that says which one. `:latest` would
+make "roll back the frontend" silently also mean "keep the new database", which
+is the class of mistake `docs/ci.md` §4 exists to prevent.
+
+**To revert the dataset, revert the tag in this file and run `deploy`.** Not
+`wrangler rollback` — this paragraph used to say a Worker version carries the
+image reference that was live with it, and the first real deploy produced
+Wrangler's own warning that it does not:
+
+> Your Worker has Containers configured. Container configuration changes (such
+> as image, max_instances, etc.) will not be gradually rolled out with
+> versions. These changes will only take effect after running `deploy`.
+
+So a version rollback reverts the Worker's *code* and leaves the container on
+the newer image — which is the new dataset under old code, precisely the
+mismatched pair the pinning exists to prevent, arriving through the mechanism
+meant to prevent it. Cloudflare's [Rollouts] and [Rollbacks] pages do not
+address the combination, so the warning is the only evidence and it has not
+been tested against a second image. Treat `wrangler rollback` as unsafe here
+until someone does test it.
+
+[Rollouts]: https://developers.cloudflare.com/containers/platform-details/rollouts/
+[Rollbacks]: https://developers.cloudflare.com/workers/versions-and-deployments/rollbacks/
+
+**And the tag names the dataset, not the image.** It is the manifest's content
+hash over the artifact set, so a change to the *server binary* alone — a
+version string, a bug fix — rebuilds to the same tag and replaces what is in
+the registry under it. Nothing warns. Two images sharing a tag is exactly the
+mutability `:latest` was refused for, so a binary change that matters must
+either ride with the next dataset or be pushed under a tag that says it does
+not name one.
 
 ### Bootstrap order, once there is an account
 
