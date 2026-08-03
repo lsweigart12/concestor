@@ -10,7 +10,7 @@
  * offers — because the honest answer to *what is this* is a drawn tree, not a
  * description of one. Provenance stays, moved below the fold and compressed to
  * the two facts that matter to a reader rather than to a maintainer: where the
- * data came from, and what the dashes mean. The build id is last and small; it
+ * data came from, and what the dashes mean. The version is last and small; it
  * is for whoever files a bug.
  *
  * Picking an opening closes the panel. A modal that stayed open over the tree
@@ -42,6 +42,23 @@ function Src({ href, children }: { href: string; children: React.ReactNode }) {
       {children}
     </a>
   );
+}
+
+/**
+ * The running code's version, written the way the repository writes it.
+ *
+ * `release.config.cjs` tags `v${version}` but compiles in the bare `0.6.0`, so
+ * the `v` goes on here rather than in the payload — `/v1/about`'s `release`
+ * stays a plain semver that something else can parse. A `go run` has no tag
+ * and reports `dev`, which is a word and takes no `v`.
+ *
+ * This is deliberately *not* `build_id`. That names the artifact set the
+ * server has mmap'd, which moves on the pipeline's cadence and means nothing
+ * to a reader; the release names the code, which is what a bug report is
+ * against. `build_id` is still on `/v1/about` for whoever needs both.
+ */
+export function releaseLabel(release: string): string {
+  return /^\d/.test(release) ? `v${release}` : release;
 }
 
 export function About({
@@ -124,7 +141,7 @@ export function About({
 
         <div className="about-foot">
           <span className="mono">
-            {about ? `build ${about.build_id}` : "build unavailable"}
+            {about?.release ? releaseLabel(about.release) : "version unavailable"}
           </span>
           <button ref={ref} type="button" className="btn" onClick={onClose}>
             <span className="kbd">esc</span> Close
