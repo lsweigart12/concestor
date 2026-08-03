@@ -29,9 +29,18 @@
  * browser bundle, where the whole point is that they are not available.
  *
  * `readFileSync(path, "utf8")` has been this shape since Node 0.x.
+ *
+ * The second overload is `meta.test.ts` reading public/og.png, whose IHDR is
+ * the only honest source for the size `index.html` declares to every scraper.
+ * It is typed `Uint8Array` and not `Buffer` on purpose: `Buffer` is a Node
+ * global and the whole point of this file is that there are none here. Node
+ * returns a `Buffer`, which *is* a `Uint8Array`, so nothing is being claimed
+ * that is not true — only that this project reads bytes and not `Buffer`
+ * methods.
  */
 declare module "node:fs" {
   export function readFileSync(path: string | URL, encoding: "utf8"): string;
+  export function readFileSync(path: string | URL): Uint8Array;
 }
 
 /**
