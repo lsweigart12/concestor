@@ -498,11 +498,47 @@ body {
   margin: -1px -5px;
 }
 
+/*
+ * A leaf's label is brighter. It is not larger, and the `font-size: 13.5px`
+ * that used to sit here never made it so.
+ *
+ * Nothing in a label renders at the label's own size: `.mark-label` has no bare
+ * text child, and every descendant that draws text pins its own — `.mark-name`
+ * 12.5px, `.mark-age` 11px, `.mark-meta` 9.5px. `.silhouette` and `.mark-text`
+ * inherited the 13.5 and drew no text with it. So the declaration was inert in
+ * the only sense that matters to a reader, and *not* inert in the sense that
+ * matters to `labels.ts`: an inline row is at least as tall as its own strut,
+ * so this number silently became the height of any row that forgot to pin a
+ * size, and one did — the figures row stood 17.9px against a reserved 15.
+ *
+ * Two ways out, and removing it is the cheaper one. Honouring the evident
+ * intent instead — leaves set larger than divergences — means putting the size
+ * on `.mark-name`, which is a real visual change needing a leaf flag on
+ * `LabelInput` distinct from `terminal` (a graft is terminal and not a leaf),
+ * two more font constants, and two more assertions pinning them. That is a
+ * bill for a design that never shipped: `.mark-name` has been 12.5px for as
+ * long as the three-row label has existed, so no leaf has ever rendered larger
+ * than a divergence. Measured, the container was *inverted* — 13.5px on a leaf
+ * against the 14px an MRCA inherits from `body` — and nothing showed, which is
+ * the proof that no reader was ever getting the intent. Leaves are already
+ * distinguished by `--ink` against the name's `--ink-2`, and the MRCA by
+ * weight; size would be a third channel saying what two already say.
+ *
+ * `.mark-label` now inherits `body`'s 14px on every mark. Nothing renders at
+ * it, and `labels.test.ts` fails if anything starts to.
+ */
 .mark.is-leaf .mark-label {
   color: var(--ink);
-  font-size: 13.5px;
 }
 
+/*
+ * The contrast worth reading beside the rule above, because the two look
+ * identical and only one of them draws anything: `.mark-name` sets no
+ * `font-weight`, so it inherits this one and an MRCA's name really is medium.
+ * `NAME_FONT_MED` in labels.ts exists to measure that. Selector shape tells
+ * you nothing here — what decides it is whether the property survives to an
+ * element that renders text.
+ */
 .mark.is-mrca .mark-label {
   color: var(--ink);
   font-weight: var(--w-med);
