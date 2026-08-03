@@ -26,16 +26,43 @@ name: Deploy web
 
 # Production deploys on a *release*, not on every push to main. That is the
 # whole point of having a release pipeline: what is in production has a version
-# number, appears in the changelog, and can be named in a rollback. A deploy
-# per merge has none of those and cannot be talked about afterwards.
+# number, appears in the release notes, and can be named in a rollback. A
+# deploy per merge has none of those and cannot be talked about afterwards.
+#
+# **`release.yml` calls this workflow.** There is deliberately no
+# `release: [published]` trigger, and its absence is the fix rather than an
+# oversight. semantic-release publishes with `secrets.GITHUB_TOKEN`, and GitHub
+# does not start workflows from events raised by that token — the recursion
+# guard. So a `release: published` trigger sat here looking like the production
+# path and fired **zero times in ten releases**, every one of which was then
+# deployed by hand. It was silent because the release job was green: the tag,
+# the notes and the assets all existed, and only the running site was old.
+# docs/ci.md §4 is the account.
 #
 # Pull requests still get a preview version, because a preview is for looking
 # at a change before it is a release.
 on:
-  release:
-    types: [published]
+  # Called by release.yml, once semantic-release has actually published. The
+  # tag is an input rather than something read off the event, because under
+  # `workflow_call` `github.event` is the *caller's* and carries no release.
+  workflow_call:
+    inputs:
+      release_tag:
+        description: The tag to deploy — checked out, and built into the bundle
+        required: true
+        type: string
   pull_request:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        # The hand-deploy path needs this for the same reason the release path
+        # does: main's tip is not necessarily the commit a tag names, and
+        # `web/wrangler.jsonc` pins the container image, so deploying the wrong
+        # commit ships the wrong dataset with it.
+        description: Tag to deploy. Empty deploys the tip of the chosen branch
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -46,6 +73,12 @@ concurrency:
   group: deploy-web-${{ github.ref }}
 
 jobs:
+  # `github.event_name` is the *caller's* event under `workflow_call`, so it
+  # reads `workflow_run` on the release path rather than anything named after
+  # a release. Every test below asks only whether this is a pull request, which
+  # stays exactly right: a preview is the one thing `workflow_call` is never
+  # used for. Do not rewrite these into a test for what a production deploy
+  # *is* without checking what the caller's event actually says.
   deploy:
     name: ${{ github.event_name == 'pull_request' && 'preview' || 'production' }}
     runs-on: ubuntu-latest
@@ -80,8 +113,9 @@ jobs:
           # On a release, the tag — not main's tip. Between the tag being cut
           # and this job starting, main can have moved, and deploying that
           # would put code in production that the release notes do not
-          # describe. Empty elsewhere, which checks out the triggering ref.
-          ref: ${{ github.event.release.tag_name }}
+          # describe. Empty on a pull request, which checks out the
+          # triggering ref.
+          ref: ${{ inputs.release_tag }}
 
       - uses: actions/setup-node@v7
         if: steps.guard.outputs.configured == 'true'
@@ -97,7 +131,7 @@ jobs:
           # The same version the release compiled into the server binary, so
           # a frontend and an API can be compared without guessing. Falls back
           # to the sha on a preview, which has no version by definition.
-          VITE_APP_VERSION: ${{ github.event.release.tag_name || github.sha }}
+          VITE_APP_VERSION: ${{ inputs.release_tag || github.sha }}
         # Rebuilt here rather than pulled from CI's artifact: a deploy that
         # depends on another workflow's output can ship a bundle whose source
         # nobody can name. `tsc -b` runs as part of `build`, and so does the
@@ -176,4 +210,4 @@ jobs:
         run: |
           npx wrangler deploy \
             --var "API_ORIGIN:${API_ORIGIN}" \
-            --message "${{ github.event.release.tag_name || github.sha }}"
+            --message "${{ inputs.release_tag || github.sha }}"

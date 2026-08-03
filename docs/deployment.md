@@ -327,6 +327,31 @@ urgent.
 
 ## 5. How it deploys
 
+### What actually runs `wrangler deploy`
+
+**`release.yml` calls `deploy-web.yml` as a job**, once semantic-release has
+published, passing the tag. Not a trigger on the release — `docs/ci.md` §4 is
+the account, and the short version is that semantic-release publishes with
+`secrets.GITHUB_TOKEN`, GitHub does not start workflows from events that token
+raises, and the `on: release: [published]` line that used to sit in
+`deploy-web.yml` therefore fired zero times in ten releases while every release
+job stayed green.
+
+Two things follow that matter when you go looking:
+
+- **The production deploy log is in the Release run**, under a job called
+  `deploy`. It is not in `deploy-web.yml`'s run list, which now holds pull
+  request previews and hand-deploys only.
+- **The tag is checked out, not main's tip.** The workflow takes it as an
+  input and passes it to `actions/checkout`, so the deploy ships the commit the
+  release notes describe — and therefore the container image tag *that commit*
+  pins, which is the next three sections.
+
+To deploy by hand — after a failed deploy job, or to put a specific version
+back — run the **Deploy web** workflow manually and give it the tag. Leaving
+the tag empty deploys the tip of whatever branch is chosen, which is rarely
+what is wanted once a release exists.
+
 ### The image is built where the dataset is, and never in CI
 
 This is the constraint that shapes everything else. The container image contains
@@ -434,7 +459,8 @@ not deploy:
    `CLOUDFLARE_ACCOUNT_ID`. The token needs *Edit Cloudflare Workers* **and**
    container registry write for step 1 to be runnable from anywhere but a
    laptop.
-4. Merge. The release deploys the Worker, and the Worker names the image.
+4. Merge. CI passes, semantic-release cuts the release, and the release's own
+   `deploy` job deploys the Worker — which names the image.
 
 `CONCESTOR_API_ORIGIN` stays unset in production. Setting it is the documented
 way to point the whole thing back at an external API without redeploying

@@ -11,11 +11,13 @@ happen before Concestor deploys on Cloudflare.
 |---|---|---|
 | `.github/workflows/ci.yml` | every push to `main`, every pull request | `commits`, `web`, `server`, `pipeline`, `cloudflare` |
 | `.github/workflows/release.yml` | CI succeeding on `main`, or manual | `release` — semantic-release, fully automatic |
-| `.github/workflows/deploy-web.yml` | a published release, pull request, manual | `deploy` — skipped entirely until Cloudflare credentials exist |
+| `.github/workflows/deploy-web.yml` | **called by `release.yml`**, pull request, manual | `deploy` — skipped entirely until Cloudflare credentials exist |
 | `.github/dependabot.yml` | monthly | npm, gomod, uv, github-actions — grouped, one pull request each |
 
 The chain is `merge → CI → release → deploy`, and no link in it waits for a
-human.
+human. The last link is a **call** rather than a trigger — `release.yml` runs
+the deploy as one of its own jobs — and §4 is why that is not the obvious
+shape it replaced.
 
 The three halves share only files, so they get three independent jobs and a red
 run names the half that broke. Nothing in CI needs `build/` (2.9 GB) or
@@ -159,11 +161,12 @@ image first and commit the tag it prints, then set:
 | secret | `CLOUDFLARE_ACCOUNT_ID` | substituted into the image reference at deploy time |
 | variable | `CONCESTOR_API_ORIGIN` | **optional.** Set it only to route `/v1` to an API *outside* Cloudflare |
 
-Then a release runs `wrangler deploy`, and a pull request from this repository
-runs `wrangler versions upload --preview-alias pr-N`, which publishes a preview
-URL without moving production traffic. Pull requests from forks have no secrets
-and skip the deploy, which is the correct behaviour rather than a limitation to
-work around.
+Then a release runs `wrangler deploy` — as a job of the release run, not off a
+trigger of its own, and §4 is why that distinction cost ten releases — and a
+pull request from this repository runs `wrangler versions upload
+--preview-alias pr-N`, which publishes a preview URL without moving production
+traffic. Pull requests from forks have no secrets and skip the deploy, which is
+the correct behaviour rather than a limitation to work around.
 
 `CONCESTOR_API_ORIGIN` is passed with `--var`, not as a secret, deliberately:
 it is a public origin the browser already sends every request to. Leaving it
@@ -290,6 +293,74 @@ reports both on `/v1/about`: `release` is the tag it was built from, `build_id`
 is the artifact set it has mmap'd. Conflating them would be the same mistake as
 merging `age_ma` into `age_layout` to save 10 MB — one number where the honest
 answer needs two.
+
+### The release calls the deploy, because a release cannot trigger one
+
+**`GITHUB_TOKEN` does not start workflows.** Events raised by the token
+Actions hands a job — pushes, tags, published releases — are ignored by every
+`on:` trigger in the repository. It is GitHub's recursion guard, it cannot be
+switched off, and it is the single most expensive thing on this page to not
+know.
+
+`deploy-web.yml` used to say `on: release: [published]`, which is the obvious
+reading of "deploy when a release is cut" and is the shape most of the internet
+will show you. semantic-release publishes with `secrets.GITHUB_TOKEN`, so it
+**never fired once**: measured across 40 runs of that workflow, 38 were pull
+request previews and 2 were manual dispatches, against **ten published
+releases**. Both real production deploys of concestor.com were run by hand,
+`v0.11.0` among them.
+
+What makes it worth a section is the shape of the failure rather than the
+mistake. Nothing was red. The tag existed, the notes were generated, the four
+assets were attached, and the release job was green — the *only* symptom was
+that the site kept serving an older version, which is a thing you find out by
+looking at the site. A trigger that is never reached logs nothing, so there is
+no run to inspect and no error to search for.
+
+So the deploy is a **job in `release.yml`**, called with `uses:` and gated on
+semantic-release having actually published:
+
+```yaml
+deploy:
+  needs: release
+  if: needs.release.outputs.released == 'true'
+  uses: ./.github/workflows/deploy-web.yml
+  with: { release_tag: "${{ needs.release.outputs.tag }}" }
+  secrets: inherit
+```
+
+Three consequences, all of them the point:
+
+- **No new credential.** The alternative is giving semantic-release a personal
+  access token or a GitHub App token so its release is raised by an identity
+  the guard does not apply to. That works, and it buys back the decoupled
+  trigger, but it puts a second long-lived credential in a repository whose
+  Cloudflare token already has no spend cap behind it — `docs/deployment.md`
+  §6.1. Paying a permanent credential to keep an `on:` line is the wrong trade
+  when a `uses:` line does the same work.
+- **A failed deploy is loud, and attached to the release that failed to ship.**
+  The deploy is a job of the release run, so it turns *that* run red. The
+  release is still published — it has to be, since the deploy checks the tag
+  out — so the state worth recognising is **a red Release run whose
+  `semantic-release` job is green: the version was cut and production was not
+  updated.** Re-run it with the **Deploy web** workflow manually, passing the
+  tag. That is a worse outcome than a clean deploy and a much better one than
+  the silence it replaced.
+- **Production deploys no longer appear as `deploy-web.yml` runs.** A called
+  workflow does not get a run of its own; its jobs appear under the Release
+  run. `deploy-web.yml`'s own run list is now previews and hand-deploys only,
+  and looking there for the production history is looking in the wrong place.
+
+**Triggering on `push: tags: v*` instead does not work**, and for exactly the
+same reason — semantic-release pushes the tag with the same token, so the guard
+applies unchanged. It is the tempting second guess and it fails identically and
+just as quietly.
+
+The guard against this regressing is in `release.yml` rather than in prose. The
+deploy runs on an output written by `release.config.cjs`'s `successCmd`, and
+nothing else reads it, so that output silently failing would rebuild this exact
+bug one level up. The step therefore diffs the local tag list across
+semantic-release and **fails** if a tag was cut without the output being set.
 
 ### Two guards worth knowing
 

@@ -73,6 +73,24 @@ module.exports = {
         // published — the only point at which the version exists and can be
         // compiled in.
         prepareCmd: "scripts/ci/build-release.sh ${nextRelease.version}",
+
+        // Runs only after a release has actually been published, which is the
+        // question `release.yml`'s deploy job turns on. Most runs of this
+        // pipeline release nothing — a `ci:` or `docs:` merge reaches
+        // semantic-release and is correctly told there is no version in it —
+        // and deploying those would be the per-merge deploy the release
+        // pipeline exists to avoid.
+        //
+        // `success` rather than `publish`, because publish runs *before*
+        // @semantic-release/github creates the release and this must not claim
+        // a release that the next plugin then fails to make. `gitTag` rather
+        // than `version` so `tagFormat` above stays the only place the `v` is
+        // written. The `$GITHUB_OUTPUT` guard keeps a local run working: off
+        // CI the variable is unset and the redirect would abort the release.
+        successCmd:
+          'if [ -n "$GITHUB_OUTPUT" ]; then ' +
+          '{ echo "released=true"; echo "tag=${nextRelease.gitTag}"; } ' +
+          '>> "$GITHUB_OUTPUT"; fi',
       },
     ],
 
