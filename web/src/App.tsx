@@ -47,7 +47,7 @@ import {
 } from "./palette/Palette";
 import { About as AboutPanel } from "./chrome/About";
 import { OpeningCarousel } from "./chrome/OpeningCarousel";
-import { OPENINGS, keysOf, type Opening } from "./openings";
+import { keysOf, type Opening } from "./openings";
 import { Confirm } from "./chrome/Confirm";
 import { Controls, type ControlAction } from "./chrome/Controls";
 import { PendingLine, usePending } from "./chrome/Pending";
@@ -721,29 +721,17 @@ export default function App() {
           setConfirmClear(true);
         },
       },
-      // Only while the canvas is empty, which is the difference between an
-      // opening and every other command here.
+      // The openings are deliberately *not* here. They live on the empty canvas
+      // and in the about panel, and that is enough of them.
       //
       // An opening is not additive: `tree.open` *replaces* the selection, the
       // fossils and the axis, because the claim it makes is only true of its
-      // own set of taxa. Offered against a tree somebody has spent time
-      // assembling, "Are you a fish?" is an undo-less clear wearing the label
-      // of a question — and it would sit in the palette one fuzzy match away
-      // from the species they were actually reaching for.
-      //
-      // Nothing is lost by hiding them: with an empty canvas they are here, in
-      // the boot carousel, and in the about panel, and the about panel is
-      // reachable at any time. `⌫`-ing back to an empty canvas brings them
-      // back, and so does the back button, since every view is a URL.
-      ...(empty ? OPENINGS : []).map((o) => ({
-        id: `opening-${o.id}`,
-        title: o.question,
-        subtitle: o.reveal,
-        hint: o.reveal,
-        icon: "◇",
-        section: "Start here",
-        run: () => openOpening(o),
-      })),
+      // own set of taxa. Every other command in this list adds to, or acts on,
+      // what is already drawn. Hiding them once the canvas was non-empty made
+      // the rule safe but not coherent — a `Start here` section that appears
+      // and disappears is a list the reader cannot learn — and on an empty
+      // canvas the carousel is already showing the same questions, larger,
+      // with their silhouettes, two feet from the palette that repeated them.
       {
         id: "about",
         title: "About Concestor",
@@ -847,7 +835,6 @@ export default function App() {
     toast,
     share,
     randomPick,
-    openOpening,
     empty,
     viewFit,
   ]);

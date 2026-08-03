@@ -240,8 +240,8 @@ uv run ruff format src tests && uv run ruff check src tests && uv run ty check &
 
 ### The empty canvas asks a question, and every opening is a triple
 
-`web/src/openings.ts` is six pre-built selections, offered by the empty canvas,
-by the about panel and as a `Start here` section in the palette. It replaced
+`web/src/openings.ts` is six pre-built selections, offered by the empty canvas
+and by the about panel. It replaced
 *"press S and search for two species"*, which asked for the one thing a curious
 reader does not have — two species, chosen, for a reason — and then described
 the mechanism (*the smallest tree that connects them*) rather than the payoff.
@@ -332,16 +332,20 @@ not save it, because that only holds while the pointer is over the carousel.
 optional: hover or focus anywhere in the card stops it; any manual press stops it
 *for good* rather than on a timer; `prefers-reduced-motion` disables it and the
 fade outright. And it is never the only route — arrows and dots reach each one
-directly, and the palette carries them too while the canvas is empty.
+directly.
 
-**`Start here` is hidden from the palette once anything is drawn**, and that is
-the difference between an opening and every other command. An opening is not
-additive: `tree.open` *replaces* the selection, the fossils and the axis, because
-its claim is only true of its own taxa. Offered against a tree somebody has spent
-time assembling, "Are you a fish?" is an undo-less clear wearing the label of a
-question — sitting one fuzzy match away from the species they were reaching for.
-Nothing is lost: the about panel is reachable at any time, and both the back
-button and clearing bring the section back, since every view is a URL.
+**The palette does not carry the openings at all**, and the reason is what makes
+them different from every other command. An opening is not additive: `tree.open`
+*replaces* the selection, the fossils and the axis, because its claim is only
+true of its own taxa. Offered against a tree somebody has spent time assembling,
+"Are you a fish?" is an undo-less clear wearing the label of a question —
+sitting one fuzzy match away from the species they were reaching for. The first
+fix was a `Start here` section hidden once anything was drawn, which made the
+rule safe without making it coherent: a section that appears and disappears is a
+list nobody can learn, and on the one surface where it *was* shown — the empty
+canvas — the carousel was already offering the same questions, larger and with
+their silhouettes. So the section is gone. Nothing is lost, because the about
+panel carries the same carousel and is reachable at any time.
 
 ### The palette hides what would do nothing, and pins what nobody is asking for
 

@@ -18,9 +18,10 @@
  *    an auto-advance is fighting them. It does not resume on a timer.
  * 3. **`prefers-reduced-motion` disables it entirely**, along with the fade.
  * 4. **It is never the only route.** The arrows and the dots reach every one
- *    directly, and while the canvas is empty — which is the only time this
- *    shows on it — every opening is also a palette command under `Start here`.
- *    Nothing here is reachable only by waiting.
+ *    directly, and the about panel — reachable at any time — carries the same
+ *    carousel with rotation off. Nothing here is reachable only by waiting.
+ *    The palette does *not* duplicate them: this surface and the panel are the
+ *    two places an opening is offered.
  *
  * The interval is deliberately long. The reveal runs to two lines and a reader
  * who has just arrived is also looking at the silhouettes and the axis, so this
