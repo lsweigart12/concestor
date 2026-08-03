@@ -1591,89 +1591,96 @@ body {
 }
 
 /*
- * Pointed at: this is a way to make the tree on screen yours.
+ * Pointed at: one outline round the three ways to make this tree yours, and a
+ * tray of copy under it.
  *
- * Set only in the moments after an opening finishes drawing, on the three
- * controls that add something of the reader's own. It replaced a sentence in
- * the answer's own toast, and the trade is the point — prose teaches the *key*,
- * a mark on the button teaches where the button is, which is what a reader who
- * has only ever pressed a carousel card is missing.
+ * Set only in the moments after an opening finishes drawing. It replaced a
+ * sentence on the end of the answer's own toast, and the trade is the point —
+ * prose over there taught the *key* and competed with the reply to the question
+ * the reader asked; a box up here says *where*, and the badges inside it are
+ * already printing the keys, so the line under it can be the invitation and
+ * nothing else.
  *
- * The button itself only wakes to its ordinary hover weight; the pulse is a
- * dot, and it is a dot on purpose. Pulsing the whole control would put three
- * breathing objects along the top edge of a canvas whose entire argument is
- * that the graph is the only thing worth looking at, and this is chrome asking
- * for attention rather than data claiming any.
+ * **One outline, not three marks.** An earlier draft pulsed a dot on each
+ * button, and three breathing objects along the top edge of a canvas whose
+ * whole argument is that the graph is the only thing worth looking at read as
+ * three separate demands. It is one offer with three doors.
  *
- * `position: relative` on the button and not on `.control` generally: the base
- * rule has no positioning and nothing else here needs one.
+ * The padding is cancelled by an equal negative margin, so the box is drawn
+ * around the buttons without moving them or anything after them: the bar looks
+ * identical the instant before and after this appears, and only the outline is
+ * new.
  */
-.control.is-tip {
+.control-tip {
   position: relative;
-  border-color: var(--hairline);
-  color: var(--ink-2);
-}
-.control.is-tip .kbd {
-  border-color: var(--accent-dim);
-  color: var(--accent);
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s1);
+  padding: 3px 5px;
+  margin: -3px -5px;
+  border: 1px solid var(--accent-dim);
+  border-radius: 9px;
+  animation: tip-breathe 2600ms ease-in-out infinite;
 }
 
-/* Riding the corner of the badge rather than the corner of the button, so the
-   three dots sit at the same distance from the letter a reader is being asked
-   to press instead of drifting apart with the label widths. */
-.control.is-tip::after {
-  content: "";
+/*
+ * The tray, sliding down from under the row it belongs to.
+ *
+ * Absolutely positioned, so it is outside the bar's flow — a line that pushed
+ * its own row would move the three buttons it is pointing at, on the one frame
+ * they must not move. `transform-origin` at the top and a squashed start make
+ * it unroll downward rather than fade in place, which is what says it came
+ * from the thing above it.
+ *
+ * It is not pressable and takes no pointer: the buttons are the target, and a
+ * caption that swallowed a click aimed past it would cost the reader the very
+ * press it is asking for.
+ */
+.control-tip-tray {
   position: absolute;
-  top: 1px;
-  left: 23px;
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--accent);
-  animation: tip-pulse 2200ms ease-in-out infinite;
+  top: calc(100% + 5px);
+  left: 5px;
+  max-width: min(340px, 74vw);
+  padding: 4px 9px;
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  background: rgba(14, 14, 17, 0.94);
+  font-family: var(--sans);
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--ink-2);
   pointer-events: none;
+  transform-origin: 50% 0;
+  animation: tip-tray-out 420ms var(--spring) both;
 }
 
-/* Once the reader is pointing at it they have found it, so the dot stops
-   asking. The tip itself is cleared by the press, not by the hover — pointing
-   is not taking. */
-.control.is-tip:hover::after {
-  animation: none;
-  opacity: 0.9;
-}
-
-/* Under reduced motion the dot needs no rule of its own: the global block at
-   the foot of this file cuts the animation to 1ms and one iteration, and with
-   the default `fill-mode: none` the element then sits at its *base* style —
-   accent, fully opaque, no glow. That is the static lit dot this state wants,
-   which is why the resting keyframe is the dim one and not the lit one. */
-@keyframes tip-pulse {
+/*
+ * The breath is a glow and never the border, and the base state is the lit
+ * outline rather than a bare one. That ordering is what makes reduced motion
+ * correct for free: the global block at the foot of this file cuts the
+ * animation to 1ms and one iteration, and with the default `fill-mode: none`
+ * the group then sits at its base style — a static accent outline, which is the
+ * right still substitute for a pulse. The tray keeps `both`, so it holds its
+ * finished state instead of snapping back to squashed and invisible.
+ */
+@keyframes tip-breathe {
   0%,
   100% {
-    opacity: 0.32;
     box-shadow: 0 0 0 0 transparent;
   }
   50% {
-    opacity: 1;
-    box-shadow: 0 0 7px 1px hsl(var(--accent-h) 80% 60% / 0.5);
+    box-shadow:
+      0 0 0 3px hsl(var(--accent-h) 80% 60% / 0.09),
+      0 0 16px 0 hsl(var(--accent-h) 80% 60% / 0.2);
   }
 }
 
-.control .kbd {
-  /* The loudest thing on the button. Everything else on this bar is 11.5px
-     sans at --ink-3; the badge keeps its border and its mono. */
-  flex: none;
-}
-
-.control-label {
-  white-space: nowrap;
-}
-
-/* Colour and cadence are `.pending`'s; this is placement and the one size
-   override the bar's own scale needs. */
-.controls-busy {
-  margin-left: var(--s2);
-  font-size: 11px;
+@keyframes tip-tray-out {
+  from {
+    opacity: 0;
+    transform: translateY(-10px) scaleY(0.5);
+  }
 }
 
 /*

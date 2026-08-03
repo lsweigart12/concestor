@@ -86,16 +86,24 @@ const REFUSAL_REASONS: GraftRefusal[] = ["off-tree", "no-range", "no-identity"];
 const RANDOM_CANDIDATES = 12;
 
 /**
- * Which controls are pointed at once an opening has finished drawing.
+ * Which controls are pointed at once an opening has finished drawing, and what
+ * the tray under them says.
  *
  * The three ways to put something of your own on the canvas, in the order the
- * bar already draws them. They were a sentence in the answer's own toast once —
- * "press S to search, or R for a surprise" — and a sentence is the wrong shape
- * for this: it teaches the key rather than the button, it competes with the
- * answer to the question the reader actually asked, and it goes away when the
- * toast does. A mark on the control stays until the control is used.
+ * bar already draws them — and they must stay adjacent, because `Controls`
+ * draws a contiguous run of them inside one outline. That grouping is the
+ * claim: it is **one** invitation with three doors, and three separately
+ * decorated buttons said there were three invitations.
+ *
+ * The line was a sentence on the end of the answer's own toast once — "press S
+ * to search, or R for a surprise" — and both halves of that were wrong. It
+ * competed with the reply to the question the reader had actually asked, and it
+ * named keys, when what a reader who has only ever pressed a carousel card is
+ * missing is *where*. Under the buttons it needs neither: the badges are
+ * directly above it, so the copy can be the invitation and nothing else.
  */
 const TIPPED: ActionId[] = ["palette", "species", "random-species"];
+const TIP_LINE = "Now put something of your own beside it";
 
 /**
  * What is being offered after an opening, and which one it was about.
@@ -1793,7 +1801,21 @@ export default function App() {
         not need to be told which of them it is. `usePending` keeps the
         instant ones out of it entirely.
       */}
-      <Controls actions={controls} idle={idle} busy={busy} />
+      {/*
+        The bar does not fade while it is pointing at something.
+
+        Chrome auto-hides after four still seconds, which is right for a bar
+        nobody is looking at and wrong for the one moment it is asking to be
+        looked at — a reader reading the answer to their question is exactly the
+        reader holding still. It fades again the moment the invitation is taken
+        or dismissed.
+      */}
+      <Controls
+        actions={controls}
+        idle={idle && afterglow === null}
+        busy={busy}
+        {...(afterglow !== null ? { tip: TIP_LINE } : {})}
+      />
     </>
   );
 }
