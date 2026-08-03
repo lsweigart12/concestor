@@ -13,10 +13,18 @@
 # green, and `workflow_run` is the only trigger that can know that.
 #
 # What comes out: a git tag, a GitHub Release whose notes are generated from
-# the commits, and four assets — two server binaries, the built frontend, and
-# checksums. Nothing is committed back to this repository. See
-# `release.config.cjs` for why the tag is the only place the version is
-# written.
+# the commits, four assets — two server binaries, the built frontend, and
+# checksums — and, when a release was actually published, a production deploy.
+# Nothing is committed back to this repository. See `release.config.cjs` for
+# why the tag is the only place the version is written.
+#
+# **The deploy is a job here rather than a trigger over there**, and that is
+# load-bearing. `deploy-web.yml` used to carry `on: release: [published]`,
+# which never fired once in ten releases: semantic-release publishes with
+# `secrets.GITHUB_TOKEN` and GitHub does not start workflows from events that
+# token raises. Calling the deploy directly needs no new credential, and it
+# also puts the failure where it belongs — a deploy that breaks turns *this*
+# run red, next to the release it failed to ship. docs/ci.md §4.
 
 name: Release
 
@@ -45,6 +53,12 @@ jobs:
   release:
     name: semantic-release
     runs-on: ubuntu-latest
+    # Both written by `release.config.cjs`'s `successCmd`, which runs only when
+    # a release was published. Absent on a dry run, on a skipped gate, and on
+    # the many merges whose commits release nothing.
+    outputs:
+      released: ${{ steps.semantic.outputs.released }}
+      tag: ${{ steps.semantic.outputs.tag }}
     # A failed or cancelled CI run must not reach this. `workflow_run` fires
     # on completion whatever the conclusion, so the conclusion is the guard.
     if: >-
@@ -93,6 +107,7 @@ jobs:
           cache-dependency-path: server/go.sum
 
       - name: semantic-release
+        id: semantic
         if: steps.gate.outputs.skip != 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -101,7 +116,47 @@ jobs:
         # a pipeline. commit-analyzer, release-notes-generator and github ship
         # inside semantic-release; exec does not.
         run: |
+          git tag --list 'v*' | sort > "$RUNNER_TEMP/tags-before"
+
           npx --yes \
             -p semantic-release@24 \
             -p @semantic-release/exec@6 \
             semantic-release ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && '--dry-run' || '' }}
+
+          # The deploy job below runs on `released`, and nothing else reads it,
+          # so if `successCmd` ever stops firing the deploy stops happening and
+          # this run stays green — which is precisely the failure this change
+          # exists to remove, rebuilt one level up. The tag semantic-release
+          # creates locally before pushing is an independent witness of the
+          # same event, so the two disagreeing is a failure rather than a
+          # quiet no-deploy. A dry run makes no tag and sets no output, and is
+          # consistent for the same reason.
+          git tag --list 'v*' | sort > "$RUNNER_TEMP/tags-after"
+          cut=$(comm -13 "$RUNNER_TEMP/tags-before" "$RUNNER_TEMP/tags-after")
+          if [ -n "$cut" ] && ! grep -qx 'released=true' "$GITHUB_OUTPUT"; then
+            echo "::error::semantic-release tagged ${cut} but reported no published release, so the deploy will not run and production will keep serving the previous version. release.config.cjs's successCmd is what sets this."
+            exit 1
+          fi
+
+  # Production. Only when something was published — a `ci:` or `docs:` merge
+  # reaches semantic-release, is correctly told there is no version in it, and
+  # must not deploy, because a deploy per merge is what the release pipeline
+  # exists instead of.
+  #
+  # The tag is passed rather than left to be worked out, so the deploy checks
+  # out the commit the release notes describe. That matters more here than it
+  # looks: `web/wrangler.jsonc` pins the container image by tag, so the commit
+  # deployed decides the *dataset* served, and `wrangler rollback` cannot undo
+  # a wrong pairing — docs/deployment.md §5.
+  #
+  # `secrets: inherit` passes the Cloudflare credentials through. With none
+  # set, deploy-web.yml's own guard step still skips every step and reports
+  # green, so this adds no way for the deploy to fail on a repository that has
+  # no account.
+  deploy:
+    needs: release
+    if: needs.release.outputs.released == 'true'
+    uses: ./.github/workflows/deploy-web.yml
+    with:
+      release_tag: ${{ needs.release.outputs.tag }}
+    secrets: inherit
