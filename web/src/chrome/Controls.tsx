@@ -195,10 +195,13 @@ export function Controls({
             <span className="control-tip" key={`tip-${i}`}>
               {run.groups.map(drawGroup)}
               {/*
-                The tray. Absolutely positioned and so outside the bar's flow —
-                a line that pushed the row it hangs from would move the buttons
-                it is pointing at, on the frame it arrived, which is the one
-                frame they must not move.
+                The tray, which comes out of this outline's right-hand edge.
+                Absolutely positioned and so outside the bar's flow — a line
+                that pushed the row it hangs from would move the buttons it is
+                pointing at, on the frame it arrived, which is the one frame
+                they must not move. It is inside the outline because that is
+                what it is positioned against; the rule says why sideways is
+                what let it come back here.
               */}
               {tip !== undefined && <span className="control-tip-tray">{tip}</span>}
             </span>

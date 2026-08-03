@@ -24,6 +24,7 @@ const read = (p: string) => readFileSync(new URL(p, import.meta.url), "utf8");
 const CSS = read("../styles.css");
 const FAB = read("./PaletteFab.tsx");
 const CONTROLS = read("./Controls.tsx");
+const APP = read("../App.tsx");
 
 /** The body of the first rule whose selector matches, comments stripped. */
 function rule(sel: string, within: string = CSS): string {
@@ -36,15 +37,25 @@ function rule(sel: string, within: string = CSS): string {
   return m![1]!;
 }
 
-/** The `@media (max-width: 620px)` block that carries the swap. */
-function swapBlock(): string {
+/** Every `@media (max-width: 620px)` block in the stylesheet. */
+function narrowBlocks(): string[] {
   const blocks = [
     ...CSS.matchAll(/@media\s*\(max-width:\s*620px\)\s*\{([\s\S]*?)\n\}/g),
-  ]
-    .map((m) => m[1]!)
-    .filter((b) => b.includes(".palette-fab"));
-  expect(blocks, "no 620px block mentions .palette-fab").toHaveLength(1);
-  return blocks[0]!;
+  ].map((m) => m[1]!);
+  expect(blocks.length, "no 620px blocks at all").toBeGreaterThan(0);
+  return blocks;
+}
+
+/** The one `@media (max-width: 620px)` block mentioning `sel`. */
+function narrowBlock(sel: string): string {
+  const hits = narrowBlocks().filter((b) => b.includes(sel));
+  expect(hits, `not exactly one 620px block mentions ${sel}`).toHaveLength(1);
+  return hits[0]!;
+}
+
+/** The `@media (max-width: 620px)` block that carries the swap. */
+function swapBlock(): string {
+  return narrowBlock(".palette-fab");
 }
 
 describe("the narrow window swaps every control for one button", () => {
@@ -107,6 +118,137 @@ describe("the button is the door it says it is", () => {
     const b = BINDINGS.find((x) => x.id === "palette")!;
     expect(FAB).not.toContain(b.hint);
     expect(FAB).not.toContain(`"${b.label}"`);
+  });
+});
+
+/**
+ * What an opening leaves behind, once the chrome it was designed around is
+ * gone.
+ *
+ * Three things arrive in the seconds after an opening finishes drawing: the
+ * answer, the invitation to add your own, and the offer of another question.
+ * On a wide window they have three separate homes — a toast above the axis, a
+ * tray under the bar, a card in the right-hand corner — and below 620px two of
+ * those homes do not exist and the third is 54px of button. Every one of them
+ * then lands on the same bottom-right shelf, at four different z-indexes, and
+ * nothing about that errors: it is the offer that matters most drawn underneath
+ * the offer that matters least, visible only to somebody holding a phone at the
+ * one moment in the app this is asking to be got right.
+ */
+describe("the afterglow fits the one-button layout", () => {
+  it("is reading App.tsx at all", () => {
+    expect(APP).toContain("TIP_LINE");
+  });
+
+  /**
+   * One string, spread the same way into both surfaces. The bar's tray and the
+   * button's flyout are the same invitation at two widths, and an invitation
+   * worded differently depending on the window is two invitations.
+   */
+  it("sends the same sentence to the bar and to the button", () => {
+    const line = /const TIP_LINE = "([^"]+)"/.exec(APP)?.[1];
+    expect(line, "TIP_LINE is not a plain string literal").toBeTruthy();
+    expect(
+      [...APP.matchAll(/\{\.\.\.\(tipShown \? \{ tip: TIP_LINE \} : \{\}\)\}/g)],
+      "TIP_LINE does not reach exactly two surfaces",
+    ).toHaveLength(2);
+    // And neither surface restates it. The words live in one place.
+    expect(FAB).not.toContain(line!);
+  });
+
+  /**
+   * The words, not a flag. A boolean lit a ring on an unlabelled circle, which
+   * is a signal a reader cannot read — and it is the type that stops that
+   * coming back, because a pulse with no sentence is now unrepresentable.
+   */
+  it("gives the button the sentence and not a boolean", () => {
+    expect(FAB).toContain("tip?: string");
+    expect(FAB).not.toContain("tip?: boolean");
+    expect(FAB).toContain("palette-fab-tip");
+    expect(FAB).toContain("{tip}");
+  });
+
+  /** Drawn only where the button it hangs off is drawn. */
+  it("draws the flyout below 620px and nowhere else", () => {
+    expect(rule(".palette-fab-tip")).toContain("display: none");
+    expect(rule(".palette-fab-tip", swapBlock())).toMatch(/display:\s*block/);
+  });
+
+  /**
+   * And it travels with the button. Both read the same shelf expression, so a
+   * drill lane opening under them moves the pair — a flyout counted off
+   * `--axis-h` alone would be left behind on the lane's roof.
+   */
+  it("hangs the flyout off the button's own shelf", () => {
+    const body = rule(".palette-fab-tip");
+    expect(body).toContain("var(--axis-h)");
+    expect(body).toContain("var(--lane-h");
+    // Out the left, which is the only side not already spoken for, and clear
+    // of the 54px circle it points at.
+    expect(body).toMatch(/right:\s*calc\([^;]*54px/);
+    expect(body).toContain("pointer-events: none");
+  });
+
+  /**
+   * The toast stack gets the width and then has to clear the button, and the
+   * two belong in one block because the first is what makes the second
+   * necessary: `left: 50%` sizes the stack against half the window, and undoing
+   * that is what lets a notice reach across the only control there is.
+   */
+  it("widens the toast stack and lifts it over the button", () => {
+    const body = rule(".toasts", narrowBlock(".toasts"));
+    expect(body).toMatch(/left:\s*0/);
+    expect(body).toMatch(/right:\s*0/);
+    expect(body).toMatch(/transform:\s*none/);
+    expect(body).toContain("var(--axis-h)");
+    expect(body).toContain("var(--lane-h");
+  });
+
+  /**
+   * And nowhere else. Above this width the half-window ceiling is doing a
+   * second job nobody wrote down — holding the stack off the canvas-mode panel
+   * in the opposite corner, a control at z-index 6 under a notice at 45 — which
+   * is why the fix is confined to the width where that panel is not drawn.
+   */
+  it("leaves the wide window's stack alone", () => {
+    const body = rule(".toasts");
+    expect(body).toContain("left: 50%");
+    expect(body).toContain("translateX(-50%)");
+  });
+
+  /**
+   * The next question goes to the top, which is the half of the screen the
+   * hidden control bar left empty. Pinned with `bottom: auto` because a fixed
+   * box left pinned at both edges stretches the card down the whole window and
+   * reports nothing.
+   */
+  it("moves the next-question card to the top edge", () => {
+    const body = rule(".next-up", narrowBlock(".next-up"));
+    expect(body).toMatch(/top:\s*var\(--s3\)/);
+    expect(body).toMatch(/bottom:\s*auto/);
+    // Its entry has to know which edge it is pinned to, or it slides up out of
+    // an edge it is no longer leaving from.
+    expect(body).toContain("next-up-in-top");
+    expect(CSS).toContain("@keyframes next-up-in-top");
+  });
+
+  /**
+   * The desktop tray comes out of the outline's side rather than dropping from
+   * the foot of the bar, and the `width` beside its `max-width` is the trap
+   * that goes with anchoring it there: `left: 100%` leaves a shrink-to-fit box
+   * no room at all inside its containing block, so the sentence collapsed to
+   * its longest word under a cap it could not reach.
+   */
+  it("brings the bar's tray out of the outline's right edge", () => {
+    expect(rule(".control-tip")).toContain("position: relative");
+    const body = rule(".control-tip-tray");
+    expect(body).toContain("left: 100%");
+    expect(body).toContain("width: max-content");
+    expect(body).toContain("pointer-events: none");
+    // Centred on the outline, like the flyout on the other layout, so it holds
+    // the midline whether the copy takes one line or three.
+    expect(body).toMatch(/top:\s*50%/);
+    expect(body).toContain("translateY(-50%)");
   });
 });
 

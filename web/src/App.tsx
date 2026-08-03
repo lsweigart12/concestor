@@ -138,6 +138,13 @@ const RANDOM_CANDIDATES = 12;
  * named keys, when what a reader who has only ever pressed a carousel card is
  * missing is *where*. Under the buttons it needs neither: the badges are
  * directly above it, so the copy can be the invitation and nothing else.
+ *
+ * **The line goes to two surfaces and `TIPPED` only to one.** Below 620px there
+ * are no three doors — the bar is not drawn and `chrome/PaletteFab.tsx` is the
+ * whole of the chrome — so the outline has nothing to go round and the sentence
+ * comes out the left of that button instead. It is the same string sent the same
+ * way to both, which is deliberate: an invitation worded differently depending
+ * on the window is two invitations.
  */
 const TIPPED: ControlId[] = ["palette", "species", "random-species"];
 const TIP_LINE = "Now put something of your own beside it";
@@ -1791,9 +1798,11 @@ export default function App() {
         // The narrow window's one control, drawn inside the canvas because that
         // is where `--lane-h` is published — see `chrome/PaletteFab.tsx`. It
         // takes the invitation too, since the bar that would otherwise carry it
-        // is not on screen at that width.
+        // is not on screen at that width — and it takes the same `TIP_LINE`,
+        // spread the same way, so the two surfaces cannot be made to say
+        // different things about the same moment.
         onPalette={openPalette}
-        tip={tipShown}
+        {...(tipShown ? { tip: TIP_LINE } : {})}
       />
 
       {/*
