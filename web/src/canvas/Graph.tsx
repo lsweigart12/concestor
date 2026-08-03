@@ -112,6 +112,30 @@ const AXIS_RESERVE = 104;
 const MAX_FIT_ZOOM = 1.4;
 
 /**
+ * The two semantic-zoom thresholds, in scale factors.
+ *
+ * `Z_LABEL` is a legibility floor: below it the name renders under 7px and the
+ * silhouette is the only thing left carrying meaning, which is the trade the
+ * header of `NodeMark.tsx` describes.
+ *
+ * `Z_DETAIL` is where the age row joins it, and it sat at **1.15** — above the
+ * 1.144 the fit lands at for six species, so the figure was absent from the
+ * default view and for almost the whole band in which a label is drawn at all.
+ * The tiering rule stands (the age is last on, because x is time and there is a
+ * ruler under it) but it was being applied as if the ruler answered the same
+ * question, and it does not: the axis gives a node's *position*, and only the
+ * row gives its number and its tier. So the age now arrives a hair after the
+ * name rather than half a zoom range later, and the gap between the two is what
+ * is left of the rule.
+ *
+ * They cannot be equal. The age is set at 11px against the name's 12.5, so the
+ * band exists to spend the smaller row first — and a reader who wants figures
+ * below `Z_LABEL` is asking for text at 6px, which is a different request.
+ */
+const Z_LABEL = 0.55;
+const Z_DETAIL = 0.62;
+
+/**
  * Per design-reference.md's signature sequence, in ms. `T_FLARE` and `T_DRAW`
  * are the lead-in beats — when the sequence starts — while the pace of the
  * drawing itself is `STAGGER` here plus `DRAW_MS` and `DECAY_MS` in
@@ -191,7 +215,8 @@ function Inner(props: GraphProps) {
   /**
    * Semantic zoom tiers. Nodes change what they render, not just their size.
    */
-  const zoomTier: ZoomTier = zoom < 0.55 ? "point" : zoom < 1.15 ? "label" : "detail";
+  const zoomTier: ZoomTier =
+    zoom < Z_LABEL ? "point" : zoom < Z_DETAIL ? "label" : "detail";
 
   /**
    * What each label will say, handed to the layout so the placement pass can

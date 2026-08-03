@@ -236,6 +236,16 @@ func (s *Store) Search(ctx context.Context, q string, limit int) ([]SearchResult
 	if len(results) > limit {
 		results = results[:limit]
 	}
+	// The same rank the canvas and the card will show, so a row that italicises
+	// *Tyrannosaurus rex* in one place italicises it in all three. After the
+	// truncation because it is a display field and no sort reads it — filling it
+	// earlier would cost the work on rows nobody sees, and filling it in
+	// `lessResult`'s reach would be re-ranking, which `/v1/search` may not do.
+	for i := range results {
+		if results[i].Idx != nil {
+			results[i].Rank = s.rankFor(*results[i].Idx, results[i].Rank)
+		}
+	}
 	if err := s.fillVernaculars(ctx, results); err != nil {
 		return nil, err
 	}

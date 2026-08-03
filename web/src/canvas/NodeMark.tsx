@@ -10,7 +10,10 @@
  *
  * The age is last on and first off because the canvas already states it another
  * way — x is time, and there is a ruler under it. Everything else on the label
- * is unavailable anywhere else on screen.
+ * is unavailable anywhere else on screen. But *last* is not *much later*: the
+ * ruler gives a position, not a number and not a tier, so the two thresholds
+ * now sit close together and the detail tier begins at 0.62 rather than 1.15.
+ * `Z_LABEL` / `Z_DETAIL` in `Graph.tsx` carry the reasoning.
  *
  * **The silhouette is in every tier, including the furthest.** The obvious
  * reading of design-reference.md puts it in the "full detail card" tier only,
@@ -21,7 +24,10 @@
  *
  * What it cost in practice: the detail threshold sat at 1.15 and the fit lands
  * at 1.144 for six species, so adding a sixth silently stripped every image
- * from the default view. Text tiers off with zoom; images do not.
+ * from the default view. Text tiers off with zoom; images do not. That
+ * threshold has since moved for the age's sake as well, but the fact it
+ * exposed — that the fit routinely lands *just under* a threshold — is the
+ * reason nothing load-bearing may hang off one.
  *
  * Where the label actually goes is decided in `tree/labels.ts`, against every
  * other label and every trace on the canvas. This component only renders what
@@ -41,6 +47,7 @@ import {
 } from "../api";
 import { AgeGlyph, type AgeGlyphKind } from "./AgeGlyph";
 import { endedSpanLabel } from "./Bracket";
+import { rankIsInformative } from "../detail/classification";
 import type { LabelBox } from "../tree/labels";
 import { branchProse, UNNAMED, type Divergence } from "../tree/naming";
 import { Silhouette } from "./Silhouette";
@@ -364,8 +371,18 @@ export function graftTitle(g: Graft): string {
  * silhouette: Mammalia Canis lupus familiaris" was one continuous run of text —
  * in order to caption something the reader is already looking at.
  */
+/*
+  One predicate for "is this word a rank", shared with the card.
+
+  This used to carry its own test, and it knew about `no rank` but not about
+  `no rank - terminal` — the other string the Open Tree taxonomy files an
+  unranked row under, and the one on **78,696** nodes. So the row that says what
+  kind of thing this is could say `NO RANK - TERMINAL`, in small caps, above the
+  name. The card's `rankIsInformative` had the full set from the day it was
+  written; the canvas had a copy of half of it.
+*/
 export function metaLine(rank: string | null, detail: boolean): string {
-  if (!detail || !rank || rank === "no rank") return "";
+  if (!detail || !rank || !rankIsInformative(rank)) return "";
   return rank.toUpperCase();
 }
 
