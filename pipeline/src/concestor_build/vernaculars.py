@@ -702,7 +702,24 @@ CREATE TABLE vernacular (
   lang       TEXT NOT NULL,  -- BCP-47
   source     TEXT NOT NULL,  -- 'wikidata' | 'pbdb_coldp' | 'wikidata_p225'
   source_id  TEXT,           -- Wikidata QID, or PBDB 'txn:N'
-  is_primary INTEGER NOT NULL DEFAULT 0   -- the headline name, vs an alias
+  -- How the name reached us: 'v' a declared common name (Wikidata P1843 or
+  -- PBDB ColDP), 'l' the Wikidata item's own label, 'a' an altLabel. This
+  -- used to be computed during dedup and thrown away, which left `is_primary`
+  -- as the only surviving trace of the strongest evidence we hold about a
+  -- name. Ranking needs it, so it is a column.
+  kind       TEXT NOT NULL DEFAULT 'a',
+  -- How many independent sources carried this exact string for this taxon.
+  -- Also discarded by the old dedup, and it is real corroboration: two
+  -- catalogues agreeing on "blue whale" is worth more than one.
+  n_sources  INTEGER NOT NULL DEFAULT 1,
+  -- What English Wikipedia does with this name, written by `name_rank.py`:
+  -- 'title' | 'redirect' | 'elsewhere' | 'none'. NULL is a fifth state and
+  -- means the question could not be asked — the taxon has no English article
+  -- to compare an answer against. Absent evidence is not evidence of absence.
+  wiki_evidence TEXT,
+  -- 1-based position within (idx, lang), most used first. NULL where idx is.
+  usage_rank INTEGER,
+  is_primary INTEGER NOT NULL DEFAULT 0   -- exactly `usage_rank = 1`
 );
 """
 
@@ -710,6 +727,7 @@ INDEXES = """
 CREATE INDEX vernacular_idx ON vernacular(idx) WHERE idx IS NOT NULL;
 CREATE INDEX vernacular_name ON vernacular(name);
 CREATE INDEX vernacular_primary ON vernacular(idx, lang) WHERE is_primary = 1;
+CREATE INDEX vernacular_rank ON vernacular(idx, lang, usage_rank) WHERE idx IS NOT NULL;
 CREATE INDEX vernacular_unresolved ON vernacular(source, source_id) WHERE idx IS NULL;
 """
 
@@ -870,51 +888,77 @@ def load(con: sqlite3.Connection, log: Log = print) -> JsonDict:
         """
     ).rowcount
 
-    # Deduplicate, then elect one headline name per (idx, lang). Precedence is
-    # source first, ordered by how the row reached its taxon rather than by how
-    # good the string is: `wikidata` came through an explicit OTT id and — once
-    # the arbitration above has run — is not pointing at the wrong taxon; `pbdb_coldp` came through an exact unique
+    # Deduplicate. Precedence is source first, ordered by how the row reached
+    # its taxon rather than by how good the string is: `wikidata` came through
+    # an explicit OTT id and — once the arbitration above has run — is not
+    # pointing at the wrong taxon; `pbdb_coldp` came through an exact unique
     # name match against a curated vernacular list; `wikidata_p225` came
     # through an exact unique name match against a Wikidata item that merely
     # claims the same taxon name. Then kind, where a declared `P1843` taxon
-    # common name beats an item label, which beats an alias. The last two keys
-    # only decide dead heats, shortest first so the palette shows "dog" rather
-    # than "domesticated dog".
+    # common name beats an item label, which beats an alias.
+    #
+    # **The row that survives now carries what the losers said.** `kind` is the
+    # strongest kind any source claimed, and `n_sources` counts how many
+    # distinct sources carried this string for this taxon at all. Both used to
+    # be computed here and dropped on the floor, which is why the only ordering
+    # evidence downstream had was one boolean.
     con.execute(
         """
-        INSERT INTO vernacular (idx, ott_id, name, lang, source, source_id, is_primary)
-        SELECT idx, ott_id, name, lang, source, source_id,
-               CASE WHEN idx IS NOT NULL AND primary_rn = 1 THEN 1 ELSE 0 END
+        WITH scored AS (
+          SELECT idx, ott_id, name, lang, source, source_id,
+                 CASE source WHEN 'wikidata' THEN 0
+                             WHEN 'pbdb_coldp' THEN 1 ELSE 2 END AS src_rank,
+                 CASE kind WHEN 'v' THEN 0 WHEN 'l' THEN 1 ELSE 2 END
+                   AS kind_rank,
+                 -- The identity a duplicate is a duplicate *of*. Left as three
+                 -- grouping expressions rather than glued into one key: with
+                 -- no separator, idx 1 + lang 'en' and idx '1e' + lang 'n' are
+                 -- the same string.
+                 COALESCE(CAST(idx AS TEXT), 'u:' || source || ':' ||
+                          COALESCE(source_id, '')) AS dedup_owner
+            FROM v_res
+        ),
+        -- What the losing rows are owed, aggregated separately because SQLite
+        -- has no COUNT(DISTINCT ...) OVER: the strongest kind any source
+        -- claimed for this string, and how many distinct sources carried it.
+        absorbed AS (
+          SELECT dedup_owner, lang, lower(name) AS lname,
+                 MIN(kind_rank) AS best_kind,
+                 COUNT(DISTINCT source) AS n_sources
+            FROM scored GROUP BY dedup_owner, lang, lower(name)
+        )
+        INSERT INTO vernacular (idx, ott_id, name, lang, source, source_id,
+                                kind, n_sources)
+        SELECT s.idx, s.ott_id, s.name, s.lang, s.source, s.source_id,
+               -- Mapped back from the rank, because MIN over the letters
+               -- themselves returns 'a': the *weakest* kind sorts first in the
+               -- alphabet, and the strongest is what the surviving row owes.
+               CASE a.best_kind WHEN 0 THEN 'v' WHEN 1 THEN 'l' ELSE 'a' END,
+               a.n_sources
           FROM (
-            SELECT idx, ott_id, name, lang, source, source_id,
-                   ROW_NUMBER() OVER (
-                     PARTITION BY idx, lang
-                     ORDER BY src_rank, kind_rank, length(name), name
-                   ) AS primary_rn
-              FROM (
-                SELECT idx, ott_id, name, lang, source, source_id,
-                       CASE source WHEN 'wikidata' THEN 0 WHEN 'pbdb_coldp' THEN 1 ELSE 2 END
-                         AS src_rank,
-                       CASE kind WHEN 'v' THEN 0 WHEN 'l' THEN 1 ELSE 2 END
-                         AS kind_rank,
-                       ROW_NUMBER() OVER (
-                         PARTITION BY
-                           COALESCE(CAST(idx AS TEXT), 'u:' || source || ':' ||
-                                    COALESCE(source_id, '')),
-                           lang, lower(name)
-                         ORDER BY CASE source WHEN 'wikidata' THEN 0
-                                          WHEN 'pbdb_coldp' THEN 1 ELSE 2 END,
-                                  CASE kind WHEN 'v' THEN 0 WHEN 'l' THEN 1
-                                            ELSE 2 END,
-                                  source_id
-                       ) AS dedup_rn
-                  FROM v_res
-              ) WHERE dedup_rn = 1
-          )
-        """
+            SELECT *, ROW_NUMBER() OVER (
+                        PARTITION BY dedup_owner, lang, lower(name)
+                        ORDER BY src_rank, kind_rank, source_id
+                      ) AS dedup_rn
+              FROM scored
+          ) s
+          JOIN absorbed a
+            ON a.dedup_owner = s.dedup_owner AND a.lang = s.lang
+           AND a.lname = lower(s.name)
+         WHERE s.dedup_rn = 1
+"""
     )
     con.executescript(INDEXES)
     con.commit()
+
+    # The headline is no longer elected here. `name_rank.assign_ranks` owns the
+    # ordering, and phase 6 calls it with no wiki evidence so that a build that
+    # never runs `names` still has a defensible order rather than rowid order.
+    # One scoring function, two callers, different inputs — the same shape as
+    # `release.config.cjs` being the one place the version mapping is written.
+    from . import name_rank
+
+    ranked = name_rank.assign_ranks(con, log=log)
     log(f"  dropped {dropped:,} names that merely repeated the scientific name")
     log(f"  dropped {shadowed:,} names that are another taxon's scientific name")
     log(f"  dropped {contested:,} names from items whose P225 is a different taxon")
@@ -922,6 +966,7 @@ def load(con: sqlite3.Connection, log: Log = print) -> JsonDict:
         "dropped_as_scientific_name": dropped,
         "dropped_as_other_taxon_name": shadowed,
         "dropped_as_p225_mismatch": contested,
+        "provisional_rank": ranked,
     }
 
 

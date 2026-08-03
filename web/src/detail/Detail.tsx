@@ -21,12 +21,13 @@
  * sentence is not provenance, it is the only identity the node has.
  */
 
+import { TIER_OCCURRENCE, TIER_STRUCTURAL, type NodeDetail } from "../api";
 import {
-  TIER_OCCURRENCE,
-  TIER_STRUCTURAL,
-  type NodeDetail,
-} from "../api";
-import { bracketGeom, bracketTitle, endedSpanLabel, gapLabel } from "../canvas/Bracket";
+  bracketGeom,
+  bracketTitle,
+  endedSpanLabel,
+  gapLabel,
+} from "../canvas/Bracket";
 import { Silhouette } from "../canvas/Silhouette";
 import { mayDrawExemplar, witnessOn } from "../canvas/witness";
 import { ageLabel, DerivedName, isScientificItalic } from "../canvas/NodeMark";
@@ -35,6 +36,7 @@ import {
   CardActions,
   ClassificationBlock,
   EncyclopediaBlock,
+  AlsoCalledBlock,
   NamesBlock,
   TaxonLink,
   WhyBlock,
@@ -123,7 +125,10 @@ export function Detail({
   // fossil card; the QID is what the build already checked against the item's
   // own `wdt:P225`. The name is passed alongside so a node the crawl never
   // reached still gets a checked answer rather than none.
-  const entry = useEncyclopedia({ qid: detail.wikidata_qid ?? null, name: detail.name });
+  const entry = useEncyclopedia({
+    qid: detail.wikidata_qid ?? null,
+    name: detail.name,
+  });
   // The word a reader actually knows. Preferred-first, so this is the headline
   // name rather than whichever alias sorted first, and it sits *under* the
   // scientific name rather than replacing it: the canvas label and the palette
@@ -143,7 +148,9 @@ export function Detail({
             <span className="detail-watermark">
               <TaxonLink
                 target={
-                  witness.pbdbTaxonNo !== null ? fossilTarget(witness.pbdbTaxonNo) : null
+                  witness.pbdbTaxonNo !== null
+                    ? fossilTarget(witness.pbdbTaxonNo)
+                    : null
                 }
                 onSelect={onSelect}
                 title={`What this drawing is of. Not ${detail.name ?? "this node"} itself — a fossil taxon from somewhere below it, dated to about this split.`}
@@ -175,7 +182,9 @@ export function Detail({
       )}
       <h2
         className={
-          !divergence && isScientificItalic(detail.rank) ? "sci-italic" : undefined
+          !divergence && isScientificItalic(detail.rank)
+            ? "sci-italic"
+            : undefined
         }
         style={{ color: "var(--ink)" }}
       >
@@ -193,7 +202,9 @@ export function Detail({
         // under, and printed here it reads as a statement about the clade —
         // *Boreoeutheria*, *Primates*, *Bilateria* all wore it. An unranked
         // clade is a clade; the classification block below says which one.
-        rankIsInformative(detail.rank) && <div className="rank">{detail.rank}</div>
+        rankIsInformative(detail.rank) && (
+          <div className="rank">{detail.rank}</div>
+        )
       )}
 
       {/*
@@ -214,7 +225,9 @@ export function Detail({
         addLabel={isDrawn ? "Pin to the canvas" : "Add to the canvas"}
         removeLabel="Remove from the canvas"
         {...(isDrawn
-          ? { hint: "It is drawn now only because of what sits below it. Pinning keeps it." }
+          ? {
+              hint: "It is drawn now only because of what sits below it. Pinning keeps it.",
+            }
           : {})}
       />
 
@@ -244,6 +257,14 @@ export function Detail({
         </p>
       )}
 
+      {/* Above the description, and that is the point of ranking them.
+          `usage_rank` makes this a ranked answer to "what else is this
+          called" rather than an arbitrary list, and an answer that short
+          should not be below four sentences of encyclopaedia. The scientific
+          synonyms stay at the bottom: they answer "why did I land here",
+          which is provenance. */}
+      <AlsoCalledBlock vernaculars={detail.vernaculars} />
+
       {/* Keyed on the node, so the "read the rest" toggle does not survive
           into the next card — the reader expanded *this* description, and a
           card that arrives already open has quietly made that choice for them. */}
@@ -261,7 +282,10 @@ export function Detail({
           // not to say.
           <>
             <dt>fossils</dt>
-            <dd className="num" title={bracketTitle(detail.name ?? "This taxon", occurrence)}>
+            <dd
+              className="num"
+              title={bracketTitle(detail.name ?? "This taxon", occurrence)}
+            >
               {occurrence.kind === "range"
                 ? endedSpanLabel(occurrence.oldest, occurrence.youngest)
                 : "no range recorded"}
@@ -298,31 +322,31 @@ export function Detail({
         )}
       </dl>
 
-      <NamesBlock vernaculars={detail.vernaculars} synonyms={detail.synonyms} />
+      <NamesBlock synonyms={detail.synonyms} />
 
       <WhyBlock summary="Why it is drawn this way">
         {detail.tier === TIER_STRUCTURAL && (
           <p className="note">
             No age is shown because none has been estimated for this node. Its
             position on the axis is ordinal — it sits between its nearest dated
-            ancestor and descendant, and in this region the horizontal axis means
-            nesting depth rather than time.
+            ancestor and descendant, and in this region the horizontal axis
+            means nesting depth rather than time.
           </p>
         )}
         {detail.tier === TIER_OCCURRENCE && (
           <p className="note">
             No age is shown because none has been estimated for this node: every
-            age here comes from a tree of <em>living</em> species, and this taxon
-            has no counterpart in one. What is known instead is where it turns up
-            in the rock, which is an observation rather than an estimate — a
-            range, and deliberately never a single date.
+            age here comes from a tree of <em>living</em> species, and this
+            taxon has no counterpart in one. What is known instead is where it
+            turns up in the rock, which is an observation rather than an
+            estimate — a range, and deliberately never a single date.
           </p>
         )}
         {detail.tier === 1 && age && (
           <p className="note">
             This clade is a subset of the one the chronogram dates, so{" "}
-            <span className="num">{age}</span> is an upper bound on its true age,
-            not an estimate of it.
+            <span className="num">{age}</span> is an upper bound on its true
+            age, not an estimate of it.
           </p>
         )}
         {witness && (
@@ -330,7 +354,9 @@ export function Detail({
             The picture is{" "}
             <TaxonLink
               target={
-                witness.pbdbTaxonNo !== null ? fossilTarget(witness.pbdbTaxonNo) : null
+                witness.pbdbTaxonNo !== null
+                  ? fossilTarget(witness.pbdbTaxonNo)
+                  : null
               }
               onSelect={onSelect}
               rank={witness.rank}
@@ -339,10 +365,10 @@ export function Detail({
             </TaxonLink>
             , not this whole group — a fossil taxon from somewhere below this
             fork, and the nearest in time that anyone has drawn. The most
-            familiar thing below a split is nearly always a living group that did
-            not exist when the split happened, so this shows something that did
-            instead. Its dates are observations of where it turns up in the rock,
-            never an estimate of when these lineages parted.
+            familiar thing below a split is nearly always a living group that
+            did not exist when the split happened, so this shows something that
+            did instead. Its dates are observations of where it turns up in the
+            rock, never an estimate of when these lineages parted.
             {witness.attachWalk !== null && witness.attachWalk > 0 && (
               // Where the fossil hangs is a separate uncertainty from when it
               // lived, and the card is where both get stated rather than one
@@ -365,9 +391,9 @@ export function Detail({
               <>
                 {" "}
                 This fork has no estimated age, so the match was made against
-                where it is <em>drawn</em> on the axis rather than against a date.
-                Read the pairing loosely: the picture is the closest available,
-                not a claim that the two coincide.
+                where it is <em>drawn</em> on the axis rather than against a
+                date. Read the pairing loosely: the picture is the closest
+                available, not a claim that the two coincide.
               </>
             ) : witness.spans ? (
               <> Its range does contain this split.</>
@@ -384,10 +410,8 @@ export function Detail({
                 {witness.gapMa !== null && witness.gapMa > 0 ? (
                   <>
                     {" "}
-                    — it stops <span className="num">
-                      {gapLabel(witness.gapMa)}
-                    </span>{" "}
-                    short
+                    — it stops{" "}
+                    <span className="num">{gapLabel(witness.gapMa)}</span> short
                   </>
                 ) : null}
                 . Read the picture as the nearest available, not a contemporary.
@@ -398,7 +422,11 @@ export function Detail({
         {borrowed && (
           <p className="note">
             The silhouette is a drawing of{" "}
-            <TaxonLink target={borrowed.source_idx} onSelect={onSelect} rank="species">
+            <TaxonLink
+              target={borrowed.source_idx}
+              onSelect={onSelect}
+              rank="species"
+            >
               {borrowed.source_name ?? "a relative"}
             </TaxonLink>
             , not of this taxon — nobody has drawn this one, so the closest
@@ -406,7 +434,10 @@ export function Detail({
             {borrowed.clade_name ? (
               <>
                 . Both are inside{" "}
-                <TaxonLink target={borrowed.clade_idx ?? null} onSelect={onSelect}>
+                <TaxonLink
+                  target={borrowed.clade_idx ?? null}
+                  onSelect={onSelect}
+                >
                   {borrowed.clade_name}
                 </TaxonLink>
                 {borrowed.clade_tip_count
@@ -424,7 +455,8 @@ export function Detail({
         // Credited on its own terms: a different drawing by a different artist
         // from the one `sil` would have carried, and it is the one on screen.
         <div className="credit">
-          Silhouette of <em>{witnessCredit.source_name ?? "a taxon from below this fork"}</em>
+          Silhouette of{" "}
+          <em>{witnessCredit.source_name ?? "a taxon from below this fork"}</em>
           {" — "}
           {witnessCredit.attribution
             ? `by ${witnessCredit.attribution}`

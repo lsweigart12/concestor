@@ -2123,6 +2123,105 @@ body {
   letter-spacing: 0.09em;
 }
 
+/*
+ * "Also called", promoted onto the face of the card.
+ *
+ * These are ranked now — `usage_rank`, most-used first — so this stopped being
+ * trivia filed beside the scientific synonyms and became a short answer to a
+ * question the reader actually has. It sits above the description and is given
+ * room to read as a list rather than as a run of prose.
+ *
+ * Bounded above by the hairline it shares with the classification block, so it
+ * reads as a field of the card rather than as a floating aside. Deliberately
+ * *not* a set of bordered pills: the design language has already rejected
+ * boxed chrome once on this surface, and a border per name would make six
+ * common names louder than the taxon's own.
+ */
+.detail .also-called {
+  margin-top: var(--s3);
+  padding-top: var(--s3);
+  border-top: 1px solid var(--hairline);
+}
+.detail .also-called-list {
+  margin: var(--s1) 0 0;
+  /* A step above `.note`'s 11.5px and a step below the description's body, so
+     it is legible at a glance without competing with the prose under it. */
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--ink-2);
+  /* The gap is layout, not a space character — see the comment in the block.
+     A name and its trailing dot are one nowrap unit, which would otherwise
+     leave the line with nothing to break on. */
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 0.4em;
+  /* The "+N more" control is a flex sibling of the names and is a step
+     smaller, so it has to sit on their baseline rather than be centred
+     against the tallest thing on the row. */
+  align-items: baseline;
+}
+
+/*
+ * "+N more" — the rest of the row, one press away.
+ *
+ * Styled as `.wiki-more` is, because it is the same promise made twice on one
+ * card and the description's "Read the rest" sits three lines below it. Both
+ * are one-way: a second expander that also collapses would make two controls
+ * that look identical behave differently.
+ */
+.detail .also-called-more {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 11px;
+  color: var(--accent-dim);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.detail .also-called-more:hover {
+  color: var(--accent);
+}
+
+/*
+ * The hidden twin the fit is measured from — see the component for why it
+ * exists at all.
+ *
+ * `position: absolute` keeps it out of flow so it adds no height, and
+ * `visibility: hidden` still lays it out, which is the whole point:
+ * `display: none` would give every item an `offsetTop` of zero and the
+ * arithmetic would conclude that everything fits on one row. `width: 100%`
+ * against a relatively-positioned parent is what makes its wrapping identical
+ * to the visible row's.
+ */
+.detail .also-called {
+  position: relative;
+}
+.detail .also-called-measure {
+  position: absolute;
+  width: 100%;
+  visibility: hidden;
+  pointer-events: none;
+}
+/*
+ * A dot, not a comma. Several of these names carry commas of their own —
+ * `Sibbold's Rorqual,` shipped with a trailing one — so a comma-joined run is
+ * ambiguous about where one name ends. The dot matches the separator the
+ * Wikipedia/Wikidata link row already uses.
+ */
+.detail .also-called-sep {
+  color: var(--ink-4);
+}
+/*
+ * A name and its trailing dot stay together, so a wrap can only happen in the
+ * gap *after* a separator. Several of these are two and three words long —
+ * "human being", "even-toed ungulate" — and letting one break mid-name turns
+ * two names into four apparent ones.
+ */
+.detail .also-called-item {
+  white-space: nowrap;
+}
+
 .detail .why {
   margin-top: var(--s4);
   padding-top: var(--s3);

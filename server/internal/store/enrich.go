@@ -247,7 +247,19 @@ type Vernacular struct {
 	Preferred bool    `json:"preferred,omitempty"`
 }
 
-// Vernaculars returns every common name for one node, preferred first.
+// Vernaculars returns every common name for one node, most used first.
+//
+// The order is the pipeline's and this does not recompute it. `usage_rank` is
+// measured against English Wikipedia's title and redirect graph — the name that
+// is the taxon's article title, then the names that reach it, then the ones it
+// is merely filed under — and the client is told not to re-sort it either. A
+// consumer that re-ranks a ranking silently overrides evidence it does not
+// have; that already cost this project once on /v1/search, where a fuzzy score
+// in the browser outweighed four server ranks.
+//
+// Without the column — a build older than the `names` phase — this falls back
+// to the boolean, which puts the headline first and says nothing about the
+// rest. That is worse but not wrong, and it is why the column is optional.
 func (s *Store) Vernaculars(ctx context.Context, idx int) ([]Vernacular, error) {
 	out := []Vernacular{}
 	v := s.Schema.Vernacular
@@ -261,7 +273,14 @@ func (s *Store) Vernaculars(ctx context.Context, idx int) ([]Vernacular, error) 
 	if v.Preferred != "" {
 		pref = fmt.Sprintf("%q", v.Preferred)
 	}
-	q := fmt.Sprintf("SELECT %q, %s, %s FROM %q WHERE %q = ?", v.Name, lang, pref, v.Table, v.Idx)
+	// NULLs last: an unranked row is one the pipeline never reached, and it
+	// belongs below every row it did. SQLite sorts NULL first by default.
+	order := ""
+	if v.Rank != "" {
+		order = fmt.Sprintf(" ORDER BY %q IS NULL, %q", v.Rank, v.Rank)
+	}
+	q := fmt.Sprintf("SELECT %q, %s, %s FROM %q WHERE %q = ?%s",
+		v.Name, lang, pref, v.Table, v.Idx, order)
 	rows, err := s.DB.QueryContext(ctx, q, idx)
 	if err != nil {
 		return out, err
@@ -284,7 +303,12 @@ func (s *Store) Vernaculars(ctx context.Context, idx int) ([]Vernacular, error) 
 		}
 		out = append(out, e)
 	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].Preferred && !out[j].Preferred })
+	// Only where the pipeline gave no order at all. With `usage_rank` the SQL
+	// has already sorted, and re-sorting on the boolean would flatten every
+	// distinction below rank 1 back into a coin toss.
+	if v.Rank == "" {
+		sort.SliceStable(out, func(i, j int) bool { return out[i].Preferred && !out[j].Preferred })
+	}
 	return out, rows.Err()
 }
 
@@ -337,8 +361,14 @@ func (s *Store) WikidataQID(ctx context.Context, idx int) (string, error) {
 	return qid.String, nil
 }
 
-// BestVernaculars returns one common name per node for a batch, for search
-// results. Preferred rows win; otherwise the first row seen.
+// BestVernaculars returns one common name per node for a batch — the name a
+// search row is captioned with, and the name a scientific/common switcher on
+// the canvas would draw.
+//
+// The best name is the lowest `usage_rank`, which is the same answer
+// Vernaculars puts first, computed the same way. Where the column is absent it
+// falls back to the boolean and then to the first row seen; a caller cannot
+// tell which happened, and does not need to.
 func (s *Store) BestVernaculars(ctx context.Context, idxs []int) (map[int]string, error) {
 	out := map[int]string{}
 	v := s.Schema.Vernacular
@@ -349,8 +379,12 @@ func (s *Store) BestVernaculars(ctx context.Context, idxs []int) (map[int]string
 	if v.Preferred != "" {
 		pref = fmt.Sprintf("%q", v.Preferred)
 	}
-	q := fmt.Sprintf("SELECT %q, %q, %s FROM %q WHERE %q IN (%s)",
-		v.Idx, v.Name, pref, v.Table, v.Idx, placeholders(len(idxs)))
+	rank := "NULL"
+	if v.Rank != "" {
+		rank = fmt.Sprintf("%q", v.Rank)
+	}
+	q := fmt.Sprintf("SELECT %q, %q, %s, %s FROM %q WHERE %q IN (%s)",
+		v.Idx, v.Name, pref, rank, v.Table, v.Idx, placeholders(len(idxs)))
 	args := make([]any, len(idxs))
 	for i, x := range idxs {
 		args[i] = x
@@ -360,12 +394,17 @@ func (s *Store) BestVernaculars(ctx context.Context, idxs []int) (map[int]string
 		return out, err
 	}
 	defer rows.Close() //nolint:errcheck
-	best := map[int]bool{}
+	// Per node, the best evidence seen so far: a finite rank beats any
+	// unranked row, a lower rank beats a higher one, and the boolean only
+	// decides between rows that carry no rank at all.
+	bestRank := map[int]int64{}
+	bestPref := map[int]bool{}
 	for rows.Next() {
 		var idxVal sql.NullInt64
 		var name sql.NullString
 		var pf sql.NullInt64
-		if err := rows.Scan(&idxVal, &name, &pf); err != nil {
+		var rk sql.NullInt64
+		if err := rows.Scan(&idxVal, &name, &pf, &rk); err != nil {
 			return out, err
 		}
 		if !name.Valid || !idxVal.Valid {
@@ -373,13 +412,32 @@ func (s *Store) BestVernaculars(ctx context.Context, idxs []int) (map[int]string
 		}
 		idx := int(idxVal.Int64)
 		isPref := pf.Valid && pf.Int64 != 0
-		if _, seen := out[idx]; seen && !(isPref && !best[idx]) {
+		_, seen := out[idx]
+		if seen && !betterVernacular(rk, isPref, bestRank[idx], bestPref[idx]) {
 			continue
 		}
 		out[idx] = name.String
-		best[idx] = isPref
+		bestPref[idx] = isPref
+		if rk.Valid {
+			bestRank[idx] = rk.Int64
+		} else {
+			bestRank[idx] = 0 // 0 is not a rank; ranks are 1-based.
+		}
 	}
 	return out, rows.Err()
+}
+
+// betterVernacular reports whether a candidate should displace the incumbent.
+// A rank of 0 means "unranked", since usage_rank is 1-based and a real rank is
+// therefore always truthy.
+func betterVernacular(rk sql.NullInt64, pref bool, haveRank int64, havePref bool) bool {
+	if rk.Valid && rk.Int64 > 0 {
+		return haveRank == 0 || rk.Int64 < haveRank
+	}
+	if haveRank > 0 {
+		return false
+	}
+	return pref && !havePref
 }
 
 // Synonyms returns alternative names for a node, if a synonym table exists.

@@ -659,28 +659,44 @@ function normNode(raw: Record<string, unknown>): PathNode {
   };
 }
 
-/** Accept either a list of strings or a list of `{name, preferred}` records. */
-function toStrings(v: unknown, preferredFirst = false): string[] {
+/**
+ * Accept either a list of strings or a list of `{name, preferred}` records,
+ * and **keep the server's order**.
+ *
+ * This used to take a `preferredFirst` flag and sort on the boolean. That was
+ * harmless only while the boolean was the entire ranking; the server now
+ * orders by `usage_rank` — a taxon's names in the order people use them,
+ * measured against English Wikipedia's title and redirect graph — and a
+ * client-side sort on one flag would flatten every distinction below the
+ * headline back into whatever order the rows happened to arrive in.
+ *
+ * The rule is the one `docs/handoff.md` already records for `/v1/search`, for
+ * the same reason and after the same bug: ranking is the server's, the client
+ * highlights. A re-sort here cannot see the evidence the rank was built from,
+ * so it can only ever lose information.
+ */
+function toStrings(v: unknown): string[] {
   if (!Array.isArray(v)) return [];
-  const rows = v
+  const names = v
     .map((x) =>
       typeof x === "string"
-        ? { name: x, preferred: false }
-        : x && typeof x === "object" && typeof (x as { name?: unknown }).name === "string"
-          ? {
-              name: (x as { name: string }).name,
-              preferred: Boolean((x as { preferred?: unknown }).preferred),
-            }
+        ? x
+        : x &&
+            typeof x === "object" &&
+            typeof (x as { name?: unknown }).name === "string"
+          ? (x as { name: string }).name
           : null,
     )
-    .filter((x): x is { name: string; preferred: boolean } => x !== null);
-  if (preferredFirst) {
-    rows.sort((a, b) => Number(b.preferred) - Number(a.preferred));
-  }
-  return [...new Set(rows.map((r) => r.name))];
+    .filter((x): x is string => x !== null);
+  return [...new Set(names)];
 }
 
-function normalise(url: string, body: unknown): unknown {
+/**
+ * Exported for `api.test.ts` only. The order a name list arrives in is now
+ * load-bearing and is decided three layers away, in the pipeline — so the one
+ * boundary that could quietly permute it needs a test that says so.
+ */
+export function normalise(url: string, body: unknown): unknown {
   if (!body || typeof body !== "object") return body;
   const b = body as Record<string, unknown>;
 
@@ -693,7 +709,9 @@ function normalise(url: string, body: unknown): unknown {
     }
   }
   if (Array.isArray(b.intermediates)) {
-    b.intermediates = (b.intermediates as Record<string, unknown>[]).map(normNode);
+    b.intermediates = (b.intermediates as Record<string, unknown>[]).map(
+      normNode,
+    );
   }
   if (url.startsWith("/v1/node/")) {
     const n = normNode(b);
@@ -708,7 +726,8 @@ function normalise(url: string, body: unknown): unknown {
     // is not optional politeness: the canvas draws this image, several of them
     // are CC-BY-SA, and a credit line that silently reads an absent field says
     // "creator not recorded" about an artist the payload names.
-    const wit = b.divergence_silhouette as Record<string, unknown> | null | undefined;
+    const wit = b.divergence_silhouette as
+      Record<string, unknown> | null | undefined;
     if (wit) {
       creditFields(wit);
       wit.source_name = wit.source_name ?? b.divergence_source_name ?? null;
@@ -716,9 +735,9 @@ function normalise(url: string, body: unknown): unknown {
     b.synonyms = toStrings(b.synonyms);
     // The server sends `{name, lang, preferred}` objects, which is the more
     // useful shape and one the UI never templated for — "Also known as [object
-    // Object]" shipped. Flatten at the boundary, preferring the ones marked
-    // preferred, so the card reads as a list of names.
-    b.vernaculars = toStrings(b.vernaculars, true);
+    // Object]" shipped. Flatten at the boundary and change nothing else: the
+    // list arrives most-used first and the card reads it positionally.
+    b.vernaculars = toStrings(b.vernaculars);
   }
   // A fossil card draws a PhyloPic image too, so it needs the same translation
   // — and this is the third place that has needed it, which is why it is one
@@ -751,7 +770,10 @@ async function get<T>(url: string): Promise<T> {
   const p = (async () => {
     const res = await fetch(url, { headers: { accept: "application/json" } });
     if (!res.ok) {
-      throw new ApiError(res.status, `${res.status} ${res.statusText} for ${url}`);
+      throw new ApiError(
+        res.status,
+        `${res.status} ${res.statusText} for ${url}`,
+      );
     }
     return normalise(url, await res.json());
   })();
@@ -778,7 +800,10 @@ async function getFresh<T>(url: string): Promise<T> {
     cache: "no-store",
   });
   if (!res.ok) {
-    throw new ApiError(res.status, `${res.status} ${res.statusText} for ${url}`);
+    throw new ApiError(
+      res.status,
+      `${res.status} ${res.statusText} for ${url}`,
+    );
   }
   return normalise(url, await res.json()) as T;
 }

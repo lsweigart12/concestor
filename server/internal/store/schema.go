@@ -75,6 +75,17 @@ type VernacularSchema struct {
 	Preferred string `json:"preferred,omitempty"`
 	Source    string `json:"source,omitempty"`
 	SourceID  string `json:"source_id,omitempty"`
+
+	// Rank is the pipeline's 1-based ordering of a taxon's names, most used
+	// first — `usage_rank`, written by the `names` phase from English
+	// Wikipedia's title and redirect graph. Absent on a build predating that
+	// phase, where the fallback is the boolean Preferred and the remainder
+	// comes back in whatever order the table yields.
+	//
+	// It is *display* order and nothing here ranks search results by it:
+	// which name a taxon goes by and which taxon a query means are different
+	// questions, and band.go answers the second.
+	Rank string `json:"rank,omitempty"`
 }
 
 // SilhouetteSchema carries PhyloPic attribution. Creator and uploader are
@@ -268,6 +279,7 @@ func (s *Schema) resolveVernacular() {
 		Preferred: s.col(t, "is_preferred", "preferred", "is_primary", "primary_name"),
 		Source:    s.col(t, "source"),
 		SourceID:  s.col(t, "source_id", "external_id"),
+		Rank:      s.col(t, "usage_rank", "name_rank", "rank"),
 	}
 }
 

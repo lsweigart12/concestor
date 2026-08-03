@@ -20,6 +20,7 @@ wrong and these docs record the corrections.
 | [docs/architecture.md](docs/architecture.md) | Data model, storage, backend, rendering |
 | [docs/image-store.md](docs/image-store.md) | How drawings are identified, stored, ranked and served. Governs every image source. Designed, not built — the migration is only needed when a *second* source arrives |
 | [docs/ingest.md](docs/ingest.md) | The six build phases and their validation gates |
+| [docs/name-ranking.md](docs/name-ranking.md) | Ordering a taxon's common names by use. **Shipped**; §7 is the canvas scientific/common switcher, designed and not built |
 | [docs/phase2-decision.md](docs/phase2-decision.md) | The dating decision — accepted, with the evidence |
 | [docs/phase3-pbdb-path.md](docs/phase3-pbdb-path.md) | How fossils resolve to the tree, measured |
 | [docs/phase5c-decision.md](docs/phase5c-decision.md) | Generated outlines from Wikimedia photos — **optional future enhancement, not scheduled**. Kept complete and measured. Four rejected approaches, with numbers |
@@ -194,7 +195,7 @@ All detailed in `docs/data-sources.md`:
 
 **All six phases are implemented, the server is built, and the UI works end to
 end.** Every phase is green and `concestor-build package` succeeds; the current
-build is `b48553b2b8a4a2ed`. `docs/handoff.md` §2 has the table and §7 the honest list of what is
+build is `854cdfa42f77e78e`. `docs/handoff.md` §2 has the table and §7 the honest list of what is
 thin. `test_vernaculars.py` asserts the words a person actually types and is
 **green** — `dog`, `cat`, `whale`, `human`, `shark`, `T. rex` all resolve, and
 so now do `frog`, `animal` and `bird`. The P9157 crawl is complete, 287/287
@@ -211,6 +212,31 @@ fetches each item's own `wdt:P225` and refuses any contribution whose taxon name
 disagrees with OTT's. Three cheaper rules were tried first and all three fail —
 `vernaculars.py` records why, and one of them fails by taking "Dog" off *Canis
 lupus familiaris*. Do not re-derive them.
+
+**A taxon's common names are ordered by use, and English Wikipedia is what
+measures it.** Phase 6b (`concestor-build names`) writes `vernacular.usage_rank`
+from the title and redirect graph: an article title is the name that project's
+own policy calls the most used in reliable English sources, a redirect is a name
+somebody thought a reader would type, no page is a name nobody did, and a page
+landing on a *different* article is a name whose ordinary referent is something
+else. That last band is the valuable one — it demotes `man` and `men` (the
+article **Man**), `bug` and `bugs` (**Bug**), `moth` (**Moth**) and `Ferae`
+(**Ferae**) without a rule written about any of them, while `carnivorans` and
+`T. rex` reach their taxa and lead. It replaces an election that broke ties on
+`length(name)` and so headlined *T. rex* as **`TRex`**, plus a list below the
+headline that had no order at all. `docs/name-ranking.md` is the account and
+`docs/handoff.md` §3 the six things not to redo — chief among them that **the
+taxon's own article title must be resolved through redirects first** (Wikidata
+gives *Homo sapiens* the sitelink `Homo sapiens`, which is a redirect to
+`Human`, so comparing unresolved demotes every good name the species has), that
+**NULL evidence is not `none`**, that **`elsewhere` is demoted one band and
+never removed**, and that **corpus frequency is refused** because it measures
+the string rather than the name — inside *Homo sapiens*'s own names it ranks
+`man` above `human`. The score is **display-only**: `band.go` decides which
+*taxon* a query means and nothing here touches it. The canvas
+scientific/common-name switcher is **designed and not built** —
+`name-ranking.md` §7 has the `/v1/path` hook and the three things that will
+bite.
 
 **Ranking at the front door is fixed too**, and the principle is worth keeping:
 *an exact match settles which **name** the query is, not which **taxon** the

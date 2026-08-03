@@ -124,6 +124,7 @@ product is broken at its front door, not merely incomplete.
 | 5a — images | built — `images.py`, **39/39 gates**. Coverage is 100% and says nothing; the gate is the size of the clade a picture speaks for. Divergences carry a second silhouette, the fossil witness, now on 885 forks (§5) |
 | 5b — timescale | built — `timescale.py`, 26/26 gates, `build/timescale.json` |
 | 6 — vernaculars | built — `vernaculars.py` + `search.py`, `node_fts` live |
+| 6b — name ranking | built — `name_rank.py`, **31/31 gates**, `usage_rank` live. A taxon's names in the order people use them, measured against English Wikipedia's title and redirect graph. Moved 7,958 headline names and gave an order to the 26,262 nodes that had none. [name-ranking.md](name-ranking.md) |
 | walking-skeleton renderer | done, throwaway, superseded |
 | serving binary | **built, in Go** — `server/`, every endpoint live. [serving-binary.md](serving-binary.md) |
 | real UI | **built** — `web/`, React + xyflow v12. The signature interaction works end to end. Fossils are drawn *in* the tree as client-side grafts, searchable and selectable — [fossil-grafts.md](fossil-grafts.md) |
@@ -203,11 +204,14 @@ uv run concestor-build fossils     # phase 4; also REWRITES age_tier + age_layou
 uv run concestor-build images      # phase 5a; long, resumable, paced
 uv run concestor-build timescale   # phase 5b
 uv run concestor-build vernaculars # phase 6
+uv run concestor-build names       # phase 6b; ranks common names, AFTER vernaculars
 uv run concestor-build search      # FTS index; must run AFTER vernaculars
 uv run concestor-build render      # throwaway skeleton, still useful as an oracle
 ```
 
-Order matters in three places. `search` reads the `vernacular` table;
+Order matters in four places. `search` and `names` both read the `vernacular`
+table, and are independent of each other — `names` writes order and evidence
+onto rows `search` does not read;
 `fossils` reads `xref`; and **`fossils` must run after `dates`, because it
 rewrites `age_tier` and `age_layout` with the fossil record** — the fourth age
 tier and the layout bound are both its output, not phase 2's. Re-running
@@ -674,6 +678,112 @@ watching. A random fossil also adds the clade it hangs below when that clade is
 missing — reusing `drawFossil`'s existing path — because a random fossil almost
 always attaches to a branch nobody has drawn, and without it the command's usual
 outcome would be a refusal notice for something nobody chose by name.
+
+### A taxon's names are ordered by use, and Wikipedia is what measures it
+
+Phase 6 elected one headline name and left the rest unordered. Both halves
+failed where a reader meets them. The election broke ties on `length(name)`,
+which elected **`TRex`** for *Tyrannosaurus rex* — four characters against
+`T. rex`'s six — and, one key earlier, **`Ferae`** for Carnivora,
+**`eubacteria`** for Bacteria and **`Archaeon`** for Archaea, none of which is
+an English name anybody uses. Below the headline there was no order at all:
+the server stable-sorted one boolean and returned the rest in rowid order, so
+the card read *"Homo sapiens — also called human being, human beings, humans,
+man, men"*. **26,262 nodes carry more than one English name**; the rest have
+one and no choice to make.
+
+**The measure is English Wikipedia's title and redirect graph**, and it is
+what makes this evidence rather than taste. An article title is by that
+project's own policy the name most used in reliable English sources; a
+redirect is a name somebody thought a reader would type; no page is a name
+nobody did; and a page landing on a *different* article is a name whose
+ordinary referent is something else. That last band is the valuable one,
+because it settles by measurement a class of failure that would otherwise need
+a rule per case — `man` and `men` land on **Man**, `bug` and `bugs` on
+**Bug**, `moth` on **Moth**, `Ferae` on **Ferae**, and none of those is the
+taxon's article, while `carnivorans` and `T. rex` reach theirs. Nothing about
+`Ferae` was hand-written; Wikipedia files it separately and that is the whole
+of it. [name-ranking.md](name-ranking.md) is the full account.
+
+Six things not to redo:
+
+- **Resolve the taxon's own article title through redirects before comparing
+  anything to it.** Wikidata gives *Homo sapiens* the sitelink `Homo sapiens`,
+  and `Homo sapiens` on enwiki is a **redirect to `Human`**. Compared
+  unresolved, `human` points at an article that is not the taxon's and the
+  single best name for the species is demoted — the ordering inverts exactly
+  where it matters most. Both ends go through the same resolution.
+- **NULL evidence is not `none`.** Where a taxon has no English article the
+  column stays NULL and the ranking falls through to the offline bands. Same
+  rule phase 6 applies to an item with no `P225`; without it, a half-finished
+  crawl silently demotes every name it has not reached.
+- **`elsewhere` is demoted one band and never removed** — deliberately the
+  same shape as the withdrawal rule for search exactness. `man` is a name
+  humans go by, and a reader who typed it deserves to be told why they arrived.
+- **Corpus frequency is refused and is not a near miss.** Google Books,
+  `wordfreq`, any general list — they measure how common the *string* is, not
+  how commonly it names *this taxon*, and inside *Homo sapiens*'s own names
+  that ranks `man` above `human`. The Wikimedia pageview dump would be the
+  real thing (5.53 GB, measured) and is a strict **addition** to this design
+  rather than an alternative, since its counts still need this phase's
+  redirect pass to be attributed to a taxon at all.
+- **Shape and stem rules decide ties inside a band and never cross one**, which
+  is why they are allowed to be judgement at all. The stem rule is *relative*
+  and must stay that way: `lepidopteran` yields to `butterflies and moths`, but
+  `arthropod`, `tetrapod`, `mollusc` and `primate` are all the Latin with an
+  English ending and all of them are the ordinary word — there is nothing else
+  to call an arthropod.
+- **`kind` and `n_sources` were already being computed and thrown away.** Phase
+  6 knew whether a name was a declared `P1843` common name, an item label or a
+  bare alias, used it during dedup, and stored none of it. Persisting them is
+  what lets a build that never runs the crawl still order its names.
+- **`T. rex`, `T rex` and `T-Rex` are all redirects to *Tyrannosaurus*, so the
+  evidence is silent between them** and the generic tiebreaks picked the
+  shortest — the first green run headlined the app's most famous fossil as
+  **T-Rex**. The fix is a penalty on strings that abbreviate *this taxon's own
+  binomial* in anything but the standard `X. epithet` form. It is a penalty on
+  the manglings and **not a promotion of the abbreviation**: promoting it would
+  put `B. musculus` above `blue whale`.
+
+**Two things the gates did not catch on their own.** The `--no-api` branch
+originally left `complete` unset on the crawl report, and the spot checks only
+*require* when the crawl is complete — so a full, finished crawl replayed
+offline silently downgraded every content gate to an observation. It took a
+passing **31/31** captioned *"resolution crawl incomplete"* to notice. And this
+crawl's plan is **alphabetical**, unlike phase 6's `tip_count`-ordered one, so
+a partial run is safe but biased; `name-ranking.md` §8 has both.
+
+**The card leads with it now.** "Also called" moved above the description —
+`web/src/detail/blocks.tsx`'s `AlsoCalledBlock`, split out of `NamesBlock`,
+which keeps the *scientific* synonyms at the bottom because those answer "why
+did I land here" rather than "what is this". Ranking it is what earned it the
+position: an ordered list is an answer, an arbitrary one is trivia. Three
+things in the markup are not taste — the separator **trails** its name (leading
+it opened Carnivora's second line on `· Digitigrada`), the parent is a
+**wrapping flex row** because binding name and dot with `white-space: nowrap`
+leaves the line no breakable space at all and the list then overflows the card,
+and it is a **dot rather than a comma** because several of these names carry
+commas of their own. No brightness ramp down the list: luminance is selection's.
+
+**It is clamped to one row with `+N more`**, and how many fit is *measured* —
+the card is 360px on desktop and full-width on narrow, and the names run from
+`cat` to `Artiodactylamorpha`, so a fixed count is wrong somewhere. Two things
+not to redo: the arithmetic lives in `web/src/detail/oneRow.ts` and is
+unit-tested **because the suite runs in `node` with no layout engine**, so a
+DOM test would pass on a rule that is wrong; and the measurement runs against a
+**hidden twin holding the whole list**, because measuring the visible row does
+not converge — collapsing it changes what is laid out, so the next measurement
+re-expands and measures again. That first attempt settled on never collapsing
+at all, which looks exactly like a measurement deciding everything fitted. The
+twin is `visibility: hidden`, never `display: none`: the latter gives every
+item an `offsetTop` of 0 and one row then holds the world.
+
+`length(name)` survives as the last tiebreak, on purpose: it is a fine way to
+choose between two names nothing else distinguishes and a catastrophic way to
+choose a headline. And **the client no longer re-sorts** — `toStrings` lost its
+`preferredFirst` flag, because a sort on one boolean flattens every distinction
+below rank 1 back into arrival order, which is the `/v1/search` failure again
+in a second place.
 
 ### The detail card: what a thing is, before why it is drawn that way
 

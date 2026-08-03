@@ -7,10 +7,17 @@
  * same kind of answer. These live here so they cannot drift.
  */
 
-import { useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { isScientificItalic } from "../canvas/NodeMark";
 import { rankIsInformative, rankProse, type Lineage } from "./classification";
 import type { Pending } from "./hooks";
+import { fitOneRow } from "./oneRow";
 import type { LinkTarget } from "./target";
 import type { Encyclopedia } from "./wiki";
 
@@ -49,7 +56,11 @@ export function TaxonLink({
 }) {
   const italic = isScientificItalic(rank ?? null) ? " sci-italic" : "";
   if (!onSelect || target === null || target === undefined) {
-    return italic ? <em className="sci-italic">{children}</em> : <>{children}</>;
+    return italic ? (
+      <em className="sci-italic">{children}</em>
+    ) : (
+      <>{children}</>
+    );
   }
   return (
     <button
@@ -171,9 +182,17 @@ export function EncyclopediaBlock({
           belongs to.
         </p>
       )}
-      {body && <p className={clamped ? "wiki-extract clamped" : "wiki-extract"}>{body}</p>}
+      {body && (
+        <p className={clamped ? "wiki-extract clamped" : "wiki-extract"}>
+          {body}
+        </p>
+      )}
       {clamped && (
-        <button type="button" className="wiki-more" onClick={() => setExpanded(true)}>
+        <button
+          type="button"
+          className="wiki-more"
+          onClick={() => setExpanded(true)}
+        >
           Read the rest
         </button>
       )}
@@ -188,10 +207,7 @@ export function EncyclopediaBlock({
           Wikidata
         </a>
         {body && (
-          <span className="wiki-licence">
-            {" "}
-            · text from Wikipedia, CC BY-SA
-          </span>
+          <span className="wiki-licence"> · text from Wikipedia, CC BY-SA</span>
         )}
       </p>
     </div>
@@ -257,8 +273,8 @@ export function ClassificationBlock({
         </dl>
       ) : (
         <p className="note">
-          Nothing on this lineage carries a Linnaean rank. The named clades above
-          it are in the full lineage below.
+          Nothing on this lineage carries a Linnaean rank. The named clades
+          above it are in the full lineage below.
         </p>
       )}
       {missing.length > 0 && (
@@ -282,7 +298,11 @@ export function ClassificationBlock({
                 target={n.key}
                 onSelect={onSelect}
                 rank={n.rank}
-                title={rankIsInformative(n.rank) ? `${n.name} · ${n.rank}` : `Open ${n.name}`}
+                title={
+                  rankIsInformative(n.rank)
+                    ? `${n.name} · ${n.rank}`
+                    : `Open ${n.name}`
+                }
               >
                 {n.name}
               </TaxonLink>
@@ -295,36 +315,195 @@ export function ClassificationBlock({
 }
 
 /**
- * The other names this thing goes by.
+ * The other names this thing goes by, on the face of the card.
+ *
+ * **This is a ranked list and it is presented as one.** It used to be an 11.5px
+ * comma-run in a `.note`, filed at the bottom beside the scientific synonyms —
+ * which was the right place while the order was arbitrary and the content was
+ * therefore trivia. It is not arbitrary now: `usage_rank` orders these by how
+ * the name is actually used, measured against English Wikipedia's title and
+ * redirect graph, so *"what else do people call this"* is an answer rather than
+ * a bag of strings. Answers go above the fold.
+ *
+ * It sits **above the description** for the same reason the description sits
+ * above the provenance: a reader who clicked a badger wants to know what a
+ * badger is called before they read four sentences about badgers, and this is
+ * the one block on the card that is short enough to be read at a glance.
+ *
+ * Names are separated by a dot rather than a comma because several of them
+ * contain commas of their own, and rendered as discrete items so the list reads
+ * as *names* rather than as prose. No brightness ramp down the list, tempting
+ * as it is with a ranking in hand: the design language reserves luminance for
+ * selection, and order already carries the ranking.
+ *
+ * **One row, then "+N more".** Carnivora carries eight of these and *Cavia
+ * porcellus* five, so left to wrap freely the block costs three lines above the
+ * description — which is the space the promotion was supposed to buy for the
+ * description in the first place. One row is the compromise the ranking earns:
+ * the names that fit are the ones the evidence put first, and the rest are one
+ * press away.
+ *
+ * How many fit is **measured, not guessed**. The card is 360px on desktop and
+ * full-width on narrow, and these strings run from `cat` to
+ * `Artiodactylamorpha`, so any fixed count is wrong on one of them.
+ * `fitOneRow` does the arithmetic and is tested; this component only feeds it
+ * boxes.
+ */
+export function AlsoCalledBlock({
+  vernaculars,
+}: {
+  /**
+   * **Most used first**, and the order is the pipeline's — `usage_rank`,
+   * measured against English Wikipedia's title and redirect graph. Read
+   * positionally and never re-sorted: `[0]` is already the card's subtitle, so
+   * it is dropped here, and what follows is a ranking rather than a bag.
+   *
+   * That is why `man` and `men` come last on *Homo sapiens* rather than second
+   * and third. Both are names for humans and neither is removed, but the
+   * article `Man` is not the article this taxon sits at, so both are demoted.
+   */
+  vernaculars: readonly string[];
+}) {
+  const others = vernaculars.slice(1, 9);
+  const measureRef = useRef<HTMLParagraphElement | null>(null);
+  /** How many fit on row one. `null` until the hidden row has been measured. */
+  const [fit, setFit] = useState<number | null>(null);
+  const [expanded, setExpanded] = useState(false);
+
+  // A new card is a new list. Keyed on the content rather than on a node id,
+  // because this component is not told which node it is for and a stale fit
+  // from the previous taxon would clip the new one at the wrong name.
+  const listKey = others.join(" ");
+
+  const measure = useCallback(() => {
+    const el = measureRef.current;
+    if (!el) return;
+    const nodes = [...el.querySelectorAll<HTMLElement>(".also-called-item")];
+    const more = el.querySelector<HTMLElement>(".also-called-more");
+    if (nodes.length === 0) return;
+    // Differenced against the first item rather than read raw: `offsetLeft`
+    // and `offsetTop` are relative to the offset parent, which is the
+    // positioned card, so absolute values would carry the card's own padding
+    // and position into the arithmetic.
+    const originLeft = nodes[0]!.offsetLeft;
+    const originTop = nodes[0]!.offsetTop;
+    const boxes = nodes.map((n) => ({
+      left: n.offsetLeft - originLeft,
+      top: n.offsetTop - originTop,
+      width: n.offsetWidth,
+    }));
+    // The gap is folded into the reserve because `fitOneRow` deliberately
+    // knows nothing about the layout's spacing. The measured control carries
+    // the **widest** label it could ever end up with, so the reserve can only
+    // be generous and the row can never overflow.
+    const gap = parseFloat(getComputedStyle(el).columnGap) || 0;
+    const reserve = (more?.offsetWidth ?? 0) + gap;
+    setFit(fitOneRow(boxes, reserve, el.clientWidth));
+  }, []);
+
+  useLayoutEffect(() => {
+    setExpanded(false);
+    measure();
+  }, [listKey, measure]);
+
+  // The card is 360px on desktop and spans the viewport on narrow, so a
+  // rotation or a window drag changes the answer. The observed element is the
+  // hidden twin, whose content never changes, so this fires on a real resize
+  // and not on our own collapsing.
+  useEffect(() => {
+    const el = measureRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => measure());
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [measure]);
+
+  if (others.length === 0) return null;
+
+  const shown = expanded || fit === null ? others : others.slice(0, fit);
+  const hidden = others.length - shown.length;
+
+  /*
+    The separator trails its name rather than leading the next one: leading it
+    means a wrapped line *starts* with a dot, and Carnivora's second line read
+    "· Digitigrada".
+
+    Binding the two with `white-space: nowrap` is then not enough on its own —
+    it puts every space inside a nowrap span, leaving the line no break
+    opportunity at all, and the list stops wrapping and overflows the card. The
+    parent is a wrapping flex row so the gap is layout rather than whitespace,
+    and the break points no longer depend on where the spaces happen to be.
+  */
+  const items = (list: readonly string[]) =>
+    list.map((n, i) => (
+      <span key={n} className="also-called-item">
+        {n}
+        {i < list.length - 1 && <span className="also-called-sep"> ·</span>}
+      </span>
+    ));
+
+  return (
+    <section className="also-called">
+      <div className="names-label">Also called</div>
+      {/*
+        A hidden twin holding the *whole* list, and the only thing measured.
+
+        Measuring the visible row instead is the obvious design and it does not
+        converge: collapsing the row changes what is laid out, so the next
+        measurement sees a different list, re-expands, and measures again. The
+        first attempt did exactly that and settled on never collapsing — every
+        name across two rows with no control, looking for all the world like
+        the measurement had decided it all fitted.
+
+        This twin never changes. Its width tracks the card and its content is
+        fixed, so the observer fires only when the card is genuinely resized.
+      */}
+      <p
+        className="also-called-list also-called-measure"
+        ref={measureRef}
+        aria-hidden
+      >
+        {items(others)}
+        <span className="also-called-more">+{others.length} more</span>
+      </p>
+      <p className="also-called-list">
+        {items(shown)}
+        {hidden > 0 && (
+          <button
+            type="button"
+            className="also-called-more"
+            // One-way, like the description's "Read the rest" a few lines
+            // below it. Two controls that look alike and behave differently
+            // cost more than the re-collapse nobody asked for.
+            onClick={() => setExpanded(true)}
+          >
+            +{hidden} more
+          </button>
+        )}
+      </p>
+    </section>
+  );
+}
+
+/**
+ * The scientific names this thing is *filed* under, which is a different
+ * question and stays where it was.
  *
  * A synonym block is not decoration on a taxonomy browser: the Open Tree files
  * *Homo floresiensis* as a synonym of *Homo sapiens*, and a reader who searched
  * for one and is looking at the other deserves to see the string that connected
- * them rather than to conclude the search misheard.
+ * them rather than to conclude the search misheard. But it answers *why did I
+ * land here*, not *what is this* — so it belongs down with the provenance,
+ * unlike the common names it used to share a block with.
  */
-export function NamesBlock({
-  vernaculars,
-  synonyms,
-}: {
-  /** Preferred first. The first is already the card's subtitle, so it is dropped. */
-  vernaculars: readonly string[];
-  synonyms: readonly string[];
-}) {
-  const others = vernaculars.slice(1, 9);
-  if (others.length === 0 && synonyms.length === 0) return null;
+export function NamesBlock({ synonyms }: { synonyms: readonly string[] }) {
+  if (synonyms.length === 0) return null;
   return (
     <section className="names">
-      {others.length > 0 && (
-        <p className="note">
-          <span className="names-label">Also called</span> {others.join(", ")}.
-        </p>
-      )}
-      {synonyms.length > 0 && (
-        <p className="note">
-          <span className="names-label">Filed also as</span>{" "}
-          <em className="sci-italic">{synonyms.slice(0, 8).join(", ")}</em>.
-        </p>
-      )}
+      <p className="note">
+        <span className="names-label">Filed also as</span>{" "}
+        <em className="sci-italic">{synonyms.slice(0, 8).join(", ")}</em>.
+      </p>
     </section>
   );
 }

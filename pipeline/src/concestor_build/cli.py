@@ -81,6 +81,12 @@ def main(argv: list[str] | None = None) -> int:
     v = sub.add_parser("vernaculars", help="phase 6 — common names")
     v.add_argument("--no-api", action="store_true", help="skip the Wikidata query")
 
+    # Separate from `vernaculars` so the ordering can be re-run and retuned
+    # without replaying phase 6's 287-page ingest, the same way `search` is.
+    # It reads the `vernacular` table and writes only order and evidence.
+    nr = sub.add_parser("names", help="phase 6b — rank common names by use")
+    nr.add_argument("--no-api", action="store_true", help="replay checkpoints only")
+
     sub.add_parser("search", help="build the FTS index over names and vernaculars")
 
     sub.add_parser("package", help="emit topology.bin, meta.bin and the build manifest")
@@ -124,6 +130,10 @@ def main(argv: list[str] | None = None) -> int:
             from . import vernaculars
 
             return vernaculars.run(use_api=not args.no_api)
+        case "names":
+            from . import name_rank
+
+            return name_rank.run(use_api=not args.no_api)
         case "search":
             from . import search
 
