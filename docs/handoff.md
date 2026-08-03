@@ -260,8 +260,8 @@ uv run ruff format src tests && uv run ruff check src tests && uv run ty check &
 
 ### The empty canvas asks a question, and every opening is a triple
 
-`web/src/openings.ts` is six pre-built selections, offered by the empty canvas
-and by the about panel. It replaced
+`web/src/openings.ts` is fifteen pre-built selections, offered by the empty
+canvas and by `NextOpening` at the end of one. It replaced
 *"press S and search for two species"*, which asked for the one thing a curious
 reader does not have — two species, chosen, for a reason — and then described
 the mechanism (*the smallest tree that connects them*) rather than the payoff.
@@ -329,24 +329,121 @@ Four things not to redo:
   six centred paragraphs that read as prose rather than as a menu.
 
 `showAbout` and `showCredits` were two five-second toasts — one printing a build
-id, one a licence paragraph too long to finish before it vanished. They are now
-one `chrome/About.tsx`, which leads with the openings, because the honest answer
-to *what is this* is a drawn tree rather than a description of one.
+id, one a licence paragraph too long to finish before it vanished. They became
+one modal, and the modal is now **a page at `/about`** —
+`web/src/chrome/AboutPage.tsx`, with `web/src/route.ts` beside it.
 
-**One opening at a time, in both places `chrome/OpeningCarousel.tsx` appears.**
-Every question and answer at once was a wall of prose on a surface whose
-whole argument is that the graph is the only thing worth looking at, and in the
-about panel it pushed that panel's own content — what the dashes mean, where the
-data comes from — below the fold. The silhouettes carry what the deleted text
-was carrying: `OpeningTaxon.art` is a PhyloPic id rendered straight off
+**A modal was the right shape for the question it used to answer and the wrong
+shape for the one it answers now.** *What do the dashes mean* is asked while
+looking at the canvas, is wanted for a moment, and is about something still on
+screen behind the dialog. *What is this and why would I use it* is asked by
+somebody who has not used the app, and that reader wants room, headings they can
+scan, and an address they can send to a colleague. A dialog gives none of those
+and takes the canvas hostage while failing to.
+
+**The split is at the root, and it has to be.** `main.tsx` mounts `App` **or**
+`AboutPage`, never both. The store writes `encode(view)` on every view change
+and compares it against `search || pathname`; on `/about` the search is empty
+and the pathname is not `/`, so a store mounted alongside the page would
+`replaceState` the reader onto `/` on its first pass and the page would vanish
+under a canvas. Unmounted, the store has no opinion about the address bar.
+
+**It leads with a claim, not a description**, and `.hero-claim` is the only text
+above the fold carrying `--ink`. The line is *"The fastest way to a phylogenetic
+tree worth showing someone."* What it replaced — "pick any two species and see
+where their lineages meet" — was accurate, is what the empty canvas already
+says, and answered *what does this do* without ever answering *why would I open
+it*. A reader scanning a page stops on the brightest thing, and the brightest
+thing should be the sentence that says why they would use it. The etymology
+drops to the footer.
+
+**Everything below the hero is a list or a card.** The first cut was six
+sections of running prose; every sentence was true and load-bearing and it was
+still unreadable, because an about page is *scanned* and **prose hides its own
+index**. `What it draws` is six feature cards in an `auto-fit` grid and `Where
+this comes from` is a list where each item leads with the thing it is about. No
+*claim* was cut for length — the two witness fossils, the `Ivesia` collision and
+the 16,833 withdrawn matches all survive, because a claim a reader cannot check
+is a slogan.
+
+**`Reading the tree` was cut whole, and it is the one deletion worth
+defending.** Three items — dashed means unestimated, `≤` means upper bound, no
+figure means no defensible one. Every one is true and load-bearing, and every
+one is **already on the canvas**: `Legend.tsx` derives exactly those rows from
+the edges actually drawn, renders its swatches with the real `.trace-core`
+classes, and says them where a reader is looking at the thing they describe. A
+second copy on a page the reader is not on could only go stale against it. This
+does not weaken the honesty rule; it stops stating it twice in two places that
+can disagree.
+
+`Where this comes from` names **the joins rather than the sources** — a
+chronogram matched clade by clade, PBDB homonyms refused on an extancy
+disagreement, a silhouette carrying the size of its own claim, names ordered by
+Wikipedia's redirect graph. A list of seven databases says nothing a reader
+could not guess; what is hard here is what happens between them.
+
+Five things not to redo:
+
+- **`body` is `overflow: hidden` and `#root` is `height: 100%`**, which is right
+  for an instrument that pans and fatal for a document. At `min-height`, `.page`
+  grows past `#root` and is clipped by the body: it renders correctly, reports a
+  `scrollHeight` equal to its own height, and **nothing below the fold can be
+  reached by any means**. It reads as a rendering bug and is a containing-block
+  one. `.page` takes `height: 100%` and owns its own scroll, which is also what
+  `.page-bar`'s `position: sticky` resolves against. Releasing the body's lock
+  per route instead would put two documents' scrolling in one global.
+- **`routeOf` matches the whole path, never a prefix.** A `startsWith` passes
+  every obvious test and silently routes `/about-the-data` and every future
+  path beginning with those six characters. Trailing slashes are tolerated
+  because a server that canonicalises, or a person typing, will produce one.
+  `route.test.ts` pins both directions.
+- **`leaveAbout` is not unconditionally `history.back()`.** Back is right for a
+  reader who pushed `/about` from inside the app — that entry holds the
+  selection, axis and drill lane `/` cannot reconstruct — and sends a reader who
+  opened a shared `/about` link **off the site**. A `sessionStorage` flag set at
+  the push decides, and its absence falls through to a plain navigation to `/`.
+- **Leaving the tree unmounts it, and that is affordable only because
+  `api.ts`'s cache is a module singleton** that outlives the component tree.
+  Coming back re-reads the URL and rebuilds from paths already in memory.
+  Verified: back from `/about` restores `?n=…&sel=…` with its marks and its card.
+- **An opening is now reachable from the empty canvas and from the end of
+  another opening, and nowhere else.** The panel used to be a standing second
+  route. A reader who assembles a tree by hand and never presses one has to
+  clear the canvas to find them. Accepted; if it matters, the fix is a route
+  from a *built* canvas, not a carousel on the about page.
+- **The hero's strip is a marquee, and the pair `two copies` / `-50%` is what
+  makes it seamless.** At the end of a cycle the second copy sits exactly where
+  the first began, so there is no seam to time; any other distance leaves one,
+  and it is the kind that shows up once a minute and reads as a page stutter.
+  The pool is **every drawing the openings use, deduplicated** — borrowed rather
+  than chosen because each passed `openings.ts`'s thirty-pixel test, which that
+  file records as having rejected more candidates than every other rule
+  combined. A fixed row of five said *five animals*; a strip that never runs out
+  says *the tree of life*, which is what the sentence above it claims.
+- **Full-bleed costs `.page` an `overflow-x: hidden`.** `100vw` includes the
+  scrollbar, so the `calc(50% - 50vw)` break-out adds a horizontal scrollbar on
+  every browser that reserves one. And `.silhouette` carries a
+  `margin-right: 10px` for its palette slot, which compounds with the flex gap
+  into a visible wobble in something moving — zeroed in the track.
+- **`.about-p` is gone with the prose.** `.about-list` carries the same size,
+  leading and ink it had; if a paragraph is ever wanted back on this surface it
+  wants those three values and not new ones.
+
+**One opening at a time**, in `chrome/OpeningCarousel.tsx`. Every question and
+answer at once was a wall of prose on a surface whose whole argument is that the
+graph is the only thing worth looking at. The silhouettes carry what the deleted
+text was carrying: `OpeningTaxon.art` is a PhyloPic id rendered straight off
 `/v1/silhouette/{id}.svg`, so the preview needs no API round trip before the
 canvas holds anything.
 
-**`autoRotate` is on for the canvas and off in the panel.** The canvas is an
-attract surface with nothing else on it. The panel is something a reader opened
-deliberately and is reading, and text sliding above the paragraph you are on is
-the exact behaviour that gives carousels their reputation — hover-to-pause does
-not save it, because that only holds while the pointer is over the carousel.
+**`autoRotate` now has one caller and keeps its opt-out.** It defaults on, which
+is what the canvas — the only place the carousel renders — wants. Nothing passes
+`false` any more; the prop stays because the reason it existed still holds if
+the carousel ever lands on a reading surface again: text sliding above the
+paragraph you are on is
+the exact behaviour that gives carousels their reputation, and hover-to-pause
+does not save it, because that only holds while the pointer is over the
+carousel.
 
 **Auto-rotation is otherwise the part that needed care.** Three more rules, none
 optional: hover or focus anywhere in the card stops it; any manual press stops it
@@ -364,8 +461,9 @@ fix was a `Start here` section hidden once anything was drawn, which made the
 rule safe without making it coherent: a section that appears and disappears is a
 list nobody can learn, and on the one surface where it *was* shown — the empty
 canvas — the carousel was already offering the same questions, larger and with
-their silhouettes. So the section is gone. Nothing is lost, because the about
-panel carries the same carousel and is reachable at any time.
+their silhouettes. So the section is gone. The about panel used to be the
+standing second route and no longer is; `NextOpening` is, and it appears exactly
+where the reader has just finished one.
 
 ### The palette hides what would do nothing, and pins what nobody is asking for
 

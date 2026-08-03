@@ -3051,27 +3051,72 @@ body {
   outline-offset: 2px;
 }
 
-/* ----------------------------------------------------------------- about -- */
+/* ------------------------------------------------------------ about page -- */
 
-.modal-wide {
-  width: min(560px, 92vw);
-  max-height: 76vh;
+/*
+ * `/about` is a page, not a panel — `chrome/AboutPage.tsx` says why it stopped
+ * being one. What that buys, and what these rules are for, is *room*: a reader
+ * deciding whether to use this needs headings they can scan and a claim they
+ * can read in one glance, and a 560px dialog with a scrollbar gives neither.
+ *
+ * It is the one surface in the app that is not the instrument, so it is allowed
+ * a comfortable measure and generous vertical rhythm. It is still the same
+ * instrument's colours: no warm hue, no second light source, nothing here
+ * emits.
+ */
+
+/*
+ * **The page is its own scroll container, and it has to be.**
+ *
+ * `body` is `overflow: hidden` and `html, body, #root` are all `height: 100%`,
+ * which is right for the canvas — an instrument that pans must not also scroll
+ * the document under the reader's gesture — and fatal for a document. Left at
+ * `min-height`, this element grows past `#root` and is simply clipped by the
+ * body: the page renders correctly, reports a `scrollHeight` equal to its own
+ * height, and *nothing below the fold can be reached by any means*. It looked
+ * like a rendering bug and is a containing-block one.
+ *
+ * `height: 100%` makes it exactly `#root`'s height and moves the overflow here,
+ * which is also what `.page-bar`'s `position: sticky` resolves against. The
+ * alternative — releasing `body`'s lock on this route — would put the two
+ * documents' scroll behaviour in a global that either of them can get wrong.
+ */
+.page {
+  height: 100%;
   overflow-y: auto;
-}
-
-.about-lede {
-  margin: 0 0 var(--s4);
-  font-size: 13px;
-  line-height: 1.55;
+  /* Pays for the stream's full-bleed break-out. `.stream` says why. */
+  overflow-x: hidden;
+  background: var(--void);
   color: var(--ink-3);
 }
-.about-lede em {
-  font-style: italic;
-  color: var(--ink-2);
+
+/* Sticky, because the way back should not require finding the top again. */
+.page-bar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  padding: var(--s3) var(--s4);
+  background: linear-gradient(var(--void) 68%, transparent);
 }
 
-.about-h {
-  margin: 0 0 var(--s2);
+/*
+ * `65ch` rather than a pixel width: the measure that matters is characters per
+ * line, and this page is text. The feature grid below breaks out of it on its
+ * own by going two-column, which is the only place a wider column reads better.
+ */
+.page-body {
+  max-width: 65ch;
+  margin: 0 auto;
+  padding: 0 var(--s4) var(--s6);
+}
+
+.page-section {
+  margin-top: var(--s6);
+}
+
+.page-h {
+  margin: 0 0 var(--s3);
   font-size: 10.5px;
   font-weight: var(--w-med);
   letter-spacing: 0.14em;
@@ -3079,26 +3124,290 @@ body {
   color: var(--ink-4);
 }
 
-.about-p {
-  margin: 0 0 var(--s4);
+/* ------------------------------------------------------------------ hero -- */
+
+.hero {
+  padding: var(--s5) 0 var(--s4);
+}
+
+.hero-eyebrow {
+  margin: 0 0 var(--s2);
+  font-size: 10.5px;
+  font-weight: var(--w-med);
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+}
+
+/*
+ * The one line on this page that is allowed to sell, and the only text carrying
+ * `--ink` above the fold.
+ *
+ * What it replaced — "pick any two species and see where their lineages meet" —
+ * was accurate, is what the empty canvas already says, and answered *what does
+ * this do* without ever answering *why would I open it*. A reader scanning a
+ * page stops on the brightest thing, and the brightest thing should be the
+ * sentence that says why they would use it.
+ *
+ * `clamp` because at 30px this is two lines on a phone and one on a laptop, and
+ * a fixed size gets one of those wrong. `--w-med` is the heaviest weight the
+ * project has; the emphasis is size and ink, never a third weight.
+ */
+.hero-claim {
+  margin: 0 0 var(--s3);
+  font-size: clamp(24px, 4.4vw, 34px);
+  line-height: 1.18;
+  letter-spacing: -0.015em;
+  font-weight: var(--w-med);
+  color: var(--ink);
+  text-wrap: balance;
+}
+
+.hero-sub {
+  margin: 0 0 var(--s5);
+  font-size: 14.5px;
+  line-height: 1.55;
+  color: var(--ink-3);
+  max-width: 54ch;
+}
+
+/* ---------------------------------------------------------------- stream -- */
+
+/*
+ * A strip of silhouettes drifting across the hero, forever.
+ *
+ * It replaced a fixed row of five — the *Are you a fish?* cast — and the reason
+ * is what the two say rather than how they look. Five drawings standing still
+ * are five animals. A strip that never runs out is *the tree of life*, which is
+ * the actual claim of the sentence above it, made without a word.
+ *
+ * **Full-bleed, and `.page` takes `overflow-x: hidden` to pay for it.** The
+ * column is 65ch because that is a readable measure for text; a strip that
+ * stopped at both ends of a text column would read as a component rather than
+ * as something passing through. `calc(50% - 50vw)` is the standard break-out
+ * and `100vw` includes the scrollbar's width, so without the hidden axis on the
+ * scroll container this introduces a horizontal scrollbar on every desktop
+ * browser that reserves one.
+ *
+ * The mask is not decoration: at a hard edge the drawings pop in and out of
+ * existence mid-stride, which reads as a rendering fault. Fading them over the
+ * outer eighth makes them arrive and leave.
+ */
+.stream {
+  width: 100vw;
+  margin-left: calc(50% - 50vw);
+  margin-bottom: var(--s5);
+  overflow: hidden;
+  color: var(--ink-4);
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 12%,
+    #000 88%,
+    transparent
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 12%,
+    #000 88%,
+    transparent
+  );
+}
+
+/*
+ * **Two copies of the pool, travelling exactly -50%.**
+ *
+ * That pair is what makes the loop seamless rather than nearly seamless: at the
+ * end of the cycle the second copy occupies the position the first started in,
+ * so the reset is invisible and there is no seam anybody has to time. Any other
+ * distance leaves one, and it is the kind that shows up once a minute and reads
+ * as a stutter in the page.
+ *
+ * `width: max-content` so the track is as wide as its contents rather than as
+ * wide as the viewport, which is what lets the flex row lay out past the edge
+ * instead of wrapping.
+ *
+ * 96s is a deliberate crawl. This sits under the one sentence on the page that
+ * has to be read, and anything quick enough to notice is competing with it.
+ */
+.stream-track {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--s5);
+  width: max-content;
+  animation: stream 96s linear infinite;
+}
+.stream-track .silhouette {
+  /*
+   * `.silhouette` carries `margin-right: 10px` for the palette, where it sits
+   * in a fixed icon slot with no flex gap to do the work. Here the gap does it,
+   * and the two compound into an uneven rhythm — 34px between some pairs and
+   * 24px between others, which is exactly enough to read as a wobble in
+   * something moving.
+   */
+  margin-right: 0;
+}
+
+@keyframes stream {
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+/*
+ * An infinite animation is the exact thing this setting is about, and the
+ * static state has to stand on its own — so it rests where it starts, which is
+ * a full strip of drawings rather than a gap.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .stream-track {
+    animation: none;
+  }
+}
+
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+}
+
+/*
+ * The primary action, and the only button in the app that is bigger than a
+ * control-bar button.
+ *
+ * It carries the accent as a *border and text* rather than as a fill. A solid
+ * accent block is the brightest possible object and this page sits one press
+ * away from a canvas whose whole argument is that the graph is the only light
+ * source; arriving there from a glowing button makes the tree look dim.
+ */
+.btn-hero {
+  padding: 10px 18px;
+  font-size: 13.5px;
+  border-color: var(--accent-dim);
+  color: var(--ink);
+}
+.btn-hero:hover,
+.btn-hero:focus-visible {
+  border-color: var(--accent);
+  color: var(--ink);
+}
+
+/* -------------------------------------------------------------- features -- */
+
+/*
+ * Two columns from 640px up, one below.
+ *
+ * `auto-fit` with a 260px floor rather than a media query, so the breakpoint is
+ * a property of the content: the cards go one-up exactly when two of them would
+ * be too narrow to hold a heading on one line, whatever the viewport is doing.
+ */
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--s3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.feature {
+  padding: var(--s3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--void-2);
+}
+
+.feature-h {
+  margin: 0 0 var(--s1);
+  font-size: 13px;
+  font-weight: var(--w-med);
+  line-height: 1.3;
+  color: var(--ink-2);
+}
+
+.feature-p {
+  margin: 0;
   font-size: 12.5px;
   line-height: 1.55;
   color: var(--ink-3);
 }
-.about-p strong {
-  font-weight: var(--w-med);
+
+.feature-p em {
+  font-style: italic;
   color: var(--ink-2);
 }
 
+/* ----------------------------------------------------------------- lists -- */
+
 /*
- * A linked source. Carries the weight and colour the `<strong>` had, so the
- * paragraph still reads as prose with the sources picked out, plus a hairline
- * that says it is reachable.
+ * Every claim on this page that is not a feature card.
+ *
+ * The marker is a 3px dot on the text's first line rather than a disc from the
+ * user-agent sheet, which sits too large and too bright for this palette.
+ * `0.62em` puts it on the cap-height of a 13px line at 1.6, and it is set in
+ * `em` so it tracks the text if the size ever moves. The hanging indent is what
+ * `list-style: none` buys: a wrapped second line aligns with the first word,
+ * not with the dot, so a four-line item still reads as one claim.
+ */
+.page-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--ink-3);
+}
+.page-list li {
+  position: relative;
+  margin: 0 0 var(--s3);
+  padding-left: var(--s4);
+}
+.page-list li:last-child {
+  margin-bottom: 0;
+}
+.page-list li::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 0.62em;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--hairline-strong);
+}
+/* The thing the claim is about. */
+.page-list strong {
+  font-weight: var(--w-med);
+  color: var(--ink-2);
+}
+/*
+ * Scientific names, and the search terms in the first list. Pinned rather than
+ * left to the user-agent's `<em>`, for the reason the UI sans is chosen with a
+ * real italic in the first place: a synthesised oblique of this face slants the
+ * numerals with the letters, and `T. rex` is half figures.
+ */
+.page-list em {
+  font-style: italic;
+  color: var(--ink-2);
+}
+/*
+ * `.page-list .mono` went with `Reading the tree`. That section carried the
+ * only monospaced glyph in a list — the `≤` in "≤ before a figure" — and the
+ * section is gone: the legend on the canvas derives the same three rules from
+ * the edges actually drawn, and says them where a reader is looking at one.
+ * The footer's version string has its own rule.
+ */
+
+/*
+ * A linked source. Carries the weight and colour a `<strong>` would, so the
+ * item still reads as prose with the sources picked out, plus a hairline that
+ * says it is reachable.
  *
  * Deliberately not the accent at rest, unlike `.wiki-links a`: there is one of
- * those on a card and seven of these in a single paragraph, and seven cyan
- * words is a link list wearing a sentence. The accent arrives on hover and
- * focus, where it is about one link rather than all of them.
+ * those on a card and seven of these in a single list, and seven cyan words is
+ * a link list wearing a sentence. The accent arrives on hover and focus, where
+ * it is about one link rather than all of them.
  */
 .about-src {
   font-weight: var(--w-med);
@@ -3116,32 +3425,38 @@ body {
   border-bottom-color: var(--accent-dim);
 }
 
-/*
- * The carousel inside the panel. Narrower arrows than on the canvas, where it
- * has a whole viewport; here it shares a 560px dialog with running text, and
- * the arrows sitting hard against the text column read as part of the prose.
- */
-.about .carousel {
-  grid-template-columns: 24px minmax(0, 1fr) 24px;
-  margin-bottom: var(--s4);
-}
-.about .carousel-card {
-  min-height: 164px;
-}
+/* ---------------------------------------------------------------- footer -- */
 
-.about-foot {
+.page-foot {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
   gap: var(--s3);
-  padding-top: var(--s3);
+  margin-top: var(--s6);
+  padding-top: var(--s4);
   border-top: 1px solid var(--hairline);
 }
-.about-foot .mono {
+
+.page-foot-p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-4);
+}
+.page-foot-p em {
+  font-style: italic;
+  color: var(--ink-3);
+}
+.page-foot-p .mono {
   font-family: var(--mono);
   font-size: 11px;
-  color: var(--ink-5, var(--ink-4));
 }
+/* Pushes the way back to the far end, whatever the two lines before it wrap to. */
+.page-foot .btn {
+  margin-left: auto;
+}
+
+
 /* ----------------------------------------------------- bioluminescence -- */
 
 /*

@@ -13,7 +13,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { releaseLabel } from "./About";
+import { releaseLabel } from "./AboutPage";
 
 describe("releaseLabel", () => {
   it("writes a tagged release the way the repository tags it", () => {
