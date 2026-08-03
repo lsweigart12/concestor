@@ -1620,6 +1620,34 @@ Seven things not to redo:
   carry it is not on screen and the reader who has just been shown a tree they
   did not build is exactly the one who needs telling where their own species go.
 
+**The ETag names the code as well as the dataset, and `/v1/about` is no longer
+immutable.** `api.etag` was `store.BuildID` alone, which hashes the artifacts on
+disk and nothing else, so a release changing only Go code emitted a byte-identical
+validator against an unchanged URL under a one-year `immutable` — v0.23.0 shipped
+`layout_spread` to nobody with a warm cache. It is now `"<build_id>-<code_id>"`,
+the container tag's shape for the container tag's reason, with `code_id` falling
+back to a fingerprint of the executable where no commit was compiled in.
+`docs/deployment.md` §5 is the account. Four things not to redo:
+
+- **`computeBuildID` stays dataset-only.** Folding the commit in was the first
+  instinct and it is wrong: `/v1/about` publishes that number as the *dataset*'s
+  name, and there are already two build ids in this system that must not be
+  conflated. The ETag is the one place they are combined.
+- **The fix is a validator fix, not an invalidation.** It makes every
+  conditional request correct — the old code answered `If-None-Match` with a
+  wrong `304`, actively confirming stale content — but it un-sticks nothing
+  already stored, because `immutable` means the request is never sent.
+- **The remaining hole is browsers, not the edge**, and it is about future
+  deploys too: the Worker version keys the edge cache, but a warm browser
+  holds a `/v1` URL for a year with nothing able to correct it. The cheap
+  complete answer is a **bounded lifetime**, not URL versioning — deployment.md
+  §5 evaluates both, and refuses versioning because the client learns the id
+  *from* `/v1/about` and would queue the whole boot path behind it.
+- **`/v1/about` is `max-age=60, must-revalidate`, not `no-store`.** It is the
+  endpoint that answers "what is running", so it must be askable again; but it
+  is fetched on every page load, and `no-store` would take request collapsing
+  off the boot path on half a vCPU.
+
 ---
 
 ## 4. Corrections to the design docs

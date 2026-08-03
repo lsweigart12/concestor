@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -115,8 +117,8 @@ func TestETagAnd304(t *testing.T) {
 	ts, st := serve(t)
 	resp := getJSON(t, ts, "/v1/path/ott770315", nil)
 	tag := resp.Header.Get("ETag")
-	if tag != `"`+st.BuildID+`"` {
-		t.Fatalf("ETag = %q, want %q", tag, st.BuildID)
+	if !strings.HasPrefix(tag, `"`+st.BuildID+`-`) || !strings.HasSuffix(tag, `"`) {
+		t.Fatalf("ETag = %q, want the dataset id %q with a code id after it", tag, st.BuildID)
 	}
 	if cc := resp.Header.Get("Cache-Control"); !strings.Contains(cc, "immutable") {
 		t.Errorf("Cache-Control = %q", cc)
@@ -131,6 +133,153 @@ func TestETagAnd304(t *testing.T) {
 	defer r2.Body.Close() //nolint:errcheck
 	if r2.StatusCode != http.StatusNotModified {
 		t.Errorf("If-None-Match got %d, want 304", r2.StatusCode)
+	}
+}
+
+// The bug this file's `etag` comment describes, as a test.
+//
+// v0.23.0 added a field to /v1/node against an unmoved dataset, so every /v1
+// URL kept the ETag it had under a one-year `immutable` — and `immutable`
+// means a client will not revalidate, so the new field reached nobody with a
+// warm cache. Two builds of the same data must not agree.
+//
+// It runs without a build, deliberately: this is the one assertion in the
+// package that CI can make (docs/ci.md §2), and the failure it guards against
+// is in the header rather than in the data.
+func TestETagTracksTheCodeAndNotOnlyTheDataset(t *testing.T) {
+	st := &store.Store{BuildID: "854cdfa42f77e78e"}
+	before := &Server{St: st, Commit: "60036c0"}
+	after := &Server{St: st, Commit: "db76ae0"}
+
+	if before.etag() == after.etag() {
+		t.Fatalf("same ETag %q from two commits over one dataset; a code-only "+
+			"deploy would serve stale JSON under `immutable` forever", before.etag())
+	}
+	if !strings.Contains(before.etag(), "854cdfa42f77e78e") {
+		t.Errorf("ETag %q has lost the dataset id", before.etag())
+	}
+	if !strings.Contains(before.etag(), "60036c0") {
+		t.Errorf("ETag %q does not name the commit it was built from", before.etag())
+	}
+
+	// And the other direction, which is what makes the header worth sending
+	// at all: one build answers with one ETag, so a revalidation is a 304.
+	again := &Server{St: st, Commit: "60036c0"}
+	if before.etag() != again.etag() {
+		t.Errorf("one build gave two ETags: %q vs %q", before.etag(), again.etag())
+	}
+	other := &Server{St: &store.Store{BuildID: "9bc853c7694f7551"}, Commit: "60036c0"}
+	if before.etag() == other.etag() {
+		t.Error("a dataset change no longer moves the ETag")
+	}
+}
+
+// A `go run` or a `go test` has no commit compiled in, and the fallback may
+// not be a constant — a constant is the same collision as before, in the one
+// place nobody would look for it.
+func TestETagWithoutACommitIsStillPerBuild(t *testing.T) {
+	s := &Server{St: &store.Store{BuildID: "854cdfa42f77e78e"}}
+	id := s.codeID()
+	if !strings.HasPrefix(id, "dev-") || len(id) <= len("dev-") {
+		t.Fatalf("code id = %q, want a dev- fingerprint", id)
+	}
+	if s.codeID() != id {
+		t.Error("the code id is not stable within a process")
+	}
+
+	// The fingerprint is the executable's own identity, so two different
+	// binaries cannot share one. Two files stand in for two builds.
+	dir := t.TempDir()
+	a := filepath.Join(dir, "a")
+	b := filepath.Join(dir, "b")
+	if err := os.WriteFile(a, []byte("one build"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(b, []byte("a different build"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fa, ok := fingerprintFile(a)
+	if !ok {
+		t.Fatal("fingerprinting a file that exists failed")
+	}
+	fb, _ := fingerprintFile(b)
+	if fa == fb {
+		t.Errorf("two builds fingerprinted the same: %q", fa)
+	}
+	if again, _ := fingerprintFile(a); again != fa {
+		t.Errorf("one build fingerprinted twice: %q vs %q", fa, again)
+	}
+	if _, ok := fingerprintFile(filepath.Join(dir, "gone")); ok {
+		t.Error("a missing file must not fingerprint")
+	}
+}
+
+// The commit arrives through a linker flag, which nothing validates. A quote
+// in it would split the header rather than fail loudly.
+func TestETagSurvivesAMalformedCommit(t *testing.T) {
+	s := &Server{St: &store.Store{BuildID: "abc"}, Commit: `db7"6ae0, "*`}
+	tag := s.etag()
+	if strings.Count(tag, `"`) != 2 || !strings.HasPrefix(tag, `"`) || !strings.HasSuffix(tag, `"`) {
+		t.Fatalf("ETag = %s, want one quoted string", tag)
+	}
+	if !etagMatches(tag, tag) {
+		t.Error("the server cannot match its own ETag")
+	}
+	// A commit that sanitises to nothing must fall back rather than produce
+	// the empty code id every other such build would also produce.
+	empty := &Server{St: &store.Store{BuildID: "abc"}, Commit: `""`}
+	if !strings.Contains(empty.etag(), "dev-") {
+		t.Errorf("ETag = %s, want the fingerprint fallback", empty.etag())
+	}
+}
+
+// Every cacheable response is stamped by one helper, so they cannot disagree
+// about what build they came from. /v1/timescale and /v1/silhouette each used
+// to write these headers by hand.
+func TestEveryCacheableResponseCarriesTheSameETag(t *testing.T) {
+	ts, _ := serve(t)
+	want := getJSON(t, ts, "/v1/path/ott770315", nil).Header.Get("ETag")
+
+	var about map[string]any
+	getJSON(t, ts, "/v1/about", &about)
+
+	for _, path := range []string{"/v1/timescale", "/v1/node/ott770315", "/v1/about"} {
+		resp := getJSON(t, ts, path, nil)
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("GET %s: %d", path, resp.StatusCode)
+			continue
+		}
+		if got := resp.Header.Get("ETag"); got != want {
+			t.Errorf("GET %s: ETag = %q, want %q", path, got, want)
+		}
+		req, _ := http.NewRequest(http.MethodGet, ts.URL+path, nil)
+		req.Header.Set("If-None-Match", want)
+		r2, err := ts.Client().Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = r2.Body.Close()
+		if r2.StatusCode != http.StatusNotModified {
+			t.Errorf("GET %s with If-None-Match: %d, want 304", path, r2.StatusCode)
+		}
+	}
+}
+
+// /v1/about is how a deploy is checked, so it may not be answered from a
+// year-old cache. writeShortLivedJSON is the argument; this is the promise.
+func TestAboutIsCacheableButNotImmutable(t *testing.T) {
+	ts, _ := serve(t)
+	resp := getJSON(t, ts, "/v1/about", nil)
+	cc := resp.Header.Get("Cache-Control")
+	if strings.Contains(cc, "immutable") {
+		t.Errorf("Cache-Control = %q; the endpoint that says what is running "+
+			"must be askable again", cc)
+	}
+	if !strings.Contains(cc, "max-age=60") || !strings.Contains(cc, "must-revalidate") {
+		t.Errorf("Cache-Control = %q, want a minute and a revalidation", cc)
+	}
+	if resp.Header.Get("ETag") == "" {
+		t.Error("no ETag; the revalidation after that minute should cost a 304 and not a body")
 	}
 }
 

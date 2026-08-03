@@ -1,15 +1,19 @@
 // Package api serves the read-only HTTP contract described in architecture §4.
 //
 // Everything is immutable within a build, so every /v1 response carries an
-// ETag derived from the build id and a one-year immutable Cache-Control. There
-// is no write path, no session, and no runtime dependency on any upstream
-// service: the Open Tree API is a build-time oracle only (architecture §9).
+// ETag derived from the build — the dataset **and** the binary, see etag —
+// and a one-year immutable Cache-Control. There is no write path, no session,
+// and no runtime dependency on any upstream service: the Open Tree API is a
+// build-time oracle only (architecture §9).
 package api
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"math"
 	"net/http"
@@ -17,6 +21,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/lsweigart12/concestor/server/internal/store"
 	"github.com/lsweigart12/concestor/server/internal/topo"
@@ -35,6 +41,12 @@ type Server struct {
 	Release   string
 	Commit    string
 	Immutable bool
+
+	// The code half of the ETag, resolved once. See codeID: with no commit
+	// compiled in it costs a stat of the executable, and that must not happen
+	// per response.
+	codeOnce sync.Once
+	code     string
 }
 
 // Handler builds the mux.
@@ -100,23 +112,152 @@ func isLocalOrigin(o string) bool {
 
 // --- response helpers ----------------------------------------------------
 
-func (s *Server) etag() string { return `"` + s.St.BuildID + `"` }
+// etag names the response's content, which is the dataset **and** the code
+// that renders it.
+//
+// It was the store's BuildID alone, and that was a bug with a production
+// symptom. `store.computeBuildID` hashes the name, size and mtime of the
+// arrays, the database and the gate files: it is a pure function of the
+// *artifacts*, and nothing about the binary enters it. So a release that
+// changed only Go code emitted a byte-identical ETag against an unchanged URL
+// under `max-age=31536000, immutable` — and `immutable` tells a client not to
+// revalidate at all, so nothing could correct it. v0.23.0 added
+// `layout_spread` to /v1/node, the container rolled to the new build, and
+// every warm cache went on serving the old shape.
+//
+// The fix is the one `docs/deployment.md` §5 already took for the container
+// image tag, in the same shape — `<dataset>-<code>` — because it is the same
+// problem. A tag naming only the dataset let a pre-#51 binary run in
+// production for two releases, and the lesson recorded there is exactly this
+// one: **an artifact's name must cover everything inside it.**
+//
+// BuildID itself is deliberately left alone. It is the *dataset* identity,
+// /v1/about publishes it under that meaning, and folding the commit into it
+// would silently change what that field says to every consumer that reads it.
+// The two ids stay two ids; the ETag is where they are combined.
+func (s *Server) etag() string { return `"` + s.St.BuildID + "-" + s.codeID() + `"` }
+
+// codeID names the running binary the way St.BuildID names the dataset.
+//
+// A release build has the commit compiled in — both scripts/ci/build-release.sh
+// and scripts/deploy/push-api-image.sh pass `-X main.commit` — and that is the
+// exact answer. A `go run` or a `go test` has none, and the fallback may not be
+// a constant: a constant would make every commit-less build agree with every
+// other one, which is the collision this whole function exists to remove,
+// moved to the one place where a stale answer is hardest to notice.
+//
+// So it falls back to the binary's own identity: path, size and mtime, hashed.
+// That is computeBuildID's trick applied to the executable rather than to the
+// arrays, and it holds for the same reason — a rebuild rewrites the file, and
+// `go run` compiles to a fresh temporary every time. It carries a `dev-`
+// prefix because reading a twelve-hex-digit answer as an abbreviated sha in a
+// support question would cost more than the prefix does.
+func (s *Server) codeID() string {
+	s.codeOnce.Do(func() { s.code = resolveCodeID(s.Commit) })
+	return s.code
+}
+
+func resolveCodeID(commit string) string {
+	if c := etagSafe(commit); c != "" {
+		return c
+	}
+	return "dev-" + binaryFingerprint()
+}
+
+// etagSafe keeps the header a single well-formed quoted-string. The commit
+// arrives through a linker flag, so nothing has checked it on the way in, and
+// a stray quote or comma would split the ETag rather than fail loudly.
+func etagSafe(s string) string {
+	var b strings.Builder
+	for _, c := range s {
+		if b.Len() >= 40 {
+			break
+		}
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9',
+			c == '-', c == '.', c == '_':
+			b.WriteRune(c)
+		}
+	}
+	return b.String()
+}
+
+// binaryFingerprint identifies this executable by what the filesystem knows
+// about it, which is enough: a rebuild is a new file.
+func binaryFingerprint() string {
+	if p, err := os.Executable(); err == nil {
+		if id, ok := fingerprintFile(p); ok {
+			return id
+		}
+	}
+	// Nothing on disk to fingerprint — an executable deleted or unreadable
+	// under us. Per-process rather than constant, deliberately: the cost of
+	// this branch is a revalidation after a restart, and the cost of a shared
+	// constant is the bug in etag's comment.
+	h := sha256.New()
+	fmt.Fprintf(h, "pid=%d\x00start=%d", os.Getpid(), time.Now().UnixNano())
+	return hex.EncodeToString(h.Sum(nil))[:12]
+}
+
+func fingerprintFile(p string) (string, bool) {
+	fi, err := os.Stat(p)
+	if err != nil {
+		return "", false
+	}
+	h := sha256.New()
+	fmt.Fprintf(h, "%s\x00%d\x00%d", p, fi.Size(), fi.ModTime().UnixNano())
+	return hex.EncodeToString(h.Sum(nil))[:12], true
+}
+
+// The three lifetimes a /v1 response can carry. `ccDev` is what the -immutable
+// flag turns the other two into, so that iterating locally does not mean
+// hard-reloading after every rebuild.
+const (
+	ccImmutable  = "public, max-age=31536000, immutable"
+	ccShortLived = "public, max-age=60, must-revalidate"
+	ccDev        = "no-cache"
+)
+
+func (s *Server) immutableCC() string {
+	if s.Immutable {
+		return ccImmutable
+	}
+	return ccDev
+}
+
+func (s *Server) shortLivedCC() string {
+	if s.Immutable {
+		return ccShortLived
+	}
+	return ccDev
+}
+
+// stampCacheable writes the ETag and the lifetime, and reports whether the
+// request may be answered 304.
+//
+// It exists because this pair was written out by hand in three places —
+// writeJSON, /v1/timescale and /v1/silhouette — and the ETag was wrong in all
+// three for the same reason. One of them had also quietly dropped the
+// If-None-Match check, so a silhouette carried a validator nothing ever used.
+// A fourth caller now cannot drift.
+func (s *Server) stampCacheable(w http.ResponseWriter, r *http.Request, cc string) (notModified bool) {
+	tag := s.etag()
+	h := w.Header()
+	h.Set("ETag", tag)
+	h.Set("Cache-Control", cc)
+	match := r.Header.Get("If-None-Match")
+	return match != "" && etagMatches(match, tag)
+}
 
 // writeJSON emits an immutable, ETag'd JSON response and honours
-// If-None-Match. Immutability is keyed on the build id, which changes whenever
-// any artifact on disk does.
+// If-None-Match. Immutability is keyed on the build id and the code id
+// together, which between them change whenever anything the response is a
+// function of does.
 func (s *Server) writeJSON(w http.ResponseWriter, r *http.Request, code int, v any) {
 	h := w.Header()
 	h.Set("Content-Type", "application/json; charset=utf-8")
 	if code == http.StatusOK {
-		tag := s.etag()
-		h.Set("ETag", tag)
-		if s.Immutable {
-			h.Set("Cache-Control", "public, max-age=31536000, immutable")
-		} else {
-			h.Set("Cache-Control", "no-cache")
-		}
-		if match := r.Header.Get("If-None-Match"); match != "" && etagMatches(match, tag) {
+		if s.stampCacheable(w, r, s.immutableCC()) {
 			w.WriteHeader(http.StatusNotModified)
 			return
 		}
@@ -124,6 +265,36 @@ func (s *Server) writeJSON(w http.ResponseWriter, r *http.Request, code int, v a
 		h.Set("Cache-Control", "no-store")
 	}
 	w.WriteHeader(code)
+	s.encode(w, r, v)
+}
+
+// writeShortLivedJSON emits a response that is cacheable but not immutable.
+//
+// It exists for /v1/about, and its argument is writeVolatileJSON's turned
+// around. About *is* a function of the build, so the ETag above is a correct
+// validator for it and the immutable path was never wrong about the data — it
+// was wrong about the question. /v1/about is what a deploy check, a monitor or
+// a person asks "what is running", and a year-long `immutable` turns "the
+// deploy did not land" into a permanent answer: production reported the
+// previous release for ten minutes after v0.23.0 rolled, and would have gone
+// on reporting it to a warm browser indefinitely. Fixing the ETag does not fix
+// that on its own, because the endpoint's whole job is to be asked again.
+//
+// Not `no-store`, which is what /v1/random needs. The store counts about's age
+// statistics at startup precisely because it is fetched on every page load —
+// this is the boot path for every reader — and `no-store` also turns off the
+// edge's request collapsing, on a container with half a vCPU
+// (deployment.md §2) where a cold burst is the one thing worth protecting. A
+// minute of freshness keeps the collapsing and bounds the staleness to a
+// minute, which is shorter than any deploy.
+func (s *Server) writeShortLivedJSON(w http.ResponseWriter, r *http.Request, v any) {
+	h := w.Header()
+	h.Set("Content-Type", "application/json; charset=utf-8")
+	if s.stampCacheable(w, r, s.shortLivedCC()) {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
 	s.encode(w, r, v)
 }
 
@@ -535,7 +706,10 @@ func (s *Server) handleAbout(w http.ResponseWriter, r *http.Request) {
 	if body.Features.MissingArrays == nil {
 		body.Features.MissingArrays = []string{}
 	}
-	s.writeJSON(w, r, http.StatusOK, body)
+	// Short-lived rather than immutable: this is the endpoint whose answer is
+	// checked to find out whether a deploy landed, and an answer nobody can
+	// ask again is no answer. writeShortLivedJSON is the argument.
+	s.writeShortLivedJSON(w, r, body)
 }
 
 // --- /v1/search ----------------------------------------------------------
@@ -1153,13 +1327,7 @@ func (s *Server) handleTimescale(w http.ResponseWriter, r *http.Request) {
 	}
 	h := w.Header()
 	h.Set("Content-Type", "application/json; charset=utf-8")
-	h.Set("ETag", s.etag())
-	if s.Immutable {
-		h.Set("Cache-Control", "public, max-age=31536000, immutable")
-	} else {
-		h.Set("Cache-Control", "no-cache")
-	}
-	if match := r.Header.Get("If-None-Match"); match != "" && etagMatches(match, s.etag()) {
+	if s.stampCacheable(w, r, s.immutableCC()) {
 		w.WriteHeader(http.StatusNotModified)
 		return
 	}
@@ -1197,11 +1365,9 @@ func (s *Server) handleSilhouette(w http.ResponseWriter, r *http.Request) {
 	}
 	h := w.Header()
 	h.Set("Content-Type", "image/svg+xml")
-	h.Set("ETag", s.etag())
-	if s.Immutable {
-		h.Set("Cache-Control", "public, max-age=31536000, immutable")
-	} else {
-		h.Set("Cache-Control", "no-cache")
+	if s.stampCacheable(w, r, s.immutableCC()) {
+		w.WriteHeader(http.StatusNotModified)
+		return
 	}
 	_, _ = w.Write(raw)
 }
