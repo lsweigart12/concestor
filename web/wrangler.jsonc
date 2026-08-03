@@ -102,6 +102,25 @@
     },
   ],
 
+  // Where the beacon writes. `docs/analytics.md` is the design; `worker/
+  // index.ts` is the writer and `web/src/analytics/beacon.ts` the sender.
+  //
+  // Analytics Engine and not D1, KV or a Durable Object, and the reason is the
+  // same one that put the read API in a container: this is append-only,
+  // unbounded, and must never be something a reader waits on.
+  // `writeDataPoint` is fire-and-forget inside the invocation, retains three
+  // months, and is queried over SQL rather than by adding a read path to this
+  // Worker.
+  //
+  // The dataset is created by the first write, so nothing has to be
+  // provisioned before a deploy. The name is *not* a build id and must not
+  // become one: unlike the container image above, this outlives every deploy on
+  // purpose — a question about what readers did last month cannot be answered
+  // by a store that was replaced when the dataset was.
+  "analytics_engine_datasets": [
+    { "binding": "TELEMETRY", "dataset": "concestor_events" },
+  ],
+
   "durable_objects": {
     "bindings": [{ "name": "READ_API", "class_name": "ReadApi" }],
   },

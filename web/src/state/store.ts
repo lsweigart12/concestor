@@ -17,6 +17,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { beacon, type Cause } from "../analytics/beacon";
 import { api, type FossilTaxon, type PathNode, type Resolved } from "../api";
 import { addDelta, induced, type AddDelta, type Induced } from "../tree/induced";
 import type { AxisMode } from "../tree/layout";
@@ -244,11 +245,48 @@ export function useTree() {
     }
   }, [view]);
 
+  /**
+   * What put the current selection on screen. See `docs/analytics.md` §2.
+   *
+   * A ref rather than state, because it is not a claim about the view and
+   * nothing renders from it — and because setting it must not cost a render.
+   * It starts at `"link"`, which is what a cold load *is*: `decode` reading
+   * `?n=…` out of a URL somebody sent.
+   *
+   * It exists because a tree that was made and a tree that was received are
+   * different facts, and counting them together would make one popular link
+   * look like a thing readers keep independently discovering.
+   */
+  const cause = useRef<Cause>("link");
+  const priorKeys = useRef<string[]>(view.keys);
+
   useEffect(() => {
-    const onPop = () => setView(decode(window.location.search));
+    const onPop = () => {
+      cause.current = "back";
+      setView(decode(window.location.search));
+    };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);
+
+  // The one place the beacon is fed the selection. Every mutator below sets
+  // `cause` and changes `view.keys`; none of them reports anything itself, so
+  // there is no path that can change the canvas without this seeing it — and
+  // an add that changed nothing (a key already selected) is not recorded,
+  // because the diff is against what was actually on screen.
+  useEffect(() => {
+    if (cause.current === "add") {
+      for (const k of view.keys) {
+        if (!priorKeys.current.includes(k)) beacon.add(toApiKey(k));
+      }
+    }
+    priorKeys.current = view.keys;
+    // `toApiKey` on both, so one convention reaches the dataset. The URL's
+    // compact form is a URL decision; a row in the answer should join against
+    // `/v1/path/{key}` and against the edge log without anybody having to know
+    // that `770315` and `ott770315` are the same taxon.
+    beacon.tree(view.keys.map(toApiKey), cause.current);
+  }, [view.keys]);
 
   const ingest = useCallback((key: string, r: Resolved): number | null => {
     if (r.broken) {
@@ -406,11 +444,13 @@ export function useTree() {
 
   const add = useCallback((key: string) => {
     const k = toUrlKey(key);
+    cause.current = "add";
     setView((v) => (v.keys.includes(k) ? v : { ...v, keys: [...v.keys, k] }));
   }, []);
 
   const remove = useCallback((key: string) => {
     const k = toUrlKey(key);
+    cause.current = "remove";
     setView((v) => ({
       ...v,
       keys: v.keys.filter((x) => x !== k),
@@ -449,6 +489,11 @@ export function useTree() {
     // which is the one that renders correctly.
     prevInduced.current = null;
     lastCount.current = 0;
+    // Not a sequence of adds, and not recorded as one: an opening is one of
+    // nine canned comparisons, so counting its taxa as species people went
+    // looking for would put whatever the opening happens to name at the top of
+    // that list for ever.
+    cause.current = "open";
     // Everything an opening resets is a claim about *taxa*, which is everything
     // `DEFAULT` holds. Bioluminescence is not one of them and is no longer in
     // here to be reset — pressing "Are you a fish?" leaves the lights as the
@@ -481,7 +526,10 @@ export function useTree() {
   // Same reasoning as `open`: clearing takes the taxa off the canvas, and the
   // lighting is not one of them. The confirmation dialog promises this removes
   // species and fossils and that "nothing else is affected".
-  const clear = useCallback(() => setView(DEFAULT), []);
+  const clear = useCallback(() => {
+    cause.current = "clear";
+    setView(DEFAULT);
+  }, []);
   const setAxis = useCallback((axis: AxisMode) => setView((v) => ({ ...v, axis })), []);
   // Written through on the toggle rather than in an effect, so the store is the
   // only thing that touches the key and a render can never overwrite a choice.
