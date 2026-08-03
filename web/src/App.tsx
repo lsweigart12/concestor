@@ -106,6 +106,36 @@ const TIPPED: ActionId[] = ["palette", "species", "random-species"];
 const TIP_LINE = "Now put something of your own beside it";
 
 /**
+ * How long the invitation waits before it is made.
+ *
+ * It used to arrive on the same frame as the answer, at the top of a screen
+ * whose bottom had just been given two lines of prose the reader had *asked
+ * for*, above a tree that had just finished moving. Everything worth looking
+ * at was somewhere else, so the one moment the outline was new — the only
+ * moment a pulse actually reads as new — was spent while nobody was looking at
+ * it. By the time they were, it had been breathing long enough to have become
+ * part of the furniture.
+ *
+ * So it waits for the reader to be done with the answer, and **the two ways of
+ * being done both count** — see `tipShown`. The timer is the one for a reader
+ * who is still reading; dismissing the answer is the one for a reader who has
+ * finished early and has told us so.
+ *
+ * The dismissal clause is not just a courtesy to fast readers: without it this
+ * offer could land *after* the flyout's, and `Afterglow` above is why that
+ * order matters. With it the two arrive together at worst, and the flyout is
+ * small and in a corner while this is a pulsing outline under the reader's
+ * eyes, so "offered second" survives on prominence where it stops being true
+ * on time.
+ *
+ * Long enough to read the reveal without racing, and no longer. The carousel's
+ * own `DWELL_MS` is 7600 for two lines of the same prose, but that number is
+ * paced for somebody who has not started reading yet; here the reader has been
+ * reading since the tree settled.
+ */
+const TIP_DELAY_MS = 5000;
+
+/**
  * What is being offered after an opening, and which one it was about.
  *
  * Two beats rather than one, and they never overlap: `reveal` is the answer to
@@ -583,6 +613,24 @@ export default function App() {
       return next ? { at: "next", opening: next } : null;
     });
   }, []);
+
+  /**
+   * When the control bar makes its offer — see {@link TIP_DELAY_MS}.
+   *
+   * Two clocks, whichever finishes first, because "the reader is done with the
+   * answer" has two tells and only one of them is a timer. `at: "next"` means
+   * they dismissed it, which is the tell they gave us themselves; the delay is
+   * for everyone who is still reading and has told us nothing.
+   *
+   * `usePending` is borrowed here for its contract rather than its subject —
+   * *held true continuously for this long* — and the borrowed half that
+   * matters is the **reset on the falling edge**. A reader who draws a second
+   * opening while the first tip is still pending gets the new tree's clock and
+   * not the leftover of the tree they replaced, which is exactly the bug the
+   * hook's own doc describes for two round trips in a row.
+   */
+  const tipDue = usePending(afterglow !== null, TIP_DELAY_MS);
+  const tipShown = afterglow !== null && (tipDue || afterglow.at === "next");
 
   /**
    * Rule 2: any interaction ends the sequence, at the finished tree.
@@ -1325,6 +1373,11 @@ export default function App() {
         return;
       }
 
+      // Global scope, which is what makes the `preventDefault` below safe.
+      // Enter is in the table too and is deliberately not visible here: this
+      // handler prevents the default of everything it matches, and doing that
+      // to Enter would take keyboard activation off every button in the app.
+      // `bindings.ts`'s `Scope` is the whole of that argument.
       const action = matchKey(e);
       if (action === null) return;
       // Everything below is ours, so nothing below reaches the browser. Tab
@@ -1459,11 +1512,16 @@ export default function App() {
         ...(empty ? { disabledBecause: "The canvas is already empty" } : {}),
       },
     ];
-    // Pointed at only while an opening's answer is still standing, and read
-    // from {@link TIPPED} rather than set row by row — one list, so the bar
-    // cannot light a button the invitation never meant. The rows themselves are
-    // untouched: the tip is a state of the moment, not of the action.
-    if (afterglow === null) return rows;
+    // Pointed at once an opening's answer has been read rather than the moment
+    // it lands — `tipShown` is the whole of that timing — and read from {@link
+    // TIPPED} rather than set row by row, so the bar cannot light a button the
+    // invitation never meant. The rows themselves are untouched: the tip is a
+    // state of the moment, not of the action.
+    //
+    // This and the tray below must read the *same* value. They are the outline
+    // and the line inside it, and gating them apart draws a box around three
+    // buttons with nothing to say about why.
+    if (!tipShown) return rows;
     return rows.map((r) => (TIPPED.includes(r.id) ? { ...r, tip: true } : r));
   }, [
     openPalette,
@@ -1474,7 +1532,7 @@ export default function App() {
     focusedIdx,
     empty,
     viewFit,
-    afterglow,
+    tipShown,
   ]);
 
   /**
@@ -1619,7 +1677,13 @@ export default function App() {
                   Pick any two species; see where their lineages meet, in deep
                   time.
                 </p>
-                <OpeningCarousel onOpen={openOpening} />
+                {/*
+                  `keyToOpen` is off while the about panel is up: the carousel
+                  stays mounted behind it, and a bare Enter that redraws the
+                  canvas under a modal the reader is reading is the press
+                  nobody made.
+                */}
+                <OpeningCarousel onOpen={openOpening} keyToOpen={!aboutOpen} />
                 <p className="boot-alt">
                   Or press <span className="kbd">{kbd("species")}</span> to
                   search 2.7 million species, <span className="kbd">
@@ -1809,12 +1873,19 @@ export default function App() {
         looked at — a reader reading the answer to their question is exactly the
         reader holding still. It fades again the moment the invitation is taken
         or dismissed.
+
+        **This stays keyed on `afterglow` and not on `tipShown`, and the two
+        are no longer the same instant.** Auto-hide is four seconds and
+        `TIP_DELAY_MS` is five, so a bar that waited for the tip before
+        refusing to idle would fade out at second four and the invitation
+        would arrive one second later on chrome nobody can see. The bar holds
+        open for the whole afterglow; only the outline inside it waits.
       */}
       <Controls
         actions={controls}
         idle={idle && afterglow === null}
         busy={busy}
-        {...(afterglow !== null ? { tip: TIP_LINE } : {})}
+        {...(tipShown ? { tip: TIP_LINE } : {})}
       />
     </>
   );

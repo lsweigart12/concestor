@@ -1,7 +1,7 @@
 /**
  * Every key this app claims, in one table.
  *
- * Three rules, and the first is the reason the table exists at all.
+ * Four rules, and the first is the reason the table exists at all.
  *
  * **Nothing here holds a modifier.** The old surface was built on ⌘/Ctrl and
  * every binding on it was a negotiation with something that got there first:
@@ -28,9 +28,17 @@
  * as buttons, with the key printed on the button rather than described in a
  * hint. The two cannot drift, because the button and the handler read the same
  * row.
+ *
+ * **A key the browser already spends is scoped to the one surface that wants
+ * it.** Enter is the only such row so far, and it is here for the two things
+ * this table is for — the badge on the carousel's card reads from it, and the
+ * modifier refusal above applies to it — while {@link Scope} keeps it out of
+ * the app's global handler, which would `preventDefault` it and so take
+ * keyboard activation off every button in the app.
  */
 
 export type ActionId =
+  | "open-opening"
   | "palette"
   | "species"
   | "fit"
@@ -45,6 +53,23 @@ export type ActionId =
   | "remove"
   | "escape";
 
+/**
+ * Who answers a press.
+ *
+ * `global` is the app's own handler and is what every letter on this canvas
+ * wants: the key means one thing wherever the reader is standing.
+ *
+ * `surface` is for a key the *browser* already spends — today only Enter,
+ * which activates whatever the focus ring is on. That key cannot be matched
+ * globally, because the global handler `preventDefault`s everything it matches
+ * and doing that to Enter takes keyboard activation off every button in the
+ * app. The scope is what makes that structural rather than remembered: a
+ * surface-scoped row is **invisible** to {@link matchKey}'s default, so a
+ * handler has to ask for it by name to get it, and one that forgets simply
+ * never sees the press.
+ */
+export type Scope = "global" | "surface";
+
 export interface Binding {
   id: ActionId;
   /**
@@ -57,6 +82,8 @@ export interface Binding {
   key: string;
   /** Whether shift must be held. Undefined means "either" — see `/`. */
   shift?: boolean;
+  /** Who answers it. Undefined is `global`, which is nearly everything. */
+  scope?: Scope;
   /** How the key prints on a button or a palette row. */
   kbd: string;
   /** The word beside it. */
@@ -72,6 +99,28 @@ export interface Binding {
  * listed first, so `⇧F` cannot be answered by the unshifted `f` row.
  */
 export const BINDINGS: readonly Binding[] = [
+  {
+    // **The one row here that something else on the page may already own**,
+    // and so the one row that is not `global` — see {@link Scope}.
+    //
+    // `OpeningCarousel` claims it, because the carousel is the only thing that
+    // knows *which* question is showing, and it takes the press only when the
+    // press would otherwise do nothing: a reader who has tabbed to the card
+    // and pressed Enter is already getting a click on it, and a second handler
+    // firing alongside would draw the opening twice.
+    //
+    // It earns a row anyway rather than being a bare `e.key === "Enter"` in
+    // the component, for the two reasons the table exists: the badge printed
+    // on the card reads from here, so a key cannot print one thing and do
+    // another; and the refusal of a modified press stays in the matcher, where
+    // ⌘Enter is somebody else's whoever is asking.
+    id: "open-opening",
+    key: "Enter",
+    scope: "surface",
+    kbd: "Enter",
+    label: "Explore this question",
+    hint: "Draw the question the empty canvas is showing",
+  },
   {
     id: "palette",
     key: "p",
@@ -214,18 +263,23 @@ export interface KeyLike {
 }
 
 /**
- * What a press means, or null if it means nothing here.
+ * What a press means to `scope`, or null if it means nothing there.
  *
  * A modified press always means nothing here. That refusal is the whole point
  * of the surface — ⌘R must reload, ⌘L must reach the URL bar, ⌘F must open
  * find — and it has to live in the matcher rather than in the caller, because
  * a caller that forgets is a caller that silently steals a browser command.
+ *
+ * The scope defaults to `global` so the app's own handler cannot pick up a key
+ * a surface claimed just by not knowing about it. Read {@link Scope} before
+ * adding the second `surface` row.
  */
-export function matchKey(e: KeyLike): ActionId | null {
+export function matchKey(e: KeyLike, scope: Scope = "global"): ActionId | null {
   if (e.ctrlKey || e.metaKey || e.altKey) return null;
   const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
   for (const b of BINDINGS) {
     if (b.key !== k) continue;
+    if ((b.scope ?? "global") !== scope) continue;
     if (b.shift !== undefined && b.shift !== e.shiftKey) continue;
     return b.id;
   }

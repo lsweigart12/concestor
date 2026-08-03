@@ -1989,6 +1989,16 @@ body {
  * the reader is still reading, and every part of it that is not the picture or
  * the question would be competing with that tree.
  */
+/*
+ * The wrapper positions and nothing else.
+ *
+ * The frame used to live here, with the card as an inner target that lit on
+ * hover — so the visible edge and the pressable thing were two elements and
+ * only the inner one answered the pointer. It is one card now: the border,
+ * the fill and the radius are all on the button, which is what lets it light
+ * the way the carousel's does. What is left here is a fixed position, a
+ * stacking order, and a box for the dismiss to be absolute against.
+ */
 .next-up {
   position: fixed;
   right: var(--s4);
@@ -2000,14 +2010,7 @@ body {
      covered it would be an advertisement over the thing it interrupted. It
      stays above the canvas and the drill lane's 5. */
   z-index: 24;
-  display: flex;
-  align-items: flex-start;
-  gap: 2px;
   max-width: min(280px, 60vw);
-  padding: 4px;
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius);
-  background: rgba(14, 14, 17, 0.94);
   animation: next-up-in 260ms var(--spring);
 }
 
@@ -2022,11 +2025,16 @@ body {
 .next-up-card {
   display: grid;
   gap: 3px;
+  width: 100%;
   min-width: 0;
-  padding: 6px 8px;
-  border: 1px solid transparent;
-  border-radius: 5px;
-  background: none;
+  /* Room on the right of the first row for the dismiss, which is absolutely
+     positioned over this corner and so cannot reserve its own. Only the
+     eyebrow shares that row and it is four characters, so the padding is
+     spent where it is needed and nowhere else. */
+  padding: 7px 10px 8px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: rgba(14, 14, 17, 0.94);
   font-family: var(--sans);
   text-align: left;
   color: inherit;
@@ -2038,8 +2046,32 @@ body {
 .next-up-card:hover,
 .next-up-card:focus-visible {
   background: var(--void-3);
-  border-color: var(--hairline);
+  border-color: var(--accent-dim);
   outline: none;
+}
+
+/*
+ * The go mark, in the corner the carousel's is in.
+ *
+ * `justify-self: end` rather than a flex row, because the grid above it is
+ * one column of stacked rows and the arrow is a row like the others — giving
+ * it its own line keeps it clear of a question that runs to two.
+ */
+.next-up-arrow {
+  justify-self: end;
+  margin-top: 1px;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--accent);
+  text-shadow: 0 0 9px hsl(var(--accent-h) 90% 60% / 0.4);
+  transition:
+    transform 160ms var(--spring),
+    text-shadow 160ms ease;
+}
+.next-up-card:hover .next-up-arrow,
+.next-up-card:focus-visible .next-up-arrow {
+  transform: translateX(3px);
+  text-shadow: 0 0 13px hsl(var(--accent-h) 90% 60% / 0.75);
 }
 
 .next-up-eyebrow {
@@ -2074,30 +2106,51 @@ body {
   color: var(--ink);
 }
 
-/* The same badge that closed the answer above it, so one key walks back out of
-   an opening in the order its parts arrived. */
+/*
+ * The dismiss, over the card's top-right corner.
+ *
+ * **The one thing on this surface that answers its own hover**, and the
+ * exception is what makes the rule legible: everything else here brightens
+ * off the card because everything else here *is* the card. A control that
+ * does the opposite of what it sits on has to look separable, or the reader
+ * cannot tell which of the two presses they are about to make.
+ *
+ * Quiet at rest so it never competes with the offer it is the refusal of —
+ * `--ink-4` is the dimmest ink there is, and the target is 20px square while
+ * the glyph inside it is 13, because a small mark still needs a press-sized
+ * area around it.
+ */
 .next-up-close {
-  flex: none;
-  margin-top: 6px;
-  padding: 2px 3px;
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
   border: 1px solid transparent;
   border-radius: 5px;
   background: none;
+  font-family: var(--sans);
+  font-size: 13px;
+  line-height: 1;
+  color: var(--ink-4);
   cursor: pointer;
   transition:
+    color 120ms ease,
     background 120ms ease,
     border-color 120ms ease;
 }
 .next-up-close:hover {
+  color: var(--ink);
   background: var(--void-3);
   border-color: var(--hairline);
 }
-.next-up-close:hover .kbd {
-  border-color: var(--hairline-strong);
-  color: var(--accent);
-}
 .next-up-close:focus-visible {
   outline: none;
+  color: var(--ink);
   border-color: var(--accent-dim);
 }
 
@@ -2108,10 +2161,6 @@ body {
     left: var(--s3);
     right: var(--s3);
     max-width: none;
-  }
-  .next-up-card {
-    flex: 1;
-    min-width: 0;
   }
 }
 
@@ -2745,15 +2794,39 @@ body {
   color: var(--ink);
 }
 
-/* The card is one big target: the whole thing draws the tree. */
+/*
+ * The card is one big target: the whole thing draws the tree.
+ *
+ * **It is drawn as an object at rest, and that is the whole of the fix.** It
+ * used to be transparent until hovered — a question and an answer, centred, on
+ * a canvas whose every other word is prose — so a reader who took it for a
+ * caption was reading it correctly, and the one thing the front door did not
+ * say was that there was a door. A hairline and one background step say it
+ * before anything is pointed at, which is the only moment that counts.
+ *
+ * A step and a hairline rather than a fill or a shadow, per the rules at the
+ * top of this file: hierarchy comes from background steps and glow here, and
+ * an empty canvas is the last place to start shouting.
+ */
 .carousel-card {
-  display: block;
+  /*
+   * A column, so the go row can take `margin-top: auto` and sit on the bottom
+   * edge whatever the opening above it is worth. Absolute positioning would
+   * have done it in one line and is the wrong tool: the reveal runs to four
+   * lines on a phone, and a corner the text can slide under is a corner that
+   * is empty exactly when the card is fullest.
+   */
+  display: flex;
+  flex-direction: column;
   width: 100%;
-  min-height: 152px;
-  padding: var(--s3) var(--s2);
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: transparent;
+  /* The tallest opening's worth of rows, so the card does not resize under a
+     reader as it rotates. Measured with `.carousel-go` on it; the about
+     panel's smaller copy below is the same number less its lighter padding. */
+  min-height: 184px;
+  padding: var(--s4) var(--s4) var(--s3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--void-2);
   font-family: var(--sans);
   text-align: center;
   color: inherit;
@@ -2763,10 +2836,18 @@ body {
     background 140ms ease,
     border-color 140ms ease;
 }
+/*
+ * One hover, and everything on the card answers it together.
+ *
+ * There is no second hover target inside this rule's reach — the art, the
+ * question, the answer and the go row all brighten off *this* selector, so
+ * the card lights as one surface instead of as a set of parts that each
+ * noticed the pointer separately.
+ */
 .carousel-card:hover,
 .carousel-card:focus-visible {
   background: var(--void-3);
-  border-color: var(--hairline);
+  border-color: var(--accent-dim);
   outline: none;
 }
 
@@ -2821,6 +2902,121 @@ body {
 .carousel-card:hover .carousel-a,
 .carousel-card:focus-visible .carousel-a {
   color: var(--ink-3);
+}
+
+/*
+ * What the press does — in the corner, where a card's action lives.
+ *
+ * **It carries no box.** The first version was a bordered, filled pill, and a
+ * pill inside a card that also takes a border on hover is a button drawn
+ * inside a button — the reader is shown two targets where there is one, and
+ * the inner one is smaller and so reads as the real one. What is left is a
+ * caption, a keycap and an arrow: a keycap is already its own visual language,
+ * distinct from a button, so it names a key without claiming to be a second
+ * thing to hit.
+ *
+ * **Bottom-right is doing more work than any amount of brightness could.**
+ * Centred under the reveal, this was a fourth line in a stack of centred
+ * prose, and every step taken to make it louder there only made it a louder
+ * line of prose. Off the centre line it stops being read as text and starts
+ * being read as the place where the action is — which is what the corner of a
+ * card means, and it costs nothing to know.
+ *
+ * It is lit entirely by the *card's* hover and focus and never by its own. A
+ * `:hover` of its own would light a fragment of a surface the reader is
+ * already on top of, and that is exactly how one element starts reading as
+ * two.
+ */
+.carousel-go {
+  /* Pinned to the bottom edge, so the row does not float up under a short
+     opening and the card's action is in the same place on all fifteen. */
+  margin-top: auto;
+  align-self: flex-end;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--s2);
+  /*
+   * Break between the parts, never through them. At 320px the row is wider
+   * than the card and the label was splitting after "Explore this", which
+   * reads as a mistake rather than as a wrap. `nowrap` keeps the phrase whole
+   * — it is inherited by the anonymous flex item the text sits in — and
+   * `wrap` then puts the key and the arrow on a second line, still against
+   * the right edge. No breakpoint, because the width this happens at is a
+   * property of the words and not of any device.
+   */
+  flex-wrap: wrap;
+  white-space: nowrap;
+  padding-top: var(--s3);
+  font-size: 12px;
+  /* The second of the two weights this project allows, spent here because the
+     row has to out-rank the reveal it sits under without out-sizing the
+     question. */
+  font-weight: var(--w-med);
+  line-height: 1.2;
+  letter-spacing: 0.02em;
+  color: var(--ink-2);
+  transition: color 140ms ease;
+}
+.carousel-card:hover .carousel-go,
+.carousel-card:focus-visible .carousel-go {
+  color: var(--ink);
+}
+
+/*
+ * The one lit mark on an empty canvas.
+ *
+ * The accent is reserved for selection and focus, and this is the third thing
+ * to borrow it: `.control-tip` already outlines the control bar in
+ * `--accent-dim` to say *here is the offer* once an opening has been drawn.
+ * This is the same sentence at the other end of the session, so it is said in
+ * the same colour.
+ *
+ * What it does **not** borrow is that outline's breathing — an infinite pulse
+ * is ambient animation, which the rules at the top of this file refuse, and
+ * `.control-tip` earns its own by being a moment rather than a resting state.
+ * This sits on the empty canvas for as long as the reader does. So the glow is
+ * static and the only motion is the nudge under the pointer, which is a reply
+ * to the reader rather than a thing the page does at them.
+ *
+ * An arrow was refused here once, when the card had no border and a `→` inside
+ * it floated in the same undifferentiated space as the `‹` and `›` that step
+ * through the carousel — at which distance it reads as "next question". The
+ * card has a border now and this sits in a corner rather than on the centre
+ * line, so the two are no longer the same kind of mark in the same place.
+ */
+.carousel-go-arrow {
+  color: var(--accent);
+  text-shadow: 0 0 10px hsl(var(--accent-h) 90% 60% / 0.4);
+  transition:
+    transform 160ms var(--spring),
+    text-shadow 160ms ease;
+}
+.carousel-card:hover .carousel-go-arrow,
+.carousel-card:focus-visible .carousel-go-arrow {
+  transform: translateX(3px);
+  text-shadow: 0 0 14px hsl(var(--accent-h) 90% 60% / 0.75);
+}
+
+/*
+ * Set *into* the card rather than onto it — a step down where the card steps
+ * up, so it stays a key at both of the card's two background values. The
+ * shared `.kbd` fill is `--void-3`, which is the card's own hover colour, and
+ * a keycap that dissolves into its surroundings at the exact moment the reader
+ * reaches for it is worse than no keycap.
+ */
+.carousel-go .kbd {
+  background: var(--void);
+  font-size: 11px;
+  padding: 2px 7px;
+  transition:
+    color 140ms ease,
+    border-color 140ms ease;
+}
+.carousel-card:hover .carousel-go .kbd,
+.carousel-card:focus-visible .carousel-go .kbd {
+  border-color: var(--accent-dim);
+  color: var(--ink);
 }
 
 .carousel-dots {
@@ -2930,7 +3126,7 @@ body {
   margin-bottom: var(--s4);
 }
 .about .carousel-card {
-  min-height: 138px;
+  min-height: 164px;
 }
 
 .about-foot {
