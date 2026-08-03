@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { decode, encode, loadBiolum } from "./store";
+import { decode, encode, loadBiolum, toUrlKey } from "./store";
 
 /**
  * `encode` and `decode` each name the *non-default* axis explicitly, in
@@ -48,6 +48,62 @@ describe("axis in the URL", () => {
     expect(back.axis).toBe("log");
     expect(back.selected).toBe("770315");
     expect(back.isolate).toBe(true);
+  });
+});
+
+/**
+ * A key has one spelling once it is in the store, and these pin it there.
+ *
+ * `ott770315` and `770315` are the same taxon, and the canvas never noticed the
+ * difference because `idxOf` is asked under both. Every *mutator* did: `add`,
+ * `remove` and `select` normalise their argument through `toUrlKey` and then
+ * compare, so a view decoded from `?n=ott770315` could not be removed from —
+ * the filter matched nothing, the mark stayed, and the card stayed open over
+ * it. The invariant that fixes it is the one asserted here: a decoded key is
+ * already what `toUrlKey` would make of it, so no consumer has to remember.
+ */
+describe("keys have one spelling", () => {
+  it("strips the ott prefix off everything it reads", () => {
+    expect(decode("?n=ott770315,247341&sel=ott770315")).toMatchObject({
+      keys: ["770315", "247341"],
+      selected: "770315",
+    });
+  });
+
+  it("leaves every key that is not a bare ott id alone", () => {
+    // A graft and a node we hold no key for. Both are real `sel=` values, and
+    // neither is an OTT id — `pbdb108454` cannot collide with one, and
+    // `idx:5` is a position in this build's arrays.
+    expect(decode("?n=pbdb108454,idx:5").keys).toEqual(["pbdb108454", "idx:5"]);
+    expect(decode("?sel=pbdb108454").selected).toBe("pbdb108454");
+    expect(decode("?sel=idx:5").selected).toBe("idx:5");
+    // Not a bare id under the prefix, so not a prefix.
+    expect(decode("?n=ottelia").keys).toEqual(["ottelia"]);
+  });
+
+  it("collapses the two spellings of one taxon into one entry", () => {
+    expect(decode("?n=ott770315,247341,770315").keys).toEqual(["770315", "247341"]);
+  });
+
+  it("reads an empty selection as none, rather than as the empty string", () => {
+    expect(decode("?sel=").selected).toBe(null);
+    expect(decode("").selected).toBe(null);
+  });
+
+  it("hands every consumer a key that is already normalised", () => {
+    // The property itself, stated as `add`/`remove`/`select` state it. If this
+    // holds, `keys.filter((x) => x !== toUrlKey(pressed))` cannot miss.
+    const v = decode("?n=ott770315,247341,pbdb108454,idx:5&sel=ott247341");
+    for (const k of v.keys) expect(toUrlKey(k), k).toBe(k);
+    expect(toUrlKey(v.selected!)).toBe(v.selected);
+  });
+
+  it("round-trips a hand-written link into the compact form", () => {
+    // Decoding is where the normalisation happens, so `encode` writes what the
+    // app itself would have written and the second pass changes nothing.
+    const once = encode(decode("?n=ott770315,ott247341&sel=ott770315&iso=1"));
+    expect(once).toBe("?n=770315%2C247341&sel=770315&iso=1");
+    expect(encode(decode(once))).toBe(once);
   });
 });
 

@@ -135,20 +135,46 @@ const DEFAULT: ViewState = {
   fossils: [],
 };
 
+/**
+ * A URL back into a view.
+ *
+ * Every key is put through {@link toUrlKey} on the way in, so `view.keys` has
+ * **one spelling by construction** rather than every consumer remembering to
+ * normalise. `ott770315` and `770315` are the same taxon and `idxOf` resolves
+ * both, so `?n=ott770315` drew the right tree — but `add`, `remove` and
+ * `select` all compare against the compact form, so pressing remove on that
+ * lineage filtered `keys` for `770315`, matched nothing, and did nothing: the
+ * mark stayed, the card stayed open, `selected` was never cleared, and nothing
+ * on screen said why. `add` on the same key was worse — it appended a second,
+ * differently-spelled entry for one taxon.
+ *
+ * Only a hand-written or externally-edited link can carry the prefixed form,
+ * since `encode` always writes the compact one. That is not a reason to leave
+ * it: a link is how this app is distributed, and the ones people type by hand
+ * are the ones written from the API's own spelling.
+ */
 export function decode(search: string): ViewState {
   const p = new URLSearchParams(search);
   const raw = p.get("n");
+  const sel = p.get("sel");
   const seg = (p.get("seg") ?? "").split("-").map(Number);
   const fossils = (p.get("f") ?? "")
     .split(",")
     .map(Number)
     .filter((n) => Number.isInteger(n) && n > 0);
   return {
-    keys: raw ? raw.split(",").filter(Boolean) : [],
+    // Deduplicated after normalising, for the same reason `fossils` is below
+    // and on the same principle `add` and `open` already hold to: `?n=ott770315,770315`
+    // is one taxon, and two entries for it is two React keys for one mark.
+    keys: [...new Set(raw ? raw.split(",").filter(Boolean).map(toUrlKey) : [])],
     // Both directions name the non-default explicitly, so the pair stays
     // reversible: an absent `axis` is the default, whatever the default is.
     axis: p.get("axis") === "log" ? "log" : "linear",
-    selected: p.get("sel"),
+    // Normalised with `keys`, and it has to be: `remove` clears the selection
+    // by comparing it against the key it just took out, so a `sel=` spelled the
+    // other way leaves the card open over a lineage no longer on the canvas.
+    // An empty `sel=` is no selection rather than the empty string.
+    selected: sel ? toUrlKey(sel) : null,
     isolate: p.get("iso") === "1",
     drill:
       seg.length === 2 && Number.isInteger(seg[0]) && Number.isInteger(seg[1])
@@ -238,11 +264,26 @@ export function useTree() {
   // brought back what had just been cleared, and back went somewhere else
   // entirely. It only ever mattered on clear, which is why it survived until
   // clear grew a confirmation promising the back button would work.
+  //
+  // A view that came *from* the URL replaces rather than pushes, and that is
+  // not tidiness. `decode` canonicalises what it reads, so a link nobody's
+  // `encode` wrote — `?n=ott770315`, a stale `?bio=1`, a trailing comma —
+  // produces a view whose serialisation differs from the URL it arrived in.
+  // Pushing that made the back button a no-op: back landed on the hand-written
+  // entry, `onPop` decoded it, and this pushed the canonical form straight back
+  // on top. The reader pressed back and stayed exactly where they were, with no
+  // way past the page they had opened. Replacing rewrites the entry that
+  // produced the view instead of adding one, which is what canonicalising *is*.
+  const fromUrl = useRef(true);
   useEffect(() => {
     const url = encode(view);
     if (url !== (window.location.search || window.location.pathname)) {
-      window.history.pushState(null, "", url);
+      if (fromUrl.current) window.history.replaceState(null, "", url);
+      else window.history.pushState(null, "", url);
     }
+    // Consumed by the run it was set for, so the next change — which can only
+    // be a mutator's — pushes.
+    fromUrl.current = false;
   }, [view]);
 
   /**
@@ -263,6 +304,9 @@ export function useTree() {
   useEffect(() => {
     const onPop = () => {
       cause.current = "back";
+      // The entry we just landed on is the one to canonicalise, not one to
+      // stack another on top of. See `fromUrl`.
+      fromUrl.current = true;
       setView(decode(window.location.search));
     };
     window.addEventListener("popstate", onPop);
