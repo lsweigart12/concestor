@@ -655,6 +655,41 @@ Two ways to close it, and the cheaper one is not the obvious one:
   it for the frontend's own files, and the wrong shape for an API a reader
   reaches by name.
 
+### A deploy is two things and they are not atomic
+
+Found on the deploy that shipped the two fixes above, and it is the one in this
+section most likely to bite somebody again.
+
+`wrangler deploy` returns as soon as the Worker version is live. The Container
+then pulls a 2.2 GB image behind it — **~3 minutes**, measured 2026-08-03
+(21:33:30 deploy, 21:36:33 first response from the new binary). Workers Cache is
+keyed by Worker version, so the new version begins with an empty cache, and
+every request arriving in that gap is answered by the **old** container and
+stored under the **new** version's key, wearing the year that `s-maxage` gives
+a `/v1` response.
+
+**The deploy creates the cache entries that outlive it.** Verifying v0.24.3 two
+minutes in was enough to do it: `/v1/node/ott770315` came back
+`cf-cache-status: HIT` with the previous build's body and ETag, under the
+`immutable` the old binary was still sending — cached *after* the deploy that
+replaced that binary. One `curl` did that. Real traffic would have done it to
+every popular URL, and the entries would have sat there for a year looking
+exactly like a successful deploy.
+
+`deploy-web.yml` now closes it: after `deploy`, poll `/v1/about` until the
+container reports the commit the pinned image tag names, then deploy again. The
+second version is a second empty cache, filled by the build that is actually
+running. It costs one extra Worker version and only when the container really
+rolled — a deploy that changes no image matches on the first poll and stops
+there. A timeout warns rather than fails, because the deploy did succeed; what
+is unestablished is that the container caught up.
+
+Two things worth keeping if this is ever rewritten. **The window cannot be
+closed by ordering the deploy differently** — the container is named *by* the
+Worker config, so there is no way to roll it first. And **the second deploy is
+the cheap purge**: Workers Cache has no purge API of its own, and a new version
+is a new keyspace.
+
 ### `/v1/about` is short-lived
 
 `max-age=60, must-revalidate`, with the same ETag as everything else —
