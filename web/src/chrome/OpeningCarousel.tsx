@@ -68,11 +68,16 @@ export function OpeningCarousel({
    *
    * Its own prop rather than a second reading of `autoRotate`, because it is
    * not a fact about this component at all: it is a fact about what is *on top
-   * of* it. The empty canvas's carousel stays mounted behind the about panel
-   * when that opens, and a key still bound to a card the reader can no longer
-   * see redraws the screen underneath the one they are reading. So the canvas
-   * turns this off while the panel is up, and the panel's own copy never turns
-   * it on — inside a modal a bare Enter belongs to the focus ring.
+   * of* it.
+   *
+   * The case that named it is gone — the about panel used to leave this
+   * carousel mounted behind it, so the canvas turned the key off while it was
+   * up. About is a page now and `main.tsx` unmounts this whole tree to show it,
+   * so the canvas passes `true` unconditionally and there is exactly one
+   * caller. The prop stays, defaulting to **off**, because the principle
+   * outlived its example: a surface that does not answer Enter must not print
+   * the badge, and the next thing to render a carousel should have to say that
+   * it does.
    *
    * The badge on the card rides on this too, on the rule the rest of the app
    * follows: **a key is printed only where the press would do it.**

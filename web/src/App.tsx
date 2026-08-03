@@ -45,7 +45,6 @@ import {
   type PaletteFilter,
   type Scope,
 } from "./palette/Palette";
-import { About as AboutPanel } from "./chrome/About";
 import { OpeningCarousel } from "./chrome/OpeningCarousel";
 import { keysOf, nextOpening, type Opening } from "./openings";
 import { Confirm } from "./chrome/Confirm";
@@ -53,6 +52,7 @@ import { Controls, type ControlAction } from "./chrome/Controls";
 import { PendingLine, usePending } from "./chrome/Pending";
 import { kbd, matchKey, type ActionId } from "./chrome/bindings";
 import { prefersReduced } from "./chrome/motion";
+import { goAbout } from "./route";
 import { NextOpening } from "./chrome/NextOpening";
 import { resetUsage } from "./palette/fuzzy";
 import { toApiKey, useTree } from "./state/store";
@@ -195,7 +195,6 @@ export default function App() {
   /** Non-null when the palette is answering about one corpus only. */
   const [filter, setFilter] = useState<PaletteFilter | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
-  const [aboutOpen, setAboutOpen] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [about, setAbout] = useState<About | null>(null);
   const [timescale, setTimescale] = useState<TimescaleInterval[] | null>(null);
@@ -593,7 +592,6 @@ export default function App() {
    */
   const openOpening = useCallback(
     (o: Opening) => {
-      setAboutOpen(false);
       setPaletteOpen(false);
       // Whatever the last opening left on screen goes with the press, including
       // a flyout offering this very question.
@@ -1037,7 +1035,7 @@ export default function App() {
         section: ABOUT_SECTION,
         run: () => {
           setPaletteOpen(false);
-          setAboutOpen(true);
+          goAbout();
         },
       },
       {
@@ -1425,16 +1423,6 @@ export default function App() {
         }
         return;
       }
-      // Same shape as the dialog above it, and for the same reason: while a
-      // modal owns the screen every bare letter belongs to the focus ring
-      // inside it, so `c` must not open a clear confirmation behind the panel.
-      if (aboutOpen) {
-        if (e.key === "Escape") {
-          e.preventDefault();
-          setAboutOpen(false);
-        }
-        return;
-      }
       if (paletteOpen) {
         if (e.key === "Escape") {
           e.preventDefault();
@@ -1541,7 +1529,6 @@ export default function App() {
     stepSelection,
     paletteOpen,
     confirmClear,
-    aboutOpen,
     empty,
     afterglow,
     dismissAnswer,
@@ -1761,12 +1748,17 @@ export default function App() {
                   time.
                 </p>
                 {/*
-                  `keyToOpen` is off while the about panel is up: the carousel
-                  stays mounted behind it, and a bare Enter that redraws the
-                  canvas under a modal the reader is reading is the press
-                  nobody made.
+                  `keyToOpen` was `!aboutOpen`, because the carousel stayed
+                  mounted behind the about *panel* and a bare Enter would have
+                  redrawn the canvas under a modal the reader was reading. The
+                  panel is a page now and `main.tsx` unmounts this whole tree to
+                  show it, so there is nothing left to be behind. Every other
+                  surface that can sit on top is handled structurally by the
+                  carousel's own `OWNS_ENTER` test — the palette holds focus in
+                  an `input`, the clear dialog on a `button`, and both are in
+                  that list.
                 */}
-                <OpeningCarousel onOpen={openOpening} keyToOpen={!aboutOpen} />
+                <OpeningCarousel onOpen={openOpening} keyToOpen />
                 <p className="boot-alt">
                   Or press <span className="kbd">{kbd("species")}</span> to
                   search 2.7 million species, <span className="kbd">
@@ -1868,14 +1860,6 @@ export default function App() {
         present={present}
         presentFossils={presentFossils}
       />
-
-      {aboutOpen && (
-        <AboutPanel
-          about={about}
-          onOpen={openOpening}
-          onClose={() => setAboutOpen(false)}
-        />
-      )}
 
       {confirmClear && (
         <Confirm
