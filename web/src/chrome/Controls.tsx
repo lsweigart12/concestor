@@ -31,12 +31,28 @@ export interface ControlAction {
   label?: string;
   /** True while the action's effect is the current state. */
   active?: boolean;
+  /**
+   * Part of the group being pointed at: the reader has just been shown a tree
+   * they did not build, and these are the ways to make it theirs.
+   *
+   * A **run** rather than a set — the marked actions are drawn inside one
+   * outline with one line of copy under it, so they have to be adjacent in this
+   * list, and {@link Controls} groups whatever contiguous run it finds. That is
+   * the shape the invitation actually has: it is one offer with three doors,
+   * not three offers, and three separately decorated buttons said the second.
+   *
+   * Nothing has happened here, so it is not a badge and carries no count. It
+   * goes out the moment any of the doors is used, and the caller owns that —
+   * see `settle` in `App.tsx`.
+   */
+  tip?: boolean;
 }
 
 export function Controls({
   actions,
   idle,
   busy,
+  tip,
 }: {
   actions: ControlAction[];
   /** Chrome auto-hides; the canvas is the page. */
@@ -49,26 +65,63 @@ export function Controls({
    * better to show itself, never a second copy of one that has a home.
    */
   busy: boolean;
+  /**
+   * The line that slides out under the marked group, when there is one.
+   *
+   * Passed in rather than written here, because the copy belongs to the moment
+   * that produced it — an opening has just answered a question — and this bar
+   * knows nothing about openings. It draws the tray; `App.tsx` decides there is
+   * something to say.
+   */
+  tip?: React.ReactNode;
 }) {
+  const draw = (a: ControlAction) => {
+    const b = binding(a.id);
+    const off = a.disabledBecause !== undefined;
+    return (
+      <button
+        key={a.id}
+        type="button"
+        className={`control${b.chrome === "secondary" ? " secondary" : ""}${a.active ? " on" : ""}`}
+        disabled={off}
+        title={off ? a.disabledBecause : b.hint}
+        onClick={a.run}
+      >
+        <span className="kbd">{b.kbd}</span>
+        <span className="control-label">{a.label ?? b.label}</span>
+      </button>
+    );
+  };
+
+  // Contiguous runs, so the marked ones can be drawn inside one outline. A
+  // disabled control is never in one: the invitation says "you can do this
+  // now", and a box around something that cannot be pressed says the opposite.
+  const runs: { marked: boolean; items: ControlAction[] }[] = [];
+  for (const a of actions) {
+    const marked = a.tip === true && a.disabledBecause === undefined;
+    const last = runs[runs.length - 1];
+    if (last && last.marked === marked) last.items.push(a);
+    else runs.push({ marked, items: [a] });
+  }
+
   return (
     <div className={`controls${idle ? " idle" : ""}`}>
-      {actions.map((a) => {
-        const b = binding(a.id);
-        const off = a.disabledBecause !== undefined;
-        return (
-          <button
-            key={a.id}
-            type="button"
-            className={`control${b.chrome === "secondary" ? " secondary" : ""}${a.active ? " on" : ""}`}
-            disabled={off}
-            title={off ? a.disabledBecause : b.hint}
-            onClick={a.run}
-          >
-            <span className="kbd">{b.kbd}</span>
-            <span className="control-label">{a.label ?? b.label}</span>
-          </button>
-        );
-      })}
+      {runs.map((run, i) =>
+        run.marked ? (
+          <span className="control-tip" key={`tip-${i}`}>
+            {run.items.map(draw)}
+            {/*
+              The tray. Absolutely positioned and so outside the bar's flow —
+              a line that pushed the row it hangs from would move the three
+              buttons it is pointing at, on the frame it arrived, which is the
+              one frame they must not move.
+            */}
+            {tip !== undefined && <span className="control-tip-tray">{tip}</span>}
+          </span>
+        ) : (
+          run.items.map(draw)
+        ),
+      )}
       {busy && (
         <PendingLine className="controls-busy mono">resolving…</PendingLine>
       )}

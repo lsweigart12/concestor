@@ -173,9 +173,14 @@ export interface Opening {
    */
   reveal: string;
   /**
-   * The selection, in order. Order matters only for the add animation, which
-   * originates at the MRCA of what is already there — so the pair that makes
-   * the point goes first and the taxon that loses the argument goes last.
+   * The selection, in order — and **the order is the running order.**
+   *
+   * The pair that makes the point goes first and the taxon that loses the
+   * argument goes last, with any ruler after that. `state/sequence.ts` draws
+   * them one at a time in exactly this order, so the nesting arrives as an
+   * argument rather than as a finished shape: you and the salmon meet, and only
+   * then does the shark arrive outside both. Reordering these is reordering
+   * what the canvas says, not just which mark the add animation leaves from.
    */
   taxa: readonly OpeningTaxon[];
   /**
@@ -745,4 +750,23 @@ export const OPENINGS: readonly Opening[] = [
 /** The selection an opening draws. */
 export function keysOf(o: Opening): string[] {
   return o.taxa.map((t) => t.key);
+}
+
+/**
+ * What to offer once one has been drawn.
+ *
+ * The array order again, wrapping — the same running order the carousel
+ * advances through, so a reader who arrives by the front door and a reader who
+ * keeps pressing *Next* meet these in the same sequence and neither is shown
+ * the question they have just answered. It lives here rather than in the
+ * flyout that renders it because the order is this file's claim, ranked by pull
+ * on a first-time visitor, and a second surface deciding its own order would be
+ * a second ranking nobody wrote down.
+ *
+ * Returns null only for a list too short to have a next, which this one is not.
+ */
+export function nextOpening(o: Opening): Opening | null {
+  const at = OPENINGS.findIndex((x) => x.id === o.id);
+  if (at < 0 || OPENINGS.length < 2) return null;
+  return OPENINGS[(at + 1) % OPENINGS.length] ?? null;
 }

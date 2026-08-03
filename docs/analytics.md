@@ -90,12 +90,27 @@ version answers the question wrongly rather than incompletely.
   made it is already recorded. Counting it would answer "what trees" with a list
   of species.
 - **A tree carries its cause, and a received tree is not a made one.** `link`
-  (a cold load of `?n=…`), `back`, `open` (one of the nine canned openings),
-  against `add` and `remove`. Counting them together would make one popular
+  (a cold load of `?n=…`), `back`, and the three opening causes below, against
+  `add` and `remove`. Counting them together would make one popular
   shared link look like a thing readers keep independently discovering. For the
   same reason an **opening does not emit `add` events**: its taxa were chosen by
   us, and counting them would pin whatever the openings happen to name to the top
   of "most added" for ever.
+- **An opening has three causes, because it is pressed three ways.** `open` is
+  the set drawn at once, which is what a reader who has asked for reduced motion
+  gets; `sequence` is one whose taxa arrived one at a time and ran to the end;
+  `sequence-cut` is one the reader interrupted. `web/src/state/sequence.ts` is
+  the feature and this split is its instrumentation: the open question is
+  whether a sequence that completes converts to a manual `add` more often than
+  the other two, and the answer is what should decide whether per-step `reveal`
+  copy is worth writing — fifteen openings times three to five beats — rather
+  than an argument about it. The query is per `blob5`: the session's first
+  `tree` row gives which arm it is in, and any later row with cause `add` is the
+  conversion. Both new strings fit `blob4`'s 16 characters.
+  **A sequence emits one row, not four.** Each step restarts `TREE_IDLE_MS`, so
+  the intermediate canvases never settle; the row that lands carries the last
+  mutator's cause, which is `sequence` for a completed run and `sequence-cut`
+  for an interrupted one.
 
 The store is the only feed. Every mutator sets `cause` and changes `view.keys`,
 and one effect watches `view.keys` — so there is no path that changes the canvas
@@ -117,7 +132,7 @@ it.** Append only.
 | `blob1` | kind: `search` \| `add` \| `tree` |
 | `blob2` | subject: the query typed, or the key added. Empty on `tree` |
 | `blob3` | tree: the sorted key set. Empty except on `tree` |
-| `blob4` | cause: `add` \| `remove` \| `open` \| `link` \| `back` \| `clear` |
+| `blob4` | cause: `add` \| `remove` \| `open` \| `sequence` \| `sequence-cut` \| `link` \| `back` \| `clear` |
 | `blob5` | session id — random, per tab, 8 chars |
 | `double1` | keys in the tree, derived in the Worker from `blob3` |
 

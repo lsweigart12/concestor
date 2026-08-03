@@ -28,8 +28,36 @@
 /** The events, and there are only three. `docs/analytics.md` §2 is why. */
 export type Kind = "search" | "add" | "tree";
 
-/** What put a tree on screen — a made tree and a received one are not the same. */
-export type Cause = "add" | "remove" | "open" | "link" | "back" | "clear";
+/**
+ * What put a tree on screen — a made tree and a received one are not the same.
+ *
+ * Three of these are one opening pressed three ways, and keeping them apart is
+ * the whole reason `state/sequence.ts` is instrumented at all. `open` is the
+ * set drawn at once, which is what a reader who has asked for reduced motion
+ * gets; `sequence` is one that ran its taxa in order to the end; `sequence-cut`
+ * is one the reader interrupted. The question they are there to settle is
+ * whether a sequence that runs to completion converts to a manual `add` more
+ * often than the other two — and that is what should decide whether per-step
+ * copy is worth writing, rather than an argument about it.
+ *
+ * A tree row's cause is the last mutator that ran and a tree is emitted once it
+ * settles, so an uninterrupted sequence lands one row reading `sequence`; the
+ * intermediate canvases never reach the queue, because each step restarts
+ * `TREE_IDLE_MS`. Sequenced steps are deliberately **not** `add`, for the same
+ * reason an opening never was: those taxa were chosen by us.
+ *
+ * Both new strings fit the Worker's 16-character cap on `blob4`. Append only —
+ * `docs/analytics.md` §3.
+ */
+export type Cause =
+  | "add"
+  | "remove"
+  | "open"
+  | "sequence"
+  | "sequence-cut"
+  | "link"
+  | "back"
+  | "clear";
 
 export interface Event {
   kind: Kind;

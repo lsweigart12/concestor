@@ -21,6 +21,7 @@ import { beacon, type Cause } from "../analytics/beacon";
 import { api, type FossilTaxon, type PathNode, type Resolved } from "../api";
 import { addDelta, induced, type AddDelta, type Induced } from "../tree/induced";
 import type { AxisMode } from "../tree/layout";
+import { plan, remaining, step, type Sequence } from "./sequence";
 
 // One definition, in the module that does the mapping. The axis mode is view
 // state, but it is *also* the scale the layout is computed on, and two copies
@@ -250,6 +251,8 @@ export function useTree() {
   // not throw away the row it was drawn from.
   const [fossils, setFossils] = useState<Map<number, FossilTaxon>>(() => new Map());
   const [fossilsLoading, setFossilsLoading] = useState(false);
+  /** An opening being drawn one taxon at a time, or null. See `sequence.ts`. */
+  const [sequence, setSequence] = useState<Sequence | null>(null);
   const prevInduced = useRef<Induced | null>(null);
   const token = useRef(0);
 
@@ -503,7 +506,7 @@ export function useTree() {
   }, []);
 
   /**
-   * Draw a whole selection at once — an *opening*, not a sequence of adds.
+   * Open on a selection — an *opening*'s first frame, and the reset it needs.
    *
    * Replaces rather than appends, and resets the rest of the view with it. An
    * opening is a claim about a specific set of taxa ("a coelacanth is closer to
@@ -512,9 +515,14 @@ export function useTree() {
    * showing what the copy promised. `DEFAULT` also clears `isolate` and `drill`,
    * either of which would hide the very branch the opening exists to display.
    *
-   * Not expressible as repeated `add`: that would leave whatever was there,
-   * and would fire {@link addDelta} once per key, so the signature animation
-   * would play from a different MRCA three times instead of framing one tree.
+   * **What this may not be replaced by is repeated `add`**, and the two refs
+   * nulled below are why. `add` leaves whatever was already on the canvas
+   * standing, and it computes its delta against a baseline that is neither the
+   * old tree nor the new one — see the note in the body. What this is *not* is
+   * the whole of drawing an opening: {@link openSequenced} calls it with the
+   * first taxon only and then steps the rest through `add` on purpose, because
+   * the per-key delta this comment used to list as a defect is exactly the
+   * animation the sequence exists to show. Reset once, here, then step.
    */
   const open = useCallback((keys: readonly string[], axis?: AxisMode) => {
     // Reset the animation baseline with the view, and this is load-bearing
@@ -533,10 +541,11 @@ export function useTree() {
     // which is the one that renders correctly.
     prevInduced.current = null;
     lastCount.current = 0;
-    // Not a sequence of adds, and not recorded as one: an opening is one of
-    // nine canned comparisons, so counting its taxa as species people went
-    // looking for would put whatever the opening happens to name at the top of
-    // that list for ever.
+    // An opening's taxa are never recorded as adds — not here and not on the
+    // sequenced path, which is why {@link drawStep} sets its own cause rather
+    // than calling `add`. They are one of a handful of canned comparisons, so
+    // counting them as species people went looking for would put whatever the
+    // openings happen to name at the top of that list for ever.
     cause.current = "open";
     // Everything an opening resets is a claim about *taxa*, which is everything
     // `DEFAULT` holds. Bioluminescence is not one of them and is no longer in
@@ -548,6 +557,167 @@ export function useTree() {
       ...(axis ? { axis } : {}),
     }));
   }, []);
+
+  /**
+   * Resolve keys without drawing them.
+   *
+   * The whole of a sequence's network cost, paid on the press. One `/v1/paths`
+   * for the set rather than one `/v1/path` per step, so the sequence is never
+   * waiting on a round trip it could have started three beats ago — and so that
+   * every step after the first is a pure state change against paths already in
+   * memory. `ingest` keys on the URL form, which is what the resolve effect
+   * above tests, so a subsequent `add` of the same key finds nothing missing
+   * and fetches nothing.
+   */
+  const prefetch = useCallback(
+    async (keys: readonly string[]): Promise<void> => {
+      if (keys.length === 0) return;
+      const res = (await api.paths(keys.map(toApiKey))).paths;
+      for (const k of keys) {
+        const r = res[toApiKey(k)] ?? res[k];
+        if (r) ingest(toUrlKey(k), r);
+      }
+    },
+    [ingest],
+  );
+
+  /**
+   * One step of a sequence: a taxon joining a canvas that is already drawn.
+   *
+   * Deliberately not `add`. The only difference is the cause, and the cause is
+   * the difference that matters — see {@link Cause}. A sequenced taxon is one
+   * of ours, so it emits no `add` event, exactly as the whole-set `open` does
+   * not.
+   */
+  const drawStep = useCallback((key: string) => {
+    const k = toUrlKey(key);
+    cause.current = "sequence";
+    setView((v) => (v.keys.includes(k) ? v : { ...v, keys: [...v.keys, k] }));
+  }, []);
+
+  /**
+   * Draw an opening, one taxon at a time. `sequence.ts` is the reasoning.
+   *
+   * Returns whether a sequence actually started, which is the caller's cue to
+   * hold the `reveal` back: with reduced motion, or an opening too short to
+   * have an ordering, this is today's single `open()` and the copy has nothing
+   * to wait for.
+   *
+   * **Nothing calls this on boot**, and nothing may. It is reached from the two
+   * surfaces that offer an opening and from no other path.
+   */
+  const openSequenced = useCallback(
+    (keys: readonly string[], axis: AxisMode | undefined, reduced: boolean): boolean => {
+      const p = plan(keys, reduced);
+      open(p.first, axis);
+      if (p.rest.length === 0) return false;
+      setSequence({ keys: [...keys], drawn: p.first.length, since: Date.now(), settled: false });
+      // `finally`, not `then`: a batch that fails is still an answer about
+      // every key in it. Without this a dead API would leave the canvas holding
+      // one taxon and an animation that never ends.
+      void prefetch(p.rest)
+        .catch(() => {})
+        .finally(() => setSequence((s) => (s ? { ...s, settled: true } : s)));
+      return true;
+    },
+    [open, prefetch],
+  );
+
+  /**
+   * End a sequence at the finished tree, now.
+   *
+   * The other half of `sequence.ts`'s rule 2, and the reason an abort adds the
+   * remaining keys rather than simply stopping: the reader interrupted the
+   * *telling* of the argument, not the argument. Leaving a half-drawn opening
+   * on the canvas would answer "are you a fish?" with two species and no shark.
+   *
+   * Idempotent, because it is wired to every interaction there is and several
+   * of them arrive together.
+   */
+  const cutSequence = useCallback(() => {
+    if (!sequence) return;
+    const rest = remaining(sequence).map(toUrlKey);
+    setSequence(null);
+    if (rest.length === 0) return;
+    cause.current = "sequence-cut";
+    setView((v) => ({
+      ...v,
+      keys: [...v.keys, ...rest.filter((k) => !v.keys.includes(k))],
+    }));
+  }, [sequence]);
+
+  /**
+   * The driver. Every decision in it belongs to `sequence.ts`; what lives here
+   * is the clock, the arrival test and the timer.
+   *
+   * Two wake-ups and no polling: `paths` changing is the arrival, and a timer
+   * armed only when the floor is the thing being waited on. A step whose path
+   * has not landed schedules nothing at all, which is what makes a cold cache
+   * delay the sequence instead of running it ahead of the canvas.
+   */
+  useEffect(() => {
+    if (!sequence) return;
+    const now = Date.now();
+    const next = step(sequence, now, (k) => paths.has(toUrlKey(k)));
+    if (next.kind === "done") {
+      setSequence(null);
+      return;
+    }
+    // Advancing is keyed on *which* taxon landed rather than on a count, so
+    // applying it twice is applying it once. That is not defensive: `StrictMode`
+    // double-invokes an effect on mount, both invocations land in one commit,
+    // and two composed `drawn + 1` updates would step the sequence past a taxon
+    // that was never drawn.
+    const land = (key: string, at: number) => {
+      drawStep(key);
+      setSequence((s) =>
+        s && s.keys[s.drawn] === key ? { ...s, drawn: s.drawn + 1, since: at } : s,
+      );
+    };
+    if (next.kind === "draw") {
+      land(next.key, now);
+      return;
+    }
+    if (next.after === null) return;
+    // Draws directly rather than waking to re-ask. Arrival is monotone — a path
+    // in the map stays in it — so the only condition left when this fires is
+    // the one it was armed for.
+    const t = window.setTimeout(() => land(next.key, Date.now()), next.after);
+    return () => window.clearTimeout(t);
+  }, [sequence, paths, drawStep]);
+
+  /**
+   * The age the axis is held out to while a sequence runs, or null.
+   *
+   * The final extent, computed once every lineage has arrived: the induced
+   * subtree of the *whole* opening, and the oldest `age_layout` in it. That is
+   * the same number `layout` would compute on the last step, which is the
+   * point — see the note on `holdMaxAge` in `tree/layout.ts` for why the axis
+   * is pinned rather than tweened.
+   *
+   * Null until the prefetch settles, and it costs nothing: the first step is a
+   * single species at the present, which sits at the right-hand edge of the
+   * plot under any scale.
+   */
+  const holdMaxAge = useMemo(() => {
+    if (!sequence?.settled) return null;
+    const byIdx = new Map<number, number[]>();
+    const sel: number[] = [];
+    for (const k of sequence.keys) {
+      const u = toUrlKey(k);
+      const i = idxOf.get(u);
+      const p = paths.get(u);
+      if (i === undefined || p === undefined) continue;
+      sel.push(i);
+      byIdx.set(i, p);
+    }
+    if (sel.length < 2) return null;
+    let oldest = 1;
+    for (const i of induced(sel, (v) => byIdx.get(v)).rendered) {
+      oldest = Math.max(oldest, nodes.get(i)?.age_layout ?? 0);
+    }
+    return oldest;
+  }, [sequence, idxOf, paths, nodes]);
 
   /**
    * Draw a fossil against the tree, or stop drawing it.
@@ -571,6 +741,10 @@ export function useTree() {
   // lighting is not one of them. The confirmation dialog promises this removes
   // species and fossils and that "nothing else is affected".
   const clear = useCallback(() => {
+    // Any interaction has already cut a running sequence, so this is the belt
+    // to that brace: a driver still stepping onto a canvas somebody has just
+    // emptied would put the opening back one taxon at a time.
+    setSequence(null);
     cause.current = "clear";
     setView(DEFAULT);
   }, []);
@@ -624,8 +798,14 @@ export function useTree() {
     broken,
     unresolved,
     error,
+    /** An opening is drawing itself one taxon at a time. */
+    sequencing: sequence !== null,
+    /** The age the axis is held at while it does. See `tree/layout.ts`. */
+    holdMaxAge,
     add,
     open,
+    openSequenced,
+    cutSequence,
     remove,
     clear,
     setAxis,
