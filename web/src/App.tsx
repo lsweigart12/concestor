@@ -52,6 +52,7 @@ import { Confirm } from "./chrome/Confirm";
 import { Controls, type ControlAction } from "./chrome/Controls";
 import { PendingLine, usePending } from "./chrome/Pending";
 import { kbd, matchKey } from "./chrome/bindings";
+import { prefersReduced } from "./chrome/motion";
 import { resetUsage } from "./palette/fuzzy";
 import { toApiKey, useTree } from "./state/store";
 import { laneHue } from "./tree/layout";
@@ -83,6 +84,23 @@ const REFUSAL_REASONS: GraftRefusal[] = ["off-tree", "no-range", "no-identity"];
  */
 const RANDOM_CANDIDATES = 12;
 
+/**
+ * What to do next, on the end of the sentence that answers the question.
+ *
+ * An opening finishes with a tree the reader did not build, and until now the
+ * animation simply stopped. The one press that turns a canned comparison into
+ * their own is adding a species, so that is what this asks for — on the line
+ * that was going up anyway, because a panel or a banner at that moment is an
+ * interruption rather than an invitation. Both keys are read from
+ * `bindings.ts`, so the sentence cannot name a key the app does not answer.
+ */
+const INVITE = (
+  <>
+    {" "}Now put something of your own beside it:{" "}
+    <span className="kbd">{kbd("species")}</span> to search, or{" "}
+    <span className="kbd">{kbd("random-species")}</span> for a surprise.
+  </>
+);
 
 export default function App() {
   const tree = useTree();
@@ -435,23 +453,99 @@ export default function App() {
   );
 
   /**
+   * The opening whose answer is still owed, held until its tree is finished.
+   *
+   * A ref because nothing renders from it and setting it must not cost a
+   * render: it is written on the press and read once, on the frame the
+   * sequence ends.
+   */
+  const owedReveal = useRef<Opening | null>(null);
+
+  /**
    * Draw an opening, and get out of its way.
    *
    * Both surfaces that offer one — the empty canvas and the about panel — close
    * on the press, and the toast names the claim rather than the taxa. "Added
    * Human, Gombessa, Great White Shark" is a list of what was pressed; the
-   * reader pressed it to find out whether they are a fish, and that is the
-   * sentence worth leaving on screen while the tree draws itself.
+   * reader pressed it to find out whether they are a fish.
+   *
+   * **Which sentence, and when, is decided by whether the taxa arrive in
+   * sequence.** Drawn all at once there is nothing to wait for, so the reveal
+   * goes up with the tree exactly as it always did. Drawn one at a time the
+   * reveal would be answering the question before the canvas does — and the
+   * canvas stating the claim itself is the whole of `state/sequence.ts`'s
+   * argument — so the question goes up instead and the answer is held until the
+   * last taxon has landed.
+   *
+   * Per-step copy is a different and much larger piece of work: fifteen
+   * openings times three to five beats, every line still bound by
+   * `openings.ts`'s rule that the copy claims relationships and never dates.
+   * The `sequence` / `sequence-cut` causes in the beacon exist to settle
+   * whether it is worth writing.
    */
   const openOpening = useCallback(
     (o: Opening) => {
-      tree.open(keysOf(o), o.axis);
       setAboutOpen(false);
       setPaletteOpen(false);
-      toast(o.reveal);
+      if (tree.openSequenced(keysOf(o), o.axis, prefersReduced())) {
+        owedReveal.current = o;
+        toast(o.question);
+        return;
+      }
+      toast(<>{o.reveal}{INVITE}</>);
     },
     [tree, toast],
   );
+
+  /**
+   * The sequence has ended: pay the reveal, and ask for one press.
+   *
+   * The falling edge rather than a completion callback, because a sequence ends
+   * two ways and both owe the reader the answer — one that ran to the end, and
+   * one they interrupted, which was interrupted in the *telling* and still
+   * finished the tree. Withholding it from the second would punish somebody for
+   * taking the wheel.
+   *
+   * The invitation rides on that same line rather than becoming a surface of
+   * its own. This is the moment the animation stops and, until now, nothing
+   * asked for anything — which is the whole conversion moment spent on nothing.
+   */
+  const wasSequencing = useRef(false);
+  useEffect(() => {
+    if (wasSequencing.current && !tree.sequencing) {
+      const o = owedReveal.current;
+      owedReveal.current = null;
+      if (o) toast(<>{o.reveal}{INVITE}</>);
+    }
+    wasSequencing.current = tree.sequencing;
+  }, [tree.sequencing, toast]);
+
+  /**
+   * Rule 2: any interaction ends the sequence, at the finished tree.
+   *
+   * Capture phase and on `window`, so this runs before the handler the press
+   * was actually for — a reader pressing `S` mid-sequence gets the palette
+   * *and* the rest of their tree, rather than one of the two. The press is
+   * never swallowed: aborting is a side effect of interacting, not a mode the
+   * first press is spent leaving.
+   *
+   * Three events cover it: a key, a pointer going down anywhere (a mark, a
+   * control-bar button, the carousel), and a wheel, which is how the canvas is
+   * panned and zoomed and reaches no handler of ours at all.
+   */
+  useEffect(() => {
+    if (!tree.sequencing) return;
+    const cut = () => tree.cutSequence();
+    const opts = { capture: true } as const;
+    window.addEventListener("keydown", cut, opts);
+    window.addEventListener("pointerdown", cut, opts);
+    window.addEventListener("wheel", cut, { capture: true, passive: true });
+    return () => {
+      window.removeEventListener("keydown", cut, opts);
+      window.removeEventListener("pointerdown", cut, opts);
+      window.removeEventListener("wheel", cut, opts);
+    };
+  }, [tree.sequencing, tree.cutSequence]);
 
   const share = useCallback(() => {
     const url = window.location.href;
@@ -1384,6 +1478,7 @@ export default function App() {
         drill={tree.view.drill}
         onDrill={tree.setDrill}
         grafts={grafts}
+        holdMaxAge={tree.holdMaxAge}
         biolum={tree.biolum}
         onBiolum={(v) => {
           if (v !== tree.biolum) tree.toggleBiolum();

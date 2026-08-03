@@ -235,6 +235,27 @@ export function layout(
     axis?: AxisMode;
     /** Fossils drawn against the tree. See `graft.ts`; empty is the default. */
     grafts?: readonly Graft[];
+    /**
+     * Hold the axis out to at least this age, whatever is on the canvas.
+     *
+     * Written for one caller: an opening drawn in sequence (`state/sequence.ts`).
+     * Every step of one adds a lineage and so moves `maxAge`, and for the fish
+     * opening that pullback is the drama — but the scale is *recomputed*
+     * between steps, not tweened, and nothing in this app eases a node from one
+     * x to another. `docs/management.md` records that the spring reflow
+     * `design-reference.md` promises has never been implemented and that the
+     * tree jump-cuts; four hard rescales in five seconds read as a bug rather
+     * than as depth. Easing `maxAge` itself would mean re-running this whole
+     * pass — placement, collision, bounds — every frame, and racing the fit
+     * animation that already runs on every add.
+     *
+     * So the axis is held at the sequence's *final* extent from its first
+     * frame. Nothing rescales; what pulls back is the viewport's own fit, which
+     * is animated already. It is a floor and never a ceiling — `Math.max`
+     * below — because a value smaller than the content needs would put a node
+     * off the left edge, which is the one failure a time axis must not have.
+     */
+    holdMaxAge?: number | null;
   } = {},
 ): Layout {
   const rowH = opts.rowHeight ?? ROW_H;
@@ -261,6 +282,7 @@ export function layout(
   const maxAge = Math.max(
     ...ind.rendered.map(ageOf),
     ...grafts.map((g) => g.node.age_layout),
+    opts.holdMaxAge ?? 0,
     1,
   );
 

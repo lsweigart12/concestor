@@ -86,6 +86,7 @@ import { Water } from "./Water";
 import type { Emitter } from "./biolum";
 import { EMIT_BASE } from "./particles";
 import { BiolumToggle } from "../chrome/BiolumToggle";
+import { prefersReduced } from "../chrome/motion";
 
 const nodeTypes = { mark: NodeMark };
 const edgeTypes = { trace: TraceEdge };
@@ -205,15 +206,20 @@ export interface GraphProps {
   /** Fossils drawn against the tree. See `tree/graft.ts`. */
   grafts: readonly Graft[];
   /**
+   * Hold the time axis out to at least this age. Null is the ordinary case.
+   *
+   * Set only while an opening is drawing itself in sequence, so that four adds
+   * in five seconds do not rescale the axis four times. `tree/layout.ts` has
+   * the argument, including why the pullback is left to the fit.
+   */
+  holdMaxAge?: number | null;
+  /**
    * The optional light. See `canvas/biolum.ts` for what it does and, more to
    * the point, for what it is not allowed to do.
    */
   biolum: boolean;
   onBiolum: (v: boolean) => void;
 }
-
-const prefersReduced = () =>
-  window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
 
 function Inner(props: GraphProps) {
   const {
@@ -234,6 +240,7 @@ function Inner(props: GraphProps) {
     onDrill,
     onPickFossil,
     grafts,
+    holdMaxAge = null,
     biolum,
     onBiolum,
   } = props;
@@ -345,8 +352,9 @@ function Inner(props: GraphProps) {
         label: describeLabel,
         axis: axisMode,
         grafts,
+        holdMaxAge,
       }),
-    [ind, nodeMap, plotWidth, describeLabel, axisMode, grafts],
+    [ind, nodeMap, plotWidth, describeLabel, axisMode, grafts, holdMaxAge],
   );
 
   /**
@@ -724,15 +732,37 @@ function Inner(props: GraphProps) {
    * into the animation, read a transform that was still moving and panned from
    * wherever it had got to. The reframe stopped a few tens of pixels short of
    * its target — which is exactly enough to leave the last label under the card.
+   *
+   * **It must not close over `fitToContent`, and that is not a style
+   * preference.** Every caller below arms this on a change to the one thing it
+   * watches and clears it on cleanup, then guards its body on that same thing —
+   * so an effect re-run for any *other* reason clears the pending timer and
+   * returns early without re-arming it. `fitToContent` is rebuilt whenever the
+   * layout is, so a `useCallback` depending on it makes every one of those
+   * effects re-run on a layout change, and a layout change inside the delay
+   * then silently cancels the reframe it scheduled.
+   *
+   * That is latent until something changes the layout in the two or three
+   * hundred milliseconds after an add. An opening drawn in sequence does
+   * exactly that: the sequence ends on the frame its last taxon lands,
+   * `holdMaxAge` is released with it, and the layout that moves underneath is
+   * the one whose fit is 260ms out. The whole tree stayed at the zoom the last
+   * species was framed at, with every divergence off the left edge.
+   *
+   * So the live fit is reached through a ref and this callback is built once.
+   * Firing through the *latest* fit is what was wanted anyway: a reframe should
+   * frame the layout as it is when it runs, not as it was when it was booked.
    */
-  const scheduleFit = useCallback(
-    (delay: number, duration: number) => {
-      fitUntil.current = Date.now() + delay + duration;
-      const t = window.setTimeout(() => fitToContent(duration), delay);
-      return () => window.clearTimeout(t);
-    },
-    [fitToContent],
-  );
+  const fitNow = useRef(fitToContent);
+  useEffect(() => {
+    fitNow.current = fitToContent;
+  }, [fitToContent]);
+
+  const scheduleFit = useCallback((delay: number, duration: number) => {
+    fitUntil.current = Date.now() + delay + duration;
+    const t = window.setTimeout(() => fitNow.current(duration), delay);
+    return () => window.clearTimeout(t);
+  }, []);
 
   /**
    * Tell the app whether the canvas is already showing the fit.

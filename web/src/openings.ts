@@ -173,9 +173,14 @@ export interface Opening {
    */
   reveal: string;
   /**
-   * The selection, in order. Order matters only for the add animation, which
-   * originates at the MRCA of what is already there — so the pair that makes
-   * the point goes first and the taxon that loses the argument goes last.
+   * The selection, in order — and **the order is the running order.**
+   *
+   * The pair that makes the point goes first and the taxon that loses the
+   * argument goes last, with any ruler after that. `state/sequence.ts` draws
+   * them one at a time in exactly this order, so the nesting arrives as an
+   * argument rather than as a finished shape: you and the salmon meet, and only
+   * then does the shark arrive outside both. Reordering these is reordering
+   * what the canvas says, not just which mark the add animation leaves from.
    */
   taxa: readonly OpeningTaxon[];
   /**
