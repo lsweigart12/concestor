@@ -414,10 +414,21 @@ stating because the first version got all three parts of it wrong:
   filled background and `--ink` on the chosen option, which made it the
   brightest thing on screen — a lit rectangle in the corner of an instrument
   whose whole principle is *the graph is the only light source*. It has no
-  border and no fill now, sits at 0.62 opacity until hovered or focused, and
+  border and no fill now, sits at 0.9 opacity until hovered or focused, and
   the chosen option is `--ink-2` on the faintest well that still reads as a
   container. Chrome here recedes; `.controls` along the top edge has done this
   from the beginning.
+
+  **The fade was 0.62 and the recession is not its job.** Four surfaces rest
+  under a container opacity — this panel, the idle control bar, the axis links,
+  the scale switch — and each was multiplying an already-quiet ink rung by a
+  second factor, which is what put this panel's own captions at 1.6:1 and the
+  control bar's at 1.2:1. Recession belongs to the **ink ramp**: that is what
+  four rungs are for, and every rung now clears WCAG AA on `--void` (16.7, 9.6,
+  7.6, 6.0) so that the quiet register is quiet rather than absent. The four
+  fades share 0.9 because that is the deepest multiply the floor rung survives.
+  The rule this serves is unchanged — the graph reads at 11:1 and up, so it is
+  still the only light source; the chrome simply stopped being invisible.
 - **A choice away from the default is not lit, and exactly one control is.**
   Every chip used to take the accent when it left its default — a tinted row, an
   accent ring, accent type — and three of those at once is what made the corner

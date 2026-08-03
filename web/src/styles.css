@@ -28,13 +28,48 @@
   --accent: hsl(var(--accent-h) 72% 62%);
   --accent-dim: hsl(var(--accent-h) 40% 44%);
 
+  /*
+   * The ink ramp. Four rungs, and **every one of them is text**, so every one
+   * of them clears WCAG AA against `--void` — 16.7, 9.2, 6.8 and 4.9 to one.
+   *
+   * The bottom two used to sit at 46% and 30% lightness, which is 4.6 and
+   * **2.4**. That put the whole quiet register — the control bar's labels, the
+   * mode panel's captions and options, every `.kbd` badge, the axis links, the
+   * carousel's answer line — below legibility before a single opacity was
+   * applied on top, and the chrome then applies several. `--ink-4` in
+   * particular is not a decorative rung: it is what captions a control, and a
+   * caption nobody can read is a control nobody can name.
+   *
+   * The spacing is what keeps the ramp a ramp. 92 / 70 / 62 / 54 holds a
+   * visible step between neighbours while putting the floor above 4.5, which
+   * the old 92 / 68 / 46 / 30 bought only by spending its bottom half on
+   * shades that were not colours so much as absences.
+   *
+   * **The floor is set by what the fades leave of it, not by its own number.**
+   * Four surfaces rest under a container opacity — the idle control bar, the
+   * mode panel, the axis links, the scale switch — so the rung they print in
+   * has to clear 4.5 *after* that multiply. That is what puts `--ink-4` at
+   * 54% rather than the 48% that would just barely pass on its own: under the
+   * 0.9 those four share it lands at 4.8, and the 52% tried before it landed
+   * at 4.51 — passing, but by a margin no future edit would notice spending.
+   *
+   * This does not soften "the graph is the only light source". The graph reads
+   * at 11:1 and up; this ramp tops out at 9.6 for anything that is not primary
+   * text, so the chrome still sits under the lineages. What it stops doing is
+   * disappearing.
+   */
   --ink: hsl(190 14% 92%);
-  --ink-2: hsl(190 10% 68%);
-  --ink-3: hsl(190 8% 46%);
-  --ink-4: hsl(190 8% 30%);
+  --ink-2: hsl(190 10% 70%);
+  --ink-3: hsl(190 8% 62%);
+  --ink-4: hsl(190 8% 54%);
 
-  --hairline: rgba(150, 200, 210, 0.1);
-  --hairline-strong: rgba(150, 200, 210, 0.2);
+  /* Hairlines carry the *shape* of a control — the well it sits in, the badge
+     round its key, the outline hover raises it with — so they answer to
+     1.4.11's 3:1 for a non-text element, not to a taste for faintness. At 0.1
+     and 0.2 a bordered button was a button only to somebody who already knew
+     it was there. */
+  --hairline: rgba(150, 200, 210, 0.17);
+  --hairline-strong: rgba(150, 200, 210, 0.32);
 
   /* Tight spacing scale. Assume the user wants more on screen, not less. */
   --s1: 4px;
@@ -275,11 +310,58 @@ body {
   opacity: 0;
 }
 
-/* Unselected lineages recede to dim and desaturated. Contrast does the
-   wayfinding, not labels. */
+/*
+ * Unselected lineages recede to dim and desaturated. Contrast does the
+ * wayfinding, not labels.
+ *
+ * **A trace and a mark cannot recede by the same number**, and one rule for
+ * both is why an unselected species used to print its name at 1.7:1 — the
+ * reader could see the tree perfectly well and could not read who was in it.
+ * The two are different kinds of object under the same intent: a trace is a
+ * line, it carries no words, nothing in 1.4.3 speaks to it, and its recession
+ * *is* the wayfinding. A label is text.
+ *
+ * So the class keeps the deep figure the traces need and the mark overrides it
+ * to one its text survives. The `saturate(0.35)` stays on both and is doing
+ * more of the work than the brightness ever was — it is what takes the accent
+ * out of an unselected lineage, and it is untouched here.
+ *
+ * **The exception has to sit on `.mark` and not on `.trace`.** Written the
+ * other way round — deep on the mark, `.trace.dimmed` restoring the line — it
+ * puts `trace` into a compound selector for the first time, and
+ * `styles.test.ts` then reads `trace` as a *modifier* that the legend's own
+ * trace is missing. It is right to: the legend draws `.trace` with no `dimmed`
+ * on it. `mark` is already styled bare, so overriding there introduces no such
+ * class.
+ *
+ * The value is also floored by a mechanism rather than chosen: `opacity` on
+ * the mark groups its subtree, so no descendant can exceed it, and the label
+ * is a descendant. Dimming the dot harder from inside is available; lifting
+ * the label is not.
+ */
 .dimmed {
   opacity: 0.26;
   filter: saturate(0.35);
+}
+
+/* The mark half, at what its label needs. Selection stays readable across the
+   canvas at a glance because that glance lands on the traces — a trace is the
+   full width of the viewport where a dot is ten pixels, so the wayfinding was
+   never really coming from the marks. */
+.mark.dimmed {
+  opacity: 0.78;
+}
+
+/*
+ * The rank and the age are already the ramp's floor, so a dimmed mark was
+ * dimming the quietest rung there is — the same double-dim the chrome was
+ * making. One rung up while dimmed puts them back over 4.5, and they still
+ * print quieter than the name above them, which is the only thing the ramp was
+ * being asked to say here.
+ */
+.mark.dimmed .mark-meta,
+.mark.dimmed .mark-age {
+  color: var(--ink-3);
 }
 
 /* ------------------------------------------------------------ node marks -- */
@@ -794,8 +876,10 @@ body {
   margin: 0;
   padding: 0;
   /* Quiet until it is looked at, exactly like `.canvas-modes` and the links
-     opposite. The reader is here for the tree; this is a setting. */
-  opacity: 0.62;
+     opposite — and at their number, for the reason recorded on the ink ramp:
+     0.9 is the deepest fade `--ink-4` survives, and this is the third of the
+     three surfaces that rest under one. */
+  opacity: 0.9;
   transition: opacity 200ms ease;
 }
 
@@ -864,7 +948,7 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  opacity: 0.62;
+  opacity: 0.9;
   transition: opacity 200ms ease;
 }
 
@@ -1637,9 +1721,20 @@ body {
 
 /* Chrome auto-hides. The canvas is the page — but a control that has faded is
    still a control, so pointing at it brings it back rather than making the
-   reader wiggle the mouse first. */
+   reader wiggle the mouse first.
+   *
+   * **A third of itself was not a fade, it was a hide.** At 0.34 the bar's own
+   * labels landed at 1.5:1 and its captions at 1.2:1 — the reader could not
+   * find the control to point at it, which is the one thing the rule above
+   * promises they can do.
+   *
+   * 0.9 is the number the ink ramp allows, not a taste: `--ink-4` is 6.0:1 and
+   * a deeper multiply walks the bar's captions down toward 4.5. The recession the
+   * old value was reaching for belongs to the *ramp* — that is what four rungs
+   * are for — and stacking a fade on top of an already-quiet rung was dimming
+   * the same thing twice. */
 .controls.idle {
-  opacity: 0.34;
+  opacity: 0.9;
 }
 .controls:hover,
 .controls:focus-within {
@@ -1797,9 +1892,19 @@ body {
 }
 
 /* Disabled rather than hidden, so the bar never reshuffles under a hand that
-   is already moving. The tooltip carries what would make it work. */
+   is already moving. The tooltip carries what would make it work.
+   *
+   * This **multiplies** with the idle fade above, and that product is the
+   * number that matters: 0.38 under the old 0.34 put the whole Navigate group
+   * at 0.13, which is not a disabled control but an invisible one — and on
+   * first load, before anything is selected, that group is the entire second
+   * row. Under the fade this now rests at 0.72 — about 4:1, against the 6.6 of
+   * an enabled neighbour. That ratio between the two is what says *disabled*;
+   * the old one said *absent*. 1.4.3 exempts an inactive control from the 4.5
+   * floor, which is why this is the one number here allowed to sit near it, and
+   * not a licence to go back under. */
 .control:disabled {
-  opacity: 0.38;
+  opacity: 0.8;
   cursor: default;
 }
 
@@ -3695,7 +3800,6 @@ body {
   margin-left: auto;
 }
 
-
 /* ----------------------------------------------------- bioluminescence -- */
 
 /*
@@ -4009,7 +4113,7 @@ body.biolum .palette-fab {
  * arrives — and `:focus-within` is what keeps that true for a keyboard.
  */
 .canvas-modes {
-  opacity: 0.62;
+  opacity: 0.9;
 }
 .canvas-modes:hover,
 .canvas-modes:focus-within {
