@@ -197,8 +197,11 @@ a thousand requests — and the reason `index1` is the *kind* is so that a chatt
 A key is not a name. Resolve against the shipped database:
 
 ```sql
-SELECT name FROM node WHERE ott_id = 770315;   -- build/concestor.db
+SELECT name FROM node WHERE node_key = 'ott770315';   -- build/concestor.db
 ```
+
+§8 is the script that does all of the above and prints names rather than keys.
+Run that before writing any of this by hand.
 
 ---
 
@@ -267,3 +270,88 @@ deduplicates within a session.
 - **Nothing is recorded about a fossil.** Grafts, drill-down and the detail card
   are all outside these three events. They can be added — append to the schema,
   never insert.
+
+---
+
+## 8. The local report
+
+`scripts/analytics-report.sh` reads the dataset and prints it with names in it.
+
+```bash
+scripts/analytics-report.sh                       # the last 30 days
+scripts/analytics-report.sh --days 7 --limit 50
+scripts/analytics-report.sh --no-html             # stdout only
+```
+
+A plain-text summary on stdout, and a self-contained HTML page at
+`build/analytics/report-{N}d.html` whose path it prints. `build/` is gitignored,
+the page has no external assets, and it opens from the filesystem.
+
+The page goes beside the database it resolved against, which in a worktree is
+the main checkout's `build/`, and deliberately not the worktree's own.
+`scripts/check.sh` links `build/` into a worktree *only when there is none
+there* and sets `CONCESTOR_REQUIRE_BUILD=1` either way, so a worktree-local
+`build/` holding nothing but a report would leave the link unmade and 82 Go
+tests failing for want of a database two directories away. `CONCESTOR_REPORT_DIR`
+overrides the location.
+
+**Names are the whole reason it exists.** Cloudflare ships no dashboard for
+Analytics Engine at all — a SQL API, a Grafana integration, and querying from a
+Worker — and every one of those would show `ott461645`, and a tree as
+`ott461645,ott478542`. What turns those into *Apis mellifera* and *Apis
+mellifera + Octopoda* is `build/concestor.db`: 1.9 GB, local, and not something
+a hosted dashboard can join against. That is why this is a script in this
+repository rather than a board somewhere else.
+
+The join is one column, and the obvious one is wrong. `node.node_key` carries
+the key in exactly the API form the beacon sends — `ott461645` and
+`mrcaott2ott3973` alike — and is indexed for it. Splitting `ottNNN` back into an
+integer to meet `node.ott_id` resolves half the keys and silently fails on the
+rest, because **`node.name` is NULL on every `mrcaott…` row** rather than
+holding the key. A key that resolves to nothing prints as itself, which is the
+answer rather than a fallback: a divergence has no name of its own.
+
+Nothing has to be set up, per §4. It prefers `$CLOUDFLARE_API_TOKEN` and falls
+back to the token `wrangler login` left behind, refreshing that one by running
+wrangler when it has expired — an expired token is a `wrangler login` away and
+should say so rather than 401 obscurely. The account id comes from
+`$CLOUDFLARE_ACCOUNT_ID` or `wrangler whoami`, never from a tracked file, for
+the reason `web/wrangler.jsonc`'s `ACCOUNT_ID` placeholder exists. No token is
+printed anywhere, including in an error. The database is resolved through
+`scripts/lib/paths.sh`, so it borrows the main checkout's copy in a worktree,
+and is opened `immutable=1`.
+
+Plain `python3` behind a bash entry point, outside the pipeline's ruff/ty scope
+on purpose and standard library only — `scripts/ci/go-test-summary.py`'s header
+is the reason. It is an ops script, not pipeline code, and it has to run in a
+checkout where `uv sync` has never happened.
+
+### What it shows, and what it cannot
+
+Four sections are §2's three questions, plus a count by day:
+
+- **Top searches**, **most-added taxa** with every key resolved, and **trees
+  people built**.
+- **Trees people arrived at**, separately. That is §2's last rule made visible
+  rather than silent: the built list is `blob4 IN ('add', 'remove')`, and a
+  `link` or `back` tree gets its own heading — filtering it away without saying
+  so would leave a reader unable to tell an unpopular week from a well-shared
+  one.
+- **By day**: events per kind, and sessions.
+
+There is no fifth question. Three events cannot answer one, and nothing here is
+derived from a metric the beacon does not send.
+
+Two numbers to read carefully:
+
+- Counts are `SUM(_sample_interval)`, never `COUNT()`, per §4. The overview
+  prints the largest interval seen, so *no sampling in this window* is stated
+  rather than assumed.
+- **Session counts are a floor.** `COUNT(DISTINCT blob5)` counts the ids that
+  survived sampling, and a distinct count cannot be weighted. At today's volume
+  the interval is 1 and the two agree; they will not always.
+
+It refuses to run without `build/concestor.db` rather than falling back to
+printing keys, on `scripts/serve.sh`'s rule. A report whose every row reads
+`ott461645` is the thing this replaces, and a missing database would read as an
+empty week.
