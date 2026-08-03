@@ -138,5 +138,29 @@
     "API_ORIGIN": "",
   },
 
-  "observability": { "enabled": true },
+  // Workers Logs, which since this Worker started emitting one structured line
+  // per accepted beacon event is an *analytics* surface and not only a
+  // debugging one. `docs/analytics.md` §9 is what it answers and what it costs;
+  // `worker/index.ts`'s `LOG_MARKER` is the field that isolates those lines.
+  //
+  // Both sub-keys are written out although both are already the default, and
+  // for different reasons:
+  //
+  //   - `invocation_logs` is the lever on the privacy question. An invocation
+  //     log is the platform's own record of the request, headers included, and
+  //     it is a different store from the dataset with different contents —
+  //     §3's "what it does not collect" is now a claim about two things and
+  //     says so. Setting this to false is how the request record goes away; it
+  //     costs the status, timing and outcome of every request with it.
+  //   - `head_sampling_rate` below 1 silently drops that share of *requests*
+  //     before anything they emit is stored. As a debugging setting that is a
+  //     saved byte; as an analytics setting it is a wrong answer, and one with
+  //     nothing in the output to say it happened — no `_sample_interval` to
+  //     weight by, the way the dataset has. It stays at 1, and it is written
+  //     down so that lowering it is a decision somebody takes rather than a
+  //     default they inherit.
+  "observability": {
+    "enabled": true,
+    "logs": { "invocation_logs": true, "head_sampling_rate": 1 },
+  },
 }
