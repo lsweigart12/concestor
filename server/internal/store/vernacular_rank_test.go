@@ -140,6 +140,54 @@ func TestBestVernacularIsTheLowestRank(t *testing.T) {
 	}
 }
 
+// The canvas asks a stricter question than the card, and the difference is the
+// missing fallback: a headline name or nothing.
+//
+// On the canvas the common name *replaces* the scientific one rather than
+// sitting beside it, so a name the ranking never vouched for would be an
+// unranked guess in the only slot that says which taxon a mark is. Silence
+// there is not a gap — it is the scientific name, which is never wrong.
+func TestHeadlineVernacularIsRankOneOrNothing(t *testing.T) {
+	st := openRanked(t, true)
+	got, err := st.HeadlineVernaculars(t.Context(), []int{594485, 588427, 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got[594485] != "human" {
+		t.Errorf("headline for Homo sapiens = %q, want \"human\"", got[594485])
+	}
+	if got[588427] != "mammal" {
+		t.Errorf("headline for Mammalia = %q, want \"mammal\"", got[588427])
+	}
+	if len(got) != 2 {
+		t.Errorf("a node with no names answered anyway: %+v", got)
+	}
+	// Every lower-ranked name this node carries must be absent. `man` is rank 5
+	// because the enwiki title `Man` is a different article, and a canvas that
+	// drew it would be captioning our own species with a word about something
+	// else.
+	for _, name := range got {
+		if name == "man" || name == "humans" {
+			t.Errorf("a name below rank 1 reached the canvas: %+v", got)
+		}
+	}
+}
+
+// A build predating the `names` phase has no ranking to read, so the switch
+// finds no common names and every label stays scientific. That is the intended
+// degradation and the reason the method refuses to fall back on its own: the
+// weaker answer here is a *wrong name*, not a worse order.
+func TestHeadlineVernacularIsSilentWithoutTheColumn(t *testing.T) {
+	st := openRanked(t, false)
+	got, err := st.HeadlineVernaculars(t.Context(), []int{594485, 588427})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Errorf("names were served from a build that ranked none: %+v", got)
+	}
+}
+
 // Older builds have no usage_rank. The server must still start, still answer,
 // and still put the headline first — worse ordering, never a broken one.
 func TestOrderingFallsBackWithoutTheColumn(t *testing.T) {

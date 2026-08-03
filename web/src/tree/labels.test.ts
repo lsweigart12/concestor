@@ -151,6 +151,45 @@ describe("the measurer is measuring the type that is actually drawn", () => {
   });
 });
 
+describe("a label with the words switched off", () => {
+  /*
+    A real state since the reader gained a switch for it, and the one the
+    measurer was never written for: it reserved a minimum column and a name's
+    line whatever the strings were, because before this there was always a name.
+    A box padded out to where the text *would* have been pushes every
+    neighbouring label aside to keep room for something nobody asked to see —
+    which on a wordless canvas is the whole layout, spread out around nothing.
+  */
+  it("reserves nothing at all when there is nothing to draw", () => {
+    const b = placeLabels([node({ idx: 1, x: 0, y: 0, name: "" })], [], OPTS).get(1)!;
+    expect(b.width).toBe(0);
+    expect(b.height).toBe(0);
+  });
+
+  it("reserves the picture and no column beside it", () => {
+    const bare = node({ idx: 1, x: 0, y: 0, name: "", hasSilhouette: true });
+    const named = node({ idx: 2, x: 0, y: 400, name: "Canis", hasSilhouette: true });
+    const boxes = placeLabels([bare, named], [], OPTS);
+    // The silhouette is 34px square and its gap only exists to separate it from
+    // text. No text, no gap — and the label is exactly the picture.
+    expect(boxes.get(1)!.width).toBe(34);
+    expect(boxes.get(1)!.height).toBe(34);
+    expect(boxes.get(2)!.width).toBeGreaterThan(34 + 9);
+  });
+
+  it("still reserves the age when only the ages are on", () => {
+    // The two switches are independent, so this is a real combination: no name,
+    // no rank, a figure. It gets one meta row and nothing else.
+    const b = placeLabels(
+      [node({ idx: 1, x: 0, y: 0, name: "", trailing: "≤ 96 Ma" })],
+      [],
+      OPTS,
+    ).get(1)!;
+    expect(b.width).toBeGreaterThan(0);
+    expect(b.height).toBe(TYPE.META_LINE);
+  });
+});
+
 describe("label placement", () => {
   it("separates labels on nodes that share a lane", () => {
     // Two nodes 60px apart on the same row. Both default to the same side, so

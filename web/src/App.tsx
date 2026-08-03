@@ -56,8 +56,44 @@ import { prefersReduced } from "./chrome/motion";
 import { NextOpening } from "./chrome/NextOpening";
 import { resetUsage } from "./palette/fuzzy";
 import { toApiKey, useTree } from "./state/store";
+import type { LabelMode } from "./tree/naming";
 import { laneHue } from "./tree/layout";
 import { divergenceFor, nestedSelections } from "./tree/naming";
+
+/**
+ * What the label command switches to next, and how each state describes itself.
+ *
+ * A table rather than a chain of ternaries, because three states in one row
+ * means the title, the subtitle and the destination all have to agree about
+ * where the press lands — and the palette prints the first two while the
+ * handler follows the third. Written once, they cannot disagree.
+ *
+ * The order is the chip's own, left to right: **off → common → scientific →
+ * off**. Pressing `L` walks the segments the way they are drawn, so the control
+ * is a picture of what the key does rather than a second thing to learn — and
+ * with the default sitting in the middle, no state is more than two presses
+ * from home whichever way the reader went.
+ */
+const LABEL_TURN: Record<
+  LabelMode,
+  { next: LabelMode; title: string; subtitle: string }
+> = {
+  off: {
+    next: "common",
+    title: "common names",
+    subtitle: "The name people use, for species, genera and subspecies",
+  },
+  common: {
+    next: "scientific",
+    title: "scientific names",
+    subtitle: "The name in the taxonomy, on every mark that has one",
+  },
+  scientific: {
+    next: "off",
+    title: "no labels",
+    subtitle: "The tree as a shape: marks, traces and silhouettes",
+  },
+};
 
 interface Toast {
   id: number;
@@ -823,6 +859,43 @@ export default function App() {
         },
       },
       {
+        // The label switch, as a command. One row that cycles rather than three
+        // rows that set, because the palette is a list of *actions* and "set
+        // labels to scientific" is not one when they already are — the axis row
+        // above makes the same call and names what you would be switching to.
+        // `LABEL_TURN` is what keeps this row's title, its subtitle and the
+        // key's handler agreeing about where the press lands.
+        id: "labels",
+        title: `Switch labels to ${LABEL_TURN[tree.labels].title}`,
+        subtitle: LABEL_TURN[tree.labels].subtitle,
+        hint:
+          "The canvas used to decide this from how far you had zoomed, which meant pulling back " +
+          "to see the whole tree took every name with it. It is yours now. Common names exist " +
+          "for species, genera and subspecies only — about 4% of the tree — so that setting is a " +
+          "mixture, and the italics are what tell you which name you are reading.",
+        icon: "Aa",
+        keys: kbd("labels"),
+        section: "View",
+        run: () => {
+          tree.setLabels(LABEL_TURN[tree.labels].next);
+          setPaletteOpen(false);
+        },
+      },
+      {
+        id: "ages",
+        title: tree.ages ? "Hide ages" : "Show ages",
+        subtitle: tree.ages
+          ? "Leave the dates to the axis"
+          : "Print each mark's date, bound or fossil range",
+        icon: "⌛",
+        keys: kbd("ages"),
+        section: "View",
+        run: () => {
+          tree.setAges(!tree.ages);
+          setPaletteOpen(false);
+        },
+      },
+      {
         // "Every action has a command *and* a button" — the button is the
         // switch above the axis, and this is the command. Worth a row in its
         // own right: it is the one thing in this app a reader would never guess
@@ -1362,6 +1435,12 @@ export default function App() {
         case "axis":
           tree.setAxis(tree.view.axis === "log" ? "linear" : "log");
           break;
+        case "labels":
+          tree.setLabels(LABEL_TURN[tree.labels].next);
+          break;
+        case "ages":
+          tree.setAges(!tree.ages);
+          break;
         case "biolum":
           tree.toggleBiolum();
           break;
@@ -1558,6 +1637,10 @@ export default function App() {
         isolate={tree.view.isolate}
         axisMode={tree.view.axis}
         onAxisMode={tree.setAxis}
+        labels={tree.labels}
+        onLabels={tree.setLabels}
+        ages={tree.ages}
+        onAges={tree.setAges}
         intervals={timescale}
         fitSignal={fitSignal}
         onFitState={setViewFit}

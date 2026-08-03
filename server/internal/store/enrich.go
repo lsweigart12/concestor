@@ -427,6 +427,72 @@ func (s *Store) BestVernaculars(ctx context.Context, idxs []int) (map[int]string
 	return out, rows.Err()
 }
 
+// HeadlineVernaculars returns, per node, the name ranked first by use — and
+// nothing at all where no name was ranked.
+//
+// It is the canvas's question rather than the card's, and the difference is the
+// missing fallback. BestVernaculars degrades to `is_primary` and then to
+// whatever row the planner yielded first, which is right for a caption sitting
+// beside the scientific name it is captioning: some name is better than none
+// there, because the reader can see what it belongs to. On the canvas the
+// common name *replaces* the scientific one, so an unranked guess is not a
+// weaker answer but a different taxon's word in the only slot that says which
+// taxon this is. Where the ranking has nothing to say, the canvas draws the
+// scientific name, which is never wrong.
+//
+// A build predating the `names` phase therefore returns an empty map and every
+// label stays scientific. That is the intended degradation and not an outage:
+// `docs/name-ranking.md` §3 is what makes rank 1 mean "the name English
+// Wikipedia's own title and redirect graph puts first", and without that column
+// there is no such claim to make.
+//
+// Restricting *which* nodes to ask about is the caller's business — see
+// api.entries, which asks only for genus, species and subspecies.
+func (s *Store) HeadlineVernaculars(ctx context.Context, idxs []int) (map[int]string, error) {
+	out := map[int]string{}
+	v := s.Schema.Vernacular
+	if v == nil || v.Rank == "" || len(idxs) == 0 {
+		return out, nil
+	}
+	for start := 0; start < len(idxs); start += metaChunk {
+		end := min(start+metaChunk, len(idxs))
+		chunk := idxs[start:end]
+		q := fmt.Sprintf("SELECT %q, %q FROM %q WHERE %q IN (%s) AND %q = 1",
+			v.Idx, v.Name, v.Table, v.Idx, placeholders(len(chunk)), v.Rank)
+		args := make([]any, len(chunk))
+		for i, x := range chunk {
+			args[i] = x
+		}
+		rows, err := s.DB.QueryContext(ctx, q, args...)
+		if err != nil {
+			return out, err
+		}
+		for rows.Next() {
+			var idx sql.NullInt64
+			var name sql.NullString
+			if err := rows.Scan(&idx, &name); err != nil {
+				_ = rows.Close()
+				return out, err
+			}
+			// One rank-1 row per node is the pipeline's invariant and a gate
+			// checks it, so no tiebreak is needed here. If one ever slipped
+			// through, first-seen is as good an answer as any and silence
+			// would be worse than either.
+			if idx.Valid && name.Valid {
+				if _, seen := out[int(idx.Int64)]; !seen {
+					out[int(idx.Int64)] = name.String
+				}
+			}
+		}
+		err = rows.Err()
+		_ = rows.Close()
+		if err != nil {
+			return out, err
+		}
+	}
+	return out, nil
+}
+
 // betterVernacular reports whether a candidate should displace the incumbent.
 // A rank of 0 means "unranked", since usage_rank is 1-based and a real rank is
 // therefore always truthy.

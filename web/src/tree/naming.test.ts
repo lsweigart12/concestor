@@ -12,7 +12,7 @@ import { describe, expect, it } from "vitest";
 import type { PathNode } from "../api";
 import { induced } from "./induced";
 import { layout } from "./layout";
-import { branchProse, divergenceFor, UNNAMED } from "./naming";
+import { branchProse, commonName, divergenceFor, markName, UNNAMED } from "./naming";
 
 /** idx → [name, rank]. Everything else on the node is irrelevant here. */
 const NAMED: Record<number, [string, string | null]> = {
@@ -44,6 +44,18 @@ const HOMININI = 594475;
 /** `mrcaott83926ott3607671` — erectus from the sapiens line. */
 const ERECTUS_SPLIT = 594482;
 
+/**
+ * The rank-1 common name the server would send, for the nodes that have one.
+ *
+ * Read off the 2026-07-31 build. *Homo sapiens* is `Human` and not `humans`,
+ * which is the phase's own headline; *Homo* the genus has no ranked English
+ * name at all, which is why "Homo / Pan" survives a switch to common names.
+ */
+const COMMON: Record<number, string> = {
+  594485: "Human",
+  594505: "Chimpanzee",
+};
+
 const node = (idx: number): PathNode => {
   const [name, rank] = NAMED[idx] ?? [null, null];
   return {
@@ -52,6 +64,7 @@ const node = (idx: number): PathNode => {
     ott_id: null,
     name,
     rank,
+    vernacular: COMMON[idx] ?? null,
     age_ma: null,
     age_layout: AGE[idx] ?? 0,
     tier: 2,
@@ -120,6 +133,89 @@ describe("naming a divergence the taxonomy does not name", () => {
   it("falls back to the honest placeholder rather than inventing one", () => {
     const bare = new Map([[HOMININI, node(HOMININI)]]);
     expect(divergenceFor(HOMININI, ind, bare)?.text ?? UNNAMED).toBe(UNNAMED);
+  });
+});
+
+describe("the name a mark shows", () => {
+  const at = (idx: number) => nodes.get(idx)!;
+
+  it("keeps the scientific name unless asked for the other one", () => {
+    expect(markName(at(HOMO_SAPIENS), "scientific")).toEqual({
+      text: "Homo sapiens",
+      rank: "species",
+    });
+  });
+
+  it("gives a species the name people use, and drops the italics with it", () => {
+    // `rank: null` is the italic channel. A common name set in italics claims
+    // to be a scientific one, which on a canvas that is always a mixture of the
+    // two is the only thing telling a reader which they are looking at.
+    expect(markName(at(HOMO_SAPIENS), "common")).toEqual({
+      text: "Human",
+      rank: null,
+    });
+  });
+
+  it("falls back silently where nothing was ranked", () => {
+    // Most of a deep tree. 110,794 nodes of 2.7M carry an English name, so a
+    // marker on every fallback would decorate the whole canvas.
+    expect(markName(at(594480), "common")).toEqual({ text: "Homo", rank: "genus" });
+  });
+
+  it("refuses a common name above genus, however good the name is", () => {
+    // The server does not send one either; this is the second of the two
+    // refusals, and it is what keeps "animals" off Metazoa when a build's
+    // payload predates the first.
+    const subfamily = { name: "Homininae", rank: "subfamily", vernacular: "great apes" };
+    expect(commonName(subfamily)).toBeNull();
+    expect(markName(subfamily, "common")).toEqual({
+      text: "Homininae",
+      rank: "subfamily",
+    });
+  });
+
+  it("refuses a common name that is the scientific name again", () => {
+    // PBDB's ColDP files the binomial itself as a vernacular for thousands of
+    // taxa, which would print *Tyrannosaurus rex* in roman and call it English.
+    expect(
+      commonName({ name: "Tyrannosaurus rex", rank: "species", vernacular: "Tyrannosaurus rex" }),
+    ).toBeNull();
+  });
+});
+
+describe("a derived name in common names", () => {
+  it("translates the branches it can and leaves the rest in Latin", () => {
+    // *Homo* and *Pan* are genera with no ranked English name, so the human /
+    // chimp split reads the same in both modes. This is the case the switch
+    // helps least, and a deep tree is mostly made of it.
+    expect(divergenceFor(HOMININI, ind, nodes, "common")?.text).toBe("Homo / Pan");
+  });
+
+  it("still prefers the genus, so two species do not make it English", () => {
+    // Worth pinning because it is counter-intuitive and it is the *whole*
+    // reason the switch touches divergences so rarely. `firstNamed` reads the
+    // suppressed run before the leaf, deliberately — a node separating the two
+    // genera must not be labelled with two species — and 5,548 genera carry a
+    // ranked English name against 99,960 species. Choosing human and chimp
+    // alone still gives "Homo / Pan" in both modes.
+    const pair = induced([HOMO_SAPIENS, CHIMP], (i) => PATHS[i]);
+    expect(divergenceFor(pair.mrca, pair, nodes, "common")?.text).toBe("Homo / Pan");
+  });
+
+  it("italicises run by run, so one fork can carry both kinds of name", () => {
+    expect(divergenceFor(ERECTUS_SPLIT, ind, nodes, "common")?.parts).toEqual([
+      { text: "Human", rank: null },
+      { text: " / ", rank: null },
+      { text: "Homo erectus", rank: "no rank" },
+    ]);
+  });
+
+  it("does not abbreviate a genus off a common name", () => {
+    // `H. erectus` is a convention of scientific names. Applied to "Human" it
+    // would produce "H. uman"; applied *against* it, "Homo erectus" beside
+    // "Human" would abbreviate to a genus the label never spelled out.
+    const d = divergenceFor(ERECTUS_SPLIT, ind, nodes, "common");
+    expect(d?.text).toBe("Human / Homo erectus");
   });
 });
 

@@ -39,6 +39,18 @@ export interface PathNode {
   name: string | null;
   rank: string | null;
   /**
+   * The name this taxon goes by, when the canvas is drawing common names.
+   *
+   * Server-side it is the name ranked **first** by use and it is served only
+   * for genus, species and subspecies — both restrictions live in
+   * `api.Entry.Vernacular`, and neither may be worked around from here. Absent
+   * is the ordinary case: 110,794 nodes of 2,725,682 carry an English name at
+   * all, so most of a deep tree has none and falls back to the scientific name.
+   * That mixture is the design rather than a gap, and italics are what tell the
+   * reader which they are looking at — see `markName`.
+   */
+  vernacular?: string | null;
+  /**
    * NULL wherever no numeric age may be shown. Structural and occurrence are
    * both always null: neither means "we are unsure", they mean nobody
    * estimated one.

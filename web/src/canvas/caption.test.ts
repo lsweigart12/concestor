@@ -185,6 +185,10 @@ describe("the age slot's marks", () => {
 describe("metaLine", () => {
   it("prints a rank the reader can use", () => {
     expect(metaLine("species", true)).toBe("SPECIES");
+    // The second argument used to be the zoom's detail tier and is now the
+    // labels switch. It has always meant the same thing to this function —
+    // whether the label is drawing words at all — which is why removing the
+    // tiers did not touch it.
     expect(metaLine("species", false)).toBe("");
   });
 

@@ -1,33 +1,29 @@
 /**
  * A node: a small luminous point that blooms on hover and focus.
  *
- * Semantic zoom, not scale zoom — the mark changes *what* it renders at each
- * level rather than just its size. Three tiers, per design-reference.md:
+ * **What a mark says is the reader's choice and no longer the zoom's.** Three
+ * semantic-zoom tiers used to decide it — mark and silhouette, then + rank and
+ * name at 0.55, then + age at 0.62 — and the idea was sound in the abstract and
+ * wrong in this instrument. Zoom here is how you *look* at a tree: pulling back
+ * to see the whole shape is the most ordinary thing a reader does, and it took
+ * every name with it, while reading one name meant zooming until the tree no
+ * longer fitted. Worse, the thresholds were guesses that the fit kept landing
+ * either side of — the detail tier sat at 1.15 and the fit lands at 1.144 for
+ * six species, so *adding a sixth species* silently stripped a row from every
+ * label on screen. The lesson worth keeping is the one that cost the most:
+ * nothing load-bearing may hang off a threshold the fit can wander across.
  *
- *   point        mark + silhouette
- *   label        + rank and name
- *   detail       + age
+ * So the rows are switched, in `chrome/LabelModes.tsx`, and the switches are
+ * two rather than one for the reason the tiering had right — the age is the one
+ * row the canvas already states another way, since x is time and there is a
+ * ruler under it, and it is therefore the one a reader can spend and still know
+ * what they are looking at. `labels` says which words (none, scientific, common)
+ * and `ages` says whether the figure joins them.
  *
- * The age is last on and first off because the canvas already states it another
- * way — x is time, and there is a ruler under it. Everything else on the label
- * is unavailable anywhere else on screen. But *last* is not *much later*: the
- * ruler gives a position, not a number and not a tier, so the two thresholds
- * now sit close together and the detail tier begins at 0.62 rather than 1.15.
- * `Z_LABEL` / `Z_DETAIL` in `Graph.tsx` carry the reasoning.
- *
- * **The silhouette is in every tier, including the furthest.** The obvious
- * reading of design-reference.md puts it in the "full detail card" tier only,
- * and that is backwards for this element: pulled back, the text is already too
- * small to read and the shape is not, so the image is the *only* thing still
- * carrying meaning. Dropping it at low zoom removed information exactly when
- * it was the last information left.
- *
- * What it cost in practice: the detail threshold sat at 1.15 and the fit lands
- * at 1.144 for six species, so adding a sixth silently stripped every image
- * from the default view. Text tiers off with zoom; images do not. That
- * threshold has since moved for the age's sake as well, but the fact it
- * exposed — that the fit routinely lands *just under* a threshold — is the
- * reason nothing load-bearing may hang off one.
+ * The silhouette is drawn in every state, including with the words off. Pulled
+ * back the text was already too small to read and the shape was not, so the
+ * image is the only thing still carrying meaning; with the words deliberately
+ * off it is the *whole* label, which is most of why that state is worth having.
  *
  * Where the label actually goes is decided in `tree/labels.ts`, against every
  * other label and every trace on the canvas. This component only renders what
@@ -49,12 +45,16 @@ import { AgeGlyph, type AgeGlyphKind } from "./AgeGlyph";
 import { endedSpanLabel } from "./Bracket";
 import { rankIsInformative } from "../detail/classification";
 import type { LabelBox } from "../tree/labels";
-import { branchProse, UNNAMED, type Divergence } from "../tree/naming";
+import {
+  branchProse,
+  markName,
+  UNNAMED,
+  type Divergence,
+  type LabelMode,
+} from "../tree/naming";
 import { Silhouette } from "./Silhouette";
 import { fossilSpan, type Graft } from "../tree/graft";
 import { spill } from "./biolum";
-
-export type ZoomTier = "point" | "label" | "detail";
 
 export interface MarkData extends Record<string, unknown> {
   node: PathNode;
@@ -64,7 +64,9 @@ export interface MarkData extends Record<string, unknown> {
   dim: boolean;
   focused: boolean;
   flaring: boolean;
-  zoom: ZoomTier;
+  /** Which words the label carries, and whether the age joins them. */
+  labels: LabelMode;
+  ages: boolean;
   /** False when the only available image is of too broad a clade to inform. */
   showSilhouette: boolean;
   /**
@@ -394,8 +396,8 @@ export function graftTitle(g: Graft): string {
   name. The card's `rankIsInformative` had the full set from the day it was
   written; the canvas had a copy of half of it.
 */
-export function metaLine(rank: string | null, detail: boolean): string {
-  if (!detail || !rank || !rankIsInformative(rank)) return "";
+export function metaLine(rank: string | null, show: boolean): string {
+  if (!show || !rank || !rankIsInformative(rank)) return "";
   return rank.toUpperCase();
 }
 
@@ -469,30 +471,26 @@ export const NodeMark = memo(function NodeMark({ data }: NodeProps) {
         ? `drop-shadow(0 0 3px ${color})`
         : "none";
   /*
-    What survives as the view pulls back, in the order it survives.
+    The rank travels with the name rather than switching separately.
 
-    The **date goes first**, because it is the one thing on a label the canvas
-    already says another way: x is time, and the axis under it is a ruler. A
-    figure that repeats a position is the first thing that can be spent, and it
-    used to be the last — the age rode from the label tier up while the rank,
-    which nothing else states, waited for detail.
+    It is one row of three and the only one that says what *kind* of thing is
+    being named, and it carries `DIVERGENCE_META` — the only mark on the canvas
+    saying that a derived name is derived. Without it `Homo / Pan` sits in
+    exactly the position every real taxon name occupies and reads as one, which
+    is why it may never be shown a tier behind the name it qualifies. Under the
+    old zoom tiering it was, and between the two thresholds the canvas showed a
+    made-up name with nothing to say so.
 
-    So the rank comes with the name now, and that fixes a second thing on the
-    way. `DIVERGENCE_META` shares this row, and it is the only mark saying that a
-    derived name is derived — without it `Homo / Pan` sits in exactly the
-    position every real taxon name occupies and reads as one. It was gated on
-    detail while the name it qualifies appeared a whole tier earlier, so between
-    the two thresholds the canvas showed a made-up name with nothing to say so.
-
-    The *text* still goes entirely at the furthest tier, and that is unchanged
-    for the reason in this file's header: pulled back, type is too small to read
-    and a silhouette is not, so the picture is the only thing still carrying
-    meaning.
+    A third switch for it would be a control whose only honest setting is on.
   */
-  const showText = d.zoom !== "point";
-  const showAge = d.zoom === "detail";
+  const showText = d.labels !== "off";
+  const showAge = d.ages;
   const div = d.divergence;
-  const name = n.name ?? div?.text ?? UNNAMED;
+  // One rule, and `describeLabel` in Graph.tsx measures against the same call.
+  // A name resolved twice is a label reserved at one width and drawn at
+  // another, which is the failure `labels.ts` exists to prevent.
+  const display = markName(n, d.labels);
+  const name = display?.text ?? div?.text ?? UNNAMED;
   // Two pictures, one slot, and which is allowed depends on how the reader got
   // here — `Graph.mayDrawExemplar` makes that call and this only renders it.
   // A clade a reader *chose* draws its exemplar, which is architecture §7's
@@ -709,7 +707,14 @@ export const NodeMark = memo(function NodeMark({ data }: NodeProps) {
                 ) : (
                   <span
                     className={
-                      isScientificItalic(n.rank) ? "sci-italic" : undefined
+                      // The rank the *displayed* string carries, which is null
+                      // on a common name — so "Human" is roman where "Homo
+                      // sapiens" is italic, and the reader can tell at a glance
+                      // which kind of name they are being given on a canvas
+                      // that will always be a mixture of both.
+                      isScientificItalic(display?.rank ?? null)
+                        ? "sci-italic"
+                        : undefined
                     }
                   >
                     {name}

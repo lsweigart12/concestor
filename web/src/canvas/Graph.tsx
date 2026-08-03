@@ -66,7 +66,7 @@ import {
 import type { Induced } from "../tree/induced";
 import type { AddDelta } from "../tree/induced";
 import { isGraftIdx, type Graft } from "../tree/graft";
-import { divergenceFor, UNNAMED } from "../tree/naming";
+import { divergenceFor, markName, UNNAMED, type LabelMode } from "../tree/naming";
 import {
   markAge,
   DIVERGENCE_META,
@@ -74,7 +74,6 @@ import {
   metaLine,
   NodeMark,
   type MarkData,
-  type ZoomTier,
 } from "./NodeMark";
 import { DECAY_MS, DRAW_MS, TraceEdge, type TraceEdgeData } from "./TraceEdge";
 import { TimeAxis } from "./TimeAxis";
@@ -86,6 +85,7 @@ import { Water } from "./Water";
 import type { Emitter } from "./biolum";
 import { EMIT_BASE } from "./particles";
 import { BiolumToggle } from "../chrome/BiolumToggle";
+import { AgesToggle, LabelsToggle } from "../chrome/LabelModes";
 import { prefersReduced } from "../chrome/motion";
 
 const nodeTypes = { mark: NodeMark };
@@ -114,12 +114,12 @@ const EDGE_PAD = 26;
  * This has to follow the container rather than being a constant. Node labels
  * live inside the transformed viewport, so they scale with zoom — and a fixed
  * 1240px layout squeezed into an 800px panel fits at ~0.45, which renders
- * 12.5px type at under 6px. Semantic zoom would then correctly drop to the
- * point tier and the tree would lose every name it has.
+ * 12.5px type at under 6px, which is a name nobody can read.
  *
  * Shrinking the *layout* instead keeps the fit near 1:1, so text stays at its
- * designed size and the tiers mean what they say. The graph gets narrower in a
- * narrow panel, which is the honest trade.
+ * designed size. The graph gets narrower in a narrow panel, which is the honest
+ * trade — and it matters more now than it did: the names no longer tier off
+ * when the type gets small, so this is the only thing keeping them legible.
  */
 const MIN_PLOT_W = 340;
 /** The time axis is fixed to the bottom and would otherwise cover a lineage. */
@@ -139,30 +139,6 @@ const MAX_FIT_ZOOM = 1.4;
  */
 const REVEAL_PAD = 18;
 const REVEAL_DELAY = 140;
-
-/**
- * The two semantic-zoom thresholds, in scale factors.
- *
- * `Z_LABEL` is a legibility floor: below it the name renders under 7px and the
- * silhouette is the only thing left carrying meaning, which is the trade the
- * header of `NodeMark.tsx` describes.
- *
- * `Z_DETAIL` is where the age row joins it, and it sat at **1.15** — above the
- * 1.144 the fit lands at for six species, so the figure was absent from the
- * default view and for almost the whole band in which a label is drawn at all.
- * The tiering rule stands (the age is last on, because x is time and there is a
- * ruler under it) but it was being applied as if the ruler answered the same
- * question, and it does not: the axis gives a node's *position*, and only the
- * row gives its number and its tier. So the age now arrives a hair after the
- * name rather than half a zoom range later, and the gap between the two is what
- * is left of the rule.
- *
- * They cannot be equal. The age is set at 11px against the name's 12.5, so the
- * band exists to spend the smaller row first — and a reader who wants figures
- * below `Z_LABEL` is asking for text at 6px, which is a different request.
- */
-const Z_LABEL = 0.55;
-const Z_DETAIL = 0.62;
 
 /**
  * Per design-reference.md's signature sequence, in ms. `T_FLARE` and `T_DRAW`
@@ -186,6 +162,18 @@ export interface GraphProps {
   axisMode: AxisMode;
   /** The axis footer is a switch as well as a label. */
   onAxisMode: (m: AxisMode) => void;
+  /**
+   * Which words the marks carry, and whether they print an age.
+   *
+   * Two switches rather than one, both view state, both in the URL. They land
+   * on the canvas rather than the control bar for the reason `BiolumToggle`
+   * states: the bottom edge holds the controls that change *how the canvas is
+   * drawn*, and the top bar the ones that change *what is on it*.
+   */
+  labels: LabelMode;
+  onLabels: (m: LabelMode) => void;
+  ages: boolean;
+  onAges: (v: boolean) => void;
   intervals: TimescaleInterval[] | null;
   fitSignal: { kind: "all" | "selection"; token: number } | null;
   /** Reports whether the canvas is already showing the fit. */
@@ -232,6 +220,10 @@ function Inner(props: GraphProps) {
     isolate,
     axisMode,
     onAxisMode,
+    labels,
+    onLabels,
+    ages,
+    onAges,
     intervals,
     fitSignal,
     onFitState,
@@ -303,46 +295,45 @@ function Inner(props: GraphProps) {
     : PLOT_W;
 
   /**
-   * Semantic zoom tiers. Nodes change what they render, not just their size.
-   */
-  const zoomTier: ZoomTier =
-    zoom < Z_LABEL ? "point" : zoom < Z_DETAIL ? "label" : "detail";
-
-  /**
    * What each label will say, handed to the layout so the placement pass can
    * measure the real strings. Keeping this next to the renderer is what stops
    * the two drifting — a label measured at one width and drawn at another
    * collides exactly as badly as no placement pass at all.
    *
-   * Always measured at the *detail* tier, even when a coarser tier is showing.
-   * Two reasons, and the first is not optional: the fit reads the placement's
-   * bounds and then sets the zoom, so letting placement depend on the zoom
-   * tier closes a feedback loop — layout → fit → zoom → tier → layout — and
-   * React Flow never finishes measuring, leaving every node `visibility:
-   * hidden`. The second is that reserving the largest variant means labels
-   * keep their positions as you zoom through a threshold instead of jumping.
+   * It reads the two label switches, and that is safe in a way reading the
+   * *zoom* was not. The old tiering had to be measured at its widest variant
+   * whatever was showing, because the fit reads the placement's bounds and then
+   * sets the zoom: letting placement depend on the zoom tier closes a loop —
+   * layout → fit → zoom → tier → layout — and React Flow never finishes
+   * measuring, leaving every node `visibility: hidden`. `labels` and `ages` are
+   * outside that loop. They come from the reader, the layout recomputes once
+   * when they change, and the fit that follows is the same reframe a window
+   * resize takes.
    */
   const describeLabel: LabelText = useCallback(
     (p) => {
       const withSil =
         witnessOn(p) !== null || (mayDrawExemplar(p) && Boolean(p.node.phylopic_id));
-      const div = divergenceFor(p.idx, ind, nodeMap);
+      const div = divergenceFor(p.idx, ind, nodeMap, labels);
       // The same parts NodeMark renders, or the collision pass reserves a box
       // the label does not fit. A fossil range with its glyph is materially
       // wider than the age it stands in for.
-      const age = markAge(p.node.age_ma, p.node.tier, p.node.occurrence);
+      const age = ages
+        ? markAge(p.node.age_ma, p.node.tier, p.node.occurrence)
+        : null;
+      const words = labels !== "off";
       return {
-        name: p.node.name ?? div?.text ?? UNNAMED,
+        name: words ? (markName(p.node, labels)?.text ?? div?.text ?? UNNAMED) : "",
         trailing: age?.text ?? "",
         trailingGlyph: age?.glyph != null,
         // A derived name says so where a rank would otherwise go. Without it
         // "Homo / Pan" sits in the same position as every real taxon name and
         // reads as one.
-        meta: div ? DIVERGENCE_META : metaLine(p.node.rank, true),
+        meta: !words ? "" : div ? DIVERGENCE_META : metaLine(p.node.rank, true),
         hasSilhouette: withSil,
       };
     },
-    [nodeMap, ind],
+    [nodeMap, ind, labels, ages],
   );
 
   const lay = useMemo(
@@ -519,9 +510,10 @@ function Inner(props: GraphProps) {
           dim,
           focused: focusedIdx === p.idx,
           flaring: flaring === p.idx,
-          zoom: zoomTier,
+          labels,
+          ages,
           label: lay.labels.get(p.idx),
-          divergence: divergenceFor(p.idx, ind, nodeMap),
+          divergence: divergenceFor(p.idx, ind, nodeMap, labels),
           showSilhouette,
           // A fossil drawn against the tree rather than a node in it. The mark
           // renders the same way — it is an occurrence-tier node carrying its
@@ -565,7 +557,7 @@ function Inner(props: GraphProps) {
           height: NODE_BOX,
         };
       }),
-    [lay, focusedIdx, focusLineage, isolate, flaring, zoomTier, nodeMap, ind, biolum],
+    [lay, focusedIdx, focusLineage, isolate, flaring, labels, ages, nodeMap, ind, biolum],
   );
 
   const rfEdges: Edge[] = useMemo(() => {
@@ -1013,7 +1005,20 @@ function Inner(props: GraphProps) {
           color={biolum ? "rgba(90,220,235,0.13)" : "rgba(120,190,200,0.07)"}
         />
       </ReactFlow>
-      <BiolumToggle on={biolum} onChange={onBiolum} />
+      {/*
+        The three canvas-mode chips, stacked bottom-left above the axis.
+
+        One stack, because they are one set: controls that change how the canvas
+        is *drawn* rather than what is on it. The reading order is the reader's
+        — the words first, then the figure that annotates them, then the light —
+        so the two that change what a label says sit above the one that changes
+        nothing about the data at all.
+      */}
+      <div className="canvas-modes">
+        <LabelsToggle mode={labels} onChange={onLabels} />
+        <AgesToggle on={ages} onChange={onAges} />
+        <BiolumToggle on={biolum} onChange={onBiolum} />
+      </div>
       {activeDrill && (
         <DrillLane
           upper={endpoint(activeDrill.upper, ind, nodeMap)}

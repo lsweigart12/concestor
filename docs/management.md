@@ -114,7 +114,7 @@ Everything settled in the previous brief still holds, and is now implemented rat
 - Do not start the congruification fallback.
 - Do not attempt the exhaustive 73-hour PBDB crawl. The prioritised `n_occs`-ordered crawl is the settled answer.
 - Do not optimise the artifact set yet. It is 2,048 MB against architecture §11's 700 MB estimate, which means §11's cost paragraph needs re-deriving before anyone sizes a machine — but nothing is broken by it, and trimming `xref` before the product is finished is optimising the wrong thing.
-- Do not reintroduce a fixed layout width in the frontend. It follows the viewport so the fit stays near 1:1; at a fixed 1240px a narrow panel fits at ~0.45 zoom and semantic zoom correctly drops every label.
+- Do not reintroduce a fixed layout width in the frontend. It follows the viewport so the fit stays near 1:1; at a fixed 1240px a narrow panel fits at ~0.45 zoom, which renders every label at under 6px. This matters more since the semantic-zoom tiers were removed: the names no longer disappear at that scale, they are merely unreadable, and the layout width is the only thing still keeping them legible.
 
 ### 6. The vernacular join was producing false statements — **fixed**
 
@@ -134,7 +134,7 @@ It was found only because someone who had not built the UI actually used it. Tha
 
 **The design pass has happened** and its findings are folded into this list and into handoff §7. The headline ones, beyond the vernacular defect above: the MRCA had no bloom at all and was the dimmest filled mark on the canvas (fixed); `design-reference.md` promises a spring reflow on add and **no code implements one** — the tree jump-cuts and only the trace draws, which contradicts priority 2 as stated; labels can land more than two rows from their own node with no leader line, so a whole right-hand stack reads off by one; the time axis carries a single numeric tick on shallow selections, which is most first queries; `dinosaur` and `ape` dead-end on a broken-taxon note that names nothing clickable (`oak` no longer does — it answers with nine oak species, and handoff §7 records why giving *Quercus* a note as well is worth doing only once that note has somewhere to go); and there is no way into the app but a keyboard shortcut, which makes it unusable on touch. Still outstanding, still worth reading in full.
 
-Related, and still true: **get a critical design pass from someone other than whoever wrote the UI.** It implements `design-reference.md` faithfully — phosphor persistence, the MRCA flare at `t=80`, orthogonal traces, semantic zoom, dash-not-luminance for provenance. Whether it actually *reads* that way on screen is a different question, and its author is the wrong person to answer it. A fresh agent instance with no memory of building it is an acceptable substitute; the author re-reading their own work is not.
+Related, and still true: **get a critical design pass from someone other than whoever wrote the UI.** It implements `design-reference.md` faithfully — phosphor persistence, the MRCA flare at `t=80`, orthogonal traces, dash-not-luminance for provenance. Whether it actually *reads* that way on screen is a different question, and its author is the wrong person to answer it. A fresh agent instance with no memory of building it is an acceptable substitute; the author re-reading their own work is not.
 
 ## The culture of this codebase, which matters more than the schedule
 

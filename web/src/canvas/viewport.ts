@@ -61,10 +61,12 @@ export const CARD_STACK_MAX_H = 0.58;
  * Below this the reserve stops being a kindness. The plot floors at
  * `MIN_PLOT_W` (340) and the labels hanging off both sides are worth another
  * 250–300 between them, so a free strip under ~420px fits that content at a
- * scale below `Z_LABEL` and semantic zoom correctly drops every name the tree
- * has. A tree with a corner covered is a better answer than a tree with no
- * names on it, so under this width the reserve is refused and
- * {@link revealShift} is the whole of the remedy.
+ * scale that renders 12.5px type at around 7px. The names no longer *vanish*
+ * there — the semantic-zoom tiers that used to drop them are gone — which makes
+ * this threshold matter more rather than less: what is left is names nobody can
+ * read, and the reader has no way to tell that from names badly drawn. A tree
+ * with a corner covered is the better answer, so under this width the reserve
+ * is refused and {@link revealShift} is the whole of the remedy.
  */
 export const MIN_FREE_W = 420;
 

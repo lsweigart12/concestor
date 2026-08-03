@@ -1125,18 +1125,25 @@ pointing at the present, in the dot's own footprint. Four things not to redo:
 `AgeGlyphKind` is down to one member, correctly: the only word the age slot
 still has to say is *fossils*.
 
-**The age row also arrives far earlier than it used to.** The detail tier began
-at zoom **1.15**; the fit lands at 0.70 for four species and 1.144 for six, so
-the figure was absent from the default view and from nearly the whole band in
-which a label is drawn at all — a tier that is never reached is not a tier. It
-begins at **0.62** now, a hair above the 0.55 where the name itself arrives. The
-ordering above stands and the reasoning is unchanged; what was wrong was
-applying it as though the ruler answered the same question. It does not: the
-axis gives a node's **position**, and only the row gives its **number** and its
-**tier**. The two cannot be equal — the age is 11px against the name's 12.5, so
-the band is what spends the smaller row first — and below 0.55 no text renders
-at all, which is the legibility floor the silhouette exists to cover.
-`Z_LABEL` / `Z_DETAIL` in `canvas/Graph.tsx` are the numbers and carry the note.
+**The zoom no longer decides any of this, and the reader does.** The rows used
+to tier off with scale — name at 0.55, age at 0.62, and 1.15 before that — and
+the ordering above was right while the *mechanism* was wrong. Zoom is how a
+reader looks at a tree: pulling back to see the whole shape is the most ordinary
+thing they do and it took every name with it, while reading one name meant
+zooming until the tree no longer fitted. The thresholds were also guesses the
+fit kept landing either side of — the age tier at 1.15 against a fit of 1.144
+for six species, so **adding a sixth species stripped a row from every label on
+screen**. Nothing load-bearing may hang off a threshold the fit can cross.
+
+What survives is the *ordering*, as two controls rather than one axis: `labels`
+(off · common · scientific, defaulting to common) and `ages` (on · off),
+bottom-left above the axis,
+both in the URL. The age is the row that switches separately because it is the
+one the canvas already states another way. The rank does not get a third switch
+— it is what says a derived name is derived, and a control whose only honest
+setting is on is not a control. `chrome/LabelModes.tsx` and design-reference.md's
+*What a label says* are the account; `name-ranking.md` §7 is the common-name
+half, including why it is restricted to genus, species and subspecies.
 
 ### A rank the taxonomy does not give, from the catalogue that does
 
@@ -1196,8 +1203,8 @@ because there are two questions:
 - **The reserve.** `cardReserve` narrows the width the fit is computed against,
   and `plotWidth` follows it. That is deliberately the same path a real window
   resize takes: the plot shrinks so the fit stays near 1:1 and the labels keep
-  their designed size, rather than the same tree being scaled down until
-  semantic zoom drops every name it has. The whole tree then reframes into the
+  their designed size, rather than the same tree being scaled down until every
+  name on it is 6px of type. The whole tree then reframes into the
   strip beside the card, timeline and all.
 - **The reveal.** `revealShift` is the floor under that — the smallest pan that
   puts the subject back inside the part of the canvas the card is not on.
@@ -1207,9 +1214,11 @@ because there are two questions:
 Five things not to redo:
 
 - **The reserve is refused below `MIN_FREE_W`.** At 800px wide the card leaves
-  408px of canvas, which fits a `MIN_PLOT_W` tree and its labels at a scale
-  under `Z_LABEL` — so honouring the card would buy a tree with no names on it,
-  which is worse than a tree with a corner covered. Under that width the reveal
+  408px of canvas, which fits a `MIN_PLOT_W` tree and its labels at a scale that
+  renders the names at around 7px — so honouring the card would buy a tree
+  nobody can read, which is worse than a tree with a corner covered. This got
+  *sharper* when the zoom tiers went: the names no longer vanish at that scale,
+  so nothing on screen would tell the reader why they cannot read them. Under that width the reveal
   is the entire remedy, and it is enough.
 - **The reserve is also refused while the reader is off the fit**, and this is
   the constraint that shaped the design. Taking it *re-lays out* the tree, so it
@@ -1237,6 +1246,107 @@ Five things not to redo:
 stacked card's `top` and `max-height` to styles.css by reading it, on the same
 principle as `labels.ts`'s font constants. The failure mode without that is
 silent: the tree simply starts sliding a little way back under the card.
+
+### What a mark says is the reader's choice, not the zoom's
+
+Semantic zoom is **gone**. Three tiers decided which rows a label drew — mark
+and silhouette, + rank and name at 0.55, + age at 0.62 — and it was a rule about
+legibility answering a question about intent. Pulling back to see the whole tree
+is the most ordinary thing anyone does here and it silently took every name;
+reading one name meant zooming until the tree no longer fitted. Two switches
+replace it, bottom-left above the axis, in a stack with bioluminescence because
+the three are one set: **controls that change how the canvas is drawn rather
+than what is on it**.
+
+Eight things not to redo:
+
+- **The lesson is the threshold, not the tiers.** The age tier sat at 1.15 and
+  the fit lands at 1.144 for six species, so adding a sixth species stripped a
+  row from every label on screen. Nothing load-bearing may hang off a number the
+  fit can wander across — which is the same fact that once stripped every
+  silhouette from the default view, recorded twice now and worth believing.
+- **The rank travels with the name and gets no switch of its own.** It carries
+  `DIVERGENCE_META`, the only mark saying a derived name *is* derived, and
+  without it `Homo / Pan` sits where every real taxon name sits and reads as
+  one. Under the tiering it was gated a tier below the name it qualifies, which
+  is how that was found. A control whose only honest setting is on is not a
+  control.
+- **A common name is served for genus, species and subspecies only.** Above
+  that it names a group rather than a kind of animal, and §3's whole demotion
+  machinery exists because those words mean something else — a fork captioned
+  "great apes" has named a clade after its crown group. The rule is applied in
+  the server, which does not send one, *and* in `markName`, which would not draw
+  one; the duplication is deliberate, so a payload predating the restriction
+  cannot leak one through.
+- **Rank 1 or silence.** `HeadlineVernaculars` is the strict sibling of
+  `BestVernaculars`: on the canvas the common name *replaces* the scientific one
+  rather than captioning it, so an unranked guess would be another taxon's word
+  in the only slot saying which taxon a mark is. Silence means the scientific
+  name, which is never wrong, and a build predating the `names` phase therefore
+  draws no common names at all.
+- **The italics were already the channel.** `NamePart.rank` is null for
+  punctuation, so a common name is a run with `rank: null` and the existing
+  renderer sets it roman with no new rule. It is the only thing telling a reader
+  which kind of name they are looking at on a canvas that is always a mixture —
+  110,794 nodes of 2.7M carry an English name.
+- **A divergence keeps its Latin more often than you would expect, and that is
+  `firstNamed` working.** The derived name reads the *suppressed run* before the
+  leaf, deliberately, so a node separating two genera is not labelled with two
+  species — and 5,548 genera carry a ranked name against 99,960 species. Human
+  and chimp alone still read "Homo / Pan". Where the genera do have names it
+  translates run by run, and `abbreviateRepeatedGenus` is skipped for those:
+  `H. erectus` is a convention of scientific names and applied to "Human" it
+  gives "H. uman".
+- **The letter a mode takes is the letter that names it.** The labels took `L`
+  and the time scale moved to `T` — `l` names the labels, where it only ever
+  named one of the two scales it switched between. `A` is the ages, `B` the
+  light, and the four canvas modes are now the four rows in `bindings.ts` with
+  no `chrome` entry, because their controls live on the bottom edge rather than
+  in the control bar. `L` **cycles** through three states where every other
+  toggle here flips, which is legible only because the chip is beside it: the
+  reader sees where the press landed and what the next one will do.
+- **A label with no words must reserve none.** `metricsFor` floored at
+  `MIN_TEXT_W` (88) and one name line whatever the strings were, because before
+  this there was always a name. A box padded out to where the text *would* have
+  been pushes every neighbouring label aside — on a wordless canvas, the whole
+  layout spread out around nothing.
+- **The three controls are one panel, not three chips**, and it took two passes.
+  Three chips each drew their own border and sized themselves to their own
+  words, so the columns began at three different x positions and a set read as
+  clutter; the rows share the panel's grid through `subgrid` now. Then the
+  caption sat in a *column*, which is as wide as the longest word in the set —
+  `BIOLUMINESCENCE` deciding the indent of a row reading `AGES` — so it stacks
+  **above** its switch instead: 322px wide became 217. Two more, both found on
+  screen rather than reasoned out: the caption set like the segments read as a
+  **fourth option** (`labels off scientific common` is four words and three are
+  pressable), which small-caps mono plus a recessed track fixes; and an option
+  must grow from its own word rather than from zero, or the widest word in a row
+  sets every option in it — `off` as wide as `scientific`, three times over. The
+  three switches are one width because the three-option row packs tight and
+  *sets* it at 164px while the two-option rows spread into it, which is the
+  narrowest common width there is rather than one anybody picked.
+  design-reference.md's *What a label says* is the anatomy.
+
+**Neither is in the URL**, and that is the second thing this shares with
+bioluminescence. Both live in `sessionStorage`, per-tab. The line is what a
+setting is *about*: everything `encode` writes is a claim about taxa, and these
+are claims about the reader — which name they read a taxon by, whether they want
+the figure. A link carrying them imposes one person's habits on somebody who did
+not ask, and the sharp case is louder than the light's ever was: a link made
+while the labels were **off** opens on a canvas of unnamed dots with nothing on
+screen saying why. A fresh tab therefore always starts at scientific names and
+ages on. The labels mode is the first stored preference with *three* values, so
+`loadLabels` looks the string up in `LABEL_MODES` rather than comparing down a
+chain — a stored value this app did not write has somewhere wrong to land, which
+the booleans cannot have.
+
+They are on `L` and `A`, which cost the time scale its letter: it moved to `T`.
+That is the better trade in both directions — `l` names what it switches now,
+where before it named one of the two scales it toggled between, and a reader
+whose fingers remember the old `l` lands on a chip in the same corner of the
+canvas rather than on nothing. `L` **cycles** where every other toggle on that
+edge flips, which is legible only because the chip is beside it: the reader sees
+where the press landed and what the next one will do.
 
 ---
 

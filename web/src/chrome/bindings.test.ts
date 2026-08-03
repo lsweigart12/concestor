@@ -19,9 +19,20 @@ describe("matchKey", () => {
     expect(matchKey(press("f"))).toBe("fit");
     expect(matchKey(press("/"))).toBe("isolate");
     expect(matchKey(press("Tab"))).toBe("step");
-    expect(matchKey(press("l"))).toBe("axis");
     expect(matchKey(press("r"))).toBe("random-species");
     expect(matchKey(press("c"))).toBe("clear");
+    expect(matchKey(press("b"))).toBe("biolum");
+  });
+
+  it("gives the four canvas modes the bottom edge and four letters", () => {
+    // `t` for time, `l` for labels, `a` for ages, `b` for the light. The axis
+    // held `l` first and gave it up when the labels arrived: `l` names what it
+    // switches now, where before it named one of the two scales it toggled
+    // between. A reader whose fingers remember the old `l` lands on a chip in
+    // the same corner of the canvas rather than on nothing.
+    expect(matchKey(press("t"))).toBe("axis");
+    expect(matchKey(press("l"))).toBe("labels");
+    expect(matchKey(press("a"))).toBe("ages");
     expect(matchKey(press("b"))).toBe("biolum");
   });
 

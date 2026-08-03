@@ -294,12 +294,16 @@ function metricsFor(n: LabelInput, wrap: number, cap: number): Metrics {
   );
   const rows = (w: number) =>
     w ? Math.max(1, Math.ceil(w / textMaxWidth)) : 0;
-  const nameRows = Math.max(1, Math.ceil(nameW / textMaxWidth));
   const metaRows = rows(ageW) + rows(rankW);
 
-  const textW = Math.min(naturalText, textMaxWidth);
-  const textH = nameRows * NAME_LINE + metaRows * META_LINE;
-  const silW = n.hasSilhouette ? SIL + SIL_GAP : 0;
+  // A label with no words at all is a real state now that the reader can turn
+  // them off, and it must reserve nothing rather than the 88px floor and the
+  // name's line: the silhouette is the whole label, and a box padded out to
+  // where the text would have been pushes every neighbouring label aside to
+  // keep room for a string nobody asked to see.
+  const textW = naturalText ? Math.min(naturalText, textMaxWidth) : 0;
+  const textH = rows(nameW) * NAME_LINE + metaRows * META_LINE;
+  const silW = n.hasSilhouette ? SIL + (textW ? SIL_GAP : 0) : 0;
 
   return {
     width: silW + textW,

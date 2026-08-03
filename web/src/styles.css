@@ -3170,32 +3170,54 @@ body.biolum .control:hover:not(:disabled) {
 }
 
 /*
- * The switch itself, bottom left, above the axis.
+ * The canvas-mode chips, bottom left, above the axis.
  *
- * It shares `.axis-mode`'s anatomy and its quiet-default rule — plain ink at
- * the default, the whole chip lit when the reader has departed from it. What it
- * does not share is the position: the two are the only controls on this edge,
- * and putting them at opposite ends keeps the axis footer's own line free
- * between them.
+ * Three of them — labels, ages, bioluminescence — in one column, because they
+ * are one set: the controls that change how the canvas is *drawn* rather than
+ * what is on it. The control bar at the top owns the other half of that split.
+ * They sit at the opposite end of this edge from `.axis-mode`, which keeps the
+ * axis footer's own line free between them.
+ *
+ * The column is pinned by its bottom edge and grows upward, so the light stays
+ * where it has always been and the two new switches arrive above it rather than
+ * pushing it. Top to bottom that reads: the words, the figure that annotates
+ * them, then the light — which is also the order of how much each one changes.
  *
  * `--lane-h` is why the offset is a `calc` rather than a constant. The
- * drill-down lane stacks on the axis and can be several rows tall, and a switch
+ * drill-down lane stacks on the axis and can be several rows tall, and a stack
  * pinned to `--axis-h` alone would slide underneath it the moment a reader
  * opened one. `Graph.tsx` publishes the live height because it is the only
  * thing that knows it.
  */
-.biolum-mode {
+.canvas-modes {
   position: absolute;
   left: var(--s4);
-  bottom: calc(var(--axis-h) + var(--lane-h, 0px) + 12px);
+  /* Clear of the epoch band, not resting on it. 12px put the bottom chip's
+     border a hair off the band's top edge, which reads as one stack rather
+     than as a control floating over a chart. */
+  bottom: calc(var(--axis-h) + var(--lane-h, 0px) + 26px);
   z-index: 6;
   pointer-events: auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 4px 3px 5px;
+
+  /*
+   * Two columns for the whole panel — key · switch — shared by every row through
+   * `subgrid` below, with each caption stacked *above* its own switch.
+   *
+   * The caption used to be a third column, and its width was set by the longest
+   * word in the set: `BIOLUMINESCENCE`. That is 15 characters deciding the
+   * indent of a row that says `AGES`, so two of the three rows carried a run of
+   * dead space and the panel was half caption. Stacked, the caption costs a line
+   * instead of a column, the panel is as wide as its widest *switch*, and the
+   * two columns left are the two that actually have to line up.
+   *
+   * The panel owns the border; the rows own nothing but their own lit state.
+   */
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 7px 7px;
+  padding: 6px 8px;
   border: 1px solid var(--hairline);
-  border-radius: 6px;
+  border-radius: 8px;
   background: var(--void-3);
   font-family: var(--sans);
   font-size: 11px;
@@ -3203,30 +3225,140 @@ body.biolum .control:hover:not(:disabled) {
   white-space: nowrap;
   color: var(--ink-2);
   transition:
-    background 140ms ease,
     border-color 140ms ease,
-    box-shadow 140ms ease,
     bottom 240ms var(--spring);
 }
 
-.biolum-mode:hover {
+.canvas-modes:hover {
   border-color: var(--hairline-strong);
 }
-.biolum-mode:hover .kbd {
+
+/*
+ * One control: a caption on its own line, then the key and the switch under it.
+ *
+ * `subgrid` is what makes the second line a row of the *panel's* grid rather
+ * than of a box of its own — without it each chip lays out independently and the
+ * badges stop lining up with each other.
+ */
+.mode-chip {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  align-items: center;
+  row-gap: 2px;
+  padding: 2px 4px 3px;
+  margin: 0 -4px;
+  border-radius: 6px;
+  transition:
+    background 140ms ease,
+    box-shadow 140ms ease;
+}
+
+/* Without subgrid the declaration is dropped and each row collapses to one
+   column — three cells stacked vertically, which is a worse layout than the one
+   this replaced. A flex row is the honest fallback: the columns stop aligning,
+   but the control still reads. */
+@supports not (grid-template-columns: subgrid) {
+  .canvas-modes {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .mode-chip {
+    display: block;
+  }
+  .mode-key:not(:empty) {
+    margin-right: 7px;
+  }
+}
+
+/* The badge cell. Always present, empty where a chip has no key, because a
+   collapsed cell is what pulls the rest of its row out of line. */
+.mode-key:not(:empty) {
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  border: 1px solid var(--hairline);
+  background: var(--void);
+  color: var(--ink-3);
+  text-align: center;
+}
+.mode-chip:hover .mode-key:not(:empty) {
   border-color: var(--hairline-strong);
   color: var(--accent);
 }
 
-/* The word is outside both segments, unlike the scale's. "off" and "on" name
-   nothing on their own, where "linear" and "log" do. */
-.biolum-name {
+/*
+ * The caption, and it must not read as a fourth option.
+ *
+ * Set like its neighbours it did exactly that: `labels off scientific common`
+ * is four words in a row, three of them pressable, so the control appeared to
+ * be sitting on a state nobody could name. Small-caps mono is this app's
+ * existing vocabulary for a field label — `.mark-meta` prints a taxon's rank
+ * the same way — and it is a different *typeface* from the options rather than
+ * a different shade of the same one, which is the part that survives a glance.
+ * The recessed track beside it does the other half of the job.
+ */
+.mode-name {
+  /* Its own line, above the key and the switch it names — so the set is three
+     captioned blocks rather than three rows sharing a column as wide as the
+     longest word any of them happens to use. */
+  grid-column: 1 / -1;
+  justify-self: start;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
   color: var(--ink-4);
-  padding-right: 2px;
 }
 
-.biolum-seg {
+/*
+ * The switch itself: a recessed track holding the options.
+ *
+ * The boundary is the point. A reader has to be able to see where the pressable
+ * thing starts without reading any of the words in it, and an inset well with a
+ * raised active segment is the one convention that says so at this size.
+ */
+.mode-track {
+  /* Fills the column, so all three switches are one width. The column is sized
+     to the *natural* width of the widest switch — the three-option one, packed
+     as tight as its words allow — so this is the narrowest common width there
+     is rather than a number anybody chose. */
+  justify-self: stretch;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 2px;
+  border-radius: 6px;
+  background: var(--void);
+  box-shadow: inset 0 0 0 1px var(--hairline);
+  transition:
+    background 140ms ease,
+    box-shadow 140ms ease;
+}
+
+/*
+ * An option is never narrower than its own word, and shares what is left over.
+ *
+ * `flex: 1 1 auto` rather than `flex: 1`, and the difference is the whole of how
+ * the switches can be one width without looking arranged. `flex: 1` sets every
+ * basis to zero and hands each option an equal share, which makes the widest
+ * word in a row set the width of every option in it — `off` as wide as
+ * `scientific`, three times over, and a three-option switch half again as wide
+ * as it needs to be. Growing from the natural width instead means the
+ * three-option row is packed as tight as its words allow and therefore *sets*
+ * the common width, while the two-option rows spread into it.
+ *
+ * The horizontal padding is 6px and not 8 for the same reason: it is multiplied
+ * by six across the widest row, so it is the cheapest 12px the panel can give
+ * back.
+ */
+.mode-seg {
   appearance: none;
-  padding: 2px 7px;
+  flex: 1 1 auto;
+  text-align: center;
+  padding: 2px 6px;
   border: 1px solid transparent;
   border-radius: 4px;
   background: transparent;
@@ -3239,19 +3371,49 @@ body.biolum .control:hover:not(:disabled) {
     color 140ms ease,
     border-color 140ms ease;
 }
-.biolum-seg:hover {
+.mode-seg:hover {
   color: var(--ink-2);
 }
-.biolum-seg:focus-visible {
+.mode-seg:focus-visible {
   outline: none;
   border-color: var(--accent-dim);
   color: var(--ink);
 }
-.biolum-seg.is-on {
-  background: var(--void);
+.mode-seg.is-on {
+  background: var(--void-3);
   border-color: var(--hairline);
   color: var(--ink);
   cursor: default;
+}
+
+/*
+ * Away from the default, in the app's accent — the same treatment `.axis-mode`
+ * gets, because these say the same kind of thing about themselves.
+ *
+ * On the base rather than on each variant, so a chip added later is lit by
+ * default and a variant only has to write down what is *different* about it.
+ * `.biolum-mode` below is the one that has anything to say.
+ */
+.mode-chip.is-modified {
+  background: hsl(var(--accent-h) 40% 30% / 0.16);
+}
+.mode-chip.is-modified .mode-name {
+  color: var(--accent-dim);
+}
+.mode-chip.is-modified .mode-track {
+  box-shadow: inset 0 0 0 1px hsl(var(--accent-h) 40% 44% / 0.45);
+}
+.mode-chip.is-modified .mode-seg.is-on {
+  background: hsl(var(--accent-h) 60% 50% / 0.18);
+  border-color: hsl(var(--accent-h) 45% 50% / 0.45);
+  color: var(--accent);
+}
+/* The way back out, and it has to stay legible or the state is a trap. */
+.mode-chip.is-modified .mode-seg:not(.is-on) {
+  color: var(--ink-3);
+}
+.mode-chip.is-modified .mode-seg:not(.is-on):hover {
+  color: var(--ink);
 }
 
 /*
@@ -3260,36 +3422,38 @@ body.biolum .control:hover:not(:disabled) {
  * Everywhere else `is-modified` is a colour change and nothing more.
  */
 .biolum-mode.is-modified {
-  border-color: hsl(186 80% 60% / 0.34);
-  background: hsl(196 60% 7% / 0.92);
-  box-shadow:
-    0 0 0 1px hsl(186 90% 60% / 0.06),
-    0 0 16px hsl(186 95% 55% / 0.14);
+  background: hsl(186 60% 30% / 0.14);
+  box-shadow: 0 0 14px hsl(186 95% 55% / 0.1);
 }
-.biolum-mode.is-modified .biolum-name {
-  color: var(--accent-dim);
+.biolum-mode.is-modified .mode-name {
+  color: hsl(186 60% 68%);
 }
-.biolum-mode.is-modified .biolum-seg.is-on {
+.biolum-mode.is-modified .mode-track {
+  box-shadow: inset 0 0 0 1px hsl(186 75% 58% / 0.32);
+}
+.biolum-mode.is-modified .mode-seg.is-on {
   background: hsl(186 70% 46% / 0.16);
   border-color: hsl(186 75% 58% / 0.4);
   color: hsl(186 90% 82%);
   text-shadow: 0 0 10px hsl(186 100% 60% / 0.5);
 }
-.biolum-mode.is-modified .biolum-seg:not(.is-on) {
+.biolum-mode.is-modified .mode-seg:not(.is-on) {
   color: var(--ink-4);
 }
-.biolum-mode.is-modified .biolum-seg:not(.is-on):hover {
+.biolum-mode.is-modified .mode-seg:not(.is-on):hover {
   color: var(--ink-2);
 }
 
-/* Narrow: the word goes, the switch stays. Same trade the control bar makes,
-   and for the same reason — the badge and the two states still say everything
-   the control does. */
-@media (max-width: 620px) {
-  .biolum-name {
-    display: none;
-  }
-}
+/*
+ * The word stays at every width, and it used to go under 620px.
+ *
+ * That was a fair trade while there was one chip here: a lit switch reading
+ * "off | on" beside a `B` badge could only be the one control on that edge.
+ * With three stacked it is not — two of them are "off | on" and neither says
+ * which. Measured at 375px the widest chip is 222px with its word, so the trade
+ * was buying nothing. The control bar still makes it, because there the badge
+ * is the name.
+ */
 
 /* ------------------------------------------------------------- reduced -- */
 

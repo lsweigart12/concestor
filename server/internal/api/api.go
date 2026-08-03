@@ -172,11 +172,28 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, code int, msg stri
 
 // Entry is one node as it appears in a path, a segment or a detail card.
 type Entry struct {
-	Idx                 int      `json:"idx"`
-	Key                 string   `json:"key"`
-	OttID               *int64   `json:"ott_id"`
-	Name                *string  `json:"name"`
-	Rank                *string  `json:"rank"`
+	Idx   int     `json:"idx"`
+	Key   string  `json:"key"`
+	OttID *int64  `json:"ott_id"`
+	Name  *string `json:"name"`
+	Rank  *string `json:"rank"`
+	// The name this taxon goes by, for a canvas drawing common names instead of
+	// scientific ones. Absent — not empty — wherever there is no such name.
+	//
+	// It carries two restrictions, both of them deliberate and both of them
+	// applied here rather than left to a client. It is the name ranked *first*
+	// by use and never a lower-ranked one (store.HeadlineVernaculars), and it is
+	// populated only for **genus, species and subspecies**. The second is the
+	// one worth defending: a common name higher up the tree names a group rather
+	// than a kind of animal, so Metazoa reads "animals" and Ferae reads "bug" —
+	// the demotions `docs/name-ranking.md` §3 records exist precisely because
+	// those words' ordinary referents are something else. 97.1% of the ranked
+	// names sit at these three ranks anyway, so the restriction costs the canvas
+	// almost nothing and removes the whole class of label that would be wrong.
+	//
+	// A caller that wants every name a node has wants /v1/node's Vernaculars,
+	// which is a list and is not restricted.
+	Vernacular          *string  `json:"vernacular,omitempty"`
 	AgeMa               *float64 `json:"age_ma"`
 	AgeLayout           *float64 `json:"age_layout"`
 	Tier                *string  `json:"tier"`
@@ -246,6 +263,18 @@ type Entry struct {
 	DivergenceRange *store.Occurrence `json:"divergence_range,omitempty"`
 }
 
+// The ranks a common name may be served for. See Entry.Vernacular.
+//
+// Spelled as OTT spells them. `subspecies` is in because OTT files *Homo
+// sapiens neanderthalensis* there and a reader who selects a Neanderthal has
+// selected a kind of animal, not a group; `varietas` is out, along with every
+// rank above genus, because both directions from these three stop naming one.
+var vernacularRanks = map[string]bool{
+	"genus":      true,
+	"species":    true,
+	"subspecies": true,
+}
+
 // entries turns a list of indices into API entries, preserving order.
 func (s *Server) entries(r *http.Request, idxs []int) ([]Entry, error) {
 	ctx := r.Context()
@@ -295,6 +324,19 @@ func (s *Server) entries(r *http.Request, idxs []int) ([]Entry, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The rank filter runs off the metadata we already hold, so a path of 41
+	// nodes asks about the two or three of them a common name may be drawn for
+	// rather than all 41. See Entry.Vernacular for why those three ranks.
+	var named []int
+	for _, idx := range idxs {
+		if r := metas[idx].Rank; r != nil && vernacularRanks[*r] {
+			named = append(named, idx)
+		}
+	}
+	commons, err := s.St.HeadlineVernaculars(ctx, named)
+	if err != nil {
+		return nil, err
+	}
 	a := s.St.Arrays
 	out := make([]Entry, 0, len(idxs))
 	for _, idx := range idxs {
@@ -302,6 +344,10 @@ func (s *Server) entries(r *http.Request, idxs []int) ([]Entry, error) {
 		e := Entry{
 			Idx: idx, Key: m.NodeKey, OttID: m.OttID, Name: m.Name, Rank: m.Rank,
 			TipCount: m.TipCount, Depth: m.Depth,
+		}
+		if c, ok := commons[idx]; ok {
+			v := c
+			e.Vernacular = &v
 		}
 		if e.Key == "" && a.Valid(idx) {
 			// The node table should always have the row; if a partially-built
