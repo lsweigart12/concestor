@@ -322,7 +322,9 @@ deploys on a release cadence rather than per-commit.
 | `GET /v1/random?kind=` | random taxa that carry their own drawing, from one corpus or the other | one full scan behind `ORDER BY random()`, 83–100 ms |
 
 All responses are `Cache-Control: immutable` keyed by build id, because the data cannot
-change within a build. A CDN in front absorbs essentially all traffic.
+change within a build. A CDN in front absorbs essentially all traffic — on Cloudflare
+that is Workers Cache, enabled in `web/wrangler.jsonc`, and `deployment.md` §5 is why
+the header alone was not enough to earn this sentence.
 
 **`/v1/random` is the one exception, and it must stay one.** Its answer is not a
 function of the build, so it is served `no-store` with no ETag. Through the
