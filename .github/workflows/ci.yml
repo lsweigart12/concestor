@@ -66,13 +66,15 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # web/public's .ico and touch icon are generated from favicon.svg.
-      # `src/icons.test.ts` pins the generator's geometry to the SVG; this
-      # pins the committed bytes to the generator, which is the half a test
-      # inside web/ cannot do without carrying a second rasteriser. Standard
-      # library only, so the runner's python3 is the whole dependency and this
-      # runs before node is even set up.
-      - name: icons are current
+      # web/public's .ico and touch icon are generated from favicon.svg, and
+      # og.png — the card every shared link unfurls into — from the same
+      # script. `src/icons.test.ts` and `src/meta.test.ts` pin the generator's
+      # geometry to the SVG and to the document's tags; this pins the committed
+      # bytes to the generator, which is the half a test inside web/ cannot do
+      # without carrying a second rasteriser. Standard library only, so the
+      # runner's python3 is the whole dependency and this runs before node is
+      # even set up.
+      - name: generated images are current
         run: python3 scripts/make-icons.py --check
 
       - uses: actions/setup-node@v7

@@ -4,6 +4,9 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="dark" />
+    <!-- The void, so a mobile browser's chrome joins the canvas rather than
+         framing it. Pinned to styles.css by meta.test.ts. -->
+    <meta name="theme-color" content="#0a0a0b" />
 
     <!-- The order is the fallback: a browser takes the LAST rel=icon it can
          render, so .ico first. public/favicon.svg is the design and
@@ -13,7 +16,44 @@
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 
-    <title>Concestor</title>
+    <title>Concestor — explore the tree of life in deep time</title>
+
+    <!-- What a shared link unfurls into and what a search result says. The
+         tags are static and the URLs absolute on the apex in wrangler.jsonc —
+         a scraper resolves neither a relative og:image nor a `sel=`. Both
+         decisions, and why a per-selection card was refused, are in
+         design-reference.md §"The share card"; src/meta.test.ts pins every
+         claim below to the file that decides it. Kept to pointers on purpose:
+         see the note on the icons above. -->
+    <meta
+      name="description"
+      content="Pick any two species and see where their lineages meet: the minimal tree through their common ancestors, drawn against deep time."
+    />
+    <link rel="canonical" href="https://concestor.com/" />
+
+    <meta property="og:type" content="website" />
+    <meta
+      property="og:title"
+      content="Concestor — explore the tree of life in deep time"
+    />
+    <meta
+      property="og:description"
+      content="Pick any two species and see where their lineages meet: the minimal tree through their common ancestors, drawn against deep time."
+    />
+    <meta property="og:url" content="https://concestor.com/" />
+    <meta property="og:image" content="https://concestor.com/og.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="Four lineages running toward the present, converging through two divergences on one bright common ancestor, above a time axis."
+    />
+
+    <!-- The one Twitter tag: X reads og: for everything else, but the card
+         *format* has no og equivalent, and without this a 1200×630 image is
+         served in a small square thumbnail. -->
+    <meta name="twitter:card" content="summary_large_image" />
   </head>
   <body>
     <div id="root"></div>

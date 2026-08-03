@@ -1238,6 +1238,46 @@ stacked card's `top` and `max-height` to styles.css by reading it, on the same
 principle as `labels.ts`'s font constants. The failure mode without that is
 silent: the tree simply starts sliding a little way back under the card.
 
+### A shared link now says what it is, and shows it
+
+The document carried a title, a viewport and a colour scheme, so every link
+anyone sent unfurled as the word "Concestor" and a blank rectangle — the one
+surface where this app meets a person who has never seen it, describing itself
+with nothing. `index.html` now carries a description, a canonical link, the
+Open Graph set and `twitter:card`, and `scripts/make-icons.py` grew a third
+output: `web/public/og.png`, the 1200×630 card. `docs/design-reference.md`
+§"The share card" is the design; this is what not to redo.
+
+- **The card is generated, not committed as an opaque PNG.** That is the same
+  rule the icons already live under and the reason is the same: an image nobody
+  can regenerate stops matching the product the first time the palette moves,
+  and nothing in the repository can tell. It is 120 lines of distance fields in
+  the standard library — no font, no rasteriser, ~1.7 s for all four files —
+  and `--check` is what makes it a gate rather than a good intention.
+- **`png()` now picks its row filter per image, and the textbook answer was
+  measured and rejected.** libpng's per-row minimum-sum-of-absolute-differences
+  heuristic optimises each row in isolation, but what carries these images is
+  LZ77 matching across rows: on the touch icon it costs 60% (`None` 3,016
+  bytes, adaptive 4,824, all-`Up` 5,082), while the card's radial ramp wants
+  `Up` (47,549 against 42,758). So both whole-image filters are compressed and
+  the smaller ships, which left the two committed rasters byte-identical.
+- **The metadata is checked against other files, never against a second copy of
+  itself.** `meta.test.ts` reads the apex out of `wrangler.jsonc`, the void out
+  of `styles.css`, `LANE_HUES` out of `layout.ts`, and the card's size out of
+  the PNG's own IHDR. Every failure this file exists to catch is invisible from
+  inside the app: a title and an `og:title` that drift apart, a card redrawn at
+  a new size with the old one still declared (which every scraper obeys, and
+  letterboxes), a relative `og:image` (which most drop entirely), a domain move
+  that leaves absolute URLs on the old host.
+- **`ambient.d.ts` gained a binary `readFileSync` overload**, typed
+  `Uint8Array` rather than `Buffer`. `Buffer` is a Node global and the point of
+  that file is that this project has none; a `Buffer` *is* a `Uint8Array`, so
+  nothing untrue is claimed.
+- **Per-selection cards were refused on cost**, not overlooked. The reasoning
+  and what would reopen it are in the design doc, and the short version is that
+  it moves `/` from a static asset to a Worker route with a container hop on
+  the critical path of a cold human load.
+
 ---
 
 ## 4. Corrections to the design docs
