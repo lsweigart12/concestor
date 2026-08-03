@@ -165,10 +165,11 @@ export interface GraphProps {
   /**
    * Which words the marks carry, and whether they print an age.
    *
-   * Two switches rather than one, both view state, both in the URL. They land
-   * on the canvas rather than the control bar for the reason `BiolumToggle`
-   * states: the bottom edge holds the controls that change *how the canvas is
-   * drawn*, and the top bar the ones that change *what is on it*.
+   * Two switches rather than one, and both are session state rather than view
+   * state — they say how one reader wants the canvas drawn, so they are not in
+   * the link. They land on the canvas rather than the control bar for the reason
+   * `BiolumToggle` states: the bottom edge holds the controls that change *how
+   * the canvas is drawn*, and the top bar the ones that change *what is on it*.
    */
   labels: LabelMode;
   onLabels: (m: LabelMode) => void;
@@ -855,6 +856,55 @@ function Inner(props: GraphProps) {
     lastAxis.current = axisMode;
     return scheduleFit(20, reduced ? 0 : 420);
   }, [axisMode, scheduleFit, reduced]);
+
+  /**
+   * And when the container itself changes size, which is the same event again
+   * by the third route.
+   *
+   * `plotWidth` follows `vw`, so a resize has *already* re-laid the tree out by
+   * the time this runs — the old transform is framing a tree that is no longer
+   * that shape, and the reader is left off-centre with no way to ask for the
+   * fit back except the `F` key. The container starting at 0×0, as it does in
+   * the preview pane on first load, is the same bug at its worst: the first fit
+   * is computed against nothing, and without this nothing ever corrects it.
+   *
+   * Gated on `atFit` for the reason the card reserve is: a reader who has
+   * zoomed into a corner keeps their view across a resize, exactly as they keep
+   * it across a card opening. `atFit` starts true, so the 0×0 case is covered.
+   *
+   * The delay is doing real work here and is longer than the others. A window
+   * drag emits a resize per frame; each one clears the pending timeout, so the
+   * tree holds still through the gesture and reframes once, when it stops.
+   */
+  const lastSize = useRef({ vw, vh });
+  /**
+   * Whether a resize is still owed its reframe.
+   *
+   * The intent has to outlive the effect that formed it. This effect re-runs
+   * whenever `scheduleFit` changes identity, which is whenever the layout does
+   * — and its cleanup then cancels the pending reframe while the size guard,
+   * already satisfied, declines to schedule another. That is not hypothetical:
+   * it is the first-load case exactly. The container is 0×0 until the browser
+   * lays it out, the tree data lands a moment later, and the layout change
+   * arriving inside the delay ate the only fit the canvas was ever going to
+   * get. Held here, the reframe survives the re-run and is rescheduled by it.
+   */
+  const owedFit = useRef(false);
+  useEffect(() => {
+    if (lastSize.current.vw !== vw || lastSize.current.vh !== vh) {
+      lastSize.current = { vw, vh };
+      owedFit.current = atFit;
+    }
+    if (!owedFit.current) return;
+    const cancel = scheduleFit(60, reduced ? 0 : 380);
+    // Same delay, registered second, so it clears the debt just after the fit
+    // it belongs to has been asked for and never before.
+    const settle = window.setTimeout(() => (owedFit.current = false), 60);
+    return () => {
+      cancel();
+      window.clearTimeout(settle);
+    };
+  }, [vw, vh, atFit, scheduleFit, reduced]);
 
   /**
    * The floor under all of it: whatever else happened, the thing the card is

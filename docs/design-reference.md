@@ -621,6 +621,55 @@ it is chrome flashing over facts the app already holds.
   and the palette to the SVG, and `make-icons.py --check` pins the committed
   bytes to the generator.
 
+## The share card
+
+Every view of this app is a URL and the control bar has a button that copies
+it, so a link is how anyone arrives who did not type the domain. What that link
+unfurls into is `web/index.html`'s metadata and `web/public/og.png`, and until
+both existed a shared tree previewed as the bare word "Concestor" with no
+picture and no sentence.
+
+- **The card is the fork the icon could not be.** The tab's mark is concentric
+  circles because at 16px a stem with two arms is a `<`; at 1200×630 that
+  constraint is gone, so the card draws what the product actually does — four
+  lineages running toward the present, converging through two divergences onto
+  one bright common ancestor, which wears the icon's own mark at scale. The two
+  images come out of one script for exactly that reason: the tab and the card
+  are one glyph, written down once.
+- **It is the instrument, not a picture of one.** Stroke weights, the elbow a
+  branch turns, the dot sizes, the lane hues, the backdrop's radial ramp and
+  the 56px lattice are all `styles.css`, `layout.ts` and `TraceEdge.tsx`'s own
+  figures at a single scale factor. `meta.test.ts` pins the card's hues to
+  `LANE_HUES`, because a card drawn in colours that merely resemble the app is
+  a thing nobody would ever catch — nothing renders both.
+- **No word and no number on the image.** Every surface prints `og:title` and
+  `og:description` beside it, so text on the card would be a second copy of a
+  sentence that lives in the document — the copy that goes stale silently. A
+  figure would be worse: this tree is drawn rather than derived, and the one
+  rule this project does not bend is that it prints no age it cannot stand
+  behind. With nothing printed, nothing on the card can be wrong. It is also
+  what lets a stdlib rasteriser do the whole job: no font, no text shaping.
+- **Every branch is solid**, though the app's own canvas is full of dashes. The
+  dash channel is this project's statement that nobody has estimated a date,
+  and on a card that claims no dates there is nothing for it to be about. A
+  dashed branch here would be decoration wearing the one pattern that carries
+  meaning.
+- **The tags are static, deliberately.** A per-selection card — resolve `sel=`,
+  print the species, draw their tree — is the obvious next thing and it is
+  refused on cost, not taste. The document is a static asset; making it dynamic
+  means routing `/` through the Worker, which puts a container hop on the
+  critical path of a cold *human* load and not just a scraper's, and the image
+  would have to be rendered per selection somewhere the layout, the labels and
+  the silhouettes do not run today. What would reopen it: a measured demand for
+  it (`docs/analytics.md`'s `tree` event is what would show shared links being
+  followed), or a rendering path that already exists for another reason.
+- **`robots.txt` is a real file** for the same reason `favicon.ico` is: without
+  one, `not_found_handling: single-page-application` answers the request with
+  the app shell at 200, and a crawler handed HTML where directives belong reads
+  a document of syntax errors. There is one page to index — every view is
+  `/?sel=…` of one shell — which is what the canonical link says and why there
+  is no sitemap.
+
 ---
 
 ## Explicit non-goals

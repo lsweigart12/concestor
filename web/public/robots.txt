@@ -1,0 +1,16 @@
+# Without this file a crawler asking for /robots.txt is answered with
+# index.html at 200 — wrangler.jsonc's single-page-application fallback, which
+# is the same lie /favicon.ico used to tell before there was a real one. A
+# document where a directive list belongs is not refused; it is parsed, and
+# every line of it is ignored as a syntax error.
+#
+# Everything is allowed. There is exactly one page here: every view is `/?sel=…`
+# of the same shell, which is what index.html's canonical link says, so there is
+# no crawl to shape and no sitemap worth writing.
+#
+# /v1 is named because it is the only thing on this origin that is not a page.
+# Its responses are immutable JSON keyed by build id, there are millions of
+# them, and a crawler that follows one has found a maze rather than content.
+User-agent: *
+Allow: /
+Disallow: /v1/

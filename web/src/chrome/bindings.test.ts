@@ -84,6 +84,43 @@ describe("matchKey", () => {
     expect(matchKey(press("Backspace"))).toBe("remove");
     expect(matchKey(press("Delete"))).toBe("remove");
   });
+
+  it("hides Enter from the global handler and hands it to the surface", () => {
+    // The check that matters most in this file, because what it is preventing
+    // is invisible until somebody tries to press a button with the keyboard.
+    //
+    // App's handler preventDefaults everything it matches, and Enter is the
+    // browser's own way of activating a focused button — so a globally
+    // matched Enter would silently make every button in the app unpressable
+    // from the keyboard. The scope makes that impossible rather than
+    // remembered: App asks for `global` and is never handed this press.
+    expect(matchKey(press("Enter"))).toBeNull();
+    expect(matchKey(press("Enter"), "global")).toBeNull();
+    expect(matchKey(press("Enter"), "surface")).toBe("open-opening");
+  });
+
+  it("hands a surface no key that belongs to the app", () => {
+    // The other direction, and it is not symmetric by construction — a
+    // surface-scoped listener runs on `window` alongside the app's own, so a
+    // letter leaking into it would fire twice.
+    for (const key of ["p", "s", "f", "r", "c", "l", "b", "/", "Tab", "Escape"]) {
+      expect(matchKey(press(key), "surface")).toBeNull();
+    }
+  });
+
+  it("gives up a modified Enter, and takes a shifted one", () => {
+    // ⌘Enter and ⌃Enter are somebody else's — open in a new tab, send. Shift
+    // is not a modifier this table refuses, and the row carries no `shift`
+    // constraint on purpose, like `/`: ⇧Enter means nothing anywhere else on
+    // this canvas, and silence for a reader who happened to be holding it is
+    // a worse answer than the one they were reaching for.
+    expect(matchKey(press("Enter", { metaKey: true }), "surface")).toBeNull();
+    expect(matchKey(press("Enter", { ctrlKey: true }), "surface")).toBeNull();
+    expect(matchKey(press("Enter", { altKey: true }), "surface")).toBeNull();
+    expect(matchKey(press("Enter", { shiftKey: true }), "surface")).toBe(
+      "open-opening",
+    );
+  });
 });
 
 describe("the table itself", () => {

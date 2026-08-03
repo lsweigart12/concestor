@@ -139,6 +139,20 @@ const MAX_EVENTS = 32;
 const MAX_SUBJECT = 128;
 const MAX_TREE = 1024;
 const MAX_SESSION = 64;
+/** `blob4`'s width. The longest cause, `sequence-cut`, is 12 characters. */
+const MAX_CAUSE = 16;
+
+/**
+ * The field that marks a beacon line in Workers Logs, and its value.
+ *
+ * Workers Logs holds everything this Worker emits and everything the platform
+ * emits about it, so the browsable surface needs one filter that isolates the
+ * events from all of that: `concestor = "beacon"`. The name is the project's
+ * rather than something plausible like `event` or `type`, because a key that
+ * could collide with a platform field is a filter that quietly starts matching
+ * things nobody wrote. `docs/analytics.md` §9 is the dashboard.
+ */
+const LOG_MARKER = "beacon";
 
 /**
  * Record what the browser says happened.
@@ -153,6 +167,13 @@ const MAX_SESSION = 64;
  * so inserting a field in the middle silently reinterprets every row written
  * before it. Append only, and `docs/analytics.md` §3 is the table that says
  * what each one holds.
+ *
+ * Every accepted event is written **twice**, to two stores with different jobs:
+ * the dataset, which is durable and queried over SQL, and a structured log line,
+ * which is what the Workers Observability dashboard can chart. The log's keys
+ * are names rather than positions, so it is not bound by the paragraph above —
+ * but it carries the same values from the same variables, because two surfaces
+ * that can disagree about what a reader did are worse than one.
  */
 async function beacon(request: Request, env: Env): Promise<Response> {
   if (request.method !== "POST") return noStore(405);
@@ -183,17 +204,41 @@ async function beacon(request: Request, env: Env): Promise<Response> {
 
     const subject = str(e.subject, MAX_SUBJECT);
     const tree = str(e.tree, MAX_TREE);
+    const cause = str(e.cause, MAX_CAUSE);
+    // Derived here rather than sent, so it can never disagree with the string it
+    // describes. Both writers below take it from this one variable, for the same
+    // reason.
+    const size = tree === "" ? 0 : tree.split(",").length;
+
     env.TELEMETRY.writeDataPoint({
       // The sampling key. Low cardinality on purpose: Analytics Engine samples
       // per index once volume is high, so a chatty `search` never costs the
       // rarer `tree` its fidelity. It also means every count in SQL has to be
       // weighted by `_sample_interval` — docs/analytics.md §4.
       indexes: [kind],
-      blobs: [kind, subject, tree, str(e.cause, 16), sid],
-      // Derived here rather than sent, so it can never disagree with the string
-      // it describes.
-      doubles: [tree === "" ? 0 : tree.split(",").length],
+      blobs: [kind, subject, tree, cause, sid],
+      doubles: [size],
     });
+
+    // The same event again, as a log line, and the duplication is the design.
+    //
+    // Analytics Engine keeps this for three months and has no dashboard of any
+    // kind — a SQL API, a Grafana integration, and querying from a Worker. The
+    // Observability tab *is* a dashboard, with charts, a query builder and CSV
+    // export, and it reads whatever this Worker logs: a JSON object's fields are
+    // extracted and indexed, so each key below becomes something a reader can
+    // filter, group and visualise by. Neither store replaces the other — logs
+    // retain 7 days and are browsable, the dataset retains three months and is
+    // what `scripts/analytics-report.sh` reads — and docs/analytics.md §9 says
+    // which question to take to which.
+    //
+    // Flat, because a nested object is one key holding JSON rather than seven
+    // keys. And these are the *validated, truncated* values, never the parsed
+    // body: an unknown kind never reaches here, every string is capped, and a
+    // log holding unchecked client input is a log you cannot trust when you read
+    // it back — which matters more than the bytes, since the body is capped at
+    // 8 KB and a single log at 256 KB.
+    console.log({ concestor: LOG_MARKER, kind, subject, tree, cause, session: sid, size });
   }
 
   return noStore(204);
