@@ -568,17 +568,17 @@ export default function App() {
         // own right: it is the one thing in this app a reader would never guess
         // exists, and the palette is where you go to find out what does.
         id: "biolum",
-        title: tree.view.biolum
+        title: tree.biolum
           ? "Turn bioluminescence off"
           : "Turn bioluminescence on",
-        subtitle: tree.view.biolum
+        subtitle: tree.biolum
           ? "Back to the plain instrument"
           : "Light the canvas like the deep sea",
         hint:
           "Additive bloom on the branches, light travelling down each lineage, and a drifting " +
           "field of plankton behind the tree. Nothing about the data changes: every dash, every " +
-          "tier and every figure is identical in both states, and the state rides in the URL " +
-          "so a link carries it.",
+          "tier and every figure is identical in both states. It is yours for this tab only — " +
+          "a tree you share arrives unlit, however you are reading it.",
         icon: "✷",
         keys: kbd("biolum"),
         section: "View",
@@ -1236,9 +1236,9 @@ export default function App() {
    * written from the same boolean on the same render.
    */
   useEffect(() => {
-    document.body.classList.toggle("biolum", tree.view.biolum);
+    document.body.classList.toggle("biolum", tree.biolum);
     return () => document.body.classList.remove("biolum");
-  }, [tree.view.biolum]);
+  }, [tree.biolum]);
 
   // Chrome auto-hides. The canvas is the page.
   useEffect(() => {
@@ -1308,9 +1308,9 @@ export default function App() {
         drill={tree.view.drill}
         onDrill={tree.setDrill}
         grafts={grafts}
-        biolum={tree.view.biolum}
+        biolum={tree.biolum}
         onBiolum={(v) => {
-          if (v !== tree.view.biolum) tree.toggleBiolum();
+          if (v !== tree.biolum) tree.toggleBiolum();
         }}
         onPickFossil={(f) => {
           setPickedFossil(f);

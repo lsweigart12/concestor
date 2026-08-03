@@ -8,6 +8,12 @@
  * construction.
  *
  *   /?n=770315,153563,664349&axis=log&sel=770315&iso=1
+ *
+ * The one thing deliberately outside that is bioluminescence, which is not view
+ * state at all: it says how one reader wants light drawn rather than anything
+ * about the taxa on screen, so it lives in `sessionStorage` and never in a link.
+ * See {@link BIOLUM_KEY}. Nothing else may follow it out — the rule holds for
+ * every claim the canvas makes about data.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -45,21 +51,54 @@ export interface ViewState {
    * stopped failing, a fossil would start contributing to an MRCA.
    */
   fossils: number[];
-  /**
-   * Bioluminescence: the optional light. `bio=1`.
-   *
-   * View state, so it is in the URL like everything else — design-reference.md
-   * asks that any view be a shareable link, and a canvas lit like the deep sea
-   * is precisely the view somebody wants to send. A `localStorage` preference
-   * was the obvious alternative and is refused for the reason the whole store
-   * exists: a second source of truth for what is on screen means the URL stops
-   * describing the screen, and every link would then arrive looking like
-   * whatever the *recipient* last chose.
-   *
-   * It is the only member of {@link ViewState} that says nothing about the
-   * data, which is why {@link DEFAULT} does not reset it — see `open`.
-   */
-  biolum: boolean;
+}
+
+/**
+ * Bioluminescence: the optional light. Deliberately **not** in {@link ViewState},
+ * and so deliberately not in the URL.
+ *
+ * Every other member of `ViewState` is a claim about *taxa* — which ones, on
+ * what scale, with what dimmed — and a link carrying them hands the recipient
+ * the sender's finding. Bioluminescence is a claim about nothing: it says how
+ * one reader wants light drawn. Putting it in the link means sharing a tree
+ * also imposes the lighting somebody happened to be using, on a reader who did
+ * not ask for it and may not want a canvas that moves.
+ *
+ * `sessionStorage` rather than `localStorage`, and the difference is the whole
+ * point: it is per-tab, so a shared link opened in a new tab starts at
+ * {@link BIOLUM_DEFAULT} — off — while a reader who turned it on keeps it
+ * across reloads and across every link they follow in that tab. That also
+ * answers the objection to a stored preference, which was that a link would
+ * arrive looking like whatever the *recipient* last chose: a fresh tab has
+ * chosen nothing.
+ *
+ * Consequences worth knowing. The mode is outside history, so back and forward
+ * no longer toggle the lights — correct, because pressing back is a request for
+ * a previous *view*. And a canvas somebody lit is no longer a canvas they can
+ * send; that is the trade this makes on purpose.
+ */
+const BIOLUM_KEY = "concestor.biolum";
+
+/** Off, and it must stay off: the instrument as it was is what a reader arrives at. */
+const BIOLUM_DEFAULT = false;
+
+export function loadBiolum(): boolean {
+  try {
+    return sessionStorage.getItem(BIOLUM_KEY) === "1";
+  } catch {
+    // Private browsing, or storage disabled. Falling back to the default is
+    // right: the mode is optional and off is the instrument as it was.
+    return BIOLUM_DEFAULT;
+  }
+}
+
+function saveBiolum(on: boolean): void {
+  try {
+    if (on) sessionStorage.setItem(BIOLUM_KEY, "1");
+    else sessionStorage.removeItem(BIOLUM_KEY);
+  } catch {
+    /* private browsing; the mode still works, it just will not outlive a reload */
+  }
 }
 
 /**
@@ -93,7 +132,6 @@ const DEFAULT: ViewState = {
   isolate: false,
   drill: null,
   fossils: [],
-  biolum: false,
 };
 
 export function decode(search: string): ViewState {
@@ -118,7 +156,6 @@ export function decode(search: string): ViewState {
     // Deduplicated on the way in rather than on the way out: the same taxon
     // twice would be two React keys for one mark and two rows for one fossil.
     fossils: [...new Set(fossils)],
-    biolum: p.get("bio") === "1",
   };
 }
 
@@ -130,7 +167,6 @@ export function encode(v: ViewState): string {
   if (v.isolate) p.set("iso", "1");
   if (v.drill) p.set("seg", `${v.drill.upper}-${v.drill.lower}`);
   if (v.fossils.length) p.set("f", v.fossils.join(","));
-  if (v.biolum) p.set("bio", "1");
   const q = p.toString();
   return q ? `?${q}` : "/";
 }
@@ -170,6 +206,8 @@ export interface TreeState {
 
 export function useTree() {
   const [view, setView] = useState<ViewState>(() => decode(window.location.search));
+  // Not part of `view`, and so not in the URL or in history. See `BIOLUM_KEY`.
+  const [biolum, setBiolum] = useState<boolean>(loadBiolum);
   const [nodes, setNodes] = useState<Map<number, PathNode>>(() => new Map());
   const [paths, setPaths] = useState<Map<string, number[]>>(() => new Map());
   const [idxOf, setIdxOf] = useState<Map<string, number>>(() => new Map());
@@ -394,15 +432,12 @@ export function useTree() {
     // which is the one that renders correctly.
     prevInduced.current = null;
     lastCount.current = 0;
-    setView((v) => ({
+    // Everything an opening resets is a claim about *taxa*, which is everything
+    // `DEFAULT` holds. Bioluminescence is not one of them and is no longer in
+    // here to be reset — pressing "Are you a fish?" leaves the lights as the
+    // reader set them, which is the same reasoning that moved it out of the URL.
+    setView(() => ({
       ...DEFAULT,
-      // Everything an opening resets is a claim about *taxa* — which ones, on
-      // what scale, with what dimmed. Bioluminescence is a claim about nothing:
-      // it says how the reader wants light drawn, and an opening has no opinion
-      // on that. Resetting it would mean pressing "Are you a fish?" turned the
-      // lights off, which reads as a bug and costs the reader the one setting
-      // they had chosen for themselves rather than been handed.
-      biolum: v.biolum,
       keys: [...new Set(keys.map(toUrlKey))],
       ...(axis ? { axis } : {}),
     }));
@@ -429,13 +464,16 @@ export function useTree() {
   // Same reasoning as `open`: clearing takes the taxa off the canvas, and the
   // lighting is not one of them. The confirmation dialog promises this removes
   // species and fossils and that "nothing else is affected".
-  const clear = useCallback(
-    () => setView((v) => ({ ...DEFAULT, biolum: v.biolum })),
-    [],
-  );
+  const clear = useCallback(() => setView(DEFAULT), []);
   const setAxis = useCallback((axis: AxisMode) => setView((v) => ({ ...v, axis })), []);
+  // Written through on the toggle rather than in an effect, so the store is the
+  // only thing that touches the key and a render can never overwrite a choice.
   const toggleBiolum = useCallback(
-    () => setView((v) => ({ ...v, biolum: !v.biolum })),
+    () =>
+      setBiolum((on) => {
+        saveBiolum(!on);
+        return !on;
+      }),
     [],
   );
   const select = useCallback(
@@ -462,6 +500,8 @@ export function useTree() {
 
   return {
     view,
+    /** The optional light. Session state, not view state — it is not in `view`. */
+    biolum,
     nodes,
     /** Resolved fossil rows, by PBDB taxon number. `view.fossils` is the order. */
     fossils,
