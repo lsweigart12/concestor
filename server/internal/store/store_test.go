@@ -421,6 +421,16 @@ func TestSearchLimits(t *testing.T) {
 	}
 }
 
+// The build id is a pure function of the artifacts on disk, and both halves of
+// that sentence are load-bearing.
+//
+// *Function*: two opens of one build agree, which is what makes it usable as a
+// cache validator at all. *Of the artifacts*: nothing about the binary is in
+// it, which is why `/v1/about` can publish it as the dataset's name — and why
+// the ETag cannot be this id alone. A release that changes only Go code moves
+// nothing here, correctly, and shipped stale JSON under `immutable` for
+// exactly that reason. `api.etag` is where the code identity is added; do not
+// add it here. docs/deployment.md §5 records why the two ids stay two.
 func TestBuildIDIsStable(t *testing.T) {
 	build := testenv.RequireBuild(t)
 	a, err := Open(t.Context(), Options{BuildDir: build})
@@ -435,6 +445,9 @@ func TestBuildIDIsStable(t *testing.T) {
 	defer b.Close() //nolint:errcheck
 	if a.BuildID != b.BuildID || a.BuildID == "" {
 		t.Errorf("build id is not stable: %q vs %q", a.BuildID, b.BuildID)
+	}
+	if len(a.BuildID) != 16 {
+		t.Errorf("build id = %q, want the 16 hex digits /v1/about promises", a.BuildID)
 	}
 }
 

@@ -557,6 +557,114 @@ nobody has measured what fraction of it repeats within a colo within a version.
 `Cf-Cache-Status` and the Workers observability dashboard are where that gets
 answered on the first deploy with real traffic.
 
+### The ETag names the binary too, for the reason the image tag does
+
+The section above says the cache is safe because a deploy resets it. The
+**validator** was not, and the same half-a-name bug that cost two releases in
+the registry was sitting in the response headers the whole time.
+
+`api.etag` was `store.BuildID` alone. That id hashes the name, size and mtime of
+the arrays, the database and the gate files, plus the snapshot's `synth_id` —
+it is a pure function of the *dataset*, which is exactly what makes it right for
+`/v1/about`'s `build_id` and wrong as the whole of an ETag. Nothing about the
+binary is in it.
+
+Observed on `concestor.com` after `v0.23.0`, which added an optional
+`layout_spread` to `/v1/node` and moved no data:
+
+```
+$ curl -s https://concestor.com/v1/about | jq -r '.commit'          # cached
+60036c0
+$ curl -s -H 'Cache-Control: no-cache' 'https://concestor.com/v1/about?cb=1' | jq -r '.commit'
+db76ae0                                                              # origin
+```
+
+`cf-cache-status: HIT`, `age: 610`, `etag: "5e08e162f6a877bd"` — the previous
+build's id, which the *new* build would also have emitted.
+
+The ETag is now **`"<build_id>-<code_id>"`**, the container tag's shape for the
+container tag's reason, and the general lesson two subsections up applies
+unchanged: *an artifact's name must cover everything inside it.* `code_id` is
+the commit from `-X main.commit` where there is one, and otherwise
+`dev-<12 hex>` over the executable's own path, size and mtime — computeBuildID's
+trick applied to the binary, because a fallback constant would put the same
+collision in the place nobody would look for it. **`computeBuildID` was
+deliberately not touched**: the two ids stay two ids, `/v1/about` goes on
+publishing them separately, and the ETag is the one place they are combined.
+
+Three handlers wrote this pair of headers by hand — `writeJSON`,
+`/v1/timescale` and `/v1/silhouette` — so the bug was in all three. They now go
+through `stampCacheable`, which is also how the silhouette handler acquired the
+`If-None-Match` check it had been missing.
+
+### What that fixes, and what it does not
+
+It fixes **revalidation**, which was not merely stale but actively wrong: a
+client holding the old copy sent `If-None-Match: "<old build id>"`, the new
+server compared it against a string that had not moved, and answered `304 Not
+Modified` — confirming stale content over a build that no longer served it. The
+edge does this too, so a stale entry could refresh its own freshness
+indefinitely off a wrong 304. Every conditional request now gets the truth, and
+two container instances mid-rollout can no longer be conflated.
+
+It does **not** un-stick anything already stored. The URL has not changed and
+the stored response says `max-age=31536000, immutable`, so a browser holding it
+will not ask again — there is nothing to revalidate *with*. Those copies last
+until the year is out or the reader hard-reloads. The edge can be purged and
+browsers cannot, and no header shipped today reaches them.
+
+**That hole is not only about past deploys, and this is the part worth
+carrying.** `immutable` on a URL that is not content-addressed is safe at the
+edge *because the Worker version keys the cache* — that argument is above, and
+it is sound. It has never covered the browser. A reader who visited yesterday
+holds `/v1/node/ott770315` under a one-year `immutable`, and no future deploy
+reaches them either. The corrected ETag is a validator for a request that is
+never sent.
+
+Two ways to close it, and the cheaper one is not the obvious one:
+
+- **Bound the lifetime.** Drop `immutable` and shorten `max-age` — an hour, a
+  day — so a warm browser revalidates and the now-correct ETag does its job.
+  The conditional request is answered by the edge from its own fresh copy, so
+  it costs a round trip to the nearest colo and **does not wake the container**,
+  which is the cost that matters here (§6.1). This is the recommended next step.
+  It is deliberately **not** taken in this change: it is a decision about cache
+  posture on an account with no spend cap, and it deserves to be taken on its
+  own rather than smuggled in behind a header fix.
+- **Version the URL** — `build_id` in the path or the query, so a new build is
+  a new URL and nothing warm can be served. **Evaluated and refused.** It is the
+  complete answer and it is the expensive one. The client learns the id *from*
+  `/v1/about`, so either every `/v1` call queues behind an identity fetch on the
+  boot path — spending the one thing the design protects, speed to a drawn tree
+  — or the id is baked into the frontend bundle, which the Worker deploys on a
+  different cadence from the container image (see the pinned tag above), so the
+  bundle would pin an id the running API may not have and the server would have
+  to 404 or ignore it. At the edge it buys nothing that the Worker version does
+  not already buy, and it strands every entry on a rebuild rather than replacing
+  it. It is the right shape for a static asset, which is why Vite already does
+  it for the frontend's own files, and the wrong shape for an API a reader
+  reaches by name.
+
+### `/v1/about` is cacheable but not immutable
+
+`max-age=60, must-revalidate`, with the same ETag as everything else —
+`api.writeShortLivedJSON`, and it is the third policy beside `writeJSON`'s year
+and `writeVolatileJSON`'s `no-store`.
+
+About is a function of the build, so its validator was never wrong; the
+*question* was. This is the endpoint a deploy check, a monitor or a person asks
+"what is running", and a year-long `immutable` makes "the deploy did not land"
+a permanent answer to it. The transcript above is what that looks like: ten
+minutes and counting of a successful deploy reported as not having happened,
+and indefinitely to a browser.
+
+It is not `no-store`, which is what `/v1/random` needs and must keep. The store
+counts about's age statistics at startup precisely because it is fetched on
+**every page load**, so this is the boot path for every reader, and `no-store`
+would also take request collapsing off it — on half a vCPU a cold burst is the
+one thing worth collapsing (§2). A minute keeps the collapsing and bounds the
+staleness to less than any deploy takes.
+
 ---
 
 ## 6. What this costs, stated plainly

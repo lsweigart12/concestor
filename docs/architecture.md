@@ -326,11 +326,32 @@ change within a build. A CDN in front absorbs essentially all traffic — on Clo
 that is Workers Cache, enabled in `web/wrangler.jsonc`, and `deployment.md` §5 is why
 the header alone was not enough to earn this sentence.
 
-**`/v1/random` is the one exception, and it must stay one.** Its answer is not a
-function of the build, so it is served `no-store` with no ETag. Through the
+**The build id in that sentence is the dataset's *and* the binary's**, written
+`<build_id>-<code_id>` — the container image tag's shape, for the container image
+tag's reason. `store.computeBuildID` hashes only the artifacts on disk, so an
+`immutable` keyed on it alone is a promise the server cannot keep about its own
+output: v0.23.0 added a field to `/v1/node` against an unmoved dataset and every
+warm cache went on serving the old shape, with `immutable` telling clients not to
+revalidate and so not to find out. `deployment.md` §5 has the account, including
+what it does not fix. The two ids stay separate everywhere else — `/v1/about`
+publishes `build_id` as the *dataset*'s name and `commit` as the code's, and
+merging them would change what the first one means to every consumer.
+
+**Two endpoints are exceptions, and they are exceptions to different things.**
+
+`/v1/random` is not cacheable **at all**, and that must stay true. Its answer is
+not a function of the build, so it is served `no-store` with no ETag. Through the
 immutable path a browser would answer every later request from cache with the
 first pick, permanently — an endpoint that appears to work and never picks
 twice. `handoff.md` §3 has the pools and why they are narrow.
+
+`/v1/about` is cacheable but **not immutable**: `max-age=60, must-revalidate`,
+with the same ETag as everything else. It is a function of the build, so the
+validator is correct and the data was never the problem — the *question* was.
+This is the endpoint a deploy check, a monitor or a person asks "what is
+running", and a one-year `immutable` makes "the deploy did not land" a permanent
+answer to it. It is not `no-store`, because it is fetched on every page load and
+that is the one path where a cold burst on half a vCPU is worth collapsing.
 
 ### Search ranking
 
