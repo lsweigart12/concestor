@@ -77,6 +77,10 @@ type SearchResult struct {
 	// Set by decorate when this row's exactness rests on a common name the
 	// taxon is not headlined by, and so has to answer to clade size.
 	withdrawable bool
+	// Set by decorate when the query is the title of English Wikipedia's
+	// article about this taxon — the one piece of evidence that says which
+	// taxon a word denotes rather than how well it matches. See decorate.
+	denotes bool
 	// Whether the name matched is one the taxon still goes by. Derived from
 	// MatchedOn unless tierSet, because MatchedOn answers "which name should I
 	// report?" and this answers "is that name deprecated?" — a node can match
@@ -388,6 +392,25 @@ func lessResult(a, b *SearchResult) bool {
 	// by name and it still comes first, via the exact band.
 	if aBroken, bBroken := a.Kind == "broken", b.Kind == "broken"; aBroken != bBroken {
 		return bBroken
+	}
+	// Two taxa can both be called exactly what was typed, and below this line
+	// the only thing left to separate them is size — which is the wrong
+	// question when the smaller one is the animal the word is *about*. `human`
+	// is the case: *Homo* (7 tips) and *Homo sapiens* (2) both carry it, so the
+	// genus won and the reader who typed the most ordinary word in the product
+	// got the clade containing *H. erectus* and *H. neanderthalensis* instead of
+	// themselves. English Wikipedia's article **Human** is *Homo sapiens*'s, and
+	// that is a statement about which taxon the word denotes — decided outside
+	// this project, by the same instrument name-ranking.md already trusts.
+	//
+	// It sits *below* the band and above `score` for a reason. It settles ties,
+	// never bands: a taxon does not climb past a better-matching name because it
+	// owns an article, and nothing is ever demoted for lacking one. Where no
+	// candidate holds the title — `shark`, `snake`, `dog`, `cow`, `whale`, and
+	// 5,942 of the 6,619 contested names — this line does not fire at all and
+	// the ranking is exactly what it was.
+	if a.denotes != b.denotes {
+		return a.denotes
 	}
 	if a.score != b.score {
 		return a.score > b.score
@@ -1068,6 +1091,40 @@ const maxBrokenExplanations = 2
 //
 // A taxon whose *scientific* name is the query is never withdrawn — that is
 // what bandOwn is for.
+//
+// # And one promotion, which is the other half of the same judgement
+//
+// Withdrawing exactness answers "this taxon is probably not what the word
+// means" from offline signals. Nothing answered the positive form, so two taxa
+// equally entitled to the word fell through to clade size — and the *larger*
+// won. That is right for `beetle`, where Coleoptera holds it against two
+// one-species beetles, and wrong for `human`, where *Homo* (7 tips) beat
+// *Homo sapiens* (2).
+//
+// **English Wikipedia's article title is the discriminator**, and it is the
+// instrument `docs/name-ranking.md` §2 already uses — read here for a
+// different question than the one it answers there. `usage_rank` orders one
+// taxon's own names and is display-only; an *article title* is held by one
+// taxon and no other, so `wiki_evidence = 'title'` on the name the reader typed
+// says which taxon that word denotes. Measured over the 6,619 English names
+// more than one node claims: 663 have exactly one titled claimant, 5,942 have
+// none, and **14 have two or more** — every one of those a monotypic pair with
+// identical tip counts (Sphenisciformes/Spheniscidae at 59, Gaviidae/Gavia at
+// 7), where the two answers are the same set of species and the tie does not
+// matter. The leader changes on 358 names: `onion` to *Allium cepa* from the
+// 1,048-tip genus *Allium*, `hare` to *Lepus* from Leporidae (which is also the
+// rabbits), `perch` to *Perca* from Percidae, `mayfly` to Ephemeroptera from
+// **Tipulidae**, the crane flies.
+//
+// It only ever promotes, and that is deliberate rather than timid. The mirror
+// rule — withdraw an exact match whose evidence is `elsewhere`, i.e. a real
+// English article by that name that is *not* this taxon's — was written,
+// measured and refused: "whale" on Cetacea and "rat" on *Rattus norvegicus* are
+// both `elsewhere` (the articles **Whale** and **Rat** are broad-concept pages)
+// and both are the only exact claimant there is, so withdrawing them demotes
+// the right answer with nothing better to promote. `snail` is `elsewhere` on
+// all four of its claimants including Gastropoda. Absence of a title is not
+// evidence against a taxon — the same rule `name-ranking.md` states for NULL.
 func (s *Store) decorate(ctx context.Context, results []SearchResult, qFold string) error {
 	idxs := make([]int, 0, len(results))
 	for i := range results {
@@ -1112,7 +1169,7 @@ func (s *Store) decorate(ctx context.Context, results []SearchResult, qFold stri
 	allVern, err := s.allVernacularNames(ctx, idxs)
 	if err != nil {
 		s.log.Warn("vernacular band signal unavailable", "err", err)
-		allVern = map[int][]string{}
+		allVern = map[int][]VernacularName{}
 	}
 	for i := range results {
 		r := &results[i]
@@ -1121,11 +1178,26 @@ func (s *Store) decorate(ctx context.Context, results []SearchResult, qFold stri
 		}
 		names := allVern[*r.Idx]
 		for _, n := range names {
-			if b := matchBand(n, qFold); b < r.band {
+			if b := matchBand(n.Name, qFold); b < r.band {
 				r.band = b
+			}
+			// The query *is* this name, and this name titles the taxon's own
+			// English article. Recorded whatever band the row ends up in, since
+			// it is evidence about the taxon rather than about the match.
+			if n.Evidence == wikiTitle && matchBand(n.Name, qFold) == bandExact {
+				r.denotes = true
 			}
 		}
 		if r.band != bandExact || r.bandOwn == bandExact {
+			continue
+		}
+		// Both withdrawals below ask "is this bare word really this taxon's
+		// name, or a label somebody filed against it?". An article titled with
+		// the word, about this taxon, answers that outright, so neither runs.
+		// *Allium cepa* is the shape: one species, and "onion" is the whole of
+		// what is recorded for it — a category label by every offline signal
+		// available, and the title of the article about the onion.
+		if r.denotes {
 			continue
 		}
 		// A lone bare word recorded for a single species is a label, not a name.

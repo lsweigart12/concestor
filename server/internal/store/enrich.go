@@ -550,20 +550,40 @@ func colOrNull(c string) string {
 	return fmt.Sprintf("%q", c)
 }
 
+// VernacularName is one common name with the evidence search ranks it on.
+// Evidence is "" both where the build predates the `names` phase and where
+// that phase could not ask the question — the two are indistinguishable here
+// and mean the same thing to every caller: no evidence, fall through.
+type VernacularName struct {
+	Name     string
+	Evidence string
+}
+
+// wikiTitle is the one `wiki_evidence` value search reads: the name is the
+// title of English Wikipedia's article about this taxon. See decorate.
+const wikiTitle = "title"
+
 // allVernacularNames returns every common name for a batch of nodes. Search
 // ranking needs all of them, not just the primary one: Canidae's primary name
 // is "canid", but the whole-word match for "dog" is in "dog family".
-func (s *Store) allVernacularNames(ctx context.Context, idxs []int) (map[int][]string, error) {
-	out := map[int][]string{}
+func (s *Store) allVernacularNames(ctx context.Context, idxs []int) (map[int][]VernacularName, error) {
+	out := map[int][]VernacularName{}
 	v := s.Schema.Vernacular
 	if v == nil || len(idxs) == 0 {
 		return out, nil
 	}
+	// A build predating phase 6b has no evidence column. Selecting a literal
+	// keeps one scan path rather than two, and every row then reads as "not
+	// asked", which is what such a build actually knows.
+	evidence := "''"
+	if v.WikiEvidence != "" {
+		evidence = fmt.Sprintf("%q", v.WikiEvidence)
+	}
 	for start := 0; start < len(idxs); start += metaChunk {
 		end := min(start+metaChunk, len(idxs))
 		chunk := idxs[start:end]
-		q := fmt.Sprintf("SELECT %q, %q FROM %q WHERE %q IN (%s)",
-			v.Idx, v.Name, v.Table, v.Idx, placeholders(len(chunk)))
+		q := fmt.Sprintf("SELECT %q, %q, %s FROM %q WHERE %q IN (%s)",
+			v.Idx, v.Name, evidence, v.Table, v.Idx, placeholders(len(chunk)))
 		args := make([]any, len(chunk))
 		for i, x := range chunk {
 			args[i] = x
@@ -574,13 +594,14 @@ func (s *Store) allVernacularNames(ctx context.Context, idxs []int) (map[int][]s
 		}
 		for rows.Next() {
 			var idx sql.NullInt64
-			var name sql.NullString
-			if err := rows.Scan(&idx, &name); err != nil {
+			var name, ev sql.NullString
+			if err := rows.Scan(&idx, &name, &ev); err != nil {
 				_ = rows.Close()
 				return out, err
 			}
 			if idx.Valid && name.Valid {
-				out[int(idx.Int64)] = append(out[int(idx.Int64)], name.String)
+				out[int(idx.Int64)] = append(out[int(idx.Int64)],
+					VernacularName{Name: name.String, Evidence: ev.String})
 			}
 		}
 		err = rows.Err()

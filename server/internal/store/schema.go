@@ -86,6 +86,20 @@ type VernacularSchema struct {
 	// which name a taxon goes by and which taxon a query means are different
 	// questions, and band.go answers the second.
 	Rank string `json:"rank,omitempty"`
+
+	// WikiEvidence is what English Wikipedia does with a name — `title`,
+	// `redirect`, `elsewhere`, `none`, or NULL for "the taxon has no English
+	// article, so the question could not be asked". Written by the `names`
+	// phase; see `docs/name-ranking.md` §2.
+	//
+	// Search reads exactly one of those five values, `title`, and reads it as a
+	// statement about which *taxon* a word denotes rather than about which name
+	// a taxon goes by. That distinction is the whole licence for touching it
+	// here: `usage_rank` above orders one taxon's own names and is display-only,
+	// but an article title is held by one taxon and no other, so "the word you
+	// typed is the title of this taxon's article" is an answer to band.go's
+	// question. See {@link decorate}.
+	WikiEvidence string `json:"wiki_evidence,omitempty"`
 }
 
 // SilhouetteSchema carries PhyloPic attribution. Creator and uploader are
@@ -283,6 +297,8 @@ func (s *Schema) resolveVernacular() {
 		Source:    s.col(t, "source"),
 		SourceID:  s.col(t, "source_id", "external_id"),
 		Rank:      s.col(t, "usage_rank", "name_rank", "rank"),
+
+		WikiEvidence: s.col(t, "wiki_evidence"),
 	}
 }
 

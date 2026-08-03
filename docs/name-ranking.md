@@ -203,6 +203,18 @@ on the taxon's own abbreviation, so it cannot reach an ordinary name.
   its own gates — and `handoff.md` already records what it cost the last time
   something outranked those bands.
 
+  **Still true of `usage_rank`. No longer true of `wiki_evidence`, and the
+  distinction is the point.** Search now reads exactly one of that column's five
+  values, `title`, as a tiebreak between two taxa carrying the query verbatim.
+  A usage rank is *relative to one taxon* — rank 1 on *Homo* and rank 1 on *Homo
+  sapiens* are not comparable quantities, and ranking search by them would be
+  comparing two taxa on a number neither was measured against the other for. An
+  **article title is absolute**: English Wikipedia has one page called `Human`
+  and it is *Homo sapiens*'s, so `wiki_evidence = 'title'` on the name the reader
+  typed is a statement about which taxon the word denotes — band.go's question,
+  answered by the instrument §2 already built. `handoff.md` §7 has the
+  measurement, the 358 names it moves, and the mirror rule that was refused.
+
 ---
 
 ## 6. Where it lives

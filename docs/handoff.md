@@ -2126,7 +2126,8 @@ worse than recorded.
 
 **Search ranking is now banded and behaves**, so this is a note rather than a
 gap: precedence runs band (exact string → head word → whole word → prefix) →
-current-name vs synonym → node vs broken → baked `rank_score` → `tip_count`.
+current-name vs synonym → node vs broken → **article title** → baked
+`rank_score` → `tip_count`.
 Four subtle bugs have been found in it, all worth knowing about because every
 one of them will come back if the ranking is refactored: candidates were being
 cut by raw `tip_count` *before* the band was known; synonym hits were
@@ -2161,6 +2162,67 @@ size decides — and never further:
   (ratio 1,080). *Rattus norvegicus* is headlined "Brown Rat", so it is never
   eligible at all — which is the clause that saves `rat` from Muridae's "mice
   and rats" at 1,060 tips, a ratio the threshold alone could not have split.
+
+**And one promotion, which is the same judgement read forwards.** Both
+withdrawals answer *this taxon is probably not what the word means*, from
+offline signals. Nothing answered the positive form, so two taxa equally
+entitled to a word fell through to clade size — and the larger won. That is
+right for `beetle`, where Coleoptera holds it against two one-species beetles,
+and wrong for `human`, where the genus ***Homo*** (7 tips) beat ***Homo
+sapiens*** (2) and the most ordinary query in the product returned the clade
+containing *H. erectus* and *H. neanderthalensis* rather than the reader.
+
+***English Wikipedia's article title is the discriminator***, and it is phase
+6b's instrument (`name-ranking.md` §2) read for a different question than it
+answers there. `usage_rank` orders one taxon's own names and stays display-only;
+an **article title is held by one taxon and no other**, so `wiki_evidence =
+'title'` on the name typed says which taxon that word denotes. Measured over the
+**6,619** English names more than one node claims:
+
+| titled claimants | names | |
+|---:|---:|---|
+| exactly one | 663 | the signal fires |
+| none | 5,942 | nothing changes |
+| two or more | **14** | every one a monotypic pair |
+
+Those 14 are why the rule is safe rather than lucky: Sphenisciformes and
+Spheniscidae both at 59 tips, Gaviidae and *Gavia* both at 7, Haliotidae and
+*Haliotis* both at 70 — pairs where the two answers are the same set of species
+and the tie cannot be lost. **The leader changes on 358 names**: `onion` to
+*Allium cepa* from the 1,048-tip genus, `camel` to *Camelus* from Camelidae
+(which is also the llamas), `sloth` to Folivora from Pilosa (also the
+anteaters), `right whale` to *Eubalaena* from Balaenidae (also the bowhead),
+`hare` to *Lepus* from Leporidae (also the rabbits), `mayfly` to Ephemeroptera
+from **Tipulidae**, the crane flies.
+
+Four things not to redo:
+
+- **It is a tiebreak, not a band.** It sits below node-vs-broken and above
+  `rank_score`, so it can only separate rows already equal on how well they
+  match. A taxon never climbs past a better-matching name because it owns an
+  article: `Homo` typed in full is an exact scientific name and still answers
+  itself. Making it a band would also have leaked into `Interleave`, where the
+  band is a pure function of two strings, shared with a fossil corpus that has
+  no articles at all.
+- **It only ever promotes, and the mirror rule was written, measured and
+  refused.** Withdrawing an exact match whose evidence is `elsewhere` — a real
+  English article by that name that is *not* this taxon's — reads well and
+  breaks four pinned queries: `whale` on Cetacea and `rat` on *Rattus
+  norvegicus* are both `elsewhere`, because **Whale** and **Rat** are
+  broad-concept pages, and each is the only exact claimant there is. `snail` is
+  `elsewhere` on all four of its claimants including Gastropoda. Absence of a
+  title is not evidence against a taxon, which is the rule `name-ranking.md`
+  already states for NULL.
+- **A title blocks both withdrawals**, and has to. *Allium cepa* is one species
+  whose one recorded name is `onion`: a category label by every offline signal,
+  and the title of the article about the onion. Certifying a row by measurement
+  and demoting it for looking like a label in the same pass is incoherent.
+- **`cat` is the known limit and is left unfixed.** Felidae and *Felis* both
+  carry it with evidence `elsewhere`; *Felis catus*, which the article **Cat**
+  is about, has **no Wikidata QID in the vernacular crawl** and therefore no
+  article, no evidence and no promotion — so the family still leads. The fix is
+  coverage in phase 6, not a weaker rule here. The `elsewhere` withdrawal
+  refused above is exactly what would "fix" it, and it costs `whale` and `rat`.
 
 **The second cause is head position, and it is the one worth stealing.** An
 English compound noun is named by its last word: "oak moss" is a moss, "sessile
