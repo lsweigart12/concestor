@@ -210,6 +210,15 @@ export interface GraphProps {
   biolum: boolean;
   onBiolum: (v: boolean) => void;
   /**
+   * Nothing is drawn, so the empty canvas's invitation is on screen.
+   *
+   * Passed rather than read off `induced`, because it is the same question the
+   * app asks to decide whether to draw that invitation at all and the two must
+   * answer alike — a panel drawn where the block is drawn is the collision this
+   * exists to prevent. `App.tsx`'s `nothingDrawn` is the one expression.
+   */
+  empty: boolean;
+  /**
    * Open the command palette — the whole of the chrome on a narrow window.
    *
    * The button is here rather than beside the control bar it replaces because
@@ -253,6 +262,7 @@ function Inner(props: GraphProps) {
     holdMaxAge = null,
     biolum,
     onBiolum,
+    empty,
     onPalette,
     tip,
   } = props;
@@ -1089,12 +1099,39 @@ function Inner(props: GraphProps) {
         The reading order is the reader's — the words first, then the figure
         that annotates them, then the light — so the two that change what a
         label says sit above the one that changes nothing about the data at all.
+
+        **Not drawn while the canvas is empty**, and the collision is the
+        smaller half of the reason. These three annotate marks: with none on
+        screen, `labels` and `ages` are switches a reader can throw and watch do
+        nothing at all, which is the failure the bar already refuses when it
+        disables `fit`, `isolate` and `step` on the same canvas, and the palette
+        refuses by dropping `fit-all` from the list. Bioluminescence retints the
+        chrome, but its subject is the light the tree spills and `Water` draws
+        none of it with nothing on the tree — which its own header calls the
+        property that keeps the mode honest about where the light comes from.
+
+        What makes it a swap rather than a removal is the rule the narrow window
+        already stands on: every control has a command. `L`, `A` and `B` stay
+        bound, the palette still carries all three, and the settings are held in
+        `sessionStorage` — so a reader who sets one here has it waiting on the
+        canvas the panel comes back to.
+
+        The collision it also fixes: the empty canvas's block is a centred
+        column ending in three key rows, and on a window roughly 620–860px wide
+        and under about 880 tall the last of them — `P` · *Everything this can
+        do* — was drawn straight through the `LABELS` chip. Reserving this
+        panel's shelf in `.boot`'s padding would move the invitation up on every
+        window to clear a panel that is beside it on none of them, and would
+        still overlap under about 735px of height, where the block, the bar and
+        this shelf do not fit in the window at any centring.
       */}
-      <div className="canvas-modes">
-        <LabelsToggle mode={labels} onChange={onLabels} />
-        <AgesToggle on={ages} onChange={onAges} />
-        <BiolumToggle on={biolum} onChange={onBiolum} />
-      </div>
+      {!empty && (
+        <div className="canvas-modes">
+          <LabelsToggle mode={labels} onChange={onLabels} />
+          <AgesToggle on={ages} onChange={onAges} />
+          <BiolumToggle on={biolum} onChange={onBiolum} />
+        </div>
+      )}
       {/*
         The other side of the same shelf, and the only chrome below 620px.
 

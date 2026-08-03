@@ -459,6 +459,27 @@ stating because the first version got all three parts of it wrong:
   replaced by the one palette button — see the command surface above. Shortening
   a control to fit a window it is absent from is not a trade, which is why the
   question of whether a chip can lose its caption stopped arising.
+- **Nor is it drawn while the canvas is empty**, at any width. These three
+  annotate marks, and with none on screen `labels` and `ages` are switches a
+  reader can throw and watch do nothing — the failure the bar already refuses
+  when it disables `fit`, `isolate` and `step` on that same canvas, and the
+  palette by dropping `fit-all` from the list. Bioluminescence retints the
+  chrome but its subject is the light the tree spills, and with nothing on the
+  tree the water draws none of it. It is a swap and not a removal on the rule
+  the narrow window stands on: `L`, `A` and `B` keep their rows, the palette
+  keeps all three commands, and the settings sit in `sessionStorage`, so a
+  reader who sets one has it waiting on the canvas the panel comes back to.
+  What it also fixes is a collision: the empty canvas's block is centred and
+  this panel is pinned bottom-left, so on a window roughly 620–860px wide and
+  under about 880 tall the last key row — `P` · *Everything this can do* — was
+  drawn through the `LABELS` chip. It arrived with the three-row key column and
+  is on production. Reserving the panel's shelf in that block's padding was the
+  alternative and is worse twice over — it moves the invitation up on every
+  window to clear a panel beside it on none of them, and under about 735px of
+  height the block, the bar and that shelf do not fit in the window at any
+  centring. One flag drives both surfaces (`App.tsx`'s `nothingDrawn`), because
+  a second expression meaning *nearly* "nothing is drawn" puts the badge back on
+  the chip and reports nothing; `Controls.test.ts` is what holds that.
 
 - **labels: off · common · scientific**, with **common the default** and sitting
   in the middle. The default follows from the audience and nothing else: this is

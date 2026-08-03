@@ -861,13 +861,31 @@ export default function App() {
   }, [tree, toast, present, presentFossils, drawFossil, settle]);
 
   /**
+   * Nothing is drawn, which is the condition the empty canvas answers.
+   *
+   * Two surfaces read it and they may not disagree: this decides whether the
+   * invitation is on screen, and it is handed to the canvas to decide whether
+   * the mode panel is. The panel sits bottom-left and the invitation is a
+   * centred column, and on a short window the two were drawn through each
+   * other — so a second expression saying nearly this would not error, it would
+   * put a key badge back on top of the `LABELS` chip. `canvas/Graph.tsx` has
+   * the rest of why the panel is the one that goes.
+   */
+  const nothingDrawn = tree.induced.rendered.length === 0;
+
+  /**
    * Nothing on the canvas at all.
    *
    * Declared here rather than beside its other user further down, because the
    * command list needs it too and two copies of "is the canvas empty" is how
    * the two surfaces start disagreeing.
+   *
+   * A stricter question than `nothingDrawn`: a graft hangs off a drawn branch,
+   * so the two only ever part while a fossil add is in flight — and the command
+   * list would rather be a beat late offering `clear` than offer it over
+   * nothing.
    */
-  const empty = tree.induced.rendered.length === 0 && tree.view.fossils.length === 0;
+  const empty = nothingDrawn && tree.view.fossils.length === 0;
 
   const commands: Command[] = useMemo(() => {
     const base: Command[] = [
@@ -1790,6 +1808,9 @@ export default function App() {
         onBiolum={(v) => {
           if (v !== tree.biolum) tree.toggleBiolum();
         }}
+        // The same expression that puts the invitation on screen below, because
+        // the mode panel is not drawn under it. See `canvas/Graph.tsx`.
+        empty={nothingDrawn}
         onPickFossil={(f) => {
           setPickedFossil(f);
           setScoped(true);
@@ -1818,7 +1839,7 @@ export default function App() {
         can see. Search and the random pick stay, demoted to the line below,
         because they are now the second and third ways in rather than the first.
       */}
-      {tree.induced.rendered.length === 0 && !paletteOpen && (
+      {nothingDrawn && !paletteOpen && (
         <div className="boot">
           <div className="boot-inner">
             <h1>Concestor</h1>
