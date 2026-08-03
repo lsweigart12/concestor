@@ -1374,6 +1374,50 @@ body {
   white-space: nowrap;
 }
 
+/*
+ * A row that is a taxon the tree has no lineage for.
+ *
+ * The two corpora are ranked into one list, so nothing on screen separates them
+ * any more and this badge is the entire signal. It is deliberately quiet — a
+ * hairline chip in the subtitle's ink rather than the accent — because it is a
+ * *qualification* of the name and not a warning about it: these rows are real
+ * answers and often the best one on the page. Loud enough to read at a glance,
+ * quiet enough that a list which is mostly fossils does not look like a list of
+ * problems.
+ *
+ * The title becomes a flex row only when a badge is present, so the ellipsis
+ * stays on the name and the chip can never be truncated away.
+ */
+.row-title.has-badge {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.row-title.has-badge > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.row-badge {
+  flex: none;
+  font-size: 10px;
+  line-height: 1.4;
+  letter-spacing: 0.02em;
+  padding: 0 5px;
+  border: 1px solid var(--hairline);
+  border-radius: 3px;
+  color: var(--ink-4);
+  background: var(--void-3);
+  /* A label, not prose: never italicised by an ancestor's `sci-italic`. */
+  font-style: normal;
+  cursor: help;
+}
+.row.active .row-badge {
+  color: var(--ink-3);
+  border-color: var(--hairline-strong);
+}
+
 /* Fuzzy search with highlighted match ranges. */
 .hl {
   color: var(--accent);

@@ -322,21 +322,25 @@ the gate, *Dimetrodon* was announced as undrawable one frame before being drawn.
 
 ## 7. Searchable, and selectable
 
-**Fossils are in the palette**, as their own section below the species, and no
-pipeline run was needed. `SearchFossils` is a full scan of the 523,112-row
-table — there is no index on `name`, since the table is keyed on
+**Fossils are in the palette**, ranked among the species rather than beneath
+them, and no pipeline run was needed. `SearchFossils` is a full scan of the
+523,112-row table — there is no index on `name`, since the table is keyed on
 `(attach_idx, n_occs DESC)` for the segment query — and a prefix scan measures
 **~40ms**, comfortably inside the palette's 110ms debounce. An in-memory prefix
 index would cost ~15MB and a slower boot to save something nobody can perceive.
 
-Ordering is match tier — exact, prefix, contains — then the same `notability`
-a drill-down lane uses. Without the tier, "homo" returns whatever the
-most-recorded substring match happens to be.
+SQL orders by a coarse match tier — exact, prefix, contains — then the same
+`notability` a drill-down lane uses. That is candidate *generation*: the rows
+are re-banded in Go by `matchBand`, the same function that ranks nodes, and then
+`store.Interleave` merges the two lists into one order. Truncation happens after
+the re-band, or the coarse tier drops the row the fine one was about to promote.
 
-The section is **pinned last** whatever it scores, because the two corpora
-answer different questions: a species is a node you can build a tree from, a
-fossil is an observation that hangs off one. Typing "dimetrodon" should not
-bury the species list under eight PBDB rows.
+> The section used to be **pinned last** whatever it scored, on the argument
+> that a species is a node you can build a tree from and a fossil is an
+> observation that hangs off one. That is a true statement about plumbing and a
+> poor one about the reader: typing "triceratops" returned nine orchids, beetles
+> and termites named *something triceratops* before the animal, which the tree
+> has never heard of. §9 is what replaced it.
 
 Picking one draws it, **and adds the clade it hangs below when that clade is
 not on the canvas** — otherwise the one thing the reader asked for produces no
@@ -396,10 +400,113 @@ vernacular fix in `handoff.md` — and it would be no more true coming from OTT.
 deprecated name is not an alias.
 
 Together with §7 this closes the original question: the species row explains
-itself, and the Fossils section directly below carries the real *Homo
-floresiensis*, drawable.
+itself, and the real *Homo floresiensis* is a row of its own in the same list,
+drawable — see §9.
 
-## 9. A note on running the tests in a worktree
+## 9. One corpus at the front door
+
+The palette had a Species section and a Fossils section, `R` and `⇧R`, and two
+commands. Every one of those pairs asked the reader the same question, and it
+is a question only the app can answer: **is the animal you have in mind one the
+synthesis tree happens to contain?**
+
+### What the relationship actually is
+
+The two catalogues are not "living things" and "extinct things", and they are
+not disjoint.
+
+| | the synthesis tree | the Paleobiology Database |
+|---|---|---|
+| size | 2,725,682 nodes, 2,385,875 tips | 523,112 rows, **365,038** accepted |
+| holds extinct taxa? | yes — *Tyrannosaurus rex* is a node | yes |
+| holds living taxa? | yes | yes — **93,686** rows are flagged extant |
+| what a row has | an ancestry, a subtree, an MRCA | a stratigraphic bracket, an `attach_idx` |
+
+They **overlap**: `attach_walk = 0` means phase 3 took zero `parent_no` hops to
+reach a node, i.e. the PBDB taxon *is* that node, and that is true of **32,386**
+accepted rows. *Tyrannosaurus*, *Tyrannosaurus rex* and *Stegosaurus* are all in
+it. So "Tyrannosaurus" used to return the same animal twice — once as something
+that joins the tree, once as something that hangs off it — with nothing on
+either row saying why it was being offered two futures. *Triceratops*, nine hops
+from the nearest node, was buried under nine orchids and beetles.
+
+### The line, and what it cost
+
+`store.notInTree` refuses `attach_walk = 0` from `SearchFossils` **and**
+`RandomFossils`. The node wins that duplicate on the merits and not on a
+preference: phase 4 has already written the taxon's PBDB bracket onto the node
+as its `occurrence` row, so the node row carries the fossil's dates *and* an
+ancestry *and* the ability to induce an MRCA. There was nothing the graft added.
+
+| | before | after |
+|---|---:|---:|
+| accepted fossil corpus | 365,038 | **332,652** |
+| random fossil pool | 2,114 | **1,946** |
+
+8.9%, all of it reachable by the same name through the node path. Name equality
+is deliberately **not** also required: 1,320 of these rows are spelled
+differently from their node — PBDB's `Animalia` against OTT's `Metazoa`,
+`Haplorhini` against `Haplorrhini` — and those are the same taxon written twice,
+which is exactly the case a graft has nothing to add to. OTT carries the
+alternatives as synonyms.
+
+That exclusion is what earns the sentence the badge makes:
+
+> **A fossil row is a species the tree has no lineage for.**
+
+Not "extinct", which would be wrong about *T. rex*. The badge therefore reads
+**"on a branch"** and its tooltip says what will happen, because that is the
+only difference the reader will ever see: a node joins the tree, and this is
+pinned to the branch it belongs below, at its own date.
+
+### One order over two shapes
+
+`/v1/search` still answers with two arrays, because a node and a PBDB taxon are
+different *shapes*. `store.Interleave` stamps every pickable row in both with
+`order`, its position in the single ranking, and the client sorts on that
+integer. **The `handoff.md` §7 rule is unchanged and now covers the merge:**
+taking an order the server computed is the opposite of the client-side fuzzy
+score that used to outweigh four server ranks it could not see.
+
+The rule, and why the parts are in this order:
+
+1. **Band** — `matchBand`, run over both corpora. It does nearly all the work,
+   because it is the one signal both catalogues can be asked about.
+2. **Position within the row's own corpus** — each list arrives ranked on
+   signals the other has no counterpart for (subtree size and vernaculars
+   against occurrence counts and stratigraphy). Inventing a common scale for
+   those would be inventing a number; comparing positions asks each corpus how
+   good a row is relative to its own best, which both can answer.
+3. **Node before fossil** — the last tiebreak and the smallest claim. Any
+   earlier and this is the pinned tail again under a new name, which is what
+   `TestANodeOnlyBeatsAFossilOnAnOtherwiseExactTie` exists to catch.
+
+### `⇧R` is gone, and `R` rolls a die
+
+One command, one key, and a **20%** chance of drawing from the fossil pool —
+`web/src/corpora.ts`. Weighted rather than even because the two picks do not
+cost the same: a species joins the tree alone, while a graft usually drags in
+the clade it hangs below, which is a larger change to a canvas somebody has
+spent time on. A fossil roll that comes back empty **falls through to a species
+silently**; the reader pressed *surprise me*, and "the pool you did not choose
+was empty" answers a question they never asked.
+
+`⇧R` is left unbound rather than reassigned, so fingers that remember it get
+nothing instead of something else.
+
+### The three checks worth keeping
+
+- `TestSearchNeverOffersATaxonTheTreeAlreadyHas` — the duplicate, on the four
+  names everybody types.
+- `TestFossilOnlyTaxaAreStillFound` — the exclusion removed the duplicates and
+  not the corpus. *Triceratops*, *Dimetrodon*, *Anomalocaris*.
+- `TestInterleaveStampsOneContiguousOrder` — every pickable row gets exactly one
+  position and the run has no gaps. A collision is a row drawn twice; a gap is
+  one drawn not at all. Broken taxa are unstamped on purpose: they render as
+  notes, and a position in a list of pickable things would be a position in a
+  list they are not in.
+
+## 10. A note on running the tests in a worktree
 
 `testenv.BuildDir` walks six parents looking for `build/concestor.db`. From
 `<worktree>/server/internal/store` that reaches `.claude/` and stops one level

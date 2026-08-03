@@ -29,6 +29,7 @@ import {
   type FossilTaxon,
   type SearchHit,
 } from "../api";
+import { FOSSIL_BADGE, FOSSIL_BADGE_HINT, rowScore } from "../corpora";
 import { AgeGlyph } from "../canvas/AgeGlyph";
 import { endedSpanLabel } from "../canvas/Bracket";
 import { Silhouette } from "../canvas/Silhouette";
@@ -68,11 +69,15 @@ export interface Scope {
 }
 
 /**
- * A corpus the palette is answering about, to the exclusion of the others.
+ * The palette is answering about taxa only, with the commands put away.
  *
- * One value today and written as a union anyway, because the shape of the
- * thing is "which corpus", not "is it species" — fossils are the obvious
- * second and the commands the obvious third.
+ * It used to mean *this corpus and not the others*, with fossils as the obvious
+ * second value — and that was the split this whole surface no longer makes.
+ * There is one corpus of living things: taxa. Some are nodes in the synthesis
+ * tree, some are only in the fossil record, and which of those a name falls
+ * under is not a thing a reader knows before typing it. So `S` now removes the
+ * *commands*, which is what a reader pressing a key labelled "Species" was
+ * always after: a list where every row is an animal.
  */
 export type PaletteFilter = "species";
 
@@ -122,15 +127,20 @@ interface Section {
 }
 
 /**
- * The fossil section's title.
+ * The one section both corpora go in.
  *
- * Pinned near the tail however well a fossil name matches, because the two
- * corpora answer different questions: a species is a node you can build a tree
- * from, a fossil is an observation that hangs off one. Typing "dimetrodon"
- * should not bury the species list under eight PBDB rows, and a reader who
- * wants the fossil will find it — it is the only section with that name.
+ * There used to be a second, "Fossils", pinned near the tail however well a
+ * fossil name matched — on the argument that a species is a node you can build
+ * a tree from and a fossil is an observation that hangs off one. That is a true
+ * statement about *plumbing* and a poor one about the reader: they are all
+ * species, and typing "triceratops" got every species that nearly matches the
+ * word before the animal itself, which the tree has never heard of.
+ *
+ * The two lists are now merged in the order the server ranked them across both,
+ * and what used to be a section heading is a badge on the row — see
+ * {@link FossilRow}. `docs/handoff.md` §7's rule is unchanged and now covers the
+ * merge as well: `web/` sorts on the server's `order` and computes nothing.
  */
-const FOSSIL_SECTION = "Fossils";
 const SPECIES_SECTION = "Species";
 
 /**
@@ -152,7 +162,7 @@ export const ABOUT_SECTION = "About";
  * Sections whose position is fixed, in the order they appear at the tail.
  * Everything not listed floats on its best row's score.
  */
-const TAIL_SECTIONS: readonly string[] = [FOSSIL_SECTION, ABOUT_SECTION];
+const TAIL_SECTIONS: readonly string[] = [ABOUT_SECTION];
 const tailRank = (title: string): number => {
   const i = TAIL_SECTIONS.indexOf(title);
   return i < 0 ? 0 : i + 1;
@@ -353,13 +363,17 @@ export function Palette({
     // Broken taxa are excluded here rather than styled differently: they are
     // not answers, they cannot be added, and anything in this list is
     // something Enter will act on. They render as a note below the list.
+    // Both corpora share one scale, because the server ranked them on one —
+    // see {@link rowScore}. The two bases used to differ, 4000 for a node and
+    // 2000 for a fossil, and that gap was the pinned tail expressed as a
+    // number: it outweighed every real signal by design.
     const hitRows: Row[] = hits.map((hit, i) => {
       if (hit.kind === "broken") return null;
       const hay = hit.name ?? hit.key;
       return {
         kind: "hit" as const,
         hit,
-        score: 4000 - i * 10 + sessionBoost(`n:${hit.idx}`),
+        score: rowScore(hit.order, i) + sessionBoost(`n:${hit.idx}`),
         // Show the reader why this row is here — on whichever field it is
         // actually true of, and not at all when neither contains what they
         // typed (a synonym or an abbreviation got them here instead).
@@ -368,17 +382,18 @@ export function Palette({
       };
     }).filter((r): r is Extract<Row, { kind: "hit" }> => r !== null);
 
-    // Ranked by the server on match tier then notability. Undated taxa are
-    // dropped here, not styled differently: a fossil with no appearance
-    // interval has no position in time and cannot be drawn, so offering one is
-    // offering a dead end — the same reason broken taxa are not rows. They
-    // become a note below.
+    // Undated taxa are dropped here, not styled differently: a fossil with no
+    // appearance interval has no position in time and cannot be drawn, so
+    // offering one is offering a dead end — the same reason broken taxa are not
+    // rows. They become a note below.
     const fossilRows: Row[] = fossils
       .filter((f) => hasInterval(f) && (f.pbdb_taxon_no ?? 0) > 0)
       .map((f, i) => ({
         kind: "fossil" as const,
         fossil: f,
-        score: 2000 - i * 10 + sessionBoost(`f:${f.pbdb_taxon_no}`),
+        score:
+          rowScore(f.order, hits.length + i) +
+          sessionBoost(`f:${f.pbdb_taxon_no}`),
         ranges: litRanges(needle, f.name),
       }));
 
@@ -401,15 +416,18 @@ export function Palette({
       if (list) list.push(row);
       else byTitle.set(title, [row]);
     };
+    // One section for every taxon, whichever catalogue found it. The rows sort
+    // on `score` below, which is the server's merged `order`, so a fossil sits
+    // exactly where the ranking put it rather than under a heading of its own.
     for (const r of rows.hitRows) push(SPECIES_SECTION, r);
-    // A filter removes the other corpora entirely rather than demoting them.
-    // The reader pressed a key that named one of the three; leaving a command
-    // row above the answer would make the filter a suggestion.
+    for (const r of rows.fossilRows) push(SPECIES_SECTION, r);
+    // The filter removes the *commands* and nothing else. The reader pressed a
+    // key labelled "Species"; leaving a command row above the answer would make
+    // that a suggestion.
     if (filter === null) {
       for (const r of rows.cmdRows) {
         if (r.kind === "cmd") push(r.cmd.section, r);
       }
-      for (const r of rows.fossilRows) push(FOSSIL_SECTION, r);
     }
 
     const out: Section[] = [];
@@ -442,8 +460,8 @@ export function Palette({
    * and make it unpickable.
    */
   const undated: FossilTaxon[] = useMemo(
-    () => (filter === null ? fossils.filter((f) => !hasInterval(f)) : []),
-    [fossils, filter],
+    () => fossils.filter((f) => !hasInterval(f)),
+    [fossils],
   );
 
   useEffect(() => setActive(0), [q]);
@@ -584,14 +602,16 @@ export function Palette({
             empty !== "silent" && (
               <div className="palette-empty">
                 {empty === "searching" ? (
-                  // Named corpora rather than "Loading…", because the size of
-                  // the thing being read is the reason there is a wait at all,
-                  // and a reader who is told what is being searched knows
-                  // whether to keep waiting or to type something shorter.
-                  <PendingLine>
-                    Searching 2.4 million species
-                    {filter === null && <> and 523,112 fossil taxa</>}…
-                  </PendingLine>
+                  // A count rather than "Loading…", because the size of the
+                  // thing being read is the reason there is a wait at all, and
+                  // a reader who is told what is being searched knows whether
+                  // to keep waiting or to type something shorter.
+                  //
+                  // One number now, not two. It was "2.4 million species and
+                  // 523,112 fossil taxa", which named the plumbing: both
+                  // catalogues are searched on every query and the reader has
+                  // no use for the seam between them.
+                  <PendingLine>Searching 2.7 million species…</PendingLine>
                 ) : empty === "no-match" ? (
                   <>
                     Nothing matched <strong>{needle}</strong>.
@@ -600,9 +620,9 @@ export function Palette({
                     vernacular index having been built.
                   </>
                 ) : filter ? (
-                  <>Type to search 2.4 million species.</>
+                  <>Type to search 2.7 million species.</>
                 ) : (
-                  <>Type to search 2.4 million species, or pick a command.</>
+                  <>Type to search 2.7 million species, or pick a command.</>
                 )}
               </div>
             )}
@@ -773,11 +793,13 @@ function RowView({
  *
  * Deliberately shaped like a species row and deliberately not identical to one.
  * Same anatomy — icon, title, subtitle, accessory — because it is the same kind
- * of list item and Raycast's grammar should not change halfway down. But the
- * icon is the ammonite the canvas uses for a graft rather than a silhouette
- * dot, the subtitle leads with the range instead of a species count, and the
- * accessory says *draw* rather than *add*, because that is a different verb: a
- * species joins the tree, a fossil is drawn against it.
+ * of list item and Raycast's grammar should not change halfway down, and
+ * because it now sits *among* the species rows rather than under a heading that
+ * separated them. But the icon is the ammonite the canvas uses for a graft
+ * rather than a silhouette dot, the subtitle leads with the range instead of a
+ * species count, it carries {@link FOSSIL_BADGE}, and the accessory says *draw*
+ * rather than *add* — a different verb, because a species joins the tree and
+ * this is drawn against it.
  */
 function FossilRow({
   fossil,
@@ -815,8 +837,24 @@ function FossilRow({
         )}
       </span>
       <span className="row-body">
-        <span className={`row-title${italic ? " sci-italic" : ""}`}>
-          {parts(fossil.name, ranges)}
+        {/*
+          The badge sits in the title rather than in the accessory column, and
+          that is placement rather than styling: the accessory is where the
+          *verb* lives ("↵ draw", "on canvas"), which changes as the row is
+          walked, and a badge sharing a slot with something transient reads as
+          transient. It qualifies the name, so it sits beside the name.
+
+          The name gets a wrapper of its own so the ellipsis lands on it. Left
+          on the title, a long binomial would truncate through the badge and
+          the row would lose the one thing distinguishing it.
+        */}
+        <span className="row-title has-badge">
+          <span className={italic ? "sci-italic" : undefined}>
+            {parts(fossil.name, ranges)}
+          </span>
+          <span className="row-badge" title={FOSSIL_BADGE_HINT}>
+            {FOSSIL_BADGE}
+          </span>
         </span>
         <span className="row-sub">
           {span && <span className="num">{span}</span>}

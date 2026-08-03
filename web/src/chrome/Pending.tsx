@@ -12,7 +12,7 @@
  * everything that waits now reads it from.
  *
  * A sentence also carries what a spinner cannot: **which** slow thing is slow.
- * Searching 2.4 million species, reading the fossil record and resolving the
+ * Searching 2.7 million species, reading the fossil record and resolving the
  * lineages in a shared link are three different waits of three different
  * lengths, and a reader who knows which one they are in waits differently.
  *

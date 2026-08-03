@@ -631,8 +631,10 @@ rather than as approximate.
 
 ### Random picks: the pool is "has its own drawing", in both corpora
 
-`R` adds a random species, `⇧R` draws a random fossil, and both come from
-`/v1/random`. The command exists because the empty canvas is a command list and
+`R` adds a random species and comes from `/v1/random`. **One key and one
+command**, with a 20% chance of drawing from the fossil pool instead — `⇧R` and
+the second palette row are gone, and `fossil-grafts.md` §9 is why. The command
+exists because the empty canvas is a command list and
 every other command on it assumes the reader has already thought of a species —
 which, for an audience of curious people rather than systematists, is the hard
 part.
@@ -650,9 +652,15 @@ Measured on the current build:
 | pool | filter | rows |
 |---|---|---:|
 | species | `node_image.climb = 0`, named | **13,918** |
-| fossils | `is_primary`, `is_extant = 0`, `lla > 0.0117`, joined to `fossil_image` | **2,114** |
+| fossils | `is_primary`, `is_extant = 0`, `lla > 0.0117`, `attach_walk <> 0`, joined to `fossil_image` | **1,946** |
 
-Four things not to redo:
+Five things not to redo:
+
+- **`attach_walk <> 0`.** A pick that lands on *Tyrannosaurus rex* has found a
+  taxon the tree already holds, and drawing it as a graft hands the reader the
+  poorer of the two things it could have — the node carries the same PBDB
+  bracket as its `occurrence` row *and* an ancestry. Costs 168 of 2,114, all
+  still reachable as species.
 
 - **`climb = 0`, not "has an image".** Phase 5 resolves a drawing for all
   2,725,682 nodes by climbing to a relative, so "has an image" is true of the
@@ -674,10 +682,13 @@ Four things not to redo:
 The client over-asks (12 candidates) and takes the first not already on the
 canvas. Adding something already there is a no-op, and "Added Pallas's cat" over
 an unchanged canvas is a false statement about the one thing the reader was
-watching. A random fossil also adds the clade it hangs below when that clade is
-missing — reusing `drawFossil`'s existing path — because a random fossil almost
-always attaches to a branch nobody has drawn, and without it the command's usual
-outcome would be a refusal notice for something nobody chose by name.
+watching. A fossil pick also adds the clade it hangs below when that clade is
+missing — reusing `drawFossil`'s existing path — because a fossil the tree does
+not contain almost always attaches to a branch nobody has drawn, and without it
+the usual outcome would be a refusal notice for something nobody chose by name.
+A fossil roll that comes back empty **falls through to a species silently**: the
+reader pressed *surprise me*, and "the pool you did not pick was empty" answers
+a question they never asked.
 
 ### A taxon's names are ordered by use, and Wikipedia is what measures it
 
@@ -2080,16 +2091,19 @@ on anything it can compute from the two fields on the wire — the server has
 every name the taxon carries and the client has two.
 
 *And the palette's sections do not weaken that.* The fossil work landed a
-`Section` layer between the search result and the row — species, commands,
-fossils — and grouping is the one thing it does. Rows keep their server order
-inside a section, carrying the session boost and nothing else; sections
-themselves float on their best row's score, except Fossils, which is pinned
-last however well a PBDB name matches. There are now two ranked corpora on the
-wire and the rule covers both: `/v1/search`'s `results` are ranked by the bands
-above, its `fossils` by match tier then notability, and the client re-sorts
-neither. Ordering that comes from a section boundary is a statement about which
-corpus answers the question, not about which row within one is the better
-answer.
+`Section` layer between the search result and the row, and grouping is the one
+thing it does. Rows keep their server order inside a section, carrying the
+session boost and nothing else; sections themselves float on their best row's
+score, except About, which is pinned last.
+
+*Nor does the corpus merge.* There was a **Fossils** section here, pinned last
+however well a PBDB name matched, and it has gone — `fossil-grafts.md` §9 is
+the account. Both corpora are now ranked into one order **on the server**, by
+`store.Interleave`, and every pickable row in both arrays carries `order`, its
+position in that single list. The client sorts on that integer. **Taking an
+order the server computed is the opposite of the failure this rule exists to
+prevent**, which was a score the client *could* see outweighing four ranks it
+could not; the test is whether `web/` is reading a number or making one.
 
 **The fossil layer is drawn.** Clicking a segment opens a lane beneath the
 chronogram sharing its time axis; Amniota → *Homo sapiens* shows 8 of 2,657

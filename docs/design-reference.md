@@ -67,9 +67,13 @@ filter tween on the same element.
 
 - **Every binding is a bare letter, and nothing here holds a modifier.** `P`
   opens the palette, `S` opens it filtered to species, `F` fits, `/` isolates,
-  `Tab` steps, `L` switches the time scale, `R` adds a random species, `⇧R`
-  draws a random fossil, `C` clears. Shift is the *variant* of a binding and
-  never a second one, so a reader who learns `R` has already guessed `⇧R`.
+  `Tab` steps, `L` switches the time scale, `R` adds a random species, `C`
+  clears. Shift is the *variant* of a binding and never a second one, so a
+  reader who learns `F` has already guessed `⇧F`. A variant is only earned
+  where the two halves are the same action pointed at different scopes: `⇧R`
+  drew a random *fossil* until the two corpora became one search, and it was a
+  variant of nothing — the two picks differed in which catalogue the animal was
+  filed in, which is not a thing a reader knows before pressing a key.
   The rule this replaces was a running negotiation with the browser — `⌘L`
   reaches the URL bar and cannot be prevented, `⌘F` is find, `⌘R` is reload —
   and every mnemonic that survived it was shifted twice and wrong. The canvas
@@ -114,20 +118,21 @@ filter tween on the same element.
   The empty canvas is an **openings carousel** — one question at a time, its
   taxa previewed as silhouettes, arrows and dots to move, auto-advancing until
   the reader hovers or takes control. Every other way in assumes you already
-  have a name in mind, and nobody browses 2.4 million of them. `R` adds a
-  random species and `⇧R` draws a random fossil, for a reader who wants the
-  corpus rather than a curated question. Both draw only from taxa that
-  carry **a silhouette of their own**, which is the whole of the design — a
-  uniform draw returns an unnamed `mrcaott…` clade or an undescribed mite, and
-  a surprise that is usually nothing to look at is one a reader stops pressing.
-  A random fossil also adds the clade it hangs below when the canvas has not
-  got it, because otherwise the command's usual outcome is a refusal notice for
-  something nobody chose by name.
-  The two share a letter, which is the pairing `⌘⇧S`/`⌘⇧F` could never have
-  had: `⌘⇧R` is hard-reload in every browser. Copying a shareable link lost its
-  key in the same change and kept its command — `s` and `l` are the two most
-  used letters in the app, and share is the one action nobody reaches for
-  mid-flow.
+  have a name in mind, and nobody browses 2.7 million of them. `R` adds a
+  random species, for a reader who wants the corpus rather than a curated
+  question. It draws only from taxa that carry **a silhouette of their own**,
+  which is the whole of the design — a uniform draw returns an unnamed
+  `mrcaott…` clade or an undescribed mite, and a surprise that is usually
+  nothing to look at is one a reader stops pressing. **One press in five draws
+  from the fossil record instead**, and that pick also adds the clade it hangs
+  below when the canvas has not got it, because otherwise its usual outcome is
+  a refusal notice for something nobody chose by name. A fossil roll that comes
+  back empty falls through to a species without saying so: the reader asked to
+  be surprised, not for a report on a corpus. `fossil-grafts.md` §9 is why
+  there is no second key. Copying a shareable link lost its key in the same
+  change that made the letters bare and kept its command — `s` and `l` are the
+  two most used letters in the app, and share is the one action nobody reaches
+  for mid-flow.
 - **A command row may carry a tooltip its subtitle cannot hold.** The subtitle
   is one line in a fixed-height row; a caveat that needs a sentence — what a
   pick is drawn from, what it will do to the selection as a side effect — goes
@@ -142,8 +147,8 @@ filter tween on the same element.
   **disabled, never hidden**: a bar that reshuffles as the selection changes
   costs the reader the button they were already reaching for, and the tooltip
   on a greyed one says what would make it work. Below 720px the labels go and
-  the badges stay; below 620px the two bindings a touch reader cannot use
-  anyway — step, and a random fossil — go with them.
+  the badges stay; below 620px the one binding a touch reader cannot use
+  anyway — step, which is meaningless without a keyboard — goes with them.
 - Confirmations are brief HUD toasts. **One dialog exists**, and only one:
   clearing the canvas asks first. It is a single unshifted letter beside two
   other single unshifted letters, it is the only action that can destroy an
@@ -409,10 +414,12 @@ it is chrome flashing over facts the app already holds.
 
 - **A sentence, never a spinner.** `.pending` is the whole vocabulary — a dim
   line of text, breathing on a 1.8 s cycle, saying *what* is being waited for.
-  Named corpora over generic verbs: "Searching 2.4 million species and 523,112
-  fossil taxa" tells a reader whether to keep waiting; "Loading…" does not. The
-  one exception this file's "no ambient animation" rule makes, because it is
-  data arriving.
+  Named corpora over generic verbs: "Searching 2.7 million species" tells a
+  reader whether to keep waiting; "Loading…" does not. **One number, not two.**
+  It read "2.4 million species and 523,112 fossil taxa", which named the
+  plumbing — both catalogues are searched on every query and the reader has no
+  use for the seam. The one exception this file's "no ambient animation" rule
+  makes, because it is data arriving.
 - **No skeletons.** A grey bar predicts a shape — an image or not, five ranks or
   twenty — and a wrong prediction reads as the layout settling. It is also a
   promise that something is definitely coming, which for much of this corpus is

@@ -26,11 +26,18 @@ describe("matchKey", () => {
   });
 
   it("reads a shifted letter by its shifted character", () => {
-    // The browser reports "R", not "r", once shift is down. A table keyed on
-    // the printed character would miss this and hand the press to `r`.
-    expect(matchKey(press("R", { shiftKey: true }))).toBe("random-fossil");
+    // The browser reports "F", not "f", once shift is down. A table keyed on
+    // the printed character would miss this and hand the press to `f`.
     expect(matchKey(press("F", { shiftKey: true }))).toBe("fit-selection");
     expect(matchKey(press("Tab", { shiftKey: true }))).toBe("step-back");
+  });
+
+  it("leaves ⇧R alone, because a random pick has no second corpus to aim at", () => {
+    // `⇧R` drew a random fossil until the two corpora became one search. It is
+    // deliberately unbound rather than reassigned: `r` covers both pools now,
+    // and a reader whose fingers remember the old key should get nothing
+    // rather than something else.
+    expect(matchKey(press("R", { shiftKey: true }))).toBeNull();
   });
 
   it("is case-insensitive, so caps lock does not change what a key does", () => {
@@ -95,7 +102,7 @@ describe("the table itself", () => {
 
   it("prints a key for every action the chrome shows", () => {
     expect(kbd("palette")).toBe("P");
-    expect(kbd("random-fossil")).toBe("⇧R");
+    expect(kbd("random-species")).toBe("R");
     expect(kbd("step")).toBe("Tab");
   });
 });

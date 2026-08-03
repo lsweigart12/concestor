@@ -13,10 +13,15 @@
  * every chord it started with. {@link matchKey} therefore refuses outright
  * when ctrl, meta or alt is down: a modified press is somebody else's.
  *
- * **Shift is the variant, never a second binding.** `r` adds a species and `⇧R`
- * draws a fossil; `f` frames everything and `⇧F` frames the selection; `Tab`
- * steps forward and `⇧Tab` back. A reader who learns one half has guessed the
- * other, and nothing has to be memorised twice.
+ * **Shift is the variant, never a second binding.** `f` frames everything and
+ * `⇧F` frames the selection; `Tab` steps forward and `⇧Tab` back. A reader who
+ * learns one half has guessed the other, and nothing has to be memorised twice.
+ *
+ * A variant is only earned where the two halves are the same action pointed at
+ * different scopes. `⇧R` was here once, drawing a random *fossil* against `r`'s
+ * random species, and it was a variant of nothing: the two picks differ in
+ * which catalogue the taxon came out of, which is not a thing the reader knows
+ * or should have to decide before pressing a key.
  *
  * **A binding is a thing you can also click.** Keyboard operation is first
  * class and no longer exclusive: `chrome` marks the ones the control bar draws
@@ -35,7 +40,6 @@ export type ActionId =
   | "step-back"
   | "axis"
   | "random-species"
-  | "random-fossil"
   | "biolum"
   | "clear"
   | "remove"
@@ -46,7 +50,7 @@ export interface Binding {
   /**
    * `KeyboardEvent.key`, lower-cased when it is a single character.
    *
-   * Lower-casing is what makes `⇧R` reachable: the browser reports `"R"` for a
+   * Lower-casing is what makes `⇧F` reachable: the browser reports `"F"` for a
    * shifted letter, so a table keyed on the printed character would need both
    * cases of every letter and would still miss a reader with caps lock on.
    */
@@ -65,7 +69,7 @@ export interface Binding {
 
 /**
  * Order is load-bearing where two rows share a key: the shifted variant is
- * listed first, so `⇧R` cannot be answered by the unshifted `r` row.
+ * listed first, so `⇧F` cannot be answered by the unshifted `f` row.
  */
 export const BINDINGS: readonly Binding[] = [
   {
@@ -83,25 +87,26 @@ export const BINDINGS: readonly Binding[] = [
     shift: false,
     kbd: "S",
     label: "Species",
-    hint: "Search 2.4 million species. Also reachable from the palette by typing s then space",
+    hint:
+      "Search 2.7 million species, in the tree and in the fossil record. " +
+      "Also reachable from the palette by typing s then space",
     chrome: "primary",
   },
   {
-    id: "random-fossil",
-    key: "r",
-    shift: true,
-    kbd: "⇧R",
-    label: "Fossil",
-    hint: "Draw a random illustrated fossil at its own date",
-    chrome: "secondary",
-  },
-  {
+    // No `⇧R` beside it any more, and the missing variant is the point rather
+    // than an omission. `⇧R` used to draw a random *fossil*, which stated in
+    // the key surface a split the product does not have: a fossil is a species
+    // too, and the only difference is whether the tree happens to contain it.
+    // One key now draws from both — see `RANDOM_FOSSIL_CHANCE` — so the reader
+    // is never asked to choose a corpus before they know what is in either.
     id: "random-species",
     key: "r",
     shift: false,
     kbd: "R",
     label: "Random",
-    hint: "Add a random illustrated species — the way in that needs no name in mind",
+    hint:
+      "Add a random illustrated species — the way in that needs no name in mind. " +
+      "About one in five comes from the fossil record, pinned to its branch",
     chrome: "primary",
   },
   {
@@ -174,7 +179,7 @@ export const BINDINGS: readonly Binding[] = [
     // Primary, and the reason is the narrow layout rather than the wide one:
     // `secondary` means "drop me below 620px", and the reader on a phone is the
     // one who cannot fall back to a key. Stepping is meaningless without a
-    // keyboard and a random fossil is a flourish; starting over is neither.
+    // keyboard and framing is recoverable; starting over is neither.
     id: "clear",
     key: "c",
     shift: false,
