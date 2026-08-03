@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { normalise } from "./api";
+import { api, normalise } from "./api";
 
 /**
  * The client does not rank.
@@ -97,5 +97,62 @@ describe("vernacular order at the API boundary", () => {
       synonyms: [],
     }) as { vernaculars: string[] };
     expect(out.vernaculars).toEqual(["dog", "domestic dog"]);
+  });
+});
+
+/**
+ * A superseded search must stop costing something.
+ *
+ * `/v1/search` is served by a single container instance with half a vCPU, so a
+ * request the reader has already typed past is not idle waiting — it holds the
+ * only CPU there is while the keystroke they *are* waiting on queues behind it.
+ * The 110 ms debounce only ever stopped a request being sent; one already in
+ * flight ran to completion and had its answer discarded.
+ */
+describe("an abandoned search is cancelled", () => {
+  const ok = (body: unknown) =>
+    ({ ok: true, status: 200, json: async () => body }) as Response;
+
+  it("passes the caller's signal through to fetch", async () => {
+    const seen: (AbortSignal | null | undefined)[] = [];
+    vi.stubGlobal("fetch", async (_u: string, init?: RequestInit) => {
+      seen.push(init?.signal);
+      return ok({ query: "q", results: [] });
+    });
+    const ac = new AbortController();
+    await api.search("signal-probe", 24, ac.signal);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toBe(ac.signal);
+    vi.unstubAllGlobals();
+  });
+
+  it("rejects on abort and remembers nothing, so the query can be asked again", async () => {
+    let calls = 0;
+    vi.stubGlobal("fetch", (_u: string, init?: RequestInit) => {
+      calls += 1;
+      return new Promise<Response>((resolve, reject) => {
+        const signal = init?.signal;
+        if (signal) {
+          signal.addEventListener("abort", () =>
+            reject(new DOMException("aborted", "AbortError")),
+          );
+        }
+        // Never resolves on its own: this is the in-flight request.
+        if (!signal) resolve(ok({ query: "q", results: [] }));
+      });
+    });
+
+    const ac = new AbortController();
+    const first = api.search("abandoned", 24, ac.signal);
+    ac.abort();
+    await expect(first).rejects.toThrow();
+    expect(calls).toBe(1);
+
+    // The aborted entry must not be left in the memo cache, or backspacing to
+    // the same query would rediscover its cancellation instead of asking.
+    vi.stubGlobal("fetch", async () => ok({ query: "abandoned", results: [] }));
+    const second = await api.search("abandoned", 24);
+    expect(second.query).toBe("abandoned");
+    vi.unstubAllGlobals();
   });
 });

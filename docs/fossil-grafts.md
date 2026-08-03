@@ -323,11 +323,56 @@ the gate, *Dimetrodon* was announced as undrawable one frame before being drawn.
 ## 7. Searchable, and selectable
 
 **Fossils are in the palette**, ranked among the species rather than beneath
-them, and no pipeline run was needed. `SearchFossils` is a full scan of the
-523,112-row table — there is no index on `name`, since the table is keyed on
-`(attach_idx, n_occs DESC)` for the segment query — and a prefix scan measures
-**~40ms**, comfortably inside the palette's 110ms debounce. An in-memory prefix
-index would cost ~15MB and a slower boot to save something nobody can perceive.
+them, and the first version needed no pipeline run: `SearchFossils` was a full
+scan of the 523,112-row table, since the table is keyed on
+`(attach_idx, n_occs DESC)` for the segment query and had no index on `name`.
+That was accepted on a measurement of **~40ms**, comfortably inside the
+palette's 110ms debounce, against which an in-memory prefix index costing ~15MB
+and a slower boot bought nothing anyone could perceive.
+
+**The 40ms was wrong, and the conclusion with it.** Measured through the
+serving binary the scan is **100–117 ms**, and flat against match count —
+`zzzqqq`, which matches nothing, costs 100 ms — because the cost is the scan
+and not the matching. It was roughly **90%** of `/v1/search`; every other stage
+of the endpoint, FTS included, is between 0.02 ms and 11 ms. Worse, the figure
+came from a laptop, and the deployed container is a `standard-1` instance with
+**half a vCPU**. That gap is the whole of why search felt fine in development
+and slow in production, and no amount of local benchmarking would have shown
+it.
+
+So phase 6 now builds `fossil_fts`, an FTS5 index over the fossil names, and
+`SearchFossils` uses it where it exists and falls back to the scan where it does
+not. It costs **18 MB** and **1.0 s** of build time, and the same queries come
+back in **0.1–15 ms** — the worst case being a two-character prefix, which is
+the shortest the palette ever sends. Three things about it are load-bearing:
+
+- **The index covers every row, not just the searchable ones.** Restricting it
+  to `is_primary = 1 AND attach_walk <> 0` would make it 40% smaller, and is
+  refused: that filter is a *serving* policy — `notInTree`, argued out in §9 —
+  and an index that quietly encodes it goes wrong without anything failing on
+  the day the policy changes.
+- **The rowid is a `pbdb_taxon_no`, and the server proves it rather than
+  trusting it.** This is the `node_fts.rowid` trap with a different table: a
+  wrong key does not error, it joins cleanly and describes a different animal.
+  `verifyFossilFTS` samples taxa from both ends of the keyspace and requires
+  each to be returned by a search for its own name; a mismatch skips the index
+  and keeps the scan, because a slow search beats a confident wrong one.
+- **The check has to go through `MATCH`.** The index is `content=''`, so
+  selecting a column off it yields NULL, `NULL <> t.name` is NULL rather than
+  true, and the obvious join-and-compare gate reports 0 for a correct index and
+  a corrupted one alike. Both the pipeline gate and the server probe were
+  written that way first and passed against an index built from the wrong key.
+
+**What the index cannot match.** FTS5 matches whole tokens and token prefixes;
+`LIKE '%q%'` also matched inside a word, so "rex" reached *Aulacorexia* and 525
+others, and "triceratops" reached *Eotriceratops*. Measured over nine real
+queries the index returns **no row the scan would not** — a gate requires it —
+and the 47,490 rows it drops across those queries are exactly the ones
+`matchBand` scores `bandNone`, its worst band, which `store.Interleave` then
+ranks behind every node. They could not reach a 24-row page from either path.
+The one `matchBand` rule a prefix cannot reproduce is `samePlural`, and it is
+inert here: PBDB names are Linnean, not vernacular, so there are no plurals to
+miss.
 
 SQL orders by a coarse match tier — exact, prefix, contains — then the same
 `notability` a drill-down lane uses. That is candidate *generation*: the rows

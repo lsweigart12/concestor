@@ -308,10 +308,17 @@ export function Palette({
       return;
     }
     let cancelled = false;
+    // The debounce stops a request being *sent* inside 110 ms; this stops one
+    // already sent from being paid for after it stops mattering. `/v1/search`
+    // is served by one container instance with half a vCPU, so a superseded
+    // request is not idle waiting — it holds the only CPU there is while the
+    // keystroke the reader is waiting on queues behind it. Typing steadily is
+    // exactly the case that used to leave several in flight at once.
+    const inflight = new AbortController();
     setSearching(true);
     const t = window.setTimeout(async () => {
       try {
-        const r = await api.search(q.trim(), 24);
+        const r = await api.search(q.trim(), 24, inflight.signal);
         // Fed the query the server was actually asked, not the keystroke. The
         // beacon holds a prefix chain to one event, so `w…whale` is recorded
         // once — `analytics/beacon.ts` is the rule and why it is that one.
@@ -334,6 +341,11 @@ export function Palette({
     return () => {
       cancelled = true;
       window.clearTimeout(t);
+      // The abort lands as a rejection, and every branch below the await is
+      // already guarded by `cancelled` — so nothing renders an aborted request
+      // as a failure. That guard is why this is one line rather than a new
+      // error path.
+      inflight.abort();
     };
   }, [q, open]);
 

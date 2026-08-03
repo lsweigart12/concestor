@@ -53,6 +53,16 @@ type FossilSchema struct {
 	ImageTable string `json:"image_table,omitempty"`
 	ImageKey   string `json:"image_key,omitempty"`
 	ImageID    string `json:"image_id,omitempty"`
+	// FTSTable is the FTS5 index over `name`, whose rowid is TaxonNo. Empty on
+	// a build predating it, where {@link SearchFossils} falls back to the scan.
+	//
+	// It is only ever set by {@link verifyFossilFTS}, which *checks* the rowid
+	// identity against the table rather than inferring it from the name of the
+	// index. The same assumption made about `node_fts` — that a rowid must be
+	// the key it looks like — did not error, it joined cleanly to unrelated
+	// nodes and returned confident nonsense, and here the nonsense would be a
+	// fossil card describing a different animal.
+	FTSTable string `json:"fts_table,omitempty"`
 }
 
 func (s *Schema) resolveFossil() {
@@ -91,6 +101,101 @@ func (s *Schema) resolveFossil() {
 		}
 	}
 	s.Fossil = f
+}
+
+// verifyFossilFTS wires up `fossil_fts` only after proving its rowid really is
+// a `pbdb_taxon_no`.
+//
+// **The proof has to go through MATCH.** The obvious check — join the index to
+// the table on that identity and count the names that disagree — is not a check
+// at all: the index is contentless, so selecting a column off it yields NULL,
+// `NULL <> 'Eotriceratops'` is NULL rather than true, and the count comes back
+// 0 for a correct index and a deliberately corrupted one alike. That is the
+// house rule about counting rows not being the same as checking them, arriving
+// through a door nobody was watching.
+//
+// So each sampled taxon is looked up *by its own name*, and the answer must
+// contain its own key. A correct index passes; one built against any other key
+// fails on the first sample. The sample is taken from both ends of the keyspace
+// because a key that merely *overlaps* the right one — the case no amount of
+// reading the schema would catch — can agree across a whole region and diverge
+// outside it.
+//
+// Refusal is not fatal. The scan is still there, still correct, and a slow
+// search is a better failure than a search that describes the wrong animal.
+func (s *Schema) verifyFossilFTS(ctx context.Context, db *sql.DB) {
+	f := s.Fossil
+	if f == nil {
+		return
+	}
+	t := s.firstTable("fossil_fts")
+	if t == "" {
+		return
+	}
+	if f.TaxonNo == "" {
+		s.Skipped[t] = "the fossil table carries no pbdb_taxon_no, so the index " +
+			"rowid cannot be tied back to a row"
+		return
+	}
+	refuse := func(why string) { s.Skipped[t] = why }
+
+	const perEnd = 16
+	type sample struct {
+		no   int64
+		name string
+	}
+	var samples []sample
+	for _, dir := range []string{"ASC", "DESC"} {
+		rows, err := db.QueryContext(ctx, fmt.Sprintf(
+			`SELECT %q, %q FROM %q WHERE trim(%q) <> '' ORDER BY %q %s LIMIT %d`,
+			f.TaxonNo, f.Name, f.Table, f.Name, f.TaxonNo, dir, perEnd))
+		if err != nil {
+			refuse("could not be verified against " + f.Table + ": " + err.Error())
+			return
+		}
+		for rows.Next() {
+			var sm sample
+			if err := rows.Scan(&sm.no, &sm.name); err != nil {
+				_ = rows.Close()
+				refuse("could not be verified against " + f.Table + ": " + err.Error())
+				return
+			}
+			samples = append(samples, sm)
+		}
+		err = rows.Err()
+		_ = rows.Close()
+		if err != nil {
+			refuse("could not be verified against " + f.Table + ": " + err.Error())
+			return
+		}
+	}
+	if len(samples) == 0 {
+		refuse("the fossil table is empty, so the index cannot be verified")
+		return
+	}
+
+	lookup := fmt.Sprintf(
+		`SELECT count(*) FROM %q WHERE %q MATCH ? AND rowid = ?`, t, t)
+	for _, sm := range samples {
+		expr := ftsPrefixQuery(sm.name)
+		if expr == "" {
+			// A name with no indexable token at all says nothing either way.
+			continue
+		}
+		var found int
+		if err := db.QueryRowContext(ctx, lookup, expr, sm.no).Scan(&found); err != nil {
+			refuse("could not be verified against " + f.Table + ": " + err.Error())
+			return
+		}
+		if found == 0 {
+			refuse(fmt.Sprintf(
+				"%s.%s %d is named %q, and searching the index for that name does "+
+					"not return it — so the index rowid is not %s.%s",
+				f.Table, f.TaxonNo, sm.no, sm.name, f.Table, f.TaxonNo))
+			return
+		}
+	}
+	f.FTSTable = t
 }
 
 // Fossil is one PBDB taxon attached to a segment.
@@ -413,12 +518,32 @@ func notInTree(f *FossilSchema) string {
 
 // SearchFossils finds PBDB taxa the tree does not contain, best match first.
 //
-// A full scan of the 523,112-row table, and that is the measured right answer
-// rather than a concession: there is no index on `name` — the fossil table is
-// keyed on `(attach_idx, n_occs DESC)` for the segment query — and a prefix
-// scan comes back in ~40ms, comfortably inside the palette's 110ms debounce.
-// Building an in-memory prefix index at startup would cost ~15MB and a slower
-// boot to save something nobody can perceive.
+// # Candidate generation, and why there are two of them
+//
+// Where `fossil_fts` exists the name is matched through it; otherwise the
+// query falls back to `LIKE '%q%'`, which is a full scan of the 523,112-row
+// table because `fossil` is keyed on `(attach_idx, n_occs DESC)` for the
+// segment query and has no index on `name`.
+//
+// That scan used to be the only path, on the reasoning that ~40 ms sits inside
+// the palette's 110 ms debounce. The reasoning was sound and the number was
+// wrong. Measured through the serving binary it is **100–117 ms**, flat against
+// match count — `zzzqqq`, which matches nothing, costs 100 ms — and it was
+// roughly 90% of `/v1/search`. The deployed container is a `standard-1`
+// instance with **half a vCPU**, several times slower than the laptop those
+// figures come from, which is why search felt fine in development and slow in
+// production. Through the index the same queries cost 0.1–15 ms, the worst case
+// being a two-character prefix, which is the shortest the palette sends.
+//
+// The two paths do not return quite the same rows, and the difference is
+// deliberate. FTS5 matches whole tokens and token prefixes; `LIKE '%q%'` also
+// matched inside a word, so "rex" reached *Aulacorexia* along with 525 others.
+// The index returns **no row the scan would not** — a pipeline gate asserts
+// that — and the rows it drops are exactly the ones {@link matchBand} scores
+// `bandNone`, its worst band, which {@link Interleave} then ranks behind every
+// node. They could not reach a 24-row page from either path.
+//
+// # Ranking
 //
 // SQL orders by a coarse match tier and then `notability` — the same
 // extinct/drawn/specific/count ranking a drill-down lane uses. That tier is
@@ -445,11 +570,35 @@ func (s *Store) SearchFossils(ctx context.Context, q string, limit int) ([]Fossi
 	esc := strings.NewReplacer("\\", "\\\\", "%", "\\%", "_", "\\_").Replace(lower)
 
 	sel, join := fossilRow(f)
-	name := "lower(t." + quote(f.Name) + ")"
+	// No `lower()` around the column. SQLite's LIKE is already case-insensitive
+	// over ASCII, nothing here sets `case_sensitive_like`, and the fossil corpus
+	// contains **zero** non-ASCII names — so the two are exactly equivalent, and
+	// the wrapper was a function call and a string allocation on every one of
+	// 523,112 rows. Dropping it takes the fallback scan from 113.7 ms to 79.6 ms.
+	// The exact tier keeps its case-insensitivity explicitly, through the
+	// collation rather than through a per-row rewrite of the data.
+	name := "t." + quote(f.Name)
 	tier := fmt.Sprintf(
-		"CASE WHEN %s = ? THEN 0 WHEN %s LIKE ? ESCAPE '\\' THEN 1 ELSE 2 END",
+		"CASE WHEN %s = ? COLLATE NOCASE THEN 0 WHEN %s LIKE ? ESCAPE '\\' THEN 1 ELSE 2 END",
 		name, name)
-	where := fmt.Sprintf("%s LIKE ? ESCAPE '\\'", name)
+
+	var where string
+	// Bound in the order the placeholders appear in the *text*, which puts the
+	// WHERE's argument before ORDER BY's two. Binding them in the order the
+	// clauses were written instead sent the bare query to the WHERE, so only an
+	// exact name ever matched: "tyrannosaurus" found *Tyrannosaurus* and
+	// "georgicus" found nothing at all.
+	var args []any
+	if expr := ftsPrefixQuery(q); f.FTSTable != "" && expr != "" {
+		where = fmt.Sprintf("t.%q IN (SELECT rowid FROM %q WHERE %q MATCH ?)",
+			f.TaxonNo, f.FTSTable, f.FTSTable)
+		args = append(args, expr)
+	} else {
+		where = fmt.Sprintf("%s LIKE ? ESCAPE '\\'", name)
+		args = append(args, "%"+esc+"%")
+	}
+	args = append(args, lower, esc+"%")
+
 	if f.IsPrimary != "" {
 		where += fmt.Sprintf(" AND t.%q = 1", f.IsPrimary)
 	}
@@ -461,12 +610,7 @@ func (s *Store) SearchFossils(ctx context.Context, q string, limit int) ([]Fossi
 		sel, f.Table, join, where, tier, s.notability(f),
 		f.NOccs, f.Name, limit*4)
 
-	// Bound in the order the placeholders appear in the *text*, which puts
-	// WHERE's substring pattern before ORDER BY's two. Binding them in the
-	// order the clauses were written above instead sent the bare query to the
-	// WHERE, so only an exact name ever matched: "tyrannosaurus" found
-	// *Tyrannosaurus* and "georgicus" found nothing at all.
-	rows, err := s.DB.QueryContext(ctx, q2, "%"+esc+"%", lower, esc+"%")
+	rows, err := s.DB.QueryContext(ctx, q2, args...)
 	if err != nil {
 		return nil, err
 	}
