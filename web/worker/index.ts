@@ -51,13 +51,22 @@ export class ReadApi extends Container<Env> {
   defaultPort = 8080;
 
   /**
-   * Long on purpose. A cold start is 1–3 s to pull the image plus a measured
-   * 0.78 s to open the database and map the arrays, and the first interaction
-   * this app has with anyone is them typing a species name into the palette.
-   * The memory bill for staying awake is the price of not doing that to them;
-   * `docs/deployment.md` §2 has the arithmetic.
+   * Long enough to cover a session and a gap, short enough to sleep overnight.
+   *
+   * A cold start is 1–3 s to pull the image plus a measured 0.78 s to open the
+   * database and map the arrays, and the first interaction this app has with
+   * anyone is them typing a species name into the palette — so the value is
+   * bought with someone's first impression, not with money alone.
+   *
+   * It was 6h, which bought almost all of them at ~$26/month of memory. One
+   * hour is the deliberate trade: an engaged reader browsing the tree never
+   * meets a cold start, a second visit within the hour does not either, and
+   * the container stops billing through the night. `docs/deployment.md` §2 has
+   * the arithmetic and §6.1 is why this project takes the trade — the memory
+   * line is the one large cost that is *capped*, and capping it lower matters
+   * more here than avoiding the occasional 4 s wait.
    */
-  sleepAfter = "6h";
+  sleepAfter = "1h";
 }
 
 /**

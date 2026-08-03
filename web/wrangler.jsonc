@@ -16,6 +16,19 @@
   // commit that says so.
   "compatibility_date": "2026-06-01",
 
+  // A Custom Domain rather than a route: Cloudflare creates the DNS record and
+  // manages the certificate itself, so there is nothing to keep in sync by
+  // hand. It requires the zone to be on the same account, which concestor.com
+  // is.
+  //
+  // The apex alone, deliberately. Serving the app on www as well would be two
+  // hostnames for one app, and this app's unit of sharing is a URL — a
+  // `/?sel=…` link that works on one host and not the other, or that two
+  // people hold two versions of, is a worse failure than a redirect. www is a
+  // Redirect Rule to the apex, which lives in the dashboard because it is zone
+  // configuration and not this Worker's business.
+  "routes": [{ "pattern": "concestor.com", "custom_domain": true }],
+
   "assets": {
     "directory": "./dist",
 
@@ -51,7 +64,7 @@
   "containers": [
     {
       "class_name": "ReadApi",
-      "image": "registry.cloudflare.com/ACCOUNT_ID/concestor-api:unpublished",
+      "image": "registry.cloudflare.com/ACCOUNT_ID/concestor-api:854cdfa42f77e78e",
 
       // 4 GiB and 8 GB of disk against a measured 463 MB working set and a
       // 2,229 MB image. `basic` fits on both axes and fits nothing else;
