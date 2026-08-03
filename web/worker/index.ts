@@ -73,8 +73,11 @@ export class ReadApi extends Container<Env> {
  * How many container instances `/v1` is spread over.
  *
  * One, deliberately. Every `/v1` response except `/v1/random` is
- * `Cache-Control: immutable` keyed by build id, so the edge absorbs the
- * repeats and one instance is enough at this project's traffic. Cloudflare has
+ * `Cache-Control: immutable` keyed by build id and Workers Cache is enabled in
+ * wrangler.jsonc, so the edge absorbs the repeats — including a burst on a
+ * cold key, which request collapsing turns into one invocation per data centre
+ * rather than one per reader — and one instance is enough at this project's
+ * traffic. Cloudflare has
  * no built-in autoscaling yet — the documented pattern is exactly this, a
  * fixed count with random routing — so raising this number is the scaling
  * knob, and it is a decision someone takes rather than something the platform
@@ -105,9 +108,14 @@ export default {
 
     // Assets are matched before this handler runs, except for the globs in
     // wrangler.jsonc's `run_worker_first`. Anything else reaching here is a
-    // routing mistake rather than a request to serve.
+    // routing mistake rather than a request to serve — and `no-store` because
+    // a 404 is heuristically cacheable and Workers Cache would otherwise pin
+    // the symptom of a misrouted path at the edge for the version's lifetime.
     if (!url.pathname.startsWith("/v1/")) {
-      return new Response("Not found", { status: 404 });
+      return new Response("Not found", {
+        status: 404,
+        headers: { "Cache-Control": "no-store" },
+      });
     }
 
     if (env.API_ORIGIN) return proxy(request, url, env.API_ORIGIN);
@@ -120,10 +128,12 @@ export default {
     // every visitor the same "random" species forever — an endpoint that
     // appears to work and never picks twice.
     //
-    // If edge caching is ever added in front of this, it must decide from the
-    // upstream response's own Cache-Control and never from a list of
-    // cacheable paths kept in this file. A path allowlist is a list somebody
-    // eventually forgets to add the next `/v1/random` to.
+    // Edge caching now sits in front of this — wrangler.jsonc's `cache`
+    // block — and it obeys that rule by construction: Workers Cache reads the
+    // response's own Cache-Control per RFC 9111, so `/v1/random` is refused
+    // without anything here naming the path. Nothing in this file may grow
+    // into a list of cacheable paths, which is a list somebody eventually
+    // forgets to add the next `/v1/random` to.
     const instance = await getRandom(env.READ_API, API_INSTANCES);
     return instance.fetch(request);
   },

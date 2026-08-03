@@ -449,12 +449,51 @@ every visitor the same "random" species forever.
 
 `docs/architecture.md` §4 costs the design at "a CDN in front absorbs
 essentially all traffic", and that is the mechanism that makes one container
-instance enough. **This is the one claim in this document that has not been
-verified against a live account**, because it cannot be. The rule to keep when
-someone does verify it: whatever caching the Worker adds must decide from the
-origin's own `Cache-Control`, never from a path allowlist maintained in the
-Worker. A list of cacheable paths is a list somebody eventually forgets to add
-`/v1/random`'s successor to.
+instance enough. **The header alone did not buy it.** A Worker runs *before*
+the zone cache and nothing puts its output back, so a response coming out of a
+container binding was cached by the reader's own browser and by nothing else:
+the same clade asked for by two readers was two container requests, and the
+`immutable` on it was doing a session's work rather than a CDN's.
+
+So `web/wrangler.jsonc` enables **Workers Cache** — `"cache": { "enabled":
+true }`, which puts a tiered edge cache in front of the Worker, requires
+wrangler ≥ 4.69.0, and is off unless asked for. Four things about it are worth
+writing down, because each one is a decision this design had already taken and
+the feature happens to agree with:
+
+- **It decides from the response's own `Cache-Control`, per RFC 9111.** That is
+  the rule this section used to state as a warning for whoever added caching
+  later, and the mechanism now enforces it rather than a reviewer:
+  `/v1/random`'s `no-store` is refused at the edge without anything in the
+  Worker naming the path. The rule survives as a prohibition — nothing in
+  `worker/index.ts` may grow into a list of cacheable paths, because a list of
+  cacheable paths is a list somebody eventually forgets to add `/v1/random`'s
+  successor to.
+- **The cache key is path + query string + Worker version.** The query string
+  matters or `/v1/search?q=` would answer every reader with the first reader's
+  query. The *version* is what makes a one-year `immutable` safe on a URL that
+  is not content-addressed: `/v1/node/{key}` is the same URL across builds, and
+  what invalidates it is that a dataset change is a new image tag, a new image
+  tag is a `deploy` (see above — it must be), and a deploy is a new version
+  with an empty cache. **`cross_version_cache` therefore stays off.** Turning it
+  on to hold the hit rate across deploys would let a rollback serve the new
+  build's JSON under the old build's code, which is exactly the mismatched pair
+  the committed image tag exists to prevent.
+- **Request collapsing comes with it.** A burst on a cold key runs the Worker
+  once per data centre instead of once per reader, which is the one thing that
+  made `sleepAfter = 1h` uncomfortable: the cost of a cold start used to be
+  paid by however many people arrived during it.
+- **A cache hit does not wake the container.** That is the money argument, not
+  the latency one. §6.1 is why this project cares: there is no spend cap, so
+  the ceiling is the share of traffic that never reaches the expensive thing.
+
+**What is still unverified is the hit rate, not the mechanism.** Every `/v1`
+path except `/v1/random` is cacheable and the popular ones repeat across
+readers — `/v1/timescale` is fetched by every session and is a certain hit —
+but this app's `/v1/path/{key}` traffic has a long tail by construction, and
+nobody has measured what fraction of it repeats within a colo within a version.
+`Cf-Cache-Status` and the Workers observability dashboard are where that gets
+answered on the first deploy with real traffic.
 
 ---
 
