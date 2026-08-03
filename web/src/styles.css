@@ -2068,6 +2068,15 @@ body {
   color: var(--ink-2);
 }
 
+/* Trailing, not leading like the control bar's. The bar is a row of keys with
+   verbs attached and the badges line up down its left edge; this is one
+   full-width button whose left edge already carries the sign, so the key goes
+   to the far end and the verb keeps the space next to what it acts on. */
+.detail .card-action .kbd {
+  flex: none;
+  margin-left: auto;
+}
+
 .detail .card-action-hint {
   margin: var(--s1) 0 0;
   font-size: 10.5px;

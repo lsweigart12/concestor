@@ -29,6 +29,7 @@ import {
   gapLabel,
 } from "../canvas/Bracket";
 import { Silhouette } from "../canvas/Silhouette";
+import { kbd } from "../chrome/bindings";
 import { mayDrawExemplar, witnessOn } from "../canvas/witness";
 import { ageLabel, DerivedName, isScientificItalic } from "../canvas/NodeMark";
 import { branchProse, UNNAMED, type Divergence } from "../tree/naming";
@@ -217,6 +218,12 @@ export function Detail({
         reader can see, and the press then appears to do nothing. "Pin" is what
         actually happens: it becomes a lineage of its own and survives the
         removal of everything beneath it.
+
+        The key rides on the remove state only, and it is honest there for the
+        same reason the control bar's is: `remove` fires on `induced.leaves`,
+        which is the selection, which is the state `inSelection` puts this
+        button in. The fossil card passes none — a graft's index is negative,
+        so the handler resolves no node and the press does nothing.
       */}
       <CardActions
         present={inSelection}
@@ -224,6 +231,7 @@ export function Detail({
         onRemove={onRemove}
         addLabel={isDrawn ? "Pin to the canvas" : "Add to the canvas"}
         removeLabel="Remove from the canvas"
+        removeKeys={kbd("remove")}
         {...(isDrawn
           ? {
               hint: "It is drawn now only because of what sits below it. Pinning keeps it.",
