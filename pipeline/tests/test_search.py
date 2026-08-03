@@ -26,6 +26,9 @@ from concestor_build.search import (
     SCHEMA,
     W_VERNACULAR,
     abbreviate,
+    build_fossil_index,
+    fossil_index_miskeyed,
+    fossil_index_recall,
     match_expression,
     query,
 )
@@ -341,3 +344,114 @@ def test_rank_score_is_ordered_by_clade_size(con):
         )
     ]
     assert names == ["cellular organisms", "Mammalia", "Homo sapiens"]
+
+
+# --------------------------------------------------------------------------
+# The fossil name index
+# --------------------------------------------------------------------------
+#
+# `SearchFossils` used to scan all 523,112 rows on every keystroke — 100–117 ms
+# in the serving binary, ~90% of `/v1/search`, and several times worse again on
+# the half-vCPU container it deploys to. These cover the index that replaced it,
+# and in particular the two ways of checking it that do not work.
+
+
+def _fossil_db() -> sqlite3.Connection:
+    con = sqlite3.connect(":memory:")
+    con.execute(
+        "CREATE TABLE fossil (pbdb_taxon_no INTEGER PRIMARY KEY, name TEXT NOT NULL)"
+    )
+    con.executemany(
+        "INSERT INTO fossil VALUES (?, ?)",
+        [
+            (1, "Triceratops horridus"),
+            (2, "Eotriceratops xerinsularis"),
+            (3, "Tyrannosaurus rex"),
+            (4, "Nuralagus rex"),
+            (5, "Rexroadus kentuckyensis"),
+            (6, "   "),  # nothing indexable, and not a build failure
+        ],
+    )
+    con.commit()
+    return con
+
+
+def test_fossil_index_indexes_every_indexable_name():
+    con = _fossil_db()
+    assert build_fossil_index(con, log=lambda *_: None) == 5
+
+
+def test_fossil_index_is_skipped_when_there_is_no_fossil_table():
+    con = sqlite3.connect(":memory:")
+    assert build_fossil_index(con, log=lambda *_: None) == 0
+
+
+def test_fossil_index_miskeyed_passes_a_correct_index():
+    con = _fossil_db()
+    build_fossil_index(con, log=lambda *_: None)
+    assert fossil_index_miskeyed(con) == 0
+
+
+def test_fossil_index_miskeyed_catches_a_shifted_key():
+    """The gate that a column comparison could not answer.
+
+    `fossil_fts` is contentless, so `SELECT f.name FROM fossil_fts f` is NULL
+    and `NULL <> t.name` is NULL rather than true — the obvious join-and-compare
+    check reports 0 here as readily as on a correct index. It was written that
+    way first and passed against exactly this database.
+    """
+    con = _fossil_db()
+    con.execute(
+        "CREATE VIRTUAL TABLE fossil_fts USING fts5("
+        "name, content='', tokenize='unicode61 remove_diacritics 2')"
+    )
+    con.execute(
+        "INSERT INTO fossil_fts(rowid, name) "
+        "SELECT pbdb_taxon_no + 1, name FROM fossil WHERE trim(name) <> ''"
+    )
+    con.commit()
+
+    vacuous = con.execute(
+        "SELECT count(*) FROM fossil_fts f JOIN fossil t "
+        "ON t.pbdb_taxon_no = f.rowid WHERE f.name <> t.name"
+    ).fetchone()[0]
+    assert vacuous == 0, "the contentless comparison is supposed to be vacuous"
+
+    assert fossil_index_miskeyed(con) > 0
+
+
+def test_fossil_index_never_invents_a_row():
+    con = _fossil_db()
+    build_fossil_index(con, log=lambda *_: None)
+    invented, _ = fossil_index_recall(con, ("triceratops", "rex", "tyrannosaurus"))
+    assert invented == 0
+
+
+def test_fossil_index_drops_only_mid_word_matches():
+    """What the index trades away, named rather than counted.
+
+    A token prefix reaches *Rexroadus*; nothing but a substring reaches the
+    `rex` inside *Eotriceratops*. The serving binary scores that class
+    `bandNone` and ranks it behind every node, which is why the loss is
+    affordable — but it is a loss, and it should show up here if it ever
+    changes shape.
+    """
+    con = _fossil_db()
+    build_fossil_index(con, log=lambda *_: None)
+
+    found = {
+        r[0]
+        for r in con.execute(
+            "SELECT rowid FROM fossil_fts WHERE fossil_fts MATCH ?", ('"rex"*',)
+        )
+    }
+    # Tyrannosaurus rex, Nuralagus rex — whole token; Rexroadus — token prefix.
+    assert found == {3, 4, 5}
+
+    tri = {
+        r[0]
+        for r in con.execute(
+            "SELECT rowid FROM fossil_fts WHERE fossil_fts MATCH ?", ('"triceratops"*',)
+        )
+    }
+    assert tri == {1}, "Eotriceratops matches only inside a word"

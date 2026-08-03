@@ -82,7 +82,8 @@ and mapping the arrays.
 | Endpoint | p50 | p95 | max |
 |---|---:|---:|---:|
 | `/v1/path/{key}` (60 random species) | **0.4 ms** | 0.6 ms | 0.9 ms |
-| `/v1/search?q=` (16 queries × 4) | 111 ms | 127 ms | 136 ms |
+| `/v1/search?q=` (16 queries × 4), before `fossil_fts` | 111 ms | 127 ms | 136 ms |
+| `/v1/search?q=` (16 queries × 4), after | **0.1–15 ms** | — | — |
 | `/v1/random?kind=species` | 167 ms | 174 ms | 187 ms |
 
 `/v1/path` at **0.4 ms** is the number that rules out every design in §3. It is
@@ -91,12 +92,24 @@ and mapping the arrays.
 network round trips is not a port of this endpoint; it is a different endpoint
 with the same URL.
 
-Search is worth one sentence because it is not what it looks like. The 111 ms is
-**flat against match count** — `zzzqqq`, which matches nothing, costs 104 ms —
-which is consistent with the unindexed full scan of the 523,112-row `fossil`
-table that CLAUDE.md already records, not with the FTS5 query. It is a
-performance question and it is not a deployment question; it is here because
-§3 prices D1 against it.
+Search was worth one sentence because it was not what it looked like, and the
+sentence turned out to be the whole story. The 111 ms was **flat against match
+count** — `zzzqqq`, which matches nothing, cost 104 ms — which is the unindexed
+full scan of the 523,112-row `fossil` table and not the FTS5 query at all.
+Broken down, the scan was 100–117 ms of it and *every other stage of the
+endpoint together* was under 25 ms. It is now indexed; `fossil-grafts.md` §7 is
+the account, including what the index cannot match and why that is the right
+trade.
+
+**Two things in this document made that bug invisible for as long as it lasted,
+and both are worth keeping in mind before trusting any figure here.** The first
+is that every number in this section was measured on the machine the pipeline
+runs on, and `standard-1` is **half a vCPU** — so a CPU-bound endpoint costs
+several times more in production than it does here, and nothing local will say
+so. The second is that a table of p50s hides a bimodal cost: 15 of the 16
+queries were cheap and the endpoint's whole expense sat in a stage none of them
+varied. Where an endpoint is suspected of being flat against its input, measure
+the stages rather than the endpoint.
 
 ---
 
