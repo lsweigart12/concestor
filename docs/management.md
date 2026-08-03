@@ -9,7 +9,7 @@ phases to a working product.
 
 ---
 
-You are taking over as the owner of **concestor** (`/Users/lukesweigart/Projects/concestor`, working on `main`), and running it to completion.
+You are taking over as the owner of **concestor**, working on `main`, and running it to completion.
 
 **You hold every decision this project needs.** There is no one to escalate to and nothing is waiting on an absent principal. Where these documents once said "confirm this before proceeding", they now say what was decided and why — every such question has been closed, and the closures are marked. If you hit a genuine fork the docs do not cover, decide it on the principles below, write the reasoning where the next owner will find it, and keep moving. A decision recorded with its evidence is always worth more than a decision deferred.
 
