@@ -164,11 +164,16 @@ filter tween on the same element.
   two one-way things you do to the whole of it. **Navigate** takes the second
   row: fit, isolate, step are how you look at what you built, which is what you
   reach for after there is something to look at.
-- **A group's caption is what survives the narrow layout.** Below 720px the
-  labels go and the badges stay, and `ADD SPECIES` over `S R` reads where `S R`
-  on its own would not — the second thing the grouping bought. Share keeps its
-  word at every width, because it is the one control with no badge to fall back
-  on and hiding its label leaves an empty button.
+- **A control keeps its word at every width the bar is drawn at.** There was a
+  narrow layout once — below 720px the labels went and the badges stayed, on the
+  argument that `ADD SPECIES` over `S R` still names the group. What it shipped
+  was a row reading `S R C F / Tab`, in a window that is far more often a laptop
+  than a phone, asking a reader to know the table the bar exists to teach them.
+  Share then needed an exception to avoid being a button with nothing in it, and
+  the exception is the tell: the rule was hiding the only thing every control
+  has. The bar has **one** width rule now and it is a swap rather than a
+  shortening — see the next bullet. Between 620 and 720 it wraps to a second
+  row, which costs a row of pixels and no meaning.
 - **Below 620px there is no chrome but one round button.** The bar, the
   canvas-mode panel and the scale switch are all gone, and a 54px circle
   wearing the app's mark sits bottom right, above the timeline and under a
@@ -182,7 +187,17 @@ filter tween on the same element.
   **One thing is genuinely lost and it is the right one**: `step` has no
   command, because stepping a selection with no keyboard to step from is
   meaningless. The button also carries the post-opening invitation, since the
-  bar that would otherwise pulse is not on screen.
+  bar that would otherwise pulse is not on screen. **The empty canvas's key
+  column goes at the same width and for the same reason** — three badges naming
+  presses a thumb cannot make — which leaves *Learn more about Concestor*
+  centred on its own as the last line of that screen, with no rule beside it to
+  divide it from anything.
+- **The one link off the empty canvas carries an arrow.** It was a hairline, a
+  line of prose and nothing else, which is the failure the openings card already
+  had before it was given a border, except here there is not even a box to
+  notice. The arrow is quiet and deliberately *not* the accent: `.carousel-go`'s
+  is the one lit mark on that canvas and there may only be one, so this borrows
+  the link's own colour and earns its difference by moving under the pointer.
 - Confirmations are brief HUD toasts. **One dialog exists**, and only one:
   clearing the canvas asks first. It is a single unshifted letter beside two
   other single unshifted letters, it is the only action that can destroy an

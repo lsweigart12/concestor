@@ -1870,7 +1870,13 @@ export default function App() {
                   payoff beside it, which is what the palette rows already do.
 
                   The link is the second column rather than a fourth row: it
-                  goes somewhere else, and the three above it stay here.
+                  goes somewhere else, and the three above it stay here. That
+                  split is also what makes the narrow window honest: below
+                  620px the keys column is **not drawn**, on the same reasoning
+                  that takes the control bar off a phone — three badges naming
+                  presses a reader has no keyboard to make. The link is the
+                  offer that survives, and it centres, so the last line of the
+                  empty canvas is the one thing on it that still works.
                 */}
                 <div className="boot-alt">
                   <ul className="boot-keys">
@@ -1894,6 +1900,25 @@ export default function App() {
                   */}
                   <button type="button" className="boot-more" onClick={goAbout}>
                     Learn more about Concestor
+                    {/*
+                      The one mark saying this is a door.
+
+                      It was a hairline, a line of prose and nothing else — the
+                      same failure the carousel card had before it was given a
+                      border, and here there is not even a box to notice. An
+                      arrow is what a link that goes *somewhere else* carries,
+                      and it is decoration to a screen reader, which already
+                      has the words and the button role.
+
+                      Quiet, and deliberately not the carousel's accent: that
+                      one is the lit mark on this canvas and there may only be
+                      one. This borrows the link's own colour and earns its
+                      difference from the prose around it by moving under the
+                      pointer.
+                    */}
+                    <span className="boot-more-arrow" aria-hidden="true">
+                      →
+                    </span>
                   </button>
                 </div>
               </>

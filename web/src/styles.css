@@ -2055,29 +2055,24 @@ body {
 }
 
 /*
- * Narrow: the labels go, the badges and the captions stay.
+ * **A control keeps its word at every width the bar is drawn at.** There is no
+ * narrow variant of this bar, and that is deliberate.
  *
- * The old hint bar hid itself entirely here, which was defensible when it was
- * only advertising. It is not defensible for a control. The badge alone is
- * about 26px and the caption above it still names the group, so `SPECIES` over
- * `S R` is legible in a way `S R` on its own would not be — which is the second
- * thing the grouping bought.
+ * There used to be one: below 720px the labels went and the badges stayed, on
+ * the argument that `ADD SPECIES` over `S R` still names the group. What that
+ * actually shipped was a bar whose buttons read `S` `R` `C` `F` `/` — a row of
+ * bare letters, in a window that is very often a laptop rather than a phone,
+ * asking the reader to already know the table the bar exists to teach them.
+ * Share, which has no badge, then needed an exception to avoid being an empty
+ * button, and an exception is the tell: the rule was hiding the only thing on
+ * a control that every control has.
  *
- * Share is the exception and keeps its word at every width, because it is the
- * one control with no badge to fall back on: hiding its label leaves a button
- * with nothing in it at all.
+ * There is exactly one width rule now, and it is a swap rather than a
+ * shortening — below 620px the whole bar goes and `.palette-fab` stands in its
+ * place, with the palette behind it carrying every command in words. Between
+ * 620 and 720 the bar simply wraps to a second row, which costs a row of
+ * pixels and no meaning at all.
  */
-@media (max-width: 720px) {
-  .control-label {
-    display: none;
-  }
-  .control.no-key .control-label {
-    display: inline;
-  }
-  .control {
-    padding: 3px 6px;
-  }
-}
 
 /* ------------------------------------------------------------------ modal -- */
 
@@ -3251,6 +3246,9 @@ body {
 .boot-more {
   pointer-events: auto;
   align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
   padding: var(--s1) 0 var(--s1) var(--s5);
   border: 0;
   border-left: 1px solid var(--hairline);
@@ -3270,6 +3268,22 @@ body {
   color: var(--ink);
   text-decoration: underline;
   text-underline-offset: 3px;
+}
+/* The mark that says this is a door.
+
+   It takes the link's own colour rather than the accent, and that is the whole
+   of the restraint: `.carousel-go-arrow` is the one lit mark on an empty
+   canvas, and a second glowing `→` a hundred pixels below it would put two
+   equal offers on a surface whose entire argument is that the card is the way
+   in. The underline on `:focus-visible` is a text decoration and so does not
+   run under this — one more reason it is a separate element and not a
+   character in the label. */
+.boot-more-arrow {
+  transition: transform 160ms var(--spring);
+}
+.boot-more:hover .boot-more-arrow,
+.boot-more:focus-visible .boot-more-arrow {
+  transform: translateX(3px);
 }
 .boot-inner code {
   font-family: var(--mono);
@@ -4527,8 +4541,8 @@ body.biolum .palette-fab {
  * The question stopped arising at all when 620px became the width where this
  * panel is not drawn: shortening a control to fit a window it is absent from is
  * not a trade, and what stands there instead is `.palette-fab`. The control bar
- * still drops its labels between 620 and 720, where the badge is the name and
- * the group's caption says the rest.
+ * reached the same answer from the other end and no longer drops its labels at
+ * any width either — see the note above `.modal-scrim`.
  */
 
 /* -------------------------------------------------------- narrow window -- */
@@ -4682,19 +4696,27 @@ body.biolum .palette-fab {
   .palette-fab-tip {
     display: block;
   }
-  /* The empty canvas's two columns become two rows here, and the rule between
-     them turns with them. At 375px the pair is a column of badges squeezed
-     against a link that wraps to three lines, which is narrower than either
-     half needs. */
+  /* The empty canvas loses a column rather than folding into two rows.
+
+     Stacked, the badges were the first thing under the carousel on a device
+     with no keyboard to press them with — the same offer this width already
+     takes off the canvas when it hides the control bar, made twice. What is
+     left is the one way out of this screen that a thumb can take, and with
+     nothing beside it there is no rule to draw and no reason to sit off the
+     centre line. */
+  .boot-keys {
+    display: none;
+  }
   .boot-alt {
     grid-template-columns: minmax(0, 1fr);
     justify-content: stretch;
-    row-gap: var(--s3);
+    justify-items: center;
+    text-align: center;
   }
   .boot-more {
-    padding: var(--s3) 0 0;
+    padding: 0;
     border-left: 0;
-    border-top: 1px solid var(--hairline);
+    text-align: center;
   }
 }
 

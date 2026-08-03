@@ -146,7 +146,13 @@ export function Controls({
       <button
         key={a.id}
         type="button"
-        className={`control${kbd === undefined ? " no-key" : ""}${a.active ? " on" : ""}`}
+        // The keyless button carries no marker class any more. It existed for
+        // one rule — the 720px block that hid every label and then had to put
+        // share's back — and that rule is gone, so the class was a fact about
+        // a button nothing reads. What guarantees share has words is the type,
+        // which is where it always belonged. `Controls.test.ts` asserts both
+        // halves of that, because a stylesheet is where this comes back.
+        className={`control${a.active ? " on" : ""}`}
         disabled={off}
         title={off ? a.disabledBecause : (a.hint ?? b?.hint)}
         onClick={a.run}

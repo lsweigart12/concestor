@@ -1561,9 +1561,14 @@ Seven things not to redo:
   two most-used letters here), and a keyless row in a key table is a lie about
   what the table is. `ControlAction` is a union instead, so the one control with
   no binding is *required* to carry its own label and hint, and `Controls`
-  prints no badge where there is no key to print. It is also why `.control` has
-  a `no-key` class: at 720px the labels go, and a share button with no badge and
-  no label is an empty button.
+  prints no badge where there is no key to print. It used to carry a `no-key`
+  class as well, for the 720px rule that hid every label and then had to put
+  share's back; **that rule is gone and so is the class** — a control keeps its
+  word at every width the bar is drawn at, so there is no width at which a
+  keyless button could be empty, and the guarantee that share has words sits
+  entirely in the type. `Controls.test.ts` asserts both halves, because a rule
+  hiding `.control-label` is exactly the kind of thing that comes back in a
+  stylesheet without anything erroring.
 - **The `chrome` field on a binding is gone rather than updated.** It said
   which rows the bar drew and at what prominence, and it could never be the
   whole answer — `App.tsx` composes the bar and always did, the bar now holds a

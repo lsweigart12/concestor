@@ -266,9 +266,24 @@ describe("share is the one control with no key", () => {
 
   it("prints a badge only where there is a key to print", () => {
     expect(CONTROLS).toContain("kbd !== undefined && ");
-    // And the button says so, because a label hidden at 720px would otherwise
-    // leave it empty. See the `.no-key` rule.
-    expect(CONTROLS).toContain("no-key");
-    expect(rule(".control.no-key .control-label")).toContain("display: inline");
+  });
+
+  /**
+   * Share used to need a class of its own, because the bar hid every label
+   * below 720px and a button with no badge and no word is an empty button.
+   * The hiding is gone — a control carries its word at every width the bar is
+   * drawn at — so the exception is gone with it, and the guarantee that share
+   * has words sits where it always belonged: in `ControlAction`'s union.
+   *
+   * Asserted rather than deleted, because a stylesheet is where this comes
+   * back silently. A rule hiding `.control-label` at any width is the failure
+   * this test exists to catch.
+   */
+  it("needs no exception, because no width hides a label", () => {
+    expect(CONTROLS).not.toContain("no-key");
+    // Any selector list reaching `.control-label`, not just that one word on
+    // its own — the rule that went was `.control-label { display: none }` and
+    // the one that comes back will be spelled slightly differently.
+    expect(CSS).not.toMatch(/\.control-label[^{}]*\{[^{}]*display:\s*none/);
   });
 });
