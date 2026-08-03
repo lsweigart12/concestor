@@ -99,7 +99,7 @@ export function AgesToggle({
           value: true,
           label: "on",
           title:
-            "Print each mark's age: a divergence's date, an upper bound where the estimate is one, and a fossil taxon's range beside the ammonite. A node nobody has dated shows nothing, in either state.",
+            "Print each mark's age: a divergence's date, an upper bound where the estimate is one, and a fossil taxon's range beside the ammonite. A node the chronogram does not date shows nothing, in either state.",
         },
       ]}
     />

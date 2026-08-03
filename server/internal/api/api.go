@@ -7,6 +7,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -802,6 +803,39 @@ type nodeBody struct {
 	// whatever is on screen, so an image the card cannot credit is an image
 	// the canvas may not show.
 	DivergenceSilhouette *store.Attribution `json:"divergence_silhouette,omitempty"`
+	// The two dated taxa an undated node's x was spread between, so the card
+	// can name them instead of saying "its nearest dated ancestor and
+	// descendant" — a phrase that describes a case 2.8% of these nodes are in.
+	// Absent on any node carrying an age, which needs no explanation at all.
+	LayoutSpread *layoutSpread `json:"layout_spread,omitempty"`
+}
+
+// layoutBound is one end of the span an undated node was placed within.
+type layoutBound struct {
+	Idx   int     `json:"idx"`
+	Key   string  `json:"key"`
+	Name  *string `json:"name"`
+	Rank  *string `json:"rank"`
+	AgeMa float64 `json:"age_ma"`
+}
+
+// layoutSpread names the dated taxa above and below an undated node.
+//
+// **Below is null far more often than it is set, and a client must say
+// something different in that case rather than omitting a clause.** Every age
+// in the artifact set comes from a chronogram of extant species, so a dated
+// descendant is usually a tip at the present; measured over the 186,317
+// structural nodes, only 5,168 (2.8%) have one older than zero. For the other
+// 97.2% the lower end of the span *is* the present, which is a fact about the
+// axis rather than a missing value — see topo.LayoutSpread.
+//
+// Above is never null on the shipped build (measured: zero of 186,317 lack a
+// dated ancestor) but is typed as absent-able because a partially dated build
+// could produce one, and a client printing a name for idx -1 is the failure
+// that would follow.
+type layoutSpread struct {
+	Above *layoutBound `json:"above"`
+	Below *layoutBound `json:"below"`
 }
 
 func (s *Server) handleNode(w http.ResponseWriter, r *http.Request) {
@@ -918,7 +952,56 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request) {
 		v := int(p)
 		body.ParentIdx = &v
 	}
+	body.LayoutSpread = s.layoutSpread(ctx, idx)
 	s.writeJSON(w, r, http.StatusOK, body)
+}
+
+// layoutSpread names the dated taxa an undated node's position was derived
+// from, or returns nil where the question does not apply.
+//
+// One extra `node` lookup for at most two rows, and only on a node with no age
+// — so it never runs on the 2.5M dated ones. A failure here costs the card one
+// sentence, so it is warned about and stepped over: a missing name must not
+// turn a working card into a 500.
+func (s *Server) layoutSpread(ctx context.Context, idx int) *layoutSpread {
+	sp, ok := s.St.Arrays.LayoutSpreadFor(idx)
+	if !ok {
+		return nil
+	}
+	want := make([]int, 0, 2)
+	if sp.Above.Idx >= 0 {
+		want = append(want, sp.Above.Idx)
+	}
+	if sp.Below.Idx >= 0 {
+		want = append(want, sp.Below.Idx)
+	}
+	if len(want) == 0 {
+		return nil
+	}
+	metas, err := s.St.Metas(ctx, want)
+	if err != nil {
+		s.Log.Warn("layout spread", "idx", idx, "err", err)
+		return nil
+	}
+	bound := func(b topo.LayoutBound) *layoutBound {
+		if b.Idx < 0 {
+			return nil
+		}
+		m, ok := metas[b.Idx]
+		if !ok {
+			return nil
+		}
+		return &layoutBound{
+			Idx: b.Idx, Key: m.NodeKey, Name: m.Name, Rank: m.Rank, AgeMa: b.AgeMa,
+		}
+	}
+	out := &layoutSpread{Above: bound(sp.Above), Below: bound(sp.Below)}
+	// Nothing nameable on either side is nothing to say. Returning the object
+	// anyway would have the card open a paragraph it cannot finish.
+	if out.Above == nil && out.Below == nil {
+		return nil
+	}
+	return out
 }
 
 // --- /v1/fossil ----------------------------------------------------------

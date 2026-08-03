@@ -40,7 +40,11 @@ export interface TraceEdgeData extends Record<string, unknown> {
   hue: number;
   tier: Tier;
   dim: boolean;
-  /** True when nothing below this node is dated: the position is a guess. */
+  /**
+   * True when nothing below this node is dated, so its far end has no younger
+   * age to be spaced against. A statement about where the end was placed, not
+   * about whether the lineage is real.
+   */
   unbounded: boolean;
   /**
    * This segment's drill-down lane is open. Brightness is legitimate here: it

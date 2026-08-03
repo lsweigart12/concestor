@@ -2,12 +2,12 @@
  * What the lines mean.
  *
  * The dash channel carries the one claim this app cannot afford to leave
- * unexplained. A dashed trace means nobody has estimated when that split
- * happened, and inside a dashed region the horizontal axis stops meaning
- * *time* and starts meaning *nesting depth* (architecture §3.5). Before this
- * existed the only place that was written down was the design docs, which is
- * not where a reader is — and "be honest about uncertainty visually" is not
- * satisfied by a channel nobody can decode.
+ * unexplained. A dashed trace means the chronogram carries no date for that
+ * split, and inside a dashed region the horizontal axis stops meaning *time*
+ * and starts meaning *nesting depth* (architecture §3.5). Before this existed
+ * the only place that was written down was the design docs, which is not where
+ * a reader is — and "be honest about uncertainty visually" is not satisfied by
+ * a channel nobody can decode.
  *
  * Four rules keep it a piece of chrome rather than a wall of caveats:
  *
@@ -68,6 +68,23 @@ export interface LegendRow {
  * the last one as a continuation ("and nothing below it either…") and it hung
  * off a sentence that was frequently not on screen.
  *
+ * **The three "no age" rows are a family, and none of them says "guessed".**
+ * The one they replace did, and it was wrong about the thing a reader would
+ * take from it: the branching is the Open Tree synthesis's and is the same
+ * branching whatever the dash density, so nothing here is a guess about *what
+ * is related to what*. What the chronogram is missing is a date, and the only
+ * consequence is that the mark's position along the axis was chosen some other
+ * way. So each of the three says "no age" and then names the way — a source
+ * and a method, not a confidence.
+ *
+ * That costs width, and the width is bounded rather than free. All six rows at
+ * once measure 859px against the old 676; the footer is a three-column grid
+ * that gives this column what the other two do not need, so the whole set
+ * still sits on one line down to roughly a 915px viewport and wraps to two
+ * below it. Wrapping is degradation and not breakage — but it is why the
+ * second and third of these are as short as they are, and why a fourth
+ * clause on any row has to buy its way in.
+ *
  * "Upper bound" is the only jargon that survives, because there is no shorter
  * honest way to say the number is a ceiling rather than an estimate, and
  * getting a reader to distrust `≤ 652 Ma` slightly is the whole reason it is
@@ -81,13 +98,27 @@ const ALL_ROWS: readonly LegendRow[] = [
     unbounded: false,
     text: "upper bound",
   },
-  { id: "structural", tier: TIER_STRUCTURAL, unbounded: false, text: "no age" },
-  { id: "unbounded", tier: TIER_STRUCTURAL, unbounded: true, text: "guessed" },
+  {
+    id: "structural",
+    tier: TIER_STRUCTURAL,
+    unbounded: false,
+    text: "no age · spaced by nesting",
+  },
+  // Bracketed on one side only: nothing below it is dated either, so there is
+  // no younger age to space it against and it is placed toward the present.
+  // That is a statement about which end of the branch is anchored, which is
+  // exactly as much as the fade-out is saying.
+  {
+    id: "unbounded",
+    tier: TIER_STRUCTURAL,
+    unbounded: true,
+    text: "no age · end unanchored",
+  },
   // Same dash as `structural`, because it is the same statement about the age:
-  // nobody estimated one. The difference is that something else is known, and
-  // that shows as a figure on the node rather than as a fourth dash density —
-  // a reader cannot be asked to tell four dash patterns apart, and the channel
-  // is already carrying as much as it can.
+  // the chronogram has none. The difference is that something else is known,
+  // and that shows as a figure on the node rather than as a fourth dash
+  // density — a reader cannot be asked to tell four dash patterns apart, and
+  // the channel is already carrying as much as it can.
   {
     id: "occurrence",
     tier: TIER_OCCURRENCE,

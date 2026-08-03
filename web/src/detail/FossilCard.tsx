@@ -220,12 +220,13 @@ export function FossilCard({
         <dd className="num">{fossil.pbdb_taxon_no}</dd>
       </dl>
 
-      <WhyBlock summary="Why it is drawn this way">
+      <WhyBlock summary="Sources and caveats">
         <p className="note">
-          This is a fossil taxon, not a node in the tree. Nobody has resolved
-          where its lineage branches, so it has no position of its own and no
-          divergence age — what is known is where it turns up in the rock, which
-          is an observation rather than an estimate.
+          This is a fossil taxon, not a node in the tree: the Open Tree
+          synthesis has no lineage for it, so it has no position of its own and
+          no divergence age. Its dates come from the Paleobiology Database —
+          where it turns up in the rock, which is an observation rather than an
+          estimate.
           {walk !== null && placementNote(walk)}
         </p>
         {indeterminate && (

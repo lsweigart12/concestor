@@ -262,7 +262,7 @@ export function borrowedTitle(
     ? `${clade.tips.toLocaleString()} species`
     : "many species";
   if (!clade.name) {
-    return `Not ${name} itself — a drawing of the closest relative anyone has drawn`;
+    return `Not ${name} itself — a drawing of the closest relative PhyloPic has`;
   }
   // A clade of the same name is the ordinary case for an unillustrated group:
   // nobody drew Selachii, but somebody drew a shark inside it. Reading that
@@ -291,7 +291,7 @@ export function placementNote(attachWalk: number | null): string {
   if (attachWalk === null) return "";
   if (attachWalk === 0) return " It is placed exactly here in the tree.";
   if (attachWalk <= 2) return " It is placed just below this point.";
-  return " Its exact position is not known — only that it belongs below here.";
+  return " PBDB's classification places it below here, but no closer.";
 }
 
 /**
@@ -335,11 +335,11 @@ export function witnessTitle(
   const where = placementNote(w.attachWalk);
   const dated = ageLabel(splitAge, tier);
   if (!dated) {
-    return `${who} —${when}. Nobody has dated this split, so this is the nearest fossil to where it sits on the axis, not to a known date.${where}`;
+    return `${who} —${when}. The chronogram carries no date for this split, so this is the nearest fossil to where it sits on the axis, not to a known date.${where}`;
   }
   return w.spans
     ? `${who} —${when}, so it was around when these lineages parted, and this split is dated ${dated}.${where}`
-    : `${who} —${when}, the closest fossil anyone has drawn to when these lineages parted, and this split is dated ${dated}.${where}`;
+    : `${who} —${when}, the closest fossil PhyloPic has drawn to when these lineages parted, and this split is dated ${dated}.${where}`;
 }
 
 /**
@@ -373,7 +373,7 @@ export function graftTitle(g: Graft): string {
       : g.joinAt === "anchor"
         ? " It first appears later than the point it hangs from, so its lineage parted somewhere below there, off the branches drawn here."
         : " It is older than the whole branch it hangs on, so its lineage parted earlier than anything drawn here.";
-  return `${g.fossil.name}${when}. It is not a node in the tree: nobody has resolved where its lineage branches.${where}${join}`;
+  return `${g.fossil.name}${when}. It is not a node in the tree: the Open Tree synthesis has no lineage for it.${where}${join}`;
 }
 
 /**
