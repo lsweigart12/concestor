@@ -259,6 +259,15 @@ func (s *Store) Search(ctx context.Context, q string, limit int) ([]SearchResult
 	if err := s.fillVernaculars(ctx, results); err != nil {
 		return nil, err
 	}
+	// The test searchFTS applied was half-blind: it ran before the common name
+	// existed on the row, so `showsName`'s vernacular arm could never fire and
+	// "human" was captioned "human". A name is only worth crediting once the row
+	// is finished, which is here.
+	for i := range results {
+		if n := results[i].MatchedName; n != nil && showsName(&results[i], *n) {
+			results[i].MatchedName = nil
+		}
+	}
 	if results == nil {
 		results = []SearchResult{}
 	}
@@ -823,7 +832,9 @@ func (s *Store) searchFTS(ctx context.Context, q string, limit int) ([]*SearchRe
 		}
 		// Only where the row does not already show it. Repeating the name in
 		// the heading back as the reason it matched is noise; a synonym the
-		// row has no other way to mention is the whole point.
+		// row has no other way to mention is the whole point. This is the
+		// scientific-name half only — the row has no common name yet, so Search
+		// runs the same test again once fillVernaculars has given it one.
 		if n, ok := matched[*r.Idx]; ok && n != "" && !showsName(r, n) {
 			v := n
 			r.MatchedName = &v

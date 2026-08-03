@@ -584,6 +584,12 @@ func TestMatchedNameCarriesTheSynonymThatHit(t *testing.T) {
 // A name the row already prints is not sent back as the reason it matched:
 // captioning "Homo sapiens" with "matched Homo sapiens" is a caption on the
 // obvious, and the UI would have to filter it out again.
+//
+// Both names the row prints count, and the common one is the half that was
+// broken: searchFTS runs the test before fillVernaculars has put a common name
+// on the row, so `Vernacular` is nil there and every vernacular hit was
+// captioned with the string it was already displaying — "human" credited to
+// "human". The re-check at the end of Search is what this second query pins.
 func TestMatchedNameIsAbsentWhenTheRowAlreadyShowsIt(t *testing.T) {
 	st := open(t)
 	res, err := st.Search(t.Context(), "Homo sapiens", 3)
@@ -594,6 +600,46 @@ func TestMatchedNameIsAbsentWhenTheRowAlreadyShowsIt(t *testing.T) {
 		if r.Name != nil && *r.Name == "Homo sapiens" && r.MatchedName != nil {
 			t.Fatalf("matched_name = %q on a row whose own name matched", *r.MatchedName)
 		}
+	}
+
+	vres, err := st.Search(t.Context(), "human", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	saw := false
+	for _, r := range vres {
+		if r.Vernacular == nil {
+			continue
+		}
+		if !strings.EqualFold(*r.Vernacular, "human") {
+			continue
+		}
+		saw = true
+		if r.MatchedName != nil {
+			t.Errorf("matched_name = %q on a row already showing the common name %q",
+				*r.MatchedName, *r.Vernacular)
+		}
+	}
+	if !saw {
+		t.Fatal(`"human" returned no row whose common name is "human"`)
+	}
+
+	// And the case the palette actually draws. It prints matched_name for
+	// `synonym` alone, so the "human" rows above were caught by the client's own
+	// filter — but 2,867 nodes carry a synonym string that is also their headline
+	// common name, because a Latin name can be filed as a vernacular. Searching
+	// one of those reaches the row through the synonym, and the palette captioned
+	// *Streptophyta* "Streptophytina" beside a row already headed Streptophytina.
+	sres, err := st.Search(t.Context(), "Streptophytina", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sres) == 0 || sres[0].Name == nil || *sres[0].Name != "Streptophyta" {
+		t.Fatalf("first hit = %v, want Streptophyta", names(sres))
+	}
+	if sres[0].MatchedName != nil {
+		t.Errorf("matched_name = %q on a row whose common name is that string",
+			*sres[0].MatchedName)
 	}
 }
 
