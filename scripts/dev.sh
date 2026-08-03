@@ -44,7 +44,7 @@ go build -C server -o concestor-serve .
 # build/ is borrowed. Anyone hitting the API port directly would then get
 # another checkout's app.
 api_args=(-addr "127.0.0.1:${API_PORT}" -build "$CONCESTOR_BUILD"
-  -web "$ROOT/web/dist" -immutable=false)
+  -web "$ROOT/web/dist" -public-cache=false)
 [ -n "$CONCESTOR_SILHOUETTES" ] && api_args+=(-silhouettes "$CONCESTOR_SILHOUETTES")
 
 "$ROOT/server/concestor-serve" "${api_args[@]}" &

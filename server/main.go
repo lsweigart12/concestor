@@ -47,8 +47,9 @@ func run() error {
 	webDist := flag.String("web", "", "path to the built frontend (default <build>/../web/dist)")
 	silhouettes := flag.String("silhouettes", "",
 		"root of the PhyloPic mirror (default <repo>/snapshot/phylopic)")
-	immutable := flag.Bool("immutable", true,
-		"send Cache-Control: immutable on /v1 responses; set false when iterating locally")
+	publicCache := flag.Bool("public-cache", true,
+		"send the production Cache-Control lifetimes on /v1 responses; "+
+			"set false when iterating locally")
 	flag.Parse()
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
@@ -108,7 +109,7 @@ func run() error {
 	}
 
 	srv := &api.Server{
-		St: st, Log: log, WebDist: dist, Immutable: *immutable,
+		St: st, Log: log, WebDist: dist, PublicCache: *publicCache,
 		Release: version, Commit: commit,
 	}
 	h := srv.Handler()

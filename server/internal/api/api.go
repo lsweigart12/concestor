@@ -1,10 +1,12 @@
 // Package api serves the read-only HTTP contract described in architecture §4.
 //
 // Everything is immutable within a build, so every /v1 response carries an
-// ETag derived from the build — the dataset **and** the binary, see etag —
-// and a one-year immutable Cache-Control. There is no write path, no session,
-// and no runtime dependency on any upstream service: the Open Tree API is a
-// build-time oracle only (architecture §9).
+// ETag derived from the build — the dataset **and** the binary, see etag — and
+// a long Cache-Control. Long rather than `immutable`: the data cannot change
+// within a build, but a URL here names no particular build, and a browser told
+// not to revalidate never finds out that it is holding an old one. There is no
+// write path, no session, and no runtime dependency on any upstream service:
+// the Open Tree API is a build-time oracle only (architecture §9).
 package api
 
 import (
@@ -38,9 +40,13 @@ type Server struct {
 	// same thing as the store's BuildID, which identifies the *dataset*: the
 	// two move on different cadences, and /v1/about reports both so that a
 	// support question can be answered without guessing which one changed.
-	Release   string
-	Commit    string
-	Immutable bool
+	Release string
+	Commit  string
+	// PublicCache turns on the production cache lifetimes. It was called
+	// Immutable, and was renamed with the header it names: nothing this server
+	// sends says `immutable` any more, and a field claiming otherwise is the
+	// same half-truth as an ETag that names half the build.
+	PublicCache bool
 
 	// The code half of the ETag, resolved once. See codeID: with no commit
 	// compiled in it costs a stat of the executable, and that must not happen
@@ -209,24 +215,41 @@ func fingerprintFile(p string) (string, bool) {
 	return hex.EncodeToString(h.Sum(nil))[:12], true
 }
 
-// The three lifetimes a /v1 response can carry. `ccDev` is what the -immutable
-// flag turns the other two into, so that iterating locally does not mean
+// The three lifetimes a /v1 response can carry. `ccDev` is what -public-cache=false
+// turns the other two into, so that iterating locally does not mean
 // hard-reloading after every rebuild.
+//
+// **`max-age` is the browser's number and `s-maxage` is the edge's, and they
+// are two numbers because the two caches are corrected by different means.** A
+// deploy is a new Worker version, Workers Cache is keyed by version, so the
+// edge starts empty and can be trusted with a year — that is deployment.md
+// §5's argument and it is sound. Nothing corrects a browser. It holds the URL
+// it was given for as long as it was told to, and these URLs are not
+// content-addressed: `/v1/node/{key}` is the same string across every build
+// there will ever be.
+//
+// This line used to end `immutable`, which tells a browser not even to ask.
+// Under it the corrected ETag above is a validator for a request that is never
+// sent — v0.23.0's field would have gone on missing every warm cache for a
+// year. An hour is what makes the validator worth having. It is not paid for
+// at the container: the conditional request is answered by the edge out of its
+// own fresh copy, so a revalidation is a round trip to the nearest colo and
+// not a wake (§6.1 is why that distinction is the one that matters here).
 const (
-	ccImmutable  = "public, max-age=31536000, immutable"
+	ccLongLived  = "public, max-age=3600, s-maxage=31536000"
 	ccShortLived = "public, max-age=60, must-revalidate"
 	ccDev        = "no-cache"
 )
 
-func (s *Server) immutableCC() string {
-	if s.Immutable {
-		return ccImmutable
+func (s *Server) longLivedCC() string {
+	if s.PublicCache {
+		return ccLongLived
 	}
 	return ccDev
 }
 
 func (s *Server) shortLivedCC() string {
-	if s.Immutable {
+	if s.PublicCache {
 		return ccShortLived
 	}
 	return ccDev
@@ -257,7 +280,7 @@ func (s *Server) writeJSON(w http.ResponseWriter, r *http.Request, code int, v a
 	h := w.Header()
 	h.Set("Content-Type", "application/json; charset=utf-8")
 	if code == http.StatusOK {
-		if s.stampCacheable(w, r, s.immutableCC()) {
+		if s.stampCacheable(w, r, s.longLivedCC()) {
 			w.WriteHeader(http.StatusNotModified)
 			return
 		}
@@ -1327,7 +1350,7 @@ func (s *Server) handleTimescale(w http.ResponseWriter, r *http.Request) {
 	}
 	h := w.Header()
 	h.Set("Content-Type", "application/json; charset=utf-8")
-	if s.stampCacheable(w, r, s.immutableCC()) {
+	if s.stampCacheable(w, r, s.longLivedCC()) {
 		w.WriteHeader(http.StatusNotModified)
 		return
 	}
@@ -1365,7 +1388,7 @@ func (s *Server) handleSilhouette(w http.ResponseWriter, r *http.Request) {
 	}
 	h := w.Header()
 	h.Set("Content-Type", "image/svg+xml")
-	if s.stampCacheable(w, r, s.immutableCC()) {
+	if s.stampCacheable(w, r, s.longLivedCC()) {
 		w.WriteHeader(http.StatusNotModified)
 		return
 	}

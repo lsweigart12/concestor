@@ -407,10 +407,10 @@ computes its own from the *name, size and mtime* of the arrays, the database,
 `timescale.json` and `phase*_gates*.json`, plus the snapshot's `synth_id`, and
 that one reported `9bc853c7694f7551` on the same files.
 
-Both are right for what they do. The store's is what every ETag and
-`Cache-Control: immutable` on `/v1` keys on, and keying that on mtime is
-correct: it changes whenever the bytes on that disk change, which is precisely
-when a cached response stops being valid. The manifest's is a *name* for an
+Both are right for what they do. The store's is what every ETag and long
+`Cache-Control` on `/v1` keys on — with the code id beside it, see below — and
+keying that on mtime is correct: it changes whenever the bytes on that disk
+change, which is precisely when a cached response stops being valid. The manifest's is a *name* for an
 artifact set, stable across copies.
 
 So the image tag is the manifest's, and `/v1/about` will report the other one.
@@ -505,9 +505,9 @@ anything else.
 ### Caching
 
 The Worker returns the container's response unmodified, and that is deliberate
-for the reason it always was: `/v1` is `Cache-Control: immutable` keyed by build
-id, and **`/v1/random` is `no-store` with no ETag**, because caching it hands
-every visitor the same "random" species forever.
+for the reason it always was: `/v1` is long-lived and ETag'd by build id, and
+**`/v1/random` is `no-store` with no ETag**, because caching it hands every
+visitor the same "random" species forever.
 
 `docs/architecture.md` §4 costs the design at "a CDN in front absorbs
 essentially all traffic", and that is the mechanism that makes one container
@@ -515,7 +515,7 @@ instance enough. **The header alone did not buy it.** A Worker runs *before*
 the zone cache and nothing puts its output back, so a response coming out of a
 container binding was cached by the reader's own browser and by nothing else:
 the same clade asked for by two readers was two container requests, and the
-`immutable` on it was doing a session's work rather than a CDN's.
+year on it was doing a session's work rather than a CDN's.
 
 So `web/wrangler.jsonc` enables **Workers Cache** — `"cache": { "enabled":
 true }`, which puts a tiered edge cache in front of the Worker, requires
@@ -533,11 +533,12 @@ the feature happens to agree with:
   successor to.
 - **The cache key is path + query string + Worker version.** The query string
   matters or `/v1/search?q=` would answer every reader with the first reader's
-  query. The *version* is what makes a one-year `immutable` safe on a URL that
+  query. The *version* is what makes a one-year `s-maxage` safe on a URL that
   is not content-addressed: `/v1/node/{key}` is the same URL across builds, and
   what invalidates it is that a dataset change is a new image tag, a new image
   tag is a `deploy` (see above — it must be), and a deploy is a new version
-  with an empty cache. **`cross_version_cache` therefore stays off.** Turning it
+  with an empty cache. **It is an argument about this cache and no other**,
+  which is why the browser's `max-age` is an hour and not a year — see below. **`cross_version_cache` therefore stays off.** Turning it
   on to hold the hit rate across deploys would let a rollback serve the new
   build's JSON under the old build's code, which is exactly the mismatched pair
   the committed image tag exists to prevent.
@@ -607,30 +608,39 @@ edge does this too, so a stale entry could refresh its own freshness
 indefinitely off a wrong 304. Every conditional request now gets the truth, and
 two container instances mid-rollout can no longer be conflated.
 
-It does **not** un-stick anything already stored. The URL has not changed and
-the stored response says `max-age=31536000, immutable`, so a browser holding it
-will not ask again — there is nothing to revalidate *with*. Those copies last
-until the year is out or the reader hard-reloads. The edge can be purged and
-browsers cannot, and no header shipped today reaches them.
+It does **not** un-stick anything stored before it shipped. Those copies were
+written under `max-age=31536000, immutable`, the URL has not changed, and a
+browser holding one will not ask again — there is nothing to revalidate *with*.
+They last until the year is out or the reader hard-reloads. The edge can be
+purged and browsers cannot, and no header shipped later reaches them. This
+mattered little in practice only because the app had no readers yet; on a live
+audience it would have been a year of split-brain.
 
-**That hole is not only about past deploys, and this is the part worth
+**And the hole was never only about past deploys, which is the part worth
 carrying.** `immutable` on a URL that is not content-addressed is safe at the
 edge *because the Worker version keys the cache* — that argument is above, and
-it is sound. It has never covered the browser. A reader who visited yesterday
-holds `/v1/node/ott770315` under a one-year `immutable`, and no future deploy
-reaches them either. The corrected ETag is a validator for a request that is
-never sent.
+it is sound. It never covered the browser. A reader who visited yesterday held
+`/v1/node/ott770315` under a one-year `immutable`, and no *future* deploy would
+have reached them either: the corrected ETag would have been a validator for a
+request that is never sent. That is why the first of the two closures below is
+not optional and was taken in the same change.
 
 Two ways to close it, and the cheaper one is not the obvious one:
 
-- **Bound the lifetime.** Drop `immutable` and shorten `max-age` — an hour, a
-  day — so a warm browser revalidates and the now-correct ETag does its job.
-  The conditional request is answered by the edge from its own fresh copy, so
-  it costs a round trip to the nearest colo and **does not wake the container**,
-  which is the cost that matters here (§6.1). This is the recommended next step.
-  It is deliberately **not** taken in this change: it is a decision about cache
-  posture on an account with no spend cap, and it deserves to be taken on its
-  own rather than smuggled in behind a header fix.
+- **Bound the lifetime — done.** `/v1` now sends
+  `public, max-age=3600, s-maxage=31536000` and no longer says `immutable`. The
+  two numbers are the point: `s-maxage` is the edge's and stays a year, because
+  a deploy is a new Worker version and the cache is keyed by version, so the
+  argument above holds unchanged; `max-age` is the browser's, and an hour is
+  what makes the corrected ETag worth having. The conditional request a browser
+  then sends is answered by the edge out of its own fresh copy, so it costs a
+  round trip to the nearest colo and **does not wake the container**, which is
+  the cost that matters here (§6.1). If Workers Cache should turn out not to
+  honour `s-maxage`, the failure is bounded and visible: edge entries expire
+  hourly instead of yearly, the hit rate drops, and `Cf-Cache-Status` says so.
+  The `-immutable` flag was renamed `-public-cache` with the header, because a
+  flag named after a directive nothing sends is the same half-truth as an ETag
+  naming half the build.
 - **Version the URL** — `build_id` in the path or the query, so a new build is
   a new URL and nothing warm can be served. **Evaluated and refused.** It is the
   complete answer and it is the expensive one. The client learns the id *from*
@@ -645,10 +655,10 @@ Two ways to close it, and the cheaper one is not the obvious one:
   it for the frontend's own files, and the wrong shape for an API a reader
   reaches by name.
 
-### `/v1/about` is cacheable but not immutable
+### `/v1/about` is short-lived
 
 `max-age=60, must-revalidate`, with the same ETag as everything else —
-`api.writeShortLivedJSON`, and it is the third policy beside `writeJSON`'s year
+`api.writeShortLivedJSON`, and it is the third policy beside `writeJSON`'s hour
 and `writeVolatileJSON`'s `no-store`.
 
 About is a function of the build, so its validator was never wrong; the
@@ -675,14 +685,14 @@ staleness to less than any deploy takes.
   clever. §6.1 is the reasoning.
 - **No autoscaling.** Cloudflare's own docs say built-in autoscaling does not
   exist yet — the pattern is `getRandom(env.READ_API, N)` over a fixed *N*, and
-  the routing is random rather than nearest. For this app, behind an immutable
+  the routing is random rather than nearest. For this app, behind a long-lived
   cache, small *N* is fine, and the honest statement is that it is fine
   *because the traffic is small*, not because the platform solved it.
 - **Placement is not the Worker's.** A container starts in the nearest location
   with a pre-fetched image, which is not necessarily where its Durable Object
-  runs or where the reader is. Every `/v1` response except `/v1/random` is
-  immutable, so the second reader of anything pays nothing for that; the first
-  one might.
+  runs or where the reader is. Every `/v1` response except `/v1/random` is held
+  at the edge for a year, so the second reader of anything pays nothing for
+  that; the first one might.
 - **Unverified end to end.** There is no Cloudflare account, so the Worker
   config, the container config and the cache behaviour are validated by
   `wrangler deploy --dry-run` on every pull request and by nothing else. That

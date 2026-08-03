@@ -826,8 +826,9 @@ Five things not to redo:
 - **`/v1/random` is the one endpoint that is not a function of the build**, so
   it goes through `writeVolatileJSON` and `no-store`, and the client fetches it
   outside `api.ts`'s URL cache. Through the ordinary path it would carry the
-  build ETag and a one-year `immutable`, and the second press would be answered
-  from cache with the first press's pick — forever, and looking like it worked.
+  build ETag and a long lifetime, and the second press would be answered from
+  cache with the first press's pick — for as long as that lasts, and looking
+  like it worked.
 
 The client over-asks (12 candidates) and takes the first not already on the
 canvas. Adding something already there is a no-op, and "Added Pallas's cat" over
@@ -1633,16 +1634,24 @@ back to a fingerprint of the executable where no commit was compiled in.
   instinct and it is wrong: `/v1/about` publishes that number as the *dataset*'s
   name, and there are already two build ids in this system that must not be
   conflated. The ETag is the one place they are combined.
-- **The fix is a validator fix, not an invalidation.** It makes every
-  conditional request correct — the old code answered `If-None-Match` with a
-  wrong `304`, actively confirming stale content — but it un-sticks nothing
-  already stored, because `immutable` means the request is never sent.
-- **The remaining hole is browsers, not the edge**, and it is about future
-  deploys too: the Worker version keys the edge cache, but a warm browser
-  holds a `/v1` URL for a year with nothing able to correct it. The cheap
-  complete answer is a **bounded lifetime**, not URL versioning — deployment.md
-  §5 evaluates both, and refuses versioning because the client learns the id
-  *from* `/v1/about` and would queue the whole boot path behind it.
+- **The validator fix alone was not enough, and this is the half worth
+  remembering.** It makes every conditional request correct — the old code
+  answered `If-None-Match` with a wrong `304`, actively confirming stale
+  content — but under `immutable` a browser never sends one, so the corrected
+  ETag was a validator for a request that is never made. `/v1` is now
+  `public, max-age=3600, s-maxage=31536000`: **the lifetime is two numbers
+  because the two caches are corrected by different means.** A deploy is a new
+  Worker version and the edge cache is keyed by version, so the edge keeps its
+  year; nothing corrects a browser, so it gets an hour and the ETag does the
+  rest. The revalidation is answered by the edge from its own copy and does not
+  wake the container. The `-immutable` flag went with the header, renamed
+  `-public-cache`.
+- **URL versioning was the other candidate and is refused** — deployment.md §5
+  has both, and versioning loses because the client learns the id *from*
+  `/v1/about` and would queue the whole boot path behind it.
+- **Nothing un-sticks a copy cached before this shipped.** Same URL, and the
+  stored response says not to ask. Those last a year. It cost nothing only
+  because the app had no readers yet.
 - **`/v1/about` is `max-age=60, must-revalidate`, not `no-store`.** It is the
   endpoint that answers "what is running", so it must be askable again; but it
   is fetched on every page load, and `no-store` would take request collapsing
@@ -2249,7 +2258,8 @@ it cannot deliver.
   Lower/Middle/Upper subdivisions), and the rank set includes `Sub-Period`, so
   band rows must key on rank rather than depth.
 - **`timescale.json` is 52.6 KB, not the ~40 KB architecture §6 estimates**
-  (8.7 KB gzipped, served immutable, so this is immaterial — but the figure is
+  (8.7 KB gzipped, served from the long-lived cache, so this is immaterial —
+  but the figure is
   quoted in two places).
 - **`node_fts` is one row per *name*, not per node.** 6,834,727 rows against
   2,725,682 nodes, with `search_name` carrying `id → idx` and a `kind`.
