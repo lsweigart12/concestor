@@ -467,11 +467,15 @@ concestor = "beacon" AND size >= 5                     -- the big canvases
 concestor = "beacon" AND session = "a1b2c3d4"          -- one reader's whole visit
 concestor = "beacon" AND kind = "add" AND startsWith(subject, "mrcaott")
                                                        -- adds of a divergence
-concestor = "beacon" AND kind = "add" AND startsWith(subject, "pbdb")
-                                                       -- adds of a fossil graft
 concestor = "beacon" AND contains(tree, "ott770315")   -- trees holding one taxon
 NOT exists(concestor)                                  -- everything that is not this
 ```
+
+There is no query here for a fossil, and there cannot be: §7's last limit holds
+unchanged. A graft lives in `sel=` and `f=`, never in `view.keys`, and
+`store.ts` feeds the beacon from `view.keys` alone — so no graft has ever
+reached these three events, and a new browsing surface does not change what was
+sent.
 
 **A key is not a name, here as everywhere.** The dashboard will group `ott770315`
 and `ott461645,ott478542` and cannot do otherwise: what turns those into *Homo
@@ -527,8 +531,9 @@ requiring it, whatever the zone's own Free plan says:
   **22,000 readers a day**. A day that ran a million events over the line would
   cost 60 cents.
 - The account-wide ceiling is **5 billion a day**, past which everything drops
-  to a 1% sample for the rest of that day. That is four orders of magnitude
-  above this app.
+  to a 1% sample for the rest of that day — silently, and for every Worker on
+  the account. That is ~7,600× the included daily allowance and seven orders of
+  magnitude above what this app emits today.
 
 One multiplier is worth naming rather than rediscovering: a single request may
 carry `MAX_EVENTS` = **32** events, so 33 log lines. What bounds that is the WAF
