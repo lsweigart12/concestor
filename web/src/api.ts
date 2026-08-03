@@ -362,6 +362,44 @@ export interface NodeDetail extends PathNode {
     source_idx: number;
     source_name: string | null;
   } | null;
+  /**
+   * The dated taxa this node's x was spread between, on a node with no age.
+   *
+   * Absent on any node carrying one, and absent on an older build. It exists
+   * so the card can *name* what the position was derived from rather than say
+   * "its nearest dated ancestor and descendant" — a phrase that is true of
+   * 2.8% of these nodes and describes nothing a reader of the other 97.2% can
+   * find on screen.
+   */
+  layout_spread?: LayoutSpread | null;
+}
+
+/** One end of the span an undated node was placed within. */
+export interface LayoutBound {
+  idx: number;
+  key: string;
+  /** Null on an `mrcaott…` clade — 24.4% of the upper bounds. */
+  name: string | null;
+  rank: string | null;
+  age_ma: number;
+}
+
+/**
+ * What an undated node's position was derived from.
+ *
+ * **`below` is null on 97.2% of structural nodes and that is a fact, not a
+ * gap.** Every age in the dataset comes from a chronogram of *extant* species,
+ * so a dated descendant is nearly always a tip sitting at the present; only
+ * 5,168 of 186,317 have one older than zero. Where it is null the lower end of
+ * the span is the present, and the copy has to say that rather than trail off.
+ *
+ * `above` is never null on the shipped build (zero of 186,317 lack a dated
+ * ancestor) but is typed nullable because a partially dated build could
+ * produce one.
+ */
+export interface LayoutSpread {
+  above: LayoutBound | null;
+  below: LayoutBound | null;
 }
 
 /**

@@ -560,8 +560,35 @@ Its order is the design:
    a lineage is.
 6. **The figures** — age, ranges, counts, identifiers. Mono, right-aligned.
 7. **The other names** it goes by.
-8. **"Why it is drawn this way"**, collapsed: every caveat about tier,
-   placement, and what the picture depicts.
+8. **"Sources and caveats"**, collapsed: every caveat about tier, placement,
+   and what the picture depicts.
+
+   **Each of those caveats names a source and a method, and none of them calls
+   anything a guess.** The earlier drafts explained the *drawing* — "no age is
+   shown because none has been estimated", "nobody has resolved where its
+   lineage branches" — which is a sentence about our predicament rather than an
+   answer to the reader's question, and which invites them to distrust the
+   branching when the branching is not what is missing. The form that replaced
+   it is *not specified in dataset X, so it was placed by method Y*: **the Duke
+   et al. chronogram carries no date for this node**, and its position is
+   spread between two named taxa; **the Open Tree synthesis has no lineage for
+   this fossil**, and it hangs where PBDB's classification resolves; **PhyloPic
+   has no drawing of this taxon**, and the closest relative it does have stands
+   in. Same length, one more fact, and nothing for the reader to take as doubt
+   about the tree.
+
+   **Naming the two taxa is the point, and it is what exposed that the old
+   sentence was wrong.** "Between its nearest dated ancestor and descendant"
+   survived as long as it did because it named nothing and so could not be
+   checked. It is true of **2.8%** of the nodes it appeared on — architecture
+   §3.5 has the census — and the card now writes one of four sentences instead:
+   both ends named; an ancestor above and *the present* below, which is the
+   ordinary case at 70.4% and says outright that the chronogram covers living
+   species only; the ancestor named as an unnamed divergence, since 24.4% of
+   upper bounds are `mrcaott…` nodes with no name to print; and, where the
+   nearest dated relative is at the present too, no span claimed at all,
+   because there was no gap to spread into and no interpolation ran. Both ends
+   are links, by the same rule every other name on the card follows.
 
 **Provenance is secondary and identity is not.** The rule that decides which
 side of the disclosure a sentence falls on is whether it tells the reader what
@@ -751,7 +778,7 @@ picture and no sentence.
   behind. With nothing printed, nothing on the card can be wrong. It is also
   what lets a stdlib rasteriser do the whole job: no font, no text shaping.
 - **Every branch is solid**, though the app's own canvas is full of dashes. The
-  dash channel is this project's statement that nobody has estimated a date,
+  dash channel is this project's statement that the chronogram carries no date,
   and on a card that claims no dates there is nothing for it to be about. A
   dashed branch here would be decoration wearing the one pattern that carries
   meaning.

@@ -283,9 +283,10 @@ body {
   opacity: 0.07;
 }
 
-/* An undated lineage with nothing dated below it is not bracketed at all —
-   its position is a guess in one direction only. It fades out rather than
-   terminating at a definite time. */
+/* An undated lineage with nothing dated below it is bracketed on one side
+   only: there is no younger age to space its far end against. It fades out
+   rather than terminating at a definite time. The lineage itself is no less
+   certain than a solid one — the fade is about where the end was put. */
 .trace-unbounded .trace-core {
   stroke-dasharray: 2 6;
 }
@@ -4102,7 +4103,7 @@ body {
  *
  * And the one that never bends: the **dash channel and the tier desaturation
  * are untouched in both states**. Turn every light in the room on and the
- * picture says exactly the same thing about what is known and what is guessed.
+ * picture says exactly the same thing about which dates came from where.
  * The pump is dimmed on the undated tiers below for that reason alone.
  */
 

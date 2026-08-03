@@ -647,6 +647,32 @@ So provenance does not get luminance. It gets:
 descendant. In those regions the horizontal axis stops meaning time and starts meaning
 nesting depth, and the rendering has to say so.
 
+**"And descendant" is true of 2.8% of them, and any prose repeating this sentence to a
+reader is wrong about the other 97.2%.** Every age in the artifact set comes from a
+chronogram of *extant* species, so a dated descendant is nearly always a tip sitting at
+the present and the fill runs from the ancestor down to zero. Measured over the 186,317
+structural nodes in build `854cdfa42f77e78e`:
+
+| | nodes | share |
+|---|---|---|
+| dated descendant older than the present | 5,168 | 2.8% |
+| lower end of the span **is** the present | 181,149 | 97.2% |
+| upper bound is an `mrcaott…` node, so has no name to print | 45,428 | 24.4% |
+| upper bound sits at the present itself — **no span at all** | 49,240 | 26.4% |
+| upper bound both nameable and older than the present | 91,680 | 49.2% |
+| no dated ancestor | 0 | 0% |
+
+Two consequences. The last row is what lets any surface promise to name *something*: the
+ancestor side is always answerable. And the fourth row is a case the sentence above does
+not describe at all — where the bounds coincide `layout_ages` collapses the node onto the
+bound rather than inventing room, so it was not positioned "between" anything.
+`topo.LayoutSpreadFor` recovers both bounds from the arrays (a contiguous subtree scan;
+preorder makes it `[idx, subtree_out[idx])`, and a structural subtree is 1 node at the
+median and 38 at the 99th percentile), `/v1/node` serves them as `layout_spread`, and
+`web/src/detail/spread.ts` turns them into the four sentences the four cases need.
+`server/internal/topo/bounds_test.go` pins the census, so this table fails a build rather
+than going quietly stale.
+
 **The channel is one bit short and it shows on extinct taxa.** Dash currently says only
 "this position is ordinal". It cannot distinguish an ordinal position sitting between two
 real bounds from one that has no lower bound at all and has drifted to the present — and

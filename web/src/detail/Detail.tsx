@@ -46,6 +46,90 @@ import {
 import { rankIsInformative } from "./classification";
 import { useEncyclopedia, useLineage } from "./hooks";
 import { fossilTarget } from "./target";
+import { spreadProse, type SpreadEnd, type SpreadProse } from "./spread";
+
+/**
+ * The bound, named and linked, or the unnamed-divergence phrase in its place.
+ *
+ * An `mrcaott…` bound has no name — 24.4% of them — and dropping it would leave
+ * the sentence with one end. It is still a node the reader can open, so it is
+ * still a link; only the words change.
+ *
+ * The article is outside the link and only on the unnamed form, because "spread
+ * between unnamed divergence and Brunellia" is not a sentence, while "between
+ * *an* unnamed divergence and *Brunellia*" is — a proper name takes no article
+ * and a description does.
+ */
+function Bound({ end, onSelect }: { end: SpreadEnd; onSelect: SelectTaxon }) {
+  const link = (
+    <TaxonLink target={end.key} onSelect={onSelect} rank={end.rank}>
+      {end.name ?? UNNAMED}
+    </TaxonLink>
+  );
+  return end.name ? link : <>an {link}</>;
+}
+
+/**
+ * Where this node was drawn, in the terms the build can actually support.
+ *
+ * The four cases are `spread.ts`'s, and the reason there are four rather than
+ * one sentence is there too: the phrase this replaced was true of 2.8% of the
+ * nodes it appeared on. Nothing here is hedged — each form states a fact the
+ * reader can check against the axis in front of them.
+ */
+function SpreadSentence({
+  spread,
+  onSelect,
+}: {
+  spread: SpreadProse;
+  onSelect: SelectTaxon;
+}) {
+  if (!spread) {
+    // No bound to name. The surrounding paragraph still says what is missing
+    // and why, which is the part that matters; this clause simply does not run.
+    return null;
+  }
+  if (spread.kind === "between") {
+    return (
+      <>
+        It is spread between <Bound end={spread.above} onSelect={onSelect} /> (
+        {spread.above.age}) above it and{" "}
+        <Bound end={spread.below} onSelect={onSelect} /> ({spread.below.age})
+        below, by how many undated steps lie on either side.
+      </>
+    );
+  }
+  if (spread.kind === "toPresent") {
+    return (
+      <>
+        It is spread between <Bound end={spread.above} onSelect={onSelect} /> (
+        {spread.above.age}) above it and the present below: every age here comes
+        from a chronogram of <em>living</em> species, so nothing beneath this
+        node carries a date to anchor the older end.
+      </>
+    );
+  }
+  return (
+    <>
+      Its nearest dated relative, <Bound end={spread.above} onSelect={onSelect} />
+      , is itself at the present, so there is no span to spread into and the two
+      are drawn at the same point.
+    </>
+  );
+}
+
+/**
+ * True where the node sits inside a run the axis cannot read as time.
+ *
+ * The `collapsed` case is the exception and it has to be: the node was placed
+ * *on* its dated relative because there was no gap between them, so there is no
+ * stretch for a reader to be warned about. Printing "through this stretch the
+ * axis reads as nesting order" over a node with no stretch describes a region
+ * that is not on screen.
+ */
+function hasOrdinalStretch(spread: SpreadProse): boolean {
+  return spread === null || spread.kind !== "collapsed";
+}
 
 export function Detail({
   detail,
@@ -77,6 +161,9 @@ export function Detail({
   onRemove: () => void;
 }) {
   const age = ageLabel(detail.age_ma, detail.tier);
+  // Which dated taxa the position came from. Null on every dated node and on a
+  // build predating the field, and the paragraph reads correctly without it.
+  const spread = spreadProse(detail.layout_spread);
   // Geometry is not wanted here — the card states the span in words — but
   // `bracketGeom` is what decides `absent` from `range`, and having one place
   // make that call keeps the card and the drill-down lane from disagreeing
@@ -332,22 +419,26 @@ export function Detail({
 
       <NamesBlock synonyms={detail.synonyms} />
 
-      <WhyBlock summary="Why it is drawn this way">
+      <WhyBlock summary="Sources and caveats">
         {detail.tier === TIER_STRUCTURAL && (
           <p className="note">
-            No age is shown because none has been estimated for this node. Its
-            position on the axis is ordinal — it sits between its nearest dated
-            ancestor and descendant, and in this region the horizontal axis
-            means nesting depth rather than time.
+            No age: the Duke et al. chronogram carries no date for this node.
+            Its branching is the Open Tree synthesis's and is unaffected — what
+            it changes is only where the mark sits along the axis.{" "}
+            <SpreadSentence spread={spread} onSelect={onSelect} />
+            {hasOrdinalStretch(spread) && (
+              <> Through this stretch the axis reads as nesting order rather
+              than time.</>
+            )}
           </p>
         )}
         {detail.tier === TIER_OCCURRENCE && (
           <p className="note">
-            No age is shown because none has been estimated for this node: every
-            age here comes from a tree of <em>living</em> species, and this
-            taxon has no counterpart in one. What is known instead is where it
-            turns up in the rock, which is an observation rather than an
-            estimate — a range, and deliberately never a single date.
+            No age: the Duke et al. chronogram dates <em>living</em> species,
+            and this taxon has no counterpart among them. Its date comes from
+            the Paleobiology Database instead — where it is found in the rock,
+            which is an observation rather than an estimate of when lineages
+            parted. Shown as a range, and deliberately never a single date.
           </p>
         )}
         {detail.tier === 1 && age && (
@@ -372,7 +463,7 @@ export function Detail({
               {witness.name ?? "a taxon from below this fork"}
             </TaxonLink>
             , not this whole group — a fossil taxon from somewhere below this
-            fork, and the nearest in time that anyone has drawn. The most
+            fork, and the nearest in time that PhyloPic has drawn. The most
             familiar thing below a split is nearly always a living group that
             did not exist when the split happened, so this shows something that
             did instead. Its dates are observations of where it turns up in the
@@ -385,23 +476,22 @@ export function Detail({
               // was — so "below this fork" is the strongest true statement.
               <>
                 {" "}
-                It is not itself in the tree:{" "}
-                {witness.attachWalk <= 2
-                  ? "it is known to sit just below "
-                  : "all that is known is that it belongs somewhere below "}
+                It is not itself in the tree. PBDB's classification was walked
+                upward until it reached one, which puts it{" "}
+                {witness.attachWalk <= 2 ? "just below " : "somewhere below "}
                 <TaxonLink target={witness.attachIdx} onSelect={onSelect}>
                   this point
                 </TaxonLink>
-                , not where on the branch.
+                , not at a spot on the branch.
               </>
             )}
             {age === null ? (
               <>
                 {" "}
-                This fork has no estimated age, so the match was made against
-                where it is <em>drawn</em> on the axis rather than against a
-                date. Read the pairing loosely: the picture is the closest
-                available, not a claim that the two coincide.
+                The chronogram carries no date for this fork, so the match was
+                made against where it is <em>drawn</em> on the axis rather than
+                against a date. Read the pairing loosely: the picture is the
+                closest available, not a claim that the two coincide.
               </>
             ) : witness.spans ? (
               <> Its range does contain this split.</>
@@ -437,8 +527,8 @@ export function Detail({
             >
               {borrowed.source_name ?? "a relative"}
             </TaxonLink>
-            , not of this taxon — nobody has drawn this one, so the closest
-            relative anyone has drawn stands in for it
+            , not of this taxon — PhyloPic has no drawing of this one, so the
+            closest relative it does have stands in for it
             {borrowed.clade_name ? (
               <>
                 . Both are inside{" "}

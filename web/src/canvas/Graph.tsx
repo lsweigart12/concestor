@@ -599,8 +599,8 @@ function Inner(props: GraphProps) {
       if (!a || !b) continue;
 
       // A structural node with nothing dated below it is bracketed on one side
-      // only — its position is a guess toward the present rather than an
-      // interpolation between two known ages. It says so by fading out.
+      // only — its far end is placed toward the present rather than
+      // interpolated between two known ages. It says so by fading out.
       const unbounded =
         b.node.tier === TIER_STRUCTURAL &&
         !hasDatedDescendant(v, ind, nodeMap);

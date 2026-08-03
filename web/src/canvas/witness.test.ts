@@ -202,18 +202,18 @@ describe("witnessTitle", () => {
   it("does not claim contemporaneity for a fossil that only comes close", () => {
     const near = { ...sahelanthropus, spans: false, gapMa: 1.9 };
     const t = witnessTitle(near, 9.185, TIER_MEASURED);
-    expect(t).toContain("the closest fossil anyone has drawn");
+    expect(t).toContain("the closest fossil PhyloPic has drawn");
     expect(t).not.toContain("so it was around when");
   });
 
   it("says outright that an undated fork was matched by position", () => {
-    // Most witnesses now sit on a fork nobody has dated — the rule falls back
-    // to where the fork is *drawn*, which is what makes Carnivora draw
-    // Vulpavus rather than nothing. Claiming proximity "to when these lineages
-    // parted" there would imply we know when that was.
+    // Most witnesses now sit on a fork the chronogram does not date — the rule
+    // falls back to where the fork is *drawn*, which is what makes Carnivora
+    // draw Vulpavus rather than nothing. Claiming proximity "to when these
+    // lineages parted" there would imply we know when that was.
     const t = witnessTitle(sahelanthropus, null, TIER_STRUCTURAL);
     expect(t).not.toContain("this split is dated");
-    expect(t).toContain("Nobody has dated this split");
+    expect(t).toContain("The chronogram carries no date for this split");
     expect(t).toContain("where it sits on the axis");
     expect(t).toContain("7.2–5.3 Ma");
   });
@@ -240,7 +240,7 @@ describe("witnessTitle", () => {
       6.736,
       TIER_INTERPOLATED,
     );
-    expect(vague).toContain("exact position is not known");
+    expect(vague).toContain("PBDB's classification places it below here");
     expect(vague).not.toContain("placed exactly here");
   });
 
