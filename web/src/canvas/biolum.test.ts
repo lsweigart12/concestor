@@ -1,24 +1,26 @@
 /**
- * The properties the light rests on, and one refusal.
+ * What the mode still decides in JavaScript, now that the light is on the GPU.
  *
- * None of these is checkable by looking at the canvas. A phase collision reads
- * as "those two happen to pulse together", a duration that ignores length reads
- * as "that branch is slow", and a keyframe list that is not strictly increasing
- * throws inside the Web Animations API and silently leaves one branch dark. All
- * three are exactly what the effect looks like when it is working.
+ * The river used to be integrated here — tracers, an emission rate, a velocity
+ * field — and most of this file was about that. None of it survives: a
+ * pinpoint's position is a closed-form function of its index and the clock,
+ * evaluated in a vertex shader, and the numbers that function is built from
+ * live in `gl/tuning.ts` with their own tests beside them.
+ *
+ * What is left here is everything the shaders cannot reach and the canvas
+ * cannot show you is wrong. A seed that ramped with the topology would make the
+ * effect encode a data value, which reads as "those two happen to pulse
+ * together". A tier brightness that drifted would let a bright river shout over
+ * a dashed line at the moment the dash is making its only statement. A pump on
+ * a fossil's tether would animate a lineage nobody has resolved. And a strum
+ * that moved the ends of a branch would detach it from the dots it connects —
+ * or, at the degenerate pluck positions, put `NaN` in a path string and blank
+ * the edge outright. All four are invisible; all four are wrong.
  */
 
 import { describe, expect, it } from "vitest";
-import { hashKey, seeded, spill, onSpill, type Spill } from "./biolum";
-import {
-  Flow,
-  MAX_PER_BRANCH,
-  SAMPLES_MAX,
-  SAMPLES_MIN,
-  samplesFor,
-  tierBrightness,
-  type Tracer,
-} from "./flow";
+import { hashKey, seeded } from "./biolum";
+import { tierBrightness } from "./flow";
 import {
   TIER_INTERPOLATED,
   TIER_MEASURED,
@@ -26,7 +28,7 @@ import {
   TIER_STRUCTURAL,
 } from "../api";
 import { mayPump } from "./TraceEdge";
-import { alphaOf, Field, LIFE_MAX, MAX_PARTICLES, type Particle } from "./particles";
+import { land, onLanding } from "./flow";
 import {
   nearestOn,
   samplePath,
@@ -75,183 +77,12 @@ describe("seeds", () => {
   });
 });
 
-const run = (f: Flow, seconds: number, h = 1 / 60) => {
-  for (let i = 0; i < Math.round(seconds / h); i++) f.step(h);
-};
-
-/** Mean position of the stream along the branch. */
-const centre = (f: Flow) =>
-  f.tracers.length
-    ? f.tracers.reduce((a, p) => a + p.s, 0) / f.tracers.length
-    : 0;
-
-/** Spacing between consecutive tracers, ordered along the branch. */
-const gaps = (f: Flow) => {
-  const ss = f.tracers.map((p) => p.s).sort((a, b) => a - b);
-  return ss.slice(1).map((v, i) => v - ss[i]!);
-};
-
-describe("the stream", () => {
-  it("scales its centreline sampling to the branch, within bounds", () => {
-    expect(samplesFor(4)).toBe(SAMPLES_MIN);
-    expect(samplesFor(100000)).toBe(SAMPLES_MAX);
-    expect(samplesFor(400)).toBeGreaterThan(SAMPLES_MIN);
-    expect(samplesFor(400)).toBeLessThan(SAMPLES_MAX);
-  });
-
-  /**
-   * The one thing that really has to hold: this runs unattended for the life of
-   * the page on every branch on the canvas, under any step size a stalled tab
-   * or a slow frame can produce.
-   */
-  it("stays inside the branch and bounded, under any step size", () => {
-    for (const len of [30, 140, 420, 900]) {
-      for (const seed of [1, 17, 512, 99991]) {
-        const f = new Flow(len, seed);
-        for (const h of [1 / 120, 1 / 60, 1 / 15, 0.05, 3, 0]) run(f, 5, h || 1);
-        expect(f.tracers.length, `${len}/${seed}`).toBeLessThanOrEqual(
-          MAX_PER_BRANCH,
-        );
-        for (const p of f.tracers) {
-          expect(Number.isFinite(p.s), `${len}/${seed}`).toBe(true);
-          expect(p.s, `${len}/${seed}`).toBeGreaterThanOrEqual(0);
-          expect(p.s, `${len}/${seed}`).toBeLessThan(1);
-        }
-      }
-    }
-  });
-
-  /**
-   * Descent, ancestor to descendant, always. A velocity that went negative
-   * anywhere would run light back up a lineage, which is the one direction this
-   * canvas may never animate.
-   */
-  it("never flows backwards, anywhere, at any moment", () => {
-    for (const seed of [2, 40, 777, 31337]) {
-      const f = new Flow(400, seed);
-      for (let i = 0; i < 400; i++) {
-        f.step(1 / 60);
-        for (let k = 0; k <= 20; k++) {
-          expect(f.velocityAt(k / 20), `seed ${seed}`).toBeGreaterThanOrEqual(0);
-        }
-      }
-    }
-  });
-
-  it("carries tracers from the ancestor end to the descendant end", () => {
-    const f = new Flow(400, 3);
-    run(f, 0.35);
-    expect(f.tracers.length).toBeGreaterThan(0);
-    expect(centre(f)).toBeLessThan(0.25);
-    run(f, 6);
-    expect(centre(f)).toBeGreaterThan(0.3);
-    expect(f.tracers.some((p) => p.s > 0.75)).toBe(true);
-  });
-
-  it("primes to a running stream, so no branch is ever drawn empty", () => {
-    for (const len of [80, 300, 800]) {
-      const f = new Flow(len, 11);
-      f.prime();
-      expect(f.tracers.length, String(len)).toBeGreaterThan(3);
-
-      // Reaching the far end is checked over a window, not at an instant. The
-      // stream arrives in clumps with lulls between them — which is the whole
-      // point of the surging inflow — so on a short branch there are moments
-      // when everything present was born in the last half second and the
-      // furthest tracer is genuinely a third of the way down. The first
-      // version of this asserted the instant and failed on an 80px branch for
-      // a reason that had nothing to do with priming.
-      let reached = 0;
-      let emptiedAt = -1;
-      for (let i = 0; i < 240; i++) {
-        f.step(1 / 60);
-        reached = Math.max(reached, ...f.tracers.map((p) => p.s), 0);
-        if (f.tracers.length === 0) emptiedAt = i;
-      }
-      expect(reached, String(len)).toBeGreaterThan(0.85);
-      expect(emptiedAt, String(len)).toBe(-1);
-    }
-  });
-
-  /**
-   * **The claim the whole feature rests on.**
-   *
-   * A conveyor belt moves every particle at one speed, so the spacing between
-   * them is whatever the emission rate laid down and never changes again. A
-   * fluid does not: the peristaltic field is faster in some places than others,
-   * so tracers close up where it converges and string out where it diverges.
-   * That is the pumping, and after the ribbon was dropped it is the *only*
-   * thing left showing it — the tube no longer moves at all.
-   *
-   * Measured as the spread of gaps between neighbours changing over time. A
-   * uniform field would hold it constant to rounding.
-   */
-  it("bunches and strings out rather than moving as one", () => {
-    const f = new Flow(600, 23);
-    f.prime();
-    const spreadOfGaps = () => {
-      const g = gaps(f);
-      if (g.length < 3) return 0;
-      const mean = g.reduce((a, b) => a + b, 0) / g.length;
-      return Math.sqrt(g.reduce((a, b) => a + (b - mean) ** 2, 0) / g.length);
-    };
-    const seen: number[] = [];
-    for (let i = 0; i < 30; i++) {
-      run(f, 0.2);
-      seen.push(spreadOfGaps());
-    }
-    const lo = Math.min(...seen);
-    const hi = Math.max(...seen);
-    expect(lo).toBeGreaterThan(0);
-    expect(hi - lo).toBeGreaterThan(lo * 0.25);
-  });
-
-  it("surges, so the stream has clumps and not an even file", () => {
-    const f = new Flow(400, 8);
-    const rates: number[] = [];
-    for (let i = 0; i < 300; i++) {
-      f.step(1 / 30);
-      rates.push(f.inflow());
-    }
-    expect(Math.min(...rates)).toBeGreaterThan(0);
-    expect(Math.max(...rates)).toBeGreaterThan(Math.min(...rates) * 2);
-  });
-
-  it("runs every branch on its own clock", () => {
-    const a = new Flow(400, 1);
-    const b = new Flow(400, 2);
-    a.prime();
-    b.prime();
-    expect(Math.abs(centre(a) - centre(b))).toBeGreaterThan(0.01);
-  });
-
-  it("is the same stream on every render, given the same branch", () => {
-    const a = new Flow(400, 42);
-    const b = new Flow(400, 42);
-    a.prime();
-    b.prime();
-    expect(b.tracers.length).toBe(a.tracers.length);
-    expect(centre(b)).toBeCloseTo(centre(a), 9);
-  });
-
-  it("fades a tracer in and out rather than popping it", () => {
-    const f = new Flow(400, 5);
-    const p: Tracer = { s: 0, lat: 0, r: 3, bright: 1, twinkle: 1e6, twinklePhase: 0 };
-    expect(f.alphaOf(p)).toBe(0);
-    p.s = 0.5;
-    const mid = f.alphaOf(p);
-    expect(mid).toBeGreaterThan(0.4);
-    p.s = 0.999;
-    expect(f.alphaOf(p)).toBeLessThan(mid * 0.15);
-  });
-});
-
 describe("tierBrightness", () => {
   /**
    * The dash channel's concession, which moved out of CSS when the stream moved
-   * onto the canvas — canvas has no cascade. The rule is unchanged: a bright
-   * stream running along a dashed line may not compete with the dashes at the
-   * moment they are making their only statement.
+   * onto the canvas — canvas has no cascade, and GLSL has less of one. The rule
+   * is unchanged: a bright stream running along a dashed line may not compete
+   * with the dashes at the moment they are making their only statement.
    */
   it("concedes more the less anyone knows about the date", () => {
     const measured = tierBrightness(TIER_MEASURED, false);
@@ -288,126 +119,6 @@ describe("mayPump", () => {
   it("refuses a fossil's tether and allows a branch", () => {
     expect(mayPump({ attachment: true })).toBe(false);
     expect(mayPump({ attachment: false })).toBe(true);
-  });
-});
-
-describe("the spill bus", () => {
-  it("delivers to every listener and stops on unsubscribe", () => {
-    const got: Spill[] = [];
-    const off = onSpill((s) => got.push(s));
-    const one: Spill = { x: 1, y: 2, hue: 186, count: 3, speed: 20 };
-    spill(one);
-    off();
-    spill({ ...one, x: 9 });
-    expect(got).toEqual([one]);
-  });
-});
-
-describe("the field", () => {
-  const emitters = [{ x: 0, y: 0, hue: 186, rate: 4 }];
-
-  it("is black until something spills into it", () => {
-    const f = new Field();
-    f.trickle([], 10);
-    f.step(1);
-    expect(f.size).toBe(0);
-  });
-
-  it("fills from the marks and empties again when they stop", () => {
-    const f = new Field();
-    f.trickle(emitters, 1);
-    expect(f.size).toBeGreaterThan(0);
-    // Driven off `LIFE_MAX` rather than a fixed count of steps: this loop used
-    // to run twenty seconds, which stopped being "longer than the longest life"
-    // the moment the lives were tripled, and the test then failed for a reason
-    // that had nothing to do with the invariant. Nothing may outlive its fade.
-    const steps = Math.ceil((LIFE_MAX + 1) / 0.05);
-    for (let i = 0; i < steps; i++) f.step(0.05);
-    expect(f.size).toBe(0);
-  });
-
-  /**
-   * The cap is a frame budget, and it has to hold under the one thing that can
-   * breach it: a reader dragging the pointer along a big tree, plucking every
-   * branch. Over the cap the field thins rather than the frame rate dropping.
-   */
-  it("never exceeds the cap, however hard it is driven", () => {
-    const f = new Field();
-    for (let i = 0; i < 400; i++) {
-      f.emit({ x: 0, y: 0, hue: 186, count: 20, speed: 40 });
-    }
-    expect(f.size).toBe(MAX_PARTICLES);
-  });
-
-  it("does not discharge a backgrounded minute in one frame", () => {
-    const f = new Field();
-    f.trickle([{ x: 0, y: 0, hue: 186, rate: 30 }], 120);
-    expect(f.size).toBeLessThanOrEqual(24);
-  });
-
-  it("carries the hue of the mark it came from", () => {
-    const f = new Field();
-    f.emit({ x: 0, y: 0, hue: 145, count: 5, speed: 10 });
-    expect(f.particles.every((p) => p.hue === 145)).toBe(true);
-  });
-
-  it("moves what it holds", () => {
-    const f = new Field();
-    f.emit({ x: 0, y: 0, hue: 186, count: 30, speed: 40 });
-    const before = f.particles.map((p) => `${p.x},${p.y}`);
-    f.step(0.5);
-    expect(f.particles.map((p) => `${p.x},${p.y}`)).not.toEqual(before);
-  });
-});
-
-describe("alphaOf", () => {
-  const at = (age: number, over: Partial<Particle> = {}): Particle => ({
-    x: 0,
-    y: 0,
-    vx: 0,
-    vy: 0,
-    hue: 186,
-    age,
-    life: 10,
-    r: 1,
-    bright: 1,
-    twinkle: 1,
-    twinklePhase: 0.5,
-    curl: 0,
-    ...over,
-  });
-
-  it("is dark before it is born and after it dies", () => {
-    expect(alphaOf(at(10))).toBe(0);
-    expect(alphaOf(at(11))).toBe(0);
-    expect(alphaOf(at(0))).toBe(0);
-  });
-
-  it("goes out slowly rather than being cut off", () => {
-    // The last frame of life must be near zero, or every particle in the field
-    // vanishes at full brightness and the water flickers.
-    expect(alphaOf(at(9.98, { twinkle: 1000 }))).toBeLessThan(0.02);
-  });
-
-  it("stays inside [0, 1] across a whole life", () => {
-    for (let age = 0; age < 10; age += 0.05) {
-      const a = alphaOf(at(age));
-      expect(a).toBeGreaterThanOrEqual(0);
-      expect(a).toBeLessThanOrEqual(1);
-    }
-  });
-
-  /**
-   * The twinkle has to spend most of its time dark, or the field reads as one
-   * dimmer rather than as a suspension of individuals.
-   */
-  it("twinkles low more often than high", () => {
-    let lit = 0;
-    const n = 400;
-    for (let i = 0; i < n; i++) {
-      if (alphaOf(at(2 + (i / n) * 4, { twinkle: 1.3 })) > 0.5) lit++;
-    }
-    expect(lit / n).toBeLessThan(0.4);
   });
 });
 
@@ -546,5 +257,40 @@ describe("strum", () => {
     // path string, which silently blanks the whole edge.
     expect(samplePath(line(0))).toEqual([]);
     expect(strumPath([], 10)).toBe("");
+  });
+});
+
+
+describe("the landing", () => {
+  /*
+    One ring across every branch, fired from a clock rather than a pointer.
+
+    A bus rather than a prop, and the same reasoning the spill bus had: the
+    thing that knows the draw has finished is `Graph.tsx` and the things that
+    ring are the edges. What is checkable here is only that it reaches all of
+    them and lets go cleanly — an edge that stays subscribed after unmounting
+    rings a branch that is not on the canvas any more, which throws inside a
+    handler holding a detached path.
+  */
+  it("reaches every branch at once and stops on unsubscribe", () => {
+    const rung: string[] = [];
+    const offA = onLanding(() => rung.push("a"));
+    const offB = onLanding(() => rung.push("b"));
+    land();
+    expect(rung.sort()).toEqual(["a", "b"]);
+
+    rung.length = 0;
+    offA();
+    land();
+    expect(rung).toEqual(["b"]);
+
+    rung.length = 0;
+    offB();
+    land();
+    expect(rung).toEqual([]);
+  });
+
+  it("is safe to fire with nothing listening", () => {
+    expect(() => land()).not.toThrow();
   });
 });

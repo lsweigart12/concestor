@@ -54,7 +54,7 @@ import {
 } from "../tree/naming";
 import { Silhouette } from "./Silhouette";
 import { fossilSpan, type Graft } from "../tree/graft";
-import { spill } from "./biolum";
+import { flareMark } from "./biolum";
 
 export interface MarkData extends Record<string, unknown> {
   node: PathNode;
@@ -98,11 +98,11 @@ export interface MarkData extends Record<string, unknown> {
   /**
    * The mark's own layout coordinate, and the mode.
    *
-   * Both exist for one thing: pointing at a mark makes it puff light into the
-   * water, and the water is in layout space (see `particles.ts`). A mark
-   * otherwise has no idea where it is — React Flow positions it and the
-   * component only ever draws relative to itself — so the one thing it cannot
-   * work out for itself is the one thing a spill needs.
+   * Both exist for one thing: pointing at a mark makes it flare, and the light
+   * it sheds is placed in layout space by `gl/renderer.ts`. A mark otherwise
+   * has no idea where it is — React Flow positions it and the component only
+   * ever draws relative to itself — so the one thing it cannot work out for
+   * itself is the one thing the flare needs.
    */
   x: number;
   y: number;
@@ -531,19 +531,16 @@ export const NodeMark = memo(function NodeMark({ data }: NodeProps) {
     It is also the only thing on the canvas a reader can make happen without
     committing to anything, which for a first look is most of the point.
 
-    Aimed nowhere in particular and slow: a node is not a direction. The pluck a
-    branch gets is aimed across the line, because a string is.
+    It used to puff a burst of particles out into the water. It flares in place
+    now, for the reason the whole mode was rebuilt: light that leaves an
+    organism and drifts away is a second light source wearing the data's
+    clothes. A mark that fires harder lights the snow around it by itself,
+    because the snow reads the light rather than being handed any.
   */
   const puff = useCallback(() => {
     if (!d.biolum) return;
-    spill({
-      x: d.x,
-      y: d.y,
-      hue: d.hue,
-      count: d.isLeaf || d.isMRCA ? 12 : 7,
-      speed: 26,
-    });
-  }, [d.biolum, d.x, d.y, d.hue, d.isLeaf, d.isMRCA]);
+    flareMark(String(d.node.idx));
+  }, [d.biolum, d.node.idx]);
 
   const box = d.label;
   const right = box ? box.side === "right" : d.isLeaf;
