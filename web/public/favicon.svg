@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <!--
+    The MRCA mark, lifted off the canvas.
+
+    The app is named after the common ancestor and the signature interaction
+    takes it as its subject — the draw originates at the MRCA and travels
+    outward. So the tab wears the mark that means *this is the one*: a bright
+    core with a ring standing off it, which is what `NodeMark.tsx` paints for
+    `is-mrca` (a filled dot, then `0 0 0 3px` of the same hue at low alpha).
+
+    Note that the custom properties below are named without their leading
+    dashes. XML forbids the two-hyphen sequence anywhere inside a comment, and
+    an SVG that breaks that rule does not fail loudly: a browser refuses the
+    whole document, `<img src>` fires `onerror`, and the tab quietly falls back
+    to the .ico. `src/icons.test.ts` checks for it, because nothing else will.
+
+    Three things here are decisions rather than drawing.
+
+    **The void is baked in, not transparent.** A tab strip is white in light
+    mode and a thin cyan ring on white is invisible. The rounded square is also
+    what the product looks like, so there is nothing to reconcile.
+
+    **The gap between core and ring is left empty.** It is the only thing
+    carrying the shape at 16px, where the ring is 1.3px and the gap is 2px, and
+    the obvious embellishment — a bloom on the core, which the canvas does have
+    — spends exactly those two pixels. The bloom is drawn *outward* from the
+    ring instead: a second stroke sitting entirely outside it, so the phosphor
+    reads at 64px and 180px and washes nothing at 16.
+
+    **No `filter`.** A `feDropShadow` would be the faithful way to do that bloom
+    and at 16px it only fogs the ring; a plain wide stroke at low alpha is
+    predictable at every size and rasterises identically everywhere.
+
+    Colours are the accent and the MRCA's own, both on styles.css's
+    `accent-h: 186` — a standalone icon cannot read a custom property, so they
+    are literals here and `src/icons.test.ts` pins them back.
+      #0a0a0b                    = void
+      #58d6e4  hsl(186 72% 62%)  = accent, the ring
+      #8ee2eb  hsl(186 70% 74%)  = the core — NodeMark.tsx's own figures for an
+                                   MRCA, which is a lightness above the accent's
+                                   on the same hue and not a fourth colour
+
+    apple-touch-icon.png and favicon.ico are the same geometry.
+    `scripts/make-icons.py` generates them and holds the numbers below; run it
+    after changing anything here.
+  -->
+  <rect width="32" height="32" rx="7" fill="#0a0a0b"/>
+  <g fill="none" stroke="#58d6e4">
+    <circle cx="16" cy="16" r="11.2" stroke-width="3.2" opacity=".13"/>
+    <circle cx="16" cy="16" r="9.6" stroke-width="2.6"/>
+  </g>
+  <circle cx="16" cy="16" r="4.3" fill="#8ee2eb"/>
+</svg>

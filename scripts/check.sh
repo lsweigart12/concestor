@@ -97,6 +97,11 @@ fi
 # --- web --------------------------------------------------------------------
 if wants web; then
   concestor_ensure_node_modules
+  # The .ico and the touch icon are generated from web/public/favicon.svg.
+  # `src/icons.test.ts` pins the generator's geometry to the SVG; this pins the
+  # committed bytes to the generator, which is the half a test inside web/
+  # cannot do without carrying a second rasteriser.
+  gate "web · icons" python3 scripts/make-icons.py --check
   gate "web · typecheck" npm --prefix web run typecheck
   gate "web · test" npm --prefix web test
   gate "web · build" npm --prefix web run build
