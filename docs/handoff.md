@@ -1232,6 +1232,60 @@ it cannot deliver.
   cannot fail — so `labels.test.ts` reads styles.css and pins each constant to
   the declaration it claims to mirror, sizes, weight, letter-spacing, the age
   glyph's reserved width and the two line heights.
+- **A CSS rule that draws nothing is not free, and the selector does not tell
+  you which ones they are.** The sequel to the entry above, from the same
+  branch. PR #23 shipped three declarations that rendered nothing, in two
+  directions. `.mark-dot.flaring { box-shadow: … }` was the static substitute in
+  the `prefers-reduced-motion` block, and `.mark-dot` sets `box-shadow` inline on
+  every render, so the stylesheet always lost. `.mark-fossil` receives `flaring`
+  in `NodeMark.tsx` and `.mark-fossil.flaring` did not exist, so grafts never
+  flared. And `.mark.is-leaf .mark-label { font-size: 13.5px }` reached no text
+  at all — a label has no bare text child and every row pins its own size — but
+  an inline row is at least as tall as its **strut**, so the number silently
+  became the height of any row that forgot to, and the figures row did exactly
+  that and stood 17.9px against a reserved 15. That is the whole lesson: the
+  cost of a dead rule is not the dead rule, it is what the value does on its way
+  past. **Read the two rules that sit side by side and you learn nothing** —
+  `.mark.is-mrca .mark-label { font-weight }` has the identical selector shape
+  and *works*, because `.mark-name` sets no weight and inherits it. One property
+  survives to an element that renders text and the other does not, and nothing
+  about the selector says which.
+- **Three ways to catch that were measured against the commit before the fixes
+  and the commit after; two were built and two were rejected with numbers.** The
+  criterion was **precision, not reach** — a check that fires on a dynamic class
+  name is switched off within a week, and the real one goes with it. What ships
+  is in `web/src/styles.test.ts`. **A modifier styled on some of the bases that
+  wear it and not others** is flagged: on the pre-fix tree that is exactly one
+  finding, `.flaring is styled on .mark-alive, .mark-dot but not on
+  .mark-fossil`, and zero on the fixed tree. It is deliberately silent where a
+  modifier is styled on *none* of its hosts, because that is a legitimate
+  unstyled hook — `.card-action.add` carries no rule since `.card-action` styles
+  the base and only `.remove` differentiates. And **a census of every font-size
+  the label's text column can see** must equal the three `labels.ts` models;
+  restoring the 13.5px makes it fail naming the selector. Rejected, and not to
+  be re-derived: **cross-referencing every class in both directions caught none
+  of the three against 17 false positives** — 9 classes applied with no rule, all
+  legitimate, and 8 rules with no class, 6 of them third-party `react-flow__*`
+  and 2 composed as `` `tier-${…}` `` — and it cannot see the third instance in
+  principle, since both its classes are used and styled. **Flagging inline styles
+  that collide with the stylesheet caught one of three against 13 false
+  positives**, and the 13 are permanently false: inline `width`/`height` on
+  `Silhouette`, inline `color` on the detail card, all of them a stylesheet
+  default correctly overridden per instance. No static check separates that from
+  a rule that was *meant* to win, so instance one stays uncaught on purpose.
+  **Browser CSS coverage catches none of the three by construction** — it reports
+  rules that never matched an element, and all three matched.
+- **The fix was to delete the `font-size`, not to make it real.** Honouring the
+  evident intent — leaves set larger than divergences — means moving the size to
+  `.mark-name`, which needs a leaf flag on `LabelInput` distinct from `terminal`
+  (a graft is terminal and not a leaf), two more font constants and two more
+  assertions pinning them. That is a bill for a design that never shipped:
+  `.mark-name` has been 12.5px for as long as the three-row label has existed.
+  Measured in the running app, the container was in fact **inverted** — 13.5px on
+  a leaf against the 14px an MRCA inherits from `body` — and nothing showed,
+  which is the proof no reader was getting the intent. `color: var(--ink)` stays;
+  leaves are already distinguished by ink and the MRCA by weight, and size would
+  be a third channel saying what two already say.
 - **`node_fts.rowid` is a `search_name.id`, never a `node.idx`.** The FTS index
   holds one row per *name* — 6.8M rows against 2.7M nodes — because a taxon has
   a scientific name, an abbreviation, synonyms and vernaculars. Architecture
