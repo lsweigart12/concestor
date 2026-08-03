@@ -1652,6 +1652,14 @@ back to a fingerprint of the executable where no commit was compiled in.
 - **Nothing un-sticks a copy cached before this shipped.** Same URL, and the
   stored response says not to ask. Those last a year. It cost nothing only
   because the app had no readers yet.
+- **A deploy is two things and they are not atomic**, which is a separate bug
+  the same afternoon found. The Worker version flips at once and the container
+  pulls 2.2 GB behind it — ~3 minutes measured — and Workers Cache is keyed by
+  version, so requests in that gap are answered by the **old** container and
+  cached under the **new** version for a year. Verifying the deploy is what
+  triggered it. `deploy-web.yml` now waits for `/v1/about` to report the
+  commit the pinned tag names and then deploys again, because a new version is
+  the only purge Workers Cache has. deployment.md §5 has it.
 - **`/v1/about` is `max-age=60, must-revalidate`, not `no-store`.** It is the
   endpoint that answers "what is running", so it must be askable again; but it
   is fetched on every page load, and `no-store` would take request collapsing
