@@ -40,8 +40,12 @@
  * Each was verified against the baked arrays rather than against the internet.
  *
  * **The array order is the running order**, on both surfaces that use it — the
- * boot carousel starts at the first and auto-advances through the rest, and the
- * palette's `Start here` section lists them in the same sequence. It is ranked
+ * carousel on the empty canvas starts at the first and auto-advances through
+ * the rest, and the one in the about panel opens on the same first question.
+ * The command palette does not carry them at all: an opening *replaces* the
+ * canvas where every command there adds to it, and the carousel is already
+ * showing these same questions, larger and with their silhouettes, on the one
+ * surface where the palette could safely have offered them. It is ranked
  * by **pull on a first-time visitor**, which is emphatically not the same axis
  * as how cleanly one verifies or draws: the woodlouse and the pangolin are two
  * of the best-drawn openings here and sit near the bottom, because both ask the
