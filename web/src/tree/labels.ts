@@ -68,16 +68,43 @@ export interface LabelInput {
   priority: number;
 }
 
-export interface LabelBox {
+/**
+ * Where a label sits relative to the mark it names — enough of one to say
+ * where its box is, and no more.
+ *
+ * Split out from {@link LabelBox} because three places were computing that box
+ * from the same four numbers: the candidate search, the content bounds, and now
+ * the viewport's reveal. Three copies of one offset is three chances for a
+ * label to be measured a few pixels away from where it is drawn.
+ */
+export interface LabelPlacement {
   side: "left" | "right";
   /** Vertical offset of the label's centre from the node's centre. */
   dy: number;
   width: number;
   height: number;
+}
+
+export interface LabelBox extends LabelPlacement {
   /** CSS max-width for the text block; what actually drives the wrapping. */
   textMaxWidth: number;
   /** True when no candidate was clear and we took the least-bad one. */
   overlapped: boolean;
+}
+
+/** The box a placed label occupies, given the mark's own centre. */
+export function labelRect(x: number, y: number, b: LabelPlacement): Rect {
+  return {
+    x: b.side === "right" ? x + DOT_GAP : x - DOT_GAP - b.width,
+    y: y + b.dy - b.height / 2,
+    w: b.width,
+    h: b.height,
+  };
+}
+
+/** The mark's own dot, which is what a label is placed clear of. */
+export function dotRect(x: number, y: number): Rect {
+  return { x: x - DOT_HALF, y: y - DOT_HALF, w: DOT_HALF * 2, h: DOT_HALF * 2 };
 }
 
 /** A drawn edge, as the orthogonal pair of runs `orthPath` emits. */
@@ -329,12 +356,12 @@ function candidatesFor(n: LabelInput, h: number, rowH: number): Candidate[] {
 }
 
 function rectFor(n: LabelInput, c: Candidate, m: Metrics): Rect {
-  return {
-    x: c.side === "right" ? n.x + DOT_GAP : n.x - DOT_GAP - m.width,
-    y: n.y + c.dy - m.height / 2,
-    w: m.width,
-    h: m.height,
-  };
+  return labelRect(n.x, n.y, {
+    side: c.side,
+    dy: c.dy,
+    width: m.width,
+    height: m.height,
+  });
 }
 
 // ---------------------------------------------------------------- collision --
@@ -382,14 +409,7 @@ export function placeLabels(
   opts: { rowH: number; maxTextWidth: number },
 ): Map<number, LabelBox> {
   const occupied: Rect[] = traceRects(runs);
-  for (const n of inputs) {
-    occupied.push({
-      x: n.x - DOT_HALF,
-      y: n.y - DOT_HALF,
-      w: DOT_HALF * 2,
-      h: DOT_HALF * 2,
-    });
-  }
+  for (const n of inputs) occupied.push(dotRect(n.x, n.y));
 
   // Most important first: whoever picks first gets the clear space. Ties break
   // on idx so the result never depends on Map iteration order.
@@ -445,11 +465,11 @@ export function labelBounds(
   for (const n of inputs) {
     const b = boxes.get(n.idx);
     if (!b) continue;
-    const x = b.side === "right" ? n.x + DOT_GAP : n.x - DOT_GAP - b.width;
-    minX = Math.min(minX, x);
-    maxX = Math.max(maxX, x + b.width);
-    minY = Math.min(minY, n.y + b.dy - b.height / 2);
-    maxY = Math.max(maxY, n.y + b.dy + b.height / 2);
+    const r = labelRect(n.x, n.y, b);
+    minX = Math.min(minX, r.x);
+    maxX = Math.max(maxX, r.x + r.w);
+    minY = Math.min(minY, r.y);
+    maxY = Math.max(maxY, r.y + r.h);
   }
   if (!Number.isFinite(minX)) return null;
   return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };

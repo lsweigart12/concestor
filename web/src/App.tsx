@@ -291,6 +291,23 @@ export default function App() {
   const fossilCardPending = usePending(fetchingFossil);
 
   /**
+   * Is a card on screen, over the top-right of the canvas?
+   *
+   * Computed once and used both here and by the canvas, which reframes around
+   * it — see `canvas/viewport.ts`. Derived from the render conditions rather
+   * than from the selection, because a selection does not always produce a
+   * card: a broken taxon answers `/v1/node` with a payload the card refuses,
+   * and a canvas that had reserved a corner for it would leave a hole with
+   * nothing in it. Every one of the three states below wears `.detail` and so
+   * occupies the same rectangle.
+   */
+  const nodeCardOpen =
+    focusedTaxonNo === null && (cardPending || detail !== null);
+  const fossilCardOpen =
+    focusedTaxonNo !== null && (fossilCardPending || fossilDetail !== null);
+  const cardOpen = nodeCardOpen || fossilCardOpen;
+
+  /**
    * A shared link whose lineages have not arrived.
    *
    * Gated on `tree.loading` and not merely on "nothing is drawn yet", because
@@ -1363,6 +1380,7 @@ export default function App() {
         intervals={timescale}
         fitSignal={fitSignal}
         onFitState={setViewFit}
+        cardOpen={cardOpen}
         drill={tree.view.drill}
         onDrill={tree.setDrill}
         grafts={grafts}
