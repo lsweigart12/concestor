@@ -711,10 +711,11 @@ body {
  * One band of chrome along the bottom, not three objects floating near it.
  *
  * The strip is: geologic band, rule and ticks, then a footer line carrying the
- * provenance key on the left and the units in the middle. Everything there
- * answers the same question — how to read a position — so it reads as one
- * statement on one baseline, in flat text at the same size and weight. The
- * hint bar, which answers a different question, has moved to the top edge.
+ * provenance key under the ruler and the two provenance links at the right end
+ * of it. Both are flat text on one baseline, at the same size and weight, and
+ * neither is a floating object. The hint bar, which answers a different
+ * question, has moved to the top edge; the scale switch, which answers the same
+ * question the labels and the light do, has moved to the panel on the left.
  */
 .axis {
   position: absolute;
@@ -733,132 +734,193 @@ body {
 }
 
 /*
- * Key left, units right, sharing one line.
+ * Scale left, key centred, provenance right — one line, three cells.
  *
- * The caption is not centred. Centring it means reserving a mirrored column
- * for nothing, and at the widths this is used at that column is the difference
- * between one row and two. Ending at the right — under the present, which is
- * where the eye finishes reading a lineage — costs nothing and lets both
- * halves have the room they need.
+ * The key was left-aligned for as long as this line ended in a *control*: a
+ * switch and a caption on the same baseline are two different kinds of thing,
+ * and centring one against the other reads as a failed alignment rather than as
+ * a composition. The switch is still here — it redraws this ruler, so it stays
+ * on it — but it now holds the left cell against the links on the right, and a
+ * line with a weight at each end has a middle worth putting something in. The
+ * key takes it, directly under the ruler it explains.
+ *
+ * The outer two columns are equal `1fr` whether or not either has anything in
+ * it — that equality is the whole of the centring, and it is why the key stays
+ * on the viewport's midline rather than on the midline of whatever is left
+ * over. `minmax(0, 1fr)` rather than a bare `1fr`, which floors at the column's
+ * content width and would let the wider end push the key off centre instead of
+ * the key simply wrapping.
  */
 .axis-foot {
   flex: 1;
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
-  gap: 2px var(--s4);
+  gap: 2px var(--s3);
   padding: 3px var(--s4) 9px;
   font-size: 10.5px;
   color: var(--ink-4);
 }
 
+.axis-foot > .legend {
+  justify-content: center;
+  text-align: center;
+}
+
 /*
- * The scale switch, bottom right.
+ * The scale switch, wearing the canvas-mode panel's anatomy on one line.
  *
- * One word — "logarithmic" or "linear" — and it is the current state, not a
- * label for a control beside it. It replaced "millions of years before present
- * · symlog", which spent a whole line on a unit the ticks and every node label
- * already carry, and buried the fact that the axis has two scales inside a
- * transform's name.
+ * `.mode-chip` stacks its caption above its switch and lays both out on the
+ * *panel's* grid through `subgrid`, which is right for four rows that have to
+ * align with each other and wrong for a lone control on a horizontal strip:
+ * there is no column here to line up with, so stacking buys nothing and costs
+ * the axis about 18px of height it does not have — `--axis-h` is 84 against
+ * `AXIS_RESERVE`'s 104, and the drill lane and the toasts both stack on that
+ * number. So the three cells go back on one line and the chip is a flex row.
  *
- * It takes the control bar's anatomy — `L` badge, then the word — and one step
- * more contrast than the footer line it sits on, because it is the only
- * control down here and the only binding not drawn on the bar. A first draft
- * styled it as bare text on the argument that a bordered object would be a
- * third floating thing on this edge. That argument is about *panels*: this is
- * 60 pixels wide, it shares the footer's baseline, and reading as flat prose
- * cost it the one job it has, which is to look pressable.
+ * What it keeps is everything that makes it recognisably one of the four: the
+ * same badge, the same recessed track, the same raised segment, the same
+ * small-caps mono caption. The grid declarations the children carry for the
+ * panel — `grid-column`, `justify-self` — are simply ignored inside a flex
+ * container, so none of them needs undoing here.
  */
-.axis-mode {
+.axis-foot > .scale-mode {
+  grid-column: 1;
+  justify-self: start;
   pointer-events: auto;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 3px 4px 3px 5px;
-  border: 1px solid var(--hairline);
-  border-radius: 6px;
-  background: var(--void-3);
-  font-family: var(--sans);
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  white-space: nowrap;
-  color: var(--ink-2);
-  transition:
-    background 140ms ease,
-    border-color 140ms ease,
-    box-shadow 140ms ease;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  /* Quiet until it is looked at, exactly like `.canvas-modes` and the links
+     opposite. The reader is here for the tree; this is a setting. */
+  opacity: 0.62;
+  transition: opacity 200ms ease;
 }
 
-.axis-mode:hover {
-  border-color: var(--hairline-strong);
-}
-.axis-mode:hover .kbd {
-  border-color: var(--hairline-strong);
-  color: var(--accent);
-}
-
-/* One segment per scale. Both are always readable; only the live one is lit,
-   so the control states where you are and what else there is at the same time
-   and neither can be mistaken for the other. */
-.axis-seg {
-  appearance: none;
-  padding: 2px 7px;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  background: transparent;
-  font: inherit;
-  letter-spacing: inherit;
-  color: var(--ink-4);
-  cursor: pointer;
-  transition:
-    background 140ms ease,
-    color 140ms ease,
-    border-color 140ms ease;
-}
-.axis-seg:hover {
-  color: var(--ink-2);
-}
-.axis-seg:focus-visible {
-  outline: none;
-  border-color: var(--accent-dim);
-  color: var(--ink);
-}
-
-/* Lit, at the default: plain ink on a raised chip. Says which one is live and
-   nothing more, because nothing more has happened. */
-.axis-seg.is-on {
-  background: var(--void);
-  border-color: var(--hairline);
-  color: var(--ink);
-  cursor: default;
+.axis-foot > .scale-mode:hover,
+.axis-foot > .scale-mode:focus-within {
+  opacity: 1;
 }
 
 /*
- * Lit, away from the default: the same chip in the accent.
+ * Under about 620px the three columns stop fitting on one line: the key alone
+ * can run to four rows there, and squeezing it into a third of the width turns
+ * the footer into a paragraph. So centring is what gives way, not legibility.
  *
- * This is the whole point of the `is-modified` class. A reader arriving on a
- * shared `axis=log` link did not choose that scale and has no way to know the
- * view was set for them — and a log axis flatters recent divergences, so it is
- * the reading that most deserves to announce itself. Restraint still applies:
- * the accent is carried at low alpha on the chip, and the canvas keeps every
- * bright pixel it had.
+ * **Two rows, not three**, and the row count is the constraint rather than the
+ * aesthetic. The axis grows upward, and everything that stacks on it — the
+ * mode panel, the toasts, the drill lane — is pinned to `--axis-h` plus a pad.
+ * A third row put the footer at 63px and the whole strip at 121, which is past
+ * the 110 the mode panel sits at: the bioluminescence switch landed on top of
+ * the epoch band. So the two small things share the top row, at opposite ends
+ * where they already were, and the key takes the width below them. `--axis-h`
+ * still rises to cover the rest of the difference.
  */
-.axis-mode.is-modified {
-  border-color: hsl(var(--accent-h) 40% 44% / 0.5);
-  background: hsl(var(--accent-h) 40% 30% / 0.16);
+@media (max-width: 620px) {
+  :root {
+    /* The strip really is taller here, and this is the number every element
+       above it reads. Left at 84 the pads below it are measured against a
+       height the axis has not had since the footer started wrapping. */
+    --axis-h: 96px;
+  }
+  .axis-foot {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .axis-foot > .scale-mode {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .axis-links {
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
+  }
+  .axis-foot > .legend {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-content: flex-start;
+    text-align: left;
+  }
 }
-.axis-mode.is-modified .axis-seg.is-on {
-  background: hsl(var(--accent-h) 60% 50% / 0.18);
-  border-color: hsl(var(--accent-h) 45% 50% / 0.45);
-  color: var(--accent);
+
+/*
+ * What this is, and where it came from — the right end of the footer line.
+ *
+ * One object holding two links, because they are one question asked at two
+ * depths. The rule between them is the only separation the layout makes, and
+ * it is a hairline rather than a bullet so that the pair reads as a single
+ * control at a glance and as two targets when it is looked at.
+ *
+ * Quiet by default, on the same argument as `.canvas-modes`: the reader is
+ * here for the tree, and a link nobody has asked for should not be competing
+ * with the lineages above it. Hovering either half lights both, because the
+ * object is what the pointer found.
+ */
+.axis-links {
+  pointer-events: auto;
+  justify-self: end;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  opacity: 0.62;
+  transition: opacity 200ms ease;
 }
-/* The way back out, and it has to stay legible or the state is a trap. */
-.axis-mode.is-modified .axis-seg:not(.is-on) {
-  color: var(--ink-3);
+
+.axis-links:hover,
+.axis-links:focus-within {
+  opacity: 1;
 }
-.axis-mode.is-modified .axis-seg:not(.is-on):hover {
+
+.axis-link {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  letter-spacing: 0.04em;
+  color: var(--ink-4);
+  text-decoration: none;
+  cursor: pointer;
+  transition: color 140ms ease;
+}
+
+.axis-link:hover {
+  color: var(--ink-2);
+}
+
+.axis-link:focus-visible {
+  outline: none;
   color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* The mark sits a touch low against a 10.5px line, because its bounding box is
+   the circle and the word's is the x-height. */
+.src-mark {
+  display: block;
+  flex: none;
+  opacity: 0.9;
+}
+
+.axis-link-rule {
+  width: 1px;
+  height: 9px;
+  background: var(--hairline-strong);
+}
+
+/* The word beside the mark. Dropped below 400px, where the footer is tighter
+   than the pair is worth — the mark alone is unambiguous and keeps its label
+   in `aria-label` and its tooltip. */
+@media (max-width: 400px) {
+  .axis-link-word {
+    display: none;
+  }
 }
 
 .axis-line {
@@ -3686,13 +3748,19 @@ body.biolum .control:hover:not(:disabled) {
  * Three of them — labels, ages, bioluminescence — in one column, because they
  * are one set: the controls that change how the canvas is *drawn* rather than
  * what is on it. The control bar at the top owns the other half of that split.
- * They sit at the opposite end of this edge from `.axis-mode`, which keeps the
- * axis footer's own line free between them.
+ *
+ * There is a fourth member of that set and it is **not** in this column. The
+ * time-scale switch wears this panel's anatomy — same badge, same track, same
+ * raised segment — on the axis footer below, because a control belongs on the
+ * thing it changes and that one redraws the ruler.
+ * `chrome/TimeScaleToggle.tsx` is where the pull in both directions is argued
+ * out; `.axis-foot > .scale-mode` is the one line of styling that differs.
  *
  * The column is pinned by its bottom edge and grows upward, so the light stays
- * where it has always been and the two new switches arrive above it rather than
- * pushing it. Top to bottom that reads: the words, the figure that annotates
- * them, then the light — which is also the order of how much each one changes.
+ * where it has always been and the two switches added since arrived above it
+ * rather than pushing it. Top to bottom that reads: the words, the figure that
+ * annotates them, then the light — which is also the order of how much each one
+ * changes.
  *
  * `--lane-h` is why the offset is a `calc` rather than a constant. The
  * drill-down lane stacks on the axis and can be several rows tall, and a stack
@@ -3929,7 +3997,11 @@ body.biolum .control:hover:not(:disabled) {
 
 /*
  * **A choice away from the default is not lit**, and that is a deliberate
- * reversal of the rule `.axis-mode` follows.
+ * reversal of the rule the scale switch used to follow on its own down in the
+ * axis footer — where it took the accent whenever the axis was logarithmic.
+ * That switch wears this anatomy now, so it lives under this rule too even
+ * though it is still on the footer; `chrome/TimeScaleToggle.tsx` records what
+ * it gave up and why.
  *
  * Every chip used to take the app's accent when it left its default: a tinted
  * row, an accent ring on the well, accent type on the chosen option. Three

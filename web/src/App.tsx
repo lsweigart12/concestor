@@ -1405,9 +1405,27 @@ export default function App() {
    * — clicking the scrim used to leave the list up and the letters live under
    * it. And an open dialog owns it outright: the whole point of asking is that
    * the next keystroke is an answer to the question, not another command.
+   *
+   * **The subscription and the behaviour are deliberately separated**, and that
+   * is the fix for a real bug rather than tidiness. This used to be one effect
+   * whose dependency list ended in `tree`, and `useTree()` builds a fresh object
+   * on every render — so the window listener was torn off and put back on every
+   * render, which on this canvas is continuous. A binding that is being
+   * unsubscribed and resubscribed dozens of times a second is one the reader
+   * sometimes presses into a gap: the press does nothing, the chrome wakes on
+   * its own listener, and the second press — landing on a subscription that has
+   * settled — works. That is exactly the "it only fires the second time"
+   * symptom, and it was worst after the chrome faded, because a reader who has
+   * been still for four seconds is a reader whose next input is a keypress
+   * rather than a click.
+   *
+   * So the listener below is registered **once**, for the life of the app, and
+   * calls through a ref. The ref is rewritten after every render, so the
+   * handler still closes over current state — nothing about the behaviour
+   * changes, only how often the browser is told about it.
    */
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
+  const onKey = useCallback(
+    (e: KeyboardEvent) => {
       const inField =
         e.target instanceof HTMLElement &&
         (e.target.tagName === "INPUT" ||
@@ -1515,25 +1533,39 @@ export default function App() {
           else tree.select(null);
           break;
       }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [
-    tree,
-    focusedIdx,
-    focusedNode,
-    toast,
-    randomPick,
-    openPalette,
-    openSpecies,
-    stepSelection,
-    paletteOpen,
-    confirmClear,
-    empty,
-    afterglow,
-    dismissAnswer,
-    settle,
-  ]);
+    },
+    [
+      tree,
+      focusedIdx,
+      focusedNode,
+      toast,
+      randomPick,
+      openPalette,
+      openSpecies,
+      stepSelection,
+      paletteOpen,
+      confirmClear,
+      empty,
+      afterglow,
+      dismissAnswer,
+      settle,
+    ],
+  );
+
+  // The live handler, kept in a ref so the subscription below never has to
+  // change. Written in an effect rather than during render, because a render
+  // React discards must not be the one the next press is answered from.
+  const onKeyRef = useRef(onKey);
+  useEffect(() => {
+    onKeyRef.current = onKey;
+  }, [onKey]);
+
+  // Registered once. See the note above `onKey` for why that is the whole fix.
+  useEffect(() => {
+    const listener = (e: KeyboardEvent) => onKeyRef.current(e);
+    window.addEventListener("keydown", listener);
+    return () => window.removeEventListener("keydown", listener);
+  }, []);
 
   /**
    * The control bar's rows, which are the bindings with their callbacks bound.

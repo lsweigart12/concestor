@@ -38,7 +38,8 @@
 
 import { useMemo } from "react";
 import type { TimescaleInterval } from "../api";
-import { kbd } from "../chrome/bindings";
+import { SourceLinks } from "../chrome/SourceLinks";
+import { TimeScaleToggle } from "../chrome/TimeScaleToggle";
 import { LANDMARK_TICKS, SYMLOG_T0, type AxisMode } from "../tree/layout";
 
 interface Props {
@@ -55,7 +56,7 @@ interface Props {
   /**
    * The provenance key, if this canvas has anything to admit. It rides on the
    * footer line rather than floating over the canvas, because it answers the
-   * same question the units do: how to read a position.
+   * same question the ticks do: how to read a position.
    */
   legend: React.ReactNode;
 }
@@ -494,68 +495,27 @@ export function TimeAxis({
 
       {/* The footer is DOM rather than more SVG: it holds running text of two
           different kinds, and one of them is a set of live trace swatches that
-          have to inherit the same stylesheet the canvas uses. */}
+          have to inherit the same stylesheet the canvas uses.
+
+          Three cells and the middle one is the subject. The legend is centred
+          under the ruler it explains — it is the only thing down here that is
+          about the picture, so it gets the middle and the two flanking columns
+          are equal whether or not either has anything in it. That is why
+          `Legend.tsx` renders an empty span rather than nothing on a canvas
+          with nothing to admit: an absent first cell would let the grid
+          collapse and slide the key off centre the moment it appeared.
+
+          The scale switch held the right-hand cell and holds the left one now.
+          It stays on this line rather than joining the three chips above the
+          axis, because the ruler is the thing it redraws and a control belongs
+          on what it changes; what it took from that panel is the anatomy, not
+          the address. The right end goes to the two links that say where any
+          of this came from — outbound, inert, and the last thing on the page,
+          which is the right order to meet them in. */}
       <div className="axis-foot">
+        <TimeScaleToggle mode={axisMode} onChange={onAxisMode} />
         {legend}
-        {/*
-          Both scales, the live one lit, and the non-default lit *louder*.
-
-          It used to read "millions of years before present · symlog": a units
-          caption with the scale mode tacked on, and the two most important
-          facts about it — that there is another scale, and that you can have it
-          — were the two it did not state. A single word naming the live scale
-          fixed half of that and left the other half undone: `linear` alone
-          still never says a second scale exists, and a lone label on a button
-          is ambiguous in the way every one-sided toggle is, because nothing on
-          it distinguishes *what you are on* from *what you would get*.
-
-          Showing both segments answers all of it at once. The reader sees the
-          alternative without hovering, the lit segment is unmistakably the
-          state, and going back is pressing the one you want rather than
-          knowing that the same button reverses.
-
-          **`is-modified` is the quiet-default rule.** Linear is the default
-          (see `DEFAULT` in `state/store.ts`), so on linear the lit segment is
-          plain ink and the control says nothing. Logarithmic is a departure —
-          whether the reader pressed `L`, or followed a link carrying
-          `axis=log`, or opened the one opening that asks for it — and a
-          departure the reader did not make is exactly the one worth marking,
-          so the whole control picks up the accent. That is the standard
-          filter-chip grammar: neutral at rest, accented when set.
-
-          "log" rather than "logarithmic" only because the pair has to fit a
-          footer that already carries the key; beside "linear" it cannot be
-          misread, and the tooltip and `aria-label` both say it in full.
-          `symlog` stays out of it — the name of a transform, not of anything
-          on screen — and the knee is labelled on the axis where it happens.
-
-          The `L` badge stays, and stays outside both segments: it is the one
-          binding not drawn on the control bar, it toggles rather than selects,
-          and a key that is never printed is a key nobody learns.
-        */}
-        <div
-          className={`axis-mode${axisMode === "log" ? " is-modified" : ""}`}
-          role="group"
-          aria-label="Time scale"
-        >
-          <span className="kbd">{kbd("axis")}</span>
-          {(["linear", "log"] as const).map((m) => (
-            <button
-              key={m}
-              type="button"
-              className={`axis-seg${axisMode === m ? " is-on" : ""}`}
-              aria-pressed={axisMode === m}
-              onClick={() => onAxisMode(m)}
-              title={
-                m === "log"
-                  ? "Logarithmic, and linear below 1 Ma: room for recent splits when a tree also reaches deep time. Ticks are millions of years before present."
-                  : "Linear, the default: true proportions, so recent splits crowd the present. Ticks are millions of years before present."
-              }
-            >
-              {m === "log" ? "log" : "linear"}
-            </button>
-          ))}
-        </div>
+        <SourceLinks />
       </div>
     </div>
   );

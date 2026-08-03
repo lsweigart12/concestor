@@ -1059,10 +1059,17 @@ function Inner(props: GraphProps) {
         The three canvas-mode chips, stacked bottom-left above the axis.
 
         One stack, because they are one set: controls that change how the canvas
-        is *drawn* rather than what is on it. The reading order is the reader's
-        — the words first, then the figure that annotates them, then the light —
-        so the two that change what a label says sit above the one that changes
-        nothing about the data at all.
+        is *drawn* rather than what is on it. The time scale is a fourth member
+        of that set and is deliberately **not** in this stack — it stays under
+        the timeline, on the axis footer, because that is the thing it changes
+        and a control that redraws the ruler belongs on the ruler. It wears the
+        same anatomy as these three, which is what says they are one family
+        without moving it away from what it does; `chrome/TimeScaleToggle.tsx`
+        carries the rest.
+
+        The reading order is the reader's — the words first, then the figure
+        that annotates them, then the light — so the two that change what a
+        label says sit above the one that changes nothing about the data at all.
       */}
       <div className="canvas-modes">
         <LabelsToggle mode={labels} onChange={onLabels} />
