@@ -379,6 +379,24 @@ stating because the first version got all three parts of it wrong:
   is multiplied by six across the widest row.
 - **The panel clears the epoch band.** Resting a control on the chart it
   annotates reads as one object.
+- **It is not a card, and it does not announce itself.** It had a border, a
+  filled background and `--ink` on the chosen option, which made it the
+  brightest thing on screen — a lit rectangle in the corner of an instrument
+  whose whole principle is *the graph is the only light source*. It has no
+  border and no fill now, sits at 0.62 opacity until hovered or focused, and
+  the chosen option is `--ink-2` on the faintest well that still reads as a
+  container. Chrome here recedes; `.controls` along the top edge has done this
+  from the beginning.
+- **A choice away from the default is not lit, and exactly one control is.**
+  Every chip used to take the accent when it left its default — a tinted row, an
+  accent ring, accent type — and three of those at once is what made the corner
+  shout, for a *setting*. The chosen segment already says where the control is;
+  that the reader chose it rather than inherited it is not worth a colour.
+  **Bioluminescence is the exception and stays the exception**: it glows,
+  in the mode's own cyan, because glowing is literally what it does and the chip
+  is the only chrome that can preview the mode before a reader commits to it.
+  The `modified` prop went with the rule — two of three callers were carrying a
+  flag nothing read.
 
 - **labels: off · common · scientific**, with **common the default** and sitting
   in the middle. The default follows from the audience and nothing else: this is

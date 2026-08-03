@@ -7,10 +7,12 @@
  * anatomy is a component: `ModeChip` carries the reasoning, and this file holds
  * what is particular to the light.
  *
- * What is particular is the accent. The other two chips light in the app's own
- * accent when they leave their default; this one lights in the mode's cyan,
- * because it is the only one of the three that changes how the whole canvas
- * looks and the chip is the one piece of chrome that can say so in advance.
+ * What is particular is that it lights at all. The other two chips state their
+ * position and stop; this one glows, in the mode's own cyan, because glowing is
+ * literally what it does — the chip is the one piece of chrome that can show a
+ * reader what the mode is before they commit to it, and a switch that turns the
+ * canvas into a lit instrument while looking exactly like the switch beside it
+ * is withholding the only preview available.
  */
 
 import { kbd } from "./bindings";
@@ -25,11 +27,12 @@ export function BiolumToggle({
 }) {
   return (
     <ModeChip
-      className="biolum-mode"
+      // The one lit state left on this panel, and it composes its own class
+      // because it is the only control that earns one. See `.biolum-mode.is-lit`.
+      className={`biolum-mode${on ? " is-lit" : ""}`}
       name="bioluminescence"
       ariaLabel="Bioluminescence"
       kbd={kbd("biolum")}
-      modified={on}
       value={on}
       onChange={onChange}
       segments={[

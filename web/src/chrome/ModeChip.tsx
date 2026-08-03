@@ -33,10 +33,10 @@
  * are and what else there is at the same time, which is what lets it be read
  * without being clicked.
  *
- * **`is-modified` is the quiet-default rule.** A control sitting at its default
- * is plain ink and says nothing about itself; a departure the reader chose
- * lights up. Which value counts as the default is the caller's business, since
- * only it knows — the age switch defaults *on*, and so lights when it is off.
+ * **A switch states its position and stops.** The chosen option is raised out
+ * of its well and that is the whole of what these say about themselves; nothing
+ * here marks a choice as a *departure* from a default. It used to, in the app's
+ * accent, and three lit controls at once is what made the panel shout.
  */
 
 export interface ModeSegment<T> {
@@ -52,26 +52,34 @@ export function ModeChip<T extends string | boolean>({
   name,
   ariaLabel,
   kbd,
-  modified,
   value,
   segments,
   onChange,
 }: {
-  /** The variant's own class, carrying its accent and its `is-modified` look. */
+  /**
+   * The variant's class, and any state class the variant wants with it.
+   *
+   * There is no `modified` prop, and there was: every chip took the app's
+   * accent when it sat away from its default. Three controls doing that turned
+   * the corner of the canvas into the loudest thing on screen, announcing a
+   * *setting* on an instrument whose whole design is that the graph is the only
+   * light source. Exactly one of the three earns a lit state — see
+   * `BiolumToggle` — and it composes its own class here rather than every chip
+   * carrying a flag two of them do nothing with.
+   */
   className: string;
   /** The word outside the segments, saying what is being switched. */
   name: string;
   ariaLabel: string;
   /** The key badge. Always from `bindings.ts` via `kbd()`, never a literal. */
   kbd?: string;
-  modified: boolean;
   value: T;
   segments: readonly ModeSegment<T>[];
   onChange: (v: T) => void;
 }) {
   return (
     <div
-      className={`mode-chip ${className}${modified ? " is-modified" : ""}`}
+      className={`mode-chip ${className}`}
       role="group"
       aria-label={ariaLabel}
     >

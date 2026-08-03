@@ -20,7 +20,6 @@
 
 import { kbd } from "./bindings";
 import { ModeChip } from "./ModeChip";
-import { AGES_DEFAULT, LABELS_DEFAULT } from "../state/store";
 import type { LabelMode } from "../tree/naming";
 
 export function LabelsToggle({
@@ -40,11 +39,6 @@ export function LabelsToggle({
       // reader sees where the press landed and what the next one will do, which
       // a key with no visible state could not tell them.
       kbd={kbd("labels")}
-      // The default is read from the store rather than named here. Which value
-      // counts as default decides which way this lights, and a control holding
-      // its own copy is one that can disagree with the store about what it is
-      // showing — which is exactly the disagreement nobody would notice.
-      modified={mode !== LABELS_DEFAULT}
       value={mode}
       onChange={onChange}
       /*
@@ -92,10 +86,6 @@ export function AgesToggle({
       name="ages"
       ariaLabel="Ages"
       kbd={kbd("ages")}
-      // On is the default here, unlike the other two chips, so this is the one
-      // that lights when it is *off*. `is-modified` marks the departure the
-      // reader chose, whichever direction that is.
-      modified={on !== AGES_DEFAULT}
       value={on}
       onChange={onChange}
       segments={[

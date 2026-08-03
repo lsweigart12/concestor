@@ -1365,7 +1365,16 @@ Eight things not to redo:
   three switches are one width because the three-option row packs tight and
   *sets* it at 164px while the two-option rows spread into it, which is the
   narrowest common width there is rather than one anybody picked.
-  design-reference.md's *What a label says* is the anatomy.
+  And it was still too loud when all that was fixed: a bordered, filled card
+  with `--ink` on the chosen option, brighter than the tree it annotates, on an
+  instrument whose principle is that the graph is the only light source. No
+  border, no fill, 0.62 opacity until hovered — the treatment `.controls` has
+  always had. **The accent on a non-default choice went with it**, and with it
+  `ModeChip`'s `modified` prop: three controls lighting up to report a *setting*
+  is what the loudness was. Bioluminescence keeps its cyan and is the only lit
+  choice on the panel, because glowing is what that mode does and the chip is
+  the one preview of it. design-reference.md's *What a label says* is the
+  anatomy.
 
 **Neither is in the URL**, and that is the second thing this shares with
 bioluminescence. Both live in `sessionStorage`, per-tab. The line is what a

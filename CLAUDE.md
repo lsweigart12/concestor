@@ -535,7 +535,12 @@ bottom-left above the axis with bioluminescence, because the three are one set �
 *controls that change how the canvas is drawn rather than what is on it*. They
 share a `subgrid` so the key, the caption and the switch line up down the stack;
 the caption is small-caps mono and the options sit in a recessed track, because
-set alike the caption read as a fourth option.
+set alike the caption read as a fourth option. It carries **no border, no fill
+and no lit state**, at 0.62 opacity until hovered: it was a bright card brighter
+than the tree, and three controls taking the accent to report a *setting* is not
+what "the graph is the only light source" means. **Bioluminescence is the one
+choice allowed to glow**, in the mode's own cyan, because glowing is what it
+does and the chip is the only preview of it.
 `labels` is **off · common · scientific** on `L` — **common is the default**,
 because the product is for curious people rather than biologists and `Human`
 tells a stranger what they are looking at where *Homo sapiens* tells a

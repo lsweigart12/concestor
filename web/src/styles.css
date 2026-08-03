@@ -3412,21 +3412,41 @@ body.biolum .control:hover:not(:disabled) {
   grid-template-columns: auto auto;
   gap: 7px 7px;
   padding: 6px 8px;
-  border: 1px solid var(--hairline);
   border-radius: 8px;
-  background: var(--void-3);
   font-family: var(--sans);
   font-size: 11px;
   letter-spacing: 0.04em;
   white-space: nowrap;
-  color: var(--ink-2);
+  color: var(--ink-3);
+
+  /*
+   * No border and no card. The panel had both and was the brightest object on
+   * screen — a lit rectangle in the corner of a canvas whose whole design is
+   * *the graph is the only light source*, drawing the eye away from the tree it
+   * annotates. Chrome here recedes: `.controls` along the top edge is
+   * `background: none` on a gradient scrim at `--ink-3`, and fades to a third
+   * of itself when the reader stops using it. This is the same instrument.
+   *
+   * The grid still aligns the rows — that was never what made it loud.
+   */
+  background: none;
   transition:
-    border-color 140ms ease,
+    opacity 200ms ease,
     bottom 240ms var(--spring);
 }
 
-.canvas-modes:hover {
-  border-color: var(--hairline-strong);
+/*
+ * Quiet until it is looked at, which is what earns it the bottom-left corner.
+ * The reader is here for the tree; these three answer a question they have not
+ * asked yet, so they sit below the canvas's own contrast until a pointer
+ * arrives — and `:focus-within` is what keeps that true for a keyboard.
+ */
+.canvas-modes {
+  opacity: 0.62;
+}
+.canvas-modes:hover,
+.canvas-modes:focus-within {
+  opacity: 1;
 }
 
 /*
@@ -3476,13 +3496,12 @@ body.biolum .control:hover:not(:disabled) {
   padding: 1px 4px;
   border-radius: 4px;
   border: 1px solid var(--hairline);
-  background: var(--void);
-  color: var(--ink-3);
+  color: var(--ink-4);
   text-align: center;
 }
 .mode-chip:hover .mode-key:not(:empty) {
   border-color: var(--hairline-strong);
-  color: var(--accent);
+  color: var(--ink-3);
 }
 
 /*
@@ -3527,11 +3546,12 @@ body.biolum .control:hover:not(:disabled) {
   gap: 1px;
   padding: 2px;
   border-radius: 6px;
-  background: var(--void);
-  box-shadow: inset 0 0 0 1px var(--hairline);
-  transition:
-    background 140ms ease,
-    box-shadow 140ms ease;
+  /* A well rather than a ring. The inset hairline was there to draw a boundary
+     between the caption and the options back when they shared a line; the
+     caption sits above them now and is small-caps mono, which says it twice
+     over. What is left is the faintest fill that still reads as a container. */
+  background: rgba(150, 200, 210, 0.045);
+  transition: background 140ms ease;
 }
 
 /*
@@ -3575,69 +3595,62 @@ body.biolum .control:hover:not(:disabled) {
   border-color: var(--accent-dim);
   color: var(--ink);
 }
+/*
+ * The chosen option is raised out of the well, and that is all it does.
+ *
+ * It was `--ink` on a filled box with its own border — the brightest type in
+ * the corner of the screen, for a setting rather than for anything about a
+ * taxon. `--ink-2` is the canvas's own label weight and the fill is enough to
+ * read as pressed. **Nothing here glows**: see the bioluminescence rule below,
+ * which is the one control on this panel whose choice is allowed to, because
+ * glowing is literally what it does.
+ */
 .mode-seg.is-on {
-  background: var(--void-3);
+  background: var(--void-2);
   border-color: var(--hairline);
-  color: var(--ink);
+  color: var(--ink-2);
   cursor: default;
 }
 
 /*
- * Away from the default, in the app's accent — the same treatment `.axis-mode`
- * gets, because these say the same kind of thing about themselves.
+ * **A choice away from the default is not lit**, and that is a deliberate
+ * reversal of the rule `.axis-mode` follows.
  *
- * On the base rather than on each variant, so a chip added later is lit by
- * default and a variant only has to write down what is *different* about it.
- * `.biolum-mode` below is the one that has anything to say.
+ * Every chip used to take the app's accent when it left its default: a tinted
+ * row, an accent ring on the well, accent type on the chosen option. Three
+ * controls doing that at once turned the corner of the canvas into the loudest
+ * thing on screen — and it was announcing a *setting*, on an instrument whose
+ * whole design is that the graph is the only light source. The chosen option
+ * already says which state the control is in; that a reader chose it rather
+ * than inherited it is not worth a colour.
+ *
+ * The `modified` prop is gone from `ModeChip` with it. Bioluminescence composes
+ * its own `is-lit` class, because it is the only control that earns one.
  */
-.mode-chip.is-modified {
-  background: hsl(var(--accent-h) 40% 30% / 0.16);
-}
-.mode-chip.is-modified .mode-name {
-  color: var(--accent-dim);
-}
-.mode-chip.is-modified .mode-track {
-  box-shadow: inset 0 0 0 1px hsl(var(--accent-h) 40% 44% / 0.45);
-}
-.mode-chip.is-modified .mode-seg.is-on {
-  background: hsl(var(--accent-h) 60% 50% / 0.18);
-  border-color: hsl(var(--accent-h) 45% 50% / 0.45);
-  color: var(--accent);
-}
-/* The way back out, and it has to stay legible or the state is a trap. */
-.mode-chip.is-modified .mode-seg:not(.is-on) {
-  color: var(--ink-3);
-}
-.mode-chip.is-modified .mode-seg:not(.is-on):hover {
-  color: var(--ink);
-}
 
 /*
- * Lit, away from the default — and this is the one control in the app whose
- * "on" state is allowed to glow, because glowing is literally what it does.
- * Everywhere else `is-modified` is a colour change and nothing more.
+ * **The one lit choice in the panel**, and the only one there will be.
+ *
+ * Every other control here states its position and stops. This one glows
+ * because glowing is literally what it does: the chip is the one piece of
+ * chrome that can show a reader what the mode is before they commit to it, and
+ * a switch that turns the canvas into a lit instrument while looking exactly
+ * like the switch beside it is withholding the only preview available.
+ *
+ * It is also why the accent is the mode's cyan rather than the app's: this
+ * previews the light, and previewing it in the wrong hue would be a worse lie
+ * than not previewing it at all. Kept to the chosen segment and the caption —
+ * no tint on the row and no halo around it, which is what the panel as a whole
+ * was doing and what made it the loudest thing on the canvas.
  */
-.biolum-mode.is-modified {
-  background: hsl(186 60% 30% / 0.14);
-  box-shadow: 0 0 14px hsl(186 95% 55% / 0.1);
+.biolum-mode.is-lit .mode-name {
+  color: hsl(186 55% 58%);
 }
-.biolum-mode.is-modified .mode-name {
-  color: hsl(186 60% 68%);
-}
-.biolum-mode.is-modified .mode-track {
-  box-shadow: inset 0 0 0 1px hsl(186 75% 58% / 0.32);
-}
-.biolum-mode.is-modified .mode-seg.is-on {
-  background: hsl(186 70% 46% / 0.16);
-  border-color: hsl(186 75% 58% / 0.4);
-  color: hsl(186 90% 82%);
-  text-shadow: 0 0 10px hsl(186 100% 60% / 0.5);
-}
-.biolum-mode.is-modified .mode-seg:not(.is-on) {
-  color: var(--ink-4);
-}
-.biolum-mode.is-modified .mode-seg:not(.is-on):hover {
-  color: var(--ink-2);
+.biolum-mode.is-lit .mode-seg.is-on {
+  background: hsl(186 70% 46% / 0.14);
+  border-color: hsl(186 75% 58% / 0.3);
+  color: hsl(186 75% 76%);
+  text-shadow: 0 0 9px hsl(186 100% 60% / 0.4);
 }
 
 /*
