@@ -109,7 +109,9 @@ func TestExactMatchOutranksLargerSubtrees(t *testing.T) {
 		want string
 		why  string
 	}{
-		{"human", "Homo", "Homo has 7 tips; Pulex, the human flea, has 22 and must not win"},
+		{"human", "Homo sapiens", "Pulex, the human flea, has 22 tips and must not " +
+			"win; nor must the genus Homo, which carries the same word at 7 tips " +
+			"but is not what the article Human is about"},
 		{"shark", "Selachii", "an exact common name beats a longer one"},
 		{"T. rex", "Tyrannosaurus rex", "the abbreviation is indexed as search_name.kind=1"},
 		{"Homo sapiens", "Homo sapiens", "an exact scientific name"},
@@ -227,7 +229,11 @@ func mustVernaculars(t *testing.T, st *Store, r SearchResult) []string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return all[*r.Idx]
+	out := make([]string, 0, len(all[*r.Idx]))
+	for _, v := range all[*r.Idx] {
+		out = append(out, v.Name)
+	}
+	return out
 }
 
 func names(res []SearchResult) []string {
@@ -587,6 +593,95 @@ func TestMatchedNameIsAbsentWhenTheRowAlreadyShowsIt(t *testing.T) {
 	for _, r := range res {
 		if r.Name != nil && *r.Name == "Homo sapiens" && r.MatchedName != nil {
 			t.Fatalf("matched_name = %q on a row whose own name matched", *r.MatchedName)
+		}
+	}
+}
+
+// Where two taxa are both called exactly what was typed, the article title
+// decides — and where no article is titled that word, nothing changes.
+//
+// The rule is the positive half of the withdrawals above: those say "this taxon
+// is probably not what the word means" from offline signals, this says which
+// taxon it *is* from an external one. Both halves are needed because clade size
+// is the wrong tiebreak in both directions — it is right for `beetle`, where
+// Coleoptera holds the word against two one-species beetles, and wrong for
+// `human`, where the genus *Homo* beat *Homo sapiens* by five tips.
+func TestArticleTitleDecidesBetweenTaxaWithTheSameName(t *testing.T) {
+	st := open(t)
+	if st.Schema.Vernacular == nil || st.Schema.Vernacular.WikiEvidence == "" {
+		t.Skip("wiki evidence not built in this build")
+	}
+	// Each of these is a word two or more nodes carry verbatim, where the
+	// titled taxon is *not* the one with the largest subtree.
+	promoted := []struct {
+		q, want, over, why string
+	}{
+		{"human", "Homo sapiens", "Homo",
+			"the article Human is the species, not the genus holding H. erectus"},
+		{"onion", "Allium cepa", "Allium",
+			"one species against a 1,048-tip genus, and it is the onion"},
+		{"hare", "Lepus", "Leporidae",
+			"Leporidae is also the rabbits"},
+		{"perch", "Perca", "Percidae",
+			"Percidae is also the darters and the zander"},
+	}
+	for _, c := range promoted {
+		res, err := st.Search(t.Context(), c.q, 20)
+		if err != nil {
+			t.Fatalf("%q: %v", c.q, err)
+		}
+		if len(res) == 0 || res[0].Name == nil || *res[0].Name != c.want {
+			t.Errorf("%q -> %v, want %q (%s)", c.q, names(res), c.want, c.why)
+			continue
+		}
+		// Promoted, never removed: the larger claimant is still an answer.
+		if !slices.Contains(names(res), c.over) {
+			t.Errorf("%q no longer returns %q at all: %v", c.q, c.over, names(res))
+		}
+	}
+	// The refusals. No claimant of these words holds an article titled with
+	// them — "Whale", "Rat" and "Snail" are broad-concept pages, and nothing
+	// titled "shark" or "dog" is a taxon — so the rule must not fire, and the
+	// ranking must be exactly what the bands and clade size already made it.
+	// Withdrawing on `elsewhere` instead of promoting on `title` breaks every
+	// one of these, which is why it was refused.
+	untouched := []struct{ q, want string }{
+		{"whale", "Cetacea"},
+		{"rat", "Rattus norvegicus"},
+		{"shark", "Selachii"},
+		{"dog", "Canis lupus familiaris"},
+		{"snake", "Serpentes"},
+		{"beetle", "Coleoptera"},
+		{"snail", "Gastropoda"},
+	}
+	for _, c := range untouched {
+		res, err := st.Search(t.Context(), c.q, 10)
+		if err != nil {
+			t.Fatalf("%q: %v", c.q, err)
+		}
+		if len(res) == 0 || res[0].Name == nil || *res[0].Name != c.want {
+			t.Errorf("%q -> %v, want %q unchanged", c.q, names(res), c.want)
+		}
+	}
+}
+
+// The promotion is a tiebreak, not a band. A taxon does not climb past a
+// better-matching name because it owns an article: `Homo` typed in full is an
+// exact *scientific* name and must still answer itself, above the species whose
+// article is titled "Human".
+func TestArticleTitleNeverOutranksABetterMatch(t *testing.T) {
+	st := open(t)
+	if st.Schema.Vernacular == nil {
+		t.Skip("vernaculars not built")
+	}
+	for _, q := range []string{"Homo", "Allium", "Leporidae"} {
+		res, err := st.Search(t.Context(), q, 5)
+		if err != nil {
+			t.Fatalf("%q: %v", q, err)
+		}
+		if len(res) == 0 || res[0].Name == nil || *res[0].Name != q {
+			t.Errorf("%q -> %v, want %q: its own scientific name is an exact "+
+				"match and no title on a descendant may take it", q, names(res), q)
 		}
 	}
 }

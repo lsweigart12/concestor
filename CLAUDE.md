@@ -254,6 +254,33 @@ a node and is never crawled), and **`web/` must not re-sort `/v1/search`** — t
 client's fuzzy score was outweighing four server ranks and silently putting a
 sea snail above the butterflies.
 
+**Withdrawal has a counterpart now, because clade size was the wrong tiebreak
+in both directions.** Where two taxa are both called exactly what was typed,
+the larger won — right for `beetle` (Coleoptera against two one-species
+beetles), wrong for `human`, where the genus *Homo* beat *Homo sapiens* by five
+tips and the product's most ordinary query answered with the clade holding
+*H. erectus*. The discriminator is **English Wikipedia's article title**, phase
+6b's `wiki_evidence` read for a different question than `name-ranking.md` §2
+asks: `usage_rank` orders one taxon's own names and stays display-only, but a
+title is held by one taxon and no other, so `title` on the name typed says
+which taxon the *word* denotes. Of the 6,619 English names more than one node
+claims, 663 have exactly one titled claimant, 5,942 have none, and **14 have
+two or more — every one a monotypic pair** whose two answers are the same
+species. It moves 358 leaders: `onion` to *Allium cepa*, `camel` to *Camelus*
+off Camelidae (the llamas), `sloth` to Folivora off Pilosa (the anteaters).
+Four things not to redo, all in `handoff.md` §7: it is a **tiebreak and not a
+band**, sitting above `rank_score`, so no taxon climbs past a better-matching
+name and nothing leaks into `Interleave`, where the band is a pure function of
+two strings shared with a corpus that has no articles; it **only ever
+promotes**, and the mirror rule — withdraw on `elsewhere` — was written,
+measured and refused, because **Whale** and **Rat** are broad-concept pages and
+Cetacea and *Rattus norvegicus* are the only exact claimants there are; a title
+**blocks both withdrawals**, since *Allium cepa* is a one-species category
+label by every offline signal and the subject of the article *Onion*; and
+`cat` is the **known limit**, unfixed, because *Felis catus* carries no QID
+so the article **Cat** reaches no evidence — a coverage gap in phase 6, not a
+reason to weaken the rule.
+
 **The keyboard surface is bare letters, and `web/src/chrome/bindings.ts` is
 the only table.** `P` palette, `S` species-filtered palette, `F` fit (`⇧F` fit
 selection), `/` isolate, `Tab` step, `T` time scale, `L` labels, `A` ages, `B`
