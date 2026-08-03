@@ -14,6 +14,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { PendingLine } from "../chrome/Pending";
 import { isScientificItalic } from "../canvas/NodeMark";
 import { rankIsInformative, rankProse, type Lineage } from "./classification";
 import type { Pending } from "./hooks";
@@ -126,6 +127,30 @@ export function CardActions({
 }
 
 /**
+ * The card, before the card.
+ *
+ * The alternative it replaces was not a blank panel — it was the *previous*
+ * taxon's card, left standing because the fetch that would replace it had not
+ * come back yet. A link on a card mostly points at something the app has never
+ * asked about (a classification rung three levels above anything drawn, the
+ * fossil behind a witness), so this is the ordinary path rather than an edge
+ * case, and the failure it produced was the quiet kind: a complete, plausible,
+ * confidently-numbered card about the wrong animal.
+ *
+ * Empty except for the line, and deliberately. A skeleton of grey bars would
+ * predict a shape this cannot know — the card has an image or it has not, a
+ * description or none, five ranks or twenty — and every one of those guesses
+ * would be wrong often enough to read as the layout settling.
+ */
+export function CardPending({ children }: { children: React.ReactNode }) {
+  return (
+    <aside className="detail detail-pending">
+      <PendingLine>{children}</PendingLine>
+    </aside>
+  );
+}
+
+/**
  * The description, and the way out to the article.
  *
  * Three states, drawn three ways. Pending is a dim line rather than nothing,
@@ -158,7 +183,11 @@ export function EncyclopediaBlock({
    */
   const [expanded, setExpanded] = useState(false);
   if (entry === undefined) {
-    return <p className="wiki-pending">Looking for an encyclopaedia entry…</p>;
+    return (
+      <PendingLine className="wiki-pending">
+        Looking for an encyclopaedia entry…
+      </PendingLine>
+    );
   }
   if (entry === null) return null;
   const body = entry.extract ?? entry.gloss;
@@ -242,11 +271,29 @@ export function ClassificationBlock({
    */
   caveat,
 }: {
-  lineage: Lineage | null;
+  /**
+   * Three states, not two, for the same reason the encyclopaedia block has
+   * three: `undefined` is *still coming* and `null` is *there is no answer*,
+   * and collapsing them makes the heading appear a beat after the card does,
+   * pushing everything below it down under the reader's eye. A broken taxon has
+   * no single path — that is what broken means — and it must not spend the
+   * session claiming one is on the way.
+   */
+  lineage: Pending<Lineage>;
   onSelect?: SelectTaxon | undefined;
   heading?: string;
   caveat?: React.ReactNode;
 }) {
+  if (lineage === undefined) {
+    return (
+      <section className="classification">
+        <h3>{heading}</h3>
+        <PendingLine className="cl-pending">
+          Looking up where this sits in the classification…
+        </PendingLine>
+      </section>
+    );
+  }
   if (!lineage || lineage.full.length === 0) return null;
   const { ladder, full, missing } = lineage;
   return (

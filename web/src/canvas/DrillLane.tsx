@@ -52,6 +52,7 @@ import {
 } from "./lane";
 import { isScientificItalic } from "./NodeMark";
 import { MONO, SANS, textWidth } from "../tree/labels";
+import { usePending } from "../chrome/Pending";
 import { SilhouetteSvg } from "./Silhouette";
 
 export interface Drill {
@@ -197,6 +198,11 @@ export function DrillLane({
     [intermediates],
   );
   const labels = spineLabels(ranked, toScreenX, { width });
+  // Delayed, like everywhere else. `api.segment` is memoised for the session,
+  // so a lane the reader has opened before answers in the frame it opens in —
+  // and a lane that flashes "reading the fossil record" before drawing eleven
+  // brackets has invented a wait to report on.
+  const waiting = usePending(segment.loading);
 
   // A minimum rather than a height: the footer wraps at narrow widths, and a
   // fixed box would take the extra line out of the field and clip the last
@@ -316,11 +322,32 @@ export function DrillLane({
         })}
 
         {rows.placed.length === 0 && (
-          <text className="drill-empty" x={16} y={SPINE_H + 12}>
+          /*
+           * The empty lane, and the order of these tests is the whole of it.
+           *
+           * `segment.loading` selects the branch and `waiting` decides only
+           * whether to put words in it — never the other way round. Reading it
+           * the other way is the palette's old bug in a second place: a lane
+           * still fetching would fall through to *"no fossil taxon in the
+           * Paleobiology Database resolves to this branch"*, which is a denial,
+           * and is wrong about roughly every branch that has any.
+           *
+           * So a fast lane draws an empty line for a frame or two and then the
+           * brackets, and a slow one says what it is doing. `pending` rides
+           * only on the sentence that is not yet an answer — the other four are
+           * answers, and an answer that breathes reads as still arriving.
+           */
+          <text
+            className={waiting ? "drill-empty pending" : "drill-empty"}
+            x={16}
+            y={SPINE_H + 12}
+          >
             {!available
               ? "the fossil layer is not in this build, so nothing can be said about this branch either way"
               : segment.loading
-                ? "reading the fossil record…"
+                ? waiting
+                  ? "reading the fossil record…"
+                  : ""
                 : segment.error
                   ? "the fossil record could not be read for this branch"
                   : rows.unplaced.length > 0

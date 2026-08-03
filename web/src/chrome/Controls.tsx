@@ -20,6 +20,7 @@
  */
 
 import { binding, type ActionId } from "./bindings";
+import { PendingLine } from "./Pending";
 
 export interface ControlAction {
   id: ActionId;
@@ -40,7 +41,13 @@ export function Controls({
   actions: ControlAction[];
   /** Chrome auto-hides; the canvas is the page. */
   idle: boolean;
-  /** The store is resolving paths. */
+  /**
+   * Something is in flight and has been long enough to be worth saying.
+   *
+   * The caller decides what counts and applies the delay — see
+   * `chrome/Pending.tsx`. This bar is the last resort for a wait with nowhere
+   * better to show itself, never a second copy of one that has a home.
+   */
   busy: boolean;
 }) {
   return (
@@ -62,7 +69,9 @@ export function Controls({
           </button>
         );
       })}
-      {busy && <span className="controls-busy mono">resolving…</span>}
+      {busy && (
+        <PendingLine className="controls-busy mono">resolving…</PendingLine>
+      )}
     </div>
   );
 }

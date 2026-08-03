@@ -32,6 +32,7 @@ import {
 import { AgeGlyph } from "../canvas/AgeGlyph";
 import { endedSpanLabel } from "../canvas/Bracket";
 import { Silhouette } from "../canvas/Silhouette";
+import { PendingLine, usePending } from "../chrome/Pending";
 import { fuzzy, highlight, litRanges, recordUse, sessionBoost } from "./fuzzy";
 
 export interface Command {
@@ -160,6 +161,50 @@ const tailRank = (title: string): number => {
 const DEBOUNCE_MS = 110;
 
 /**
+ * What the list says when it has no rows to show.
+ *
+ * A pure function because the wrong answer here was shipping: with a query of
+ * two or more characters and no hits yet, the list said **"Nothing matched
+ * dog"** — for the whole of the debounce and the whole of the round trip,
+ * before anything had been asked, let alone answered. On a warm local build
+ * that is a flash. Against a cold container it is a flat statement that the
+ * corpus does not contain the dog, sitting on screen for as long as the reader
+ * cares to look at it, and then quietly replaced by eight rows about dogs.
+ *
+ * So "nothing matched" is now reachable only from a *settled* search, and the
+ * four states are kept apart:
+ *
+ * - `prompt` — nothing typed yet, or one character. Say what this box is for.
+ * - `silent` — a search is out and has not yet earned an indicator. Render
+ *   nothing: the answer is arriving inside the time it would take to read a
+ *   word about it, and a notice that outlives its own subject is worse than
+ *   the wait it describes.
+ * - `searching` — the search is genuinely slow. Say so, and say what is being
+ *   searched, because the size of the corpus is the reason for the wait.
+ * - `no-match` — the search came back empty. The only state entitled to say so.
+ *
+ * The two-character floor is the effect's, not this function's; both read
+ * `MIN_QUERY` so the list cannot describe a search that never ran.
+ */
+export type EmptyState = "prompt" | "silent" | "searching" | "no-match";
+
+/** Below this the palette does not search at all, and must not report on one. */
+export const MIN_QUERY = 2;
+
+export function emptyState(s: {
+  /** Already trimmed — the caller trims once and everything below reads it. */
+  query: string;
+  /** A request is out, or a debounce is about to send one. */
+  searching: boolean;
+  /** That request has outlived {@link PENDING_DELAY_MS}. */
+  slow: boolean;
+}): EmptyState {
+  if (s.query.length < MIN_QUERY) return "prompt";
+  if (!s.searching) return "no-match";
+  return s.slow ? "searching" : "silent";
+}
+
+/**
  * The synonym that got this row onto the page, or null.
  *
  * **Synonyms only**, and the other three kinds are each excluded for their own
@@ -205,6 +250,28 @@ export function Palette({
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const needle = q.trim();
+  /**
+   * The search has been out long enough to be worth mentioning.
+   *
+   * `searching` itself is true from the keystroke, through the debounce, to the
+   * response — which on a warm build is under the time it takes to lift a
+   * finger. Driving anything visible off it strobes the panel once per
+   * character typed.
+   */
+  const slowSearch = usePending(searching);
+  /**
+   * The rows on screen answer a question the reader has already moved on from.
+   *
+   * Dimmed rather than cleared, and that is the whole of the difference: a list
+   * that empties on every keystroke is a list nobody can read while typing, and
+   * clearing also collapses the panel to nothing and then reopens it, which
+   * moves the pointer's target out from under it. Dim says *these are still the
+   * old answers* without taking them away.
+   */
+  const stale = slowSearch && (hits.length > 0 || fossils.length > 0);
+  /** What to put in the list when there is nothing in it. See {@link emptyState}. */
+  const empty = emptyState({ query: needle, searching, slow: slowSearch });
 
   useEffect(() => {
     if (open) {
@@ -217,7 +284,7 @@ export function Palette({
   }, [open]);
 
   useEffect(() => {
-    if (!open || q.trim().length < 2) {
+    if (!open || q.trim().length < MIN_QUERY) {
       setHits([]);
       setFossils([]);
       setSearching(false);
@@ -487,10 +554,20 @@ export function Palette({
             autoComplete="off"
             aria-label="Search or command"
           />
-          {searching && <span className="kbd">…</span>}
+          {/*
+            Not a `kbd` any more. The old indicator was an ellipsis in a keycap,
+            which in a panel whose whole right-hand column is keycaps reads as a
+            key you could press. A word that says what is happening costs the
+            same space and can be heard by a screen reader, which the ellipsis
+            could not.
+          */}
+          {slowSearch && <PendingLine>searching…</PendingLine>}
         </div>
 
-        <div className="palette-list" ref={listRef}>
+        <div
+          className={`palette-list${stale ? " is-stale" : ""}`}
+          ref={listRef}
+        >
           {failed && (
             <div className="palette-empty">
               Search is unreachable — <span className="mono">{failed}</span>
@@ -500,22 +577,35 @@ export function Palette({
             </div>
           )}
 
-          {!failed && flat.length === 0 && notes.length === 0 && undated.length === 0 && (
-            <div className="palette-empty">
-              {q.trim().length >= 2 ? (
-                <>
-                  Nothing matched <strong>{q.trim()}</strong>.
-                  <br />
-                  Scientific names always work; common names depend on the
-                  vernacular index having been built.
-                </>
-              ) : filter ? (
-                <>Type to search 2.4 million species.</>
-              ) : (
-                <>Type to search 2.4 million species, or pick a command.</>
-              )}
-            </div>
-          )}
+          {!failed &&
+            flat.length === 0 &&
+            notes.length === 0 &&
+            undated.length === 0 &&
+            empty !== "silent" && (
+              <div className="palette-empty">
+                {empty === "searching" ? (
+                  // Named corpora rather than "Loading…", because the size of
+                  // the thing being read is the reason there is a wait at all,
+                  // and a reader who is told what is being searched knows
+                  // whether to keep waiting or to type something shorter.
+                  <PendingLine>
+                    Searching 2.4 million species
+                    {filter === null && <> and 523,112 fossil taxa</>}…
+                  </PendingLine>
+                ) : empty === "no-match" ? (
+                  <>
+                    Nothing matched <strong>{needle}</strong>.
+                    <br />
+                    Scientific names always work; common names depend on the
+                    vernacular index having been built.
+                  </>
+                ) : filter ? (
+                  <>Type to search 2.4 million species.</>
+                ) : (
+                  <>Type to search 2.4 million species, or pick a command.</>
+                )}
+              </div>
+            )}
 
           {/*
             Sections carry a header only when there is more than one of them.

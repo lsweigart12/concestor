@@ -26,6 +26,7 @@ import {
 import { Graph } from "./canvas/Graph";
 import { isScientificItalic } from "./canvas/NodeMark";
 import { Detail } from "./detail/Detail";
+import { CardPending } from "./detail/blocks";
 import { FossilCard } from "./detail/FossilCard";
 import { idxFromKey, selectionKeyFor } from "./detail/target";
 import {
@@ -48,6 +49,7 @@ import { OpeningCarousel } from "./chrome/OpeningCarousel";
 import { OPENINGS, keysOf, type Opening } from "./openings";
 import { Confirm } from "./chrome/Confirm";
 import { Controls, type ControlAction } from "./chrome/Controls";
+import { PendingLine, usePending } from "./chrome/Pending";
 import { kbd, matchKey } from "./chrome/bindings";
 import { resetUsage } from "./palette/fuzzy";
 import { toApiKey, useTree } from "./state/store";
@@ -94,6 +96,7 @@ export default function App() {
   const [timescale, setTimescale] = useState<TimescaleInterval[] | null>(null);
   const [detail, setDetail] = useState<NodeDetail | null>(null);
   const [fossilDetail, setFossilDetail] = useState<FossilDetail | null>(null);
+  const [fetchingFossil, setFetchingFossil] = useState(false);
   const [fitSignal, setFitSignal] = useState<{
     kind: "all" | "selection";
     token: number;
@@ -116,6 +119,16 @@ export default function App() {
    */
   const [viewFit, setViewFit] = useState(false);
   const [reachable, setReachable] = useState<boolean | null>(null);
+  /**
+   * A random pick is out.
+   *
+   * The one request in the app that can never be cached — `/v1/random` is
+   * fetched `no-store` on purpose, or every press would return the first press's
+   * answer — so it is also the one where a keystroke reliably buys a wait with
+   * nothing on screen to show for it. Everything else here is memoised and
+   * usually instant.
+   */
+  const [picking, setPicking] = useState(false);
   const [idle, setIdle] = useState(false);
   const toastId = useRef(0);
 
@@ -193,12 +206,28 @@ export default function App() {
    */
   const selectedNodeKey = focusedTaxonNo === null ? tree.view.selected : null;
 
+  /**
+   * The key whose card is being fetched, or null.
+   *
+   * Separate from `detail` because the two are about different taxa during the
+   * fetch, and that gap is the whole reason this exists. A card reached by a
+   * link — a classification rung, a witness, a watermark — is very often one
+   * the app has never asked about, so the request is a real round trip, and
+   * until it lands the *previous* taxon's card is still on screen answering as
+   * if it were the one just clicked. Every figure on it is wrong and none of it
+   * looks wrong.
+   */
+  const [fetchingKey, setFetchingKey] = useState<string | null>(null);
+
   useEffect(() => {
     if (!selectedNodeKey) {
       setDetail(null);
+      setFetchingKey(null);
       return;
     }
     let cancelled = false;
+    setFetchingKey(selectedNodeKey);
+    const done = () => !cancelled && setFetchingKey(null);
     api
       .node(toApiKey(selectedNodeKey))
       .then((d) => {
@@ -207,8 +236,12 @@ export default function App() {
         // against every figure. The canvas already announces broken taxa in the
         // reader's language; here the card simply does not open.
         if (!cancelled) setDetail(typeof d.idx === "number" ? d : null);
+        done();
       })
-      .catch(() => !cancelled && setDetail(null));
+      .catch(() => {
+        if (!cancelled) setDetail(null);
+        done();
+      });
     return () => {
       cancelled = true;
     };
@@ -221,17 +254,64 @@ export default function App() {
   useEffect(() => {
     if (focusedTaxonNo === null) {
       setFossilDetail(null);
+      setFetchingFossil(false);
       return;
     }
     let cancelled = false;
+    setFetchingFossil(true);
+    const done = () => !cancelled && setFetchingFossil(false);
     api
       .fossil(focusedTaxonNo)
-      .then((d) => !cancelled && setFossilDetail(d))
-      .catch(() => !cancelled && setFossilDetail(null));
+      .then((d) => {
+        if (!cancelled) setFossilDetail(d);
+        done();
+      })
+      .catch(() => {
+        if (!cancelled) setFossilDetail(null);
+        done();
+      });
     return () => {
       cancelled = true;
     };
   }, [focusedTaxonNo]);
+
+  /**
+   * Whether a card is worth showing a placeholder for, and which one.
+   *
+   * Gated on {@link usePending} rather than on the request itself: `/v1/node`
+   * and `/v1/fossil` are memoised for the session, so a taxon the reader has
+   * already looked at answers in the frame they clicked in, and swapping a
+   * complete card for a placeholder and back inside one frame is a flicker
+   * bought with nothing. What survives the delay is the case this is for — a
+   * name on a card that nobody has opened before.
+   */
+  const cardPending = usePending(fetchingKey !== null);
+  const fossilCardPending = usePending(fetchingFossil);
+
+  /**
+   * A shared link whose lineages have not arrived.
+   *
+   * Gated on `tree.loading` and not merely on "nothing is drawn yet", because
+   * the second is also true of a link every one of whose keys resolved to
+   * nothing — a stale id, a link made against an older build. That view has
+   * already been explained by a toast and is not waiting for anything, so it
+   * gets the front door back rather than a line that breathes for the rest of
+   * the session.
+   */
+  const linkPending = usePending(
+    tree.loading &&
+      tree.view.keys.length > 0 &&
+      tree.induced.rendered.length === 0,
+  );
+
+  /**
+   * Anything at all is in flight, for the control bar.
+   *
+   * Not the card fetches: those have a placeholder of their own in the place
+   * the answer will appear, and saying it twice puts the reader's attention in
+   * the corner furthest from where they are looking.
+   */
+  const busy = usePending(tree.loading || tree.fossilsLoading || picking);
 
   // A broken taxon reaching the canvas means a link made before the palette
   // stopped offering them. Say what happened in the reader's language — the
@@ -452,6 +532,7 @@ export default function App() {
    */
   const randomSpecies = useCallback(async () => {
     setPaletteOpen(false);
+    setPicking(true);
     try {
       const r = await api.random("species", RANDOM_CANDIDATES);
       if (!r.available) {
@@ -480,11 +561,14 @@ export default function App() {
       );
     } catch {
       toast("Could not reach the search API for a random pick", true);
+    } finally {
+      setPicking(false);
     }
   }, [tree, toast, present]);
 
   const randomFossil = useCallback(async () => {
     setPaletteOpen(false);
+    setPicking(true);
     try {
       const r = await api.random("fossil", RANDOM_CANDIDATES);
       if (!r.available) {
@@ -507,6 +591,8 @@ export default function App() {
       await drawFossil(f);
     } catch {
       toast("Could not reach the search API for a random pick", true);
+    } finally {
+      setPicking(false);
     }
   }, [drawFossil, toast, presentFossils]);
 
@@ -1285,24 +1371,57 @@ export default function App() {
         <div className="boot">
           <div className="boot-inner">
             <h1>Concestor</h1>
-            <p className="boot-lede">
-              Pick any two species; see where their lineages meet, in deep time.
-            </p>
-            <OpeningCarousel onOpen={openOpening} />
-            <p className="boot-alt">
-              Or press <span className="kbd">{kbd("species")}</span> to search
-              2.4 million species, <span className="kbd">
-                {kbd("random-species")}
-              </span>{" "}
-              for one picked at random, or{" "}
-              <span className="kbd">{kbd("palette")}</span> for everything this
-              can do.
-            </p>
+            {/*
+              A shared link arrives here, and used to be answered with the
+              carousel.
+
+              Nothing is drawn until `/v1/paths` comes back, and "nothing is
+              drawn" was the only condition this panel tested — so someone
+              opening a link to the whale, the hippo and the cow was shown the
+              front door and three other questions to look at instead, for the
+              whole of the round trip. On a cold container that is seconds, and
+              a reader who clicks an opening in the meantime has replaced the
+              view they were sent.
+
+              The frame stays; only the invitation is held back until it is
+              true that there is nothing on the way.
+            */}
+            {linkPending ? (
+              <PendingLine className="boot-pending">
+                Resolving the lineages in this link…
+              </PendingLine>
+            ) : (
+              <>
+                <p className="boot-lede">
+                  Pick any two species; see where their lineages meet, in deep
+                  time.
+                </p>
+                <OpeningCarousel onOpen={openOpening} />
+                <p className="boot-alt">
+                  Or press <span className="kbd">{kbd("species")}</span> to
+                  search 2.4 million species, <span className="kbd">
+                    {kbd("random-species")}
+                  </span>{" "}
+                  for one picked at random, or{" "}
+                  <span className="kbd">{kbd("palette")}</span> for everything
+                  this can do.
+                </p>
+              </>
+            )}
           </div>
         </div>
       )}
 
-      {fossilDetail && focusedTaxonNo !== null && (
+      {/*
+        A placeholder rather than the last fossil's card. `fossilCardPending`
+        is already delayed, so this is only ever reached by a request that is
+        genuinely making somebody wait — see `chrome/Pending.tsx`.
+      */}
+      {focusedTaxonNo !== null && fossilCardPending && (
+        <CardPending>Looking up this fossil…</CardPending>
+      )}
+
+      {fossilDetail && focusedTaxonNo !== null && !fossilCardPending && (
         <FossilCard
           fossil={fossilDetail}
           hue={laneHue(graftIdx(focusedTaxonNo))}
@@ -1331,7 +1450,11 @@ export default function App() {
         them now — see `selectedNodeKey`. The hue comes from the node's own
         index, so a lineage keeps its colour whether or not it is drawn.
       */}
-      {detail && focusedTaxonNo === null && (
+      {focusedTaxonNo === null && cardPending && (
+        <CardPending>Looking up this taxon…</CardPending>
+      )}
+
+      {detail && focusedTaxonNo === null && !cardPending && (
         <Detail
           detail={detail}
           hue={laneHue(detail.idx)}
@@ -1416,7 +1539,14 @@ export default function App() {
         ))}
       </div>
 
-      <Controls actions={controls} idle={idle} busy={tree.loading} />
+      {/*
+        One signal for "something is in flight", not three. The bar is the
+        app's only always-visible chrome, so it is where a wait with no other
+        home belongs — a random pick, a graft's PBDB row — and a reader does
+        not need to be told which of them it is. `usePending` keeps the
+        instant ones out of it entirely.
+      */}
+      <Controls actions={controls} idle={idle} busy={busy} />
     </>
   );
 }
