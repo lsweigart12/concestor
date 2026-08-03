@@ -25,6 +25,7 @@ const CSS = read("../styles.css");
 const FAB = read("./PaletteFab.tsx");
 const CONTROLS = read("./Controls.tsx");
 const APP = read("../App.tsx");
+const GRAPH = read("../canvas/Graph.tsx");
 
 /** The body of the first rule whose selector matches, comments stripped. */
 function rule(sel: string, within: string = CSS): string {
@@ -249,6 +250,73 @@ describe("the afterglow fits the one-button layout", () => {
     // the midline whether the copy takes one line or three.
     expect(body).toMatch(/top:\s*50%/);
     expect(body).toContain("translateY(-50%)");
+  });
+});
+
+/**
+ * The other chrome swap, and it fails the same way: silently, in text.
+ *
+ * The empty canvas is a centred column and the canvas-mode panel is pinned
+ * bottom-left, so on a short window the third key row — `P` · *Everything this
+ * can do* — was drawn straight through the `LABELS` chip. Nothing errors when
+ * that comes back: two pieces of text overlap, at a size nobody is testing at.
+ *
+ * The panel is what goes, because with no marks on screen `labels` and `ages`
+ * are switches that visibly do nothing — which the bar already refuses by
+ * disabling `fit`, `isolate` and `step` on this same canvas. So one flag has to
+ * drive both surfaces: a second expression that means *nearly* "nothing is
+ * drawn" would put the badge back on the chip and report nothing.
+ */
+describe("the empty canvas draws no mode panel under its invitation", () => {
+  it("is reading App.tsx and the canvas at all", () => {
+    expect(APP).toContain('className="boot"');
+    expect(GRAPH).toContain('className="canvas-modes"');
+  });
+
+  /**
+   * One expression, named once. Both readers below are matched against this
+   * name rather than against the shape of the test, so inlining either of them
+   * breaks here rather than on somebody's laptop at 700×800.
+   */
+  it("asks whether anything is drawn in one place", () => {
+    expect(APP).toMatch(
+      /const nothingDrawn = tree\.induced\.rendered\.length === 0;/,
+    );
+  });
+
+  /** The invitation is drawn from it… */
+  it("gates the invitation on that flag", () => {
+    expect(APP).toMatch(
+      /\{nothingDrawn && !paletteOpen && \(\s*<div className="boot">/,
+    );
+  });
+
+  /**
+   * …and the canvas is told the same thing rather than working it out again.
+   * `induced` is right there in the props, which is exactly what makes the
+   * second copy easy to write and impossible to see.
+   */
+  it("hands the same flag to the canvas", () => {
+    expect(APP).toContain("empty={nothingDrawn}");
+    expect(GRAPH).toMatch(/\{!empty && \(\s*<div className="canvas-modes">/);
+    // And works it out from nothing else. A local recount is the divergence
+    // this whole arrangement exists to prevent.
+    expect(GRAPH).not.toContain("induced.rendered.length === 0");
+  });
+
+  /**
+   * A swap and not a removal, on the rule the narrow window already stands on:
+   * every control has a command. All three keep their rows, so the palette and
+   * the keyboard still reach every setting the hidden panel holds — which is
+   * also why nothing here disables them.
+   */
+  it("leaves all three reachable while the panel is gone", () => {
+    for (const id of ["labels", "ages", "biolum"]) {
+      expect(
+        BINDINGS.some((b) => (b.id as string) === id),
+        `${id} lost its key with the panel`,
+      ).toBe(true);
+    }
   });
 });
 
