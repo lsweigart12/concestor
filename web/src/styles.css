@@ -1948,6 +1948,9 @@ body {
  * new.
  */
 .control-tip {
+  /* The containing block for the tray, which comes out of this outline's right
+     edge — see the rule below for why that is anchored here and not on the bar. */
+  position: relative;
   display: inline-flex;
   flex-wrap: wrap;
   align-items: flex-start;
@@ -1960,21 +1963,26 @@ body {
 }
 
 /*
- * The tray, sliding down from under the bar it belongs to.
+ * The tray, coming out of the right-hand edge of the outline.
  *
  * Absolutely positioned, so it is outside the bar's flow — a line that pushed
  * its own row would move the buttons it is pointing at, on the one frame they
- * must not move. `transform-origin` at the top and a squashed start make it
- * unroll downward rather than fade in place, which is what says it came from
- * the thing above it.
+ * must not move.
  *
- * **It hangs off `.controls`, not off the outline it belongs to**, and that is
- * why `.control-tip` is no longer `position: relative`. The bar has a second
- * row now; anchored to the tip the tray landed *on* it, under `NAVIGATE` and
- * over three buttons, which is a notice covering the controls it is pointing
- * at. `.controls` is `position: fixed` and so is already the containing block —
- * `top: 100%` is the foot of the whole bar whatever the rows do, which is the
- * only number here that stays true when a group is added.
+ * **It comes out sideways, and that is what lets it hang off the outline
+ * itself.** It used to drop from `top: 100%` of `.controls`, which was the
+ * right answer to the wrong question: anchored to the outline a *downward*
+ * tray landed on the bar's second row, under `NAVIGATE` and over three
+ * buttons, so it was moved to the foot of the whole bar to get clear of them.
+ * Sideways there is nothing to get clear of — the lead run ends and the rest of
+ * that line is empty as far as the canvas group at the far end — so the line
+ * can start where the outline stops and touch the thing it is about. A caption
+ * two rows under a box is a caption the reader has to connect to it.
+ *
+ * `top: 50%` with a half-height shift rather than `top: 0`, so it sits on the
+ * outline's midline at one line of copy and at three. That is the same centring
+ * `.palette-fab-tip` uses on the other layout, which is the point: one
+ * invitation, coming out of the side of whatever is carrying it.
  *
  * It is not pressable and takes no pointer: the buttons are the target, and a
  * caption that swallowed a click aimed past it would cost the reader the very
@@ -1982,9 +1990,24 @@ body {
  */
 .control-tip-tray {
   position: absolute;
-  top: 100%;
-  left: var(--s3);
-  max-width: min(340px, 74vw);
+  top: 50%;
+  left: 100%;
+  /* Clear of the outline's own glow, which breathes 3px out from that edge. */
+  margin-left: 12px;
+  /*
+   * `width` and not `max-width` alone, which is the one trap in anchoring to
+   * the outline instead of to the bar. An absolutely positioned box with `left`
+   * set and `right` auto is shrink-to-fit against the room left inside its
+   * *containing block* — and `left: 100%` leaves exactly none of it, so the
+   * line collapsed to its longest word and stood five rows tall under a
+   * `max-width` of 300 it could not reach. `max-content` asks for the sentence
+   * unbroken and the cap is then a cap.
+   *
+   * Narrower than the 340px it had under the bar, because this room is shared
+   * with the canvas group at the other end of the line rather than empty.
+   */
+  width: max-content;
+  max-width: min(300px, 30vw);
   padding: 4px 9px;
   border: 1px solid var(--hairline);
   border-radius: 6px;
@@ -1993,8 +2016,9 @@ body {
   font-size: 11.5px;
   line-height: 1.4;
   color: var(--ink-2);
+  white-space: normal;
   pointer-events: none;
-  transform-origin: 50% 0;
+  transform: translateY(-50%);
   animation: tip-tray-out 420ms var(--spring) both;
 }
 
@@ -2019,10 +2043,14 @@ body {
   }
 }
 
+/* Out of the outline's edge rather than in from nowhere, which is what says the
+   two are one object. The y half of the transform is the centring on the rule
+   above and has to be restated here, or the first frame drops it and the line
+   jumps into place on arrival. */
 @keyframes tip-tray-out {
   from {
     opacity: 0;
-    transform: translateY(-10px) scaleY(0.5);
+    transform: translate(-14px, -50%);
   }
 }
 
@@ -2200,10 +2228,24 @@ body {
 
 /* ----------------------------------------------------------------- toasts -- */
 
-/* Confirmations are brief HUD toasts. No modals, no dialogs. */
+/*
+ * Confirmations are brief HUD toasts. No modals, no dialogs.
+ *
+ * `left: 50%` with `translateX(-50%)` centres correctly and sizes oddly: a fixed
+ * box with `left` set and `right` auto is shrink-to-fit against *the room to its
+ * right*, so the stack can never be wider than half the window. That ceiling is
+ * above the 560px a toast is allowed from about 1100px up and it is doing no
+ * harm below that either — it holds the stack clear of the canvas-mode panel in
+ * the opposite corner, which is a control at z-index 6 under a notice at 45.
+ * **It is wrong on a phone and only on a phone**, where half of 375 is 187 and
+ * `max-width: 88vw` describes a width the box cannot reach; the narrow block
+ * below is where that is undone, and it is safe there precisely because the
+ * panel it would otherwise cover is not drawn at that width.
+ */
 .toasts {
   position: fixed;
   left: 50%;
+  transform: translateX(-50%);
   /* Above the axis, not across it. A toast is a report about a view; the strip
      along the bottom is what tells the reader how to read that view, and one
      covering the other loses the more useful of the two. `--axis-h` is the same
@@ -2218,13 +2260,47 @@ body {
      outright costs a toast 24px of height it was not using; overlapping it
      costs the reader a control they can see and cannot press. */
   bottom: calc(var(--axis-h) + 48px);
-  transform: translateX(-50%);
   z-index: 45;
   display: flex;
   flex-direction: column;
   gap: var(--s2);
   align-items: center;
   pointer-events: none;
+}
+
+/*
+ * Narrow: it gets the whole width to centre in, and the shelf is then measured
+ * off the round button rather than off the axis. The two go together and are
+ * one change — the first is what makes the second necessary.
+ *
+ * **The width.** Spanning the window and centring its children is the same
+ * centre by a route that can actually reach `max-width`. Half of 375 is 187, so
+ * an opening's answer — the one notice here with two lines of prose that has to
+ * be *read* rather than glanced at — was arriving as a seven-line column two
+ * words wide. This is safe at this width and not above it, because the control
+ * the old ceiling was incidentally clearing is the canvas-mode panel, and that
+ * panel is one of the things not drawn below 620px.
+ *
+ * **The shelf.** Same argument as the bioluminescence switch in the comment
+ * above, one occupant later and one size larger. What stands in this corner
+ * here is a 54px circle that is the whole of the chrome, and a toast that now
+ * really is window-wide runs straight across it. The circle also carries a
+ * caption out to its left during an opening's afterglow, so the band to clear
+ * is the button *and* the line beside it rather than the button alone.
+ *
+ * So the stack rides the same expression that button does — `--axis-h` plus any
+ * open lane, plus its 26px offset and 54px height, and then 16. A drill lane
+ * moves all three together, which a number counted off `--axis-h` alone could
+ * not do. It costs a toast 44px of height on a phone and it costs the reader
+ * nothing: the only thing under a toast is canvas.
+ */
+@media (max-width: 620px) {
+  .toasts {
+    left: 0;
+    right: 0;
+    transform: none;
+    bottom: calc(var(--axis-h) + var(--lane-h, 0px) + 96px);
+  }
 }
 
 .toast {
@@ -2498,13 +2574,65 @@ body {
   border-color: var(--accent-dim);
 }
 
-/* Narrow: the card spans what is left beside the axis switch rather than
-   pinning to a corner that is no longer there. */
+/*
+ * Narrow: it goes to the top, and that is a correction rather than a taste.
+ *
+ * The card spans the width here, because there is no right-hand column to be
+ * the corner of — but a full-width card on the bottom shelf is a card lying
+ * across `.palette-fab`, which is the *other* thing this moment offers and the
+ * one that matters more. Measured at 375px it covered the button's top 32px at
+ * z-index 24 against 6: the reader was shown a pulsing door and a panel drawn
+ * on top of it, and the panel was the smaller of the two offers.
+ *
+ * The top edge is free at this width for exactly the reason the collision
+ * happened at the bottom — the control bar is not drawn — so the two offers get
+ * one end of the screen each. It also restores the ordering the desktop layout
+ * states and this width had quietly inverted: the invitation to add your own is
+ * under the reader's thumb and this is the small one, out of the way, which is
+ * `chrome/NextOpening.tsx`'s "offered second".
+ *
+ * `bottom: auto` is load-bearing. Leaving it set alongside `top` stretches the
+ * card down the whole window, and a fixed box pinned at both ends does not
+ * report that as an error.
+ */
 @media (max-width: 620px) {
   .next-up {
     left: var(--s3);
     right: var(--s3);
+    top: var(--s3);
+    bottom: auto;
     max-width: none;
+    /* Down from above, since that is now where it comes from. The entry is the
+       only thing on this card that has to know which edge it is pinned to. */
+    animation-name: next-up-in-top;
+  }
+  /*
+   * And the go mark comes up onto the question's line.
+   *
+   * A row of its own is right in a 280px corner card, where the question takes
+   * two lines and the mark under them is the end of a short column. Spanning
+   * 351px the question fits on one, and the mark on the next is a lone glyph
+   * across an empty row from everything it belongs to. Sharing the line closes
+   * the card up and puts the press at the end of the sentence asking for it.
+   */
+  .next-up-card {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+  .next-up-eyebrow,
+  .next-up-art {
+    grid-column: 1 / -1;
+  }
+  .next-up-arrow {
+    margin-top: 0;
+    padding-left: var(--s3);
+  }
+}
+
+@keyframes next-up-in-top {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
   }
 }
 
@@ -4466,6 +4594,67 @@ body.biolum .palette-fab {
 }
 
 /*
+ * The invitation's words, out the left of the button.
+ *
+ * On the bar the outline goes round three buttons that already print `S`, `R`
+ * and `P`, and the tray beneath only has to supply the sentence. Here the
+ * outline is a ring on a 54px circle with a mark in it and no word anywhere, so
+ * the pulse on its own is a light with nothing saying what it is for — which is
+ * the one thing this moment cannot afford, because the reader it is aimed at
+ * has pressed exactly one thing in this app and it was a card on a screen they
+ * can no longer see.
+ *
+ * **Left is the only side left.** Above the button is canvas the tree is drawn
+ * on and where the answer's own card stands; below it is the timeline, which
+ * `--axis-h` exists to keep clear; to the right is the window edge. A line
+ * starting a hairline off the circle points at it without needing a tail.
+ *
+ * It reads the same shelf expression as the button — `--axis-h` plus any open
+ * lane — so a drill lane moves the pair together, and the extra 27px puts its
+ * *bottom* on the circle's midline while `translateY(50%)` drops its own centre
+ * onto that line. That is what keeps it level with the button at one line of
+ * copy and at three, which a fixed offset cannot.
+ *
+ * Not pressable, and for the reason `.control-tip-tray` is not: the button is
+ * the target, it is 54px because it is being hit by a thumb, and a caption
+ * lying beside it that swallowed a press aimed slightly wide would cost the
+ * reader the exact action it is asking for.
+ */
+.palette-fab-tip {
+  position: absolute;
+  right: calc(var(--s4) + 54px + 10px);
+  bottom: calc(var(--axis-h) + var(--lane-h, 0px) + 53px);
+  z-index: 6;
+  display: none;
+  /* Wide enough for the line to break in three rather than five, and never
+     wider than the room left beside a 54px circle with a margin either side. */
+  max-width: min(200px, calc(100vw - 110px));
+  margin: 0;
+  padding: 5px 9px;
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  background: rgba(14, 14, 17, 0.94);
+  font-family: var(--sans);
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--ink-2);
+  pointer-events: none;
+  transform: translateY(50%);
+  transition: bottom 240ms var(--spring);
+  animation: fab-tip-out 420ms var(--spring) both;
+}
+
+/* Out of the button rather than in from nowhere, which is what says the two
+   are one object. The y half of the transform is the centring above and has to
+   be restated here, or the first frame drops it and the line jumps on arrival. */
+@keyframes fab-tip-out {
+  from {
+    opacity: 0;
+    transform: translate(14px, 50%);
+  }
+}
+
+/*
  * Below 620px there is no chrome on the canvas but one round button.
  *
  * The bar goes, and so does the canvas-mode panel and the scale switch on the
@@ -4487,6 +4676,11 @@ body.biolum .palette-fab {
   }
   .palette-fab {
     display: inline-flex;
+  }
+  /* And its caption, which exists only for this width: above it the bar is
+     drawn and `.control-tip-tray` is where the same sentence lands. */
+  .palette-fab-tip {
+    display: block;
   }
   /* The empty canvas's two columns become two rows here, and the rule between
      them turns with them. At 375px the pair is a column of badges squeezed

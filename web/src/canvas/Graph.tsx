@@ -218,8 +218,13 @@ export interface GraphProps {
    * `chrome/PaletteFab.tsx` argues the swap.
    */
   onPalette: () => void;
-  /** The invitation after an opening, when the bar cannot carry it. */
-  tip?: boolean;
+  /**
+   * The invitation after an opening, when the bar cannot carry it — and the
+   * words, not a flag. The button is unlabelled, so a pulse with nothing beside
+   * it is a light the reader cannot read. `chrome/PaletteFab.tsx` says why the
+   * sentence travels with the signal rather than beside it.
+   */
+  tip?: string;
 }
 
 function Inner(props: GraphProps) {
@@ -1101,7 +1106,7 @@ function Inner(props: GraphProps) {
         opening under it moves it instead of covering it.
         `chrome/PaletteFab.tsx` carries the argument.
       */}
-      <PaletteFab onOpen={onPalette} {...(tip === true ? { tip } : {})} />
+      <PaletteFab onOpen={onPalette} {...(tip !== undefined ? { tip } : {})} />
       {activeDrill && (
         <DrillLane
           upper={endpoint(activeDrill.upper, ind, nodeMap)}
