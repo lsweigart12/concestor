@@ -21,6 +21,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { beacon } from "../analytics/beacon";
 import {
   api,
   hitSilhouette,
@@ -290,6 +291,12 @@ export function Palette({
       setFailed(null);
       // Focus after paint so the caret lands in an element that exists.
       requestAnimationFrame(() => inputRef.current?.focus());
+    } else {
+      // Closed — on a row taken or on Escape, and the difference does not
+      // matter here. What matters is that a reader who types the right word and
+      // presses Enter inside the idle window is not recorded as having searched
+      // for nothing, which is the search that worked.
+      beacon.endSearch();
     }
   }, [open]);
 
@@ -305,6 +312,10 @@ export function Palette({
     const t = window.setTimeout(async () => {
       try {
         const r = await api.search(q.trim(), 24);
+        // Fed the query the server was actually asked, not the keystroke. The
+        // beacon holds a prefix chain to one event, so `w…whale` is recorded
+        // once — `analytics/beacon.ts` is the rule and why it is that one.
+        beacon.search(q.trim());
         if (!cancelled) {
           setHits(r.results);
           setFossils(r.fossils ?? []);

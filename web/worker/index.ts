@@ -24,6 +24,17 @@ interface Env {
   /** The read API, one Container class over the Go binary. */
   READ_API: DurableObjectNamespace<ReadApi>;
   /**
+   * Where {@link BEACON_PATH} writes. `docs/analytics.md` is the whole design.
+   *
+   * Analytics Engine rather than a database, because this is append-only,
+   * unindexed by anything the app reads, and must never be something `/v1` can
+   * wait on. It is also the only store on this platform that a Worker may write
+   * to without the write being a request the reader paid for in latency:
+   * `writeDataPoint` does not return a promise and does not extend the
+   * invocation.
+   */
+  TELEMETRY: AnalyticsEngineDataset;
+  /**
    * Development override. When set, `/v1` is proxied to this origin and the
    * container is not started — which is what makes `wrangler dev` usable
    * against a locally running `scripts/serve.sh` instead of requiring Docker
@@ -102,6 +113,100 @@ const HOP_BY_HOP = new Set([
   "upgrade",
 ]);
 
+/**
+ * The analytics beacon. `web/src/analytics/beacon.ts` is the other half.
+ *
+ * Under `/v1/` because that is what `run_worker_first` routes to this Worker,
+ * and a second glob would be a second thing to keep in step with this file. It
+ * is not part of the read API and the container never sees it.
+ *
+ * **It is a `POST`, and that is the caching argument.** Every `/v1` response is
+ * `Cache-Control: immutable` behind Workers Cache, and the one rule
+ * `docs/deployment.md` §5 lays down is that nothing in this file may grow into
+ * a list of paths the cache should treat specially. A `POST` is uncacheable per
+ * RFC 9111 without anyone deciding it should be, so the beacon adds a path that
+ * the caching design does not have to know exists.
+ */
+const BEACON_PATH = "/v1/e";
+
+/** The three events. Anything else is a client that got ahead of this Worker. */
+const KINDS = new Set(["search", "add", "tree"]);
+
+// Caps, mirroring `beacon.ts`. Both sides truncate: the client so that a long
+// paste is not sent, this side because the client is the open internet.
+const MAX_BODY = 8 * 1024;
+const MAX_EVENTS = 32;
+const MAX_SUBJECT = 128;
+const MAX_TREE = 1024;
+const MAX_SESSION = 64;
+
+/**
+ * Record what the browser says happened.
+ *
+ * Answers `204` to everything it accepts and to most of what it does not: a
+ * beacon is fire-and-forget, the client cannot act on a `400`, and a status
+ * code is not the place to teach anyone the schema. What a bad payload gets is
+ * to be dropped.
+ *
+ * **The blob order below is the schema, and it is positional.** Analytics
+ * Engine has no column names — the SQL API reads `blob1`, `blob2`, and so on —
+ * so inserting a field in the middle silently reinterprets every row written
+ * before it. Append only, and `docs/analytics.md` §3 is the table that says
+ * what each one holds.
+ */
+async function beacon(request: Request, env: Env): Promise<Response> {
+  if (request.method !== "POST") return noStore(405);
+
+  const declared = Number(request.headers.get("content-length") ?? 0);
+  if (declared > MAX_BODY) return noStore(413);
+
+  let body: unknown;
+  try {
+    const text = await request.text();
+    if (text.length > MAX_BODY) return noStore(413);
+    body = JSON.parse(text);
+  } catch {
+    return noStore(204);
+  }
+
+  if (!body || typeof body !== "object") return noStore(204);
+  const { session, events } = body as { session?: unknown; events?: unknown };
+  if (!Array.isArray(events)) return noStore(204);
+
+  const sid = typeof session === "string" ? session.slice(0, MAX_SESSION) : "";
+
+  for (const raw of events.slice(0, MAX_EVENTS)) {
+    if (!raw || typeof raw !== "object") continue;
+    const e = raw as Record<string, unknown>;
+    const kind = typeof e.kind === "string" ? e.kind : "";
+    if (!KINDS.has(kind)) continue;
+
+    const subject = str(e.subject, MAX_SUBJECT);
+    const tree = str(e.tree, MAX_TREE);
+    env.TELEMETRY.writeDataPoint({
+      // The sampling key. Low cardinality on purpose: Analytics Engine samples
+      // per index once volume is high, so a chatty `search` never costs the
+      // rarer `tree` its fidelity. It also means every count in SQL has to be
+      // weighted by `_sample_interval` — docs/analytics.md §4.
+      indexes: [kind],
+      blobs: [kind, subject, tree, str(e.cause, 16), sid],
+      // Derived here rather than sent, so it can never disagree with the string
+      // it describes.
+      doubles: [tree === "" ? 0 : tree.split(",").length],
+    });
+  }
+
+  return noStore(204);
+}
+
+function str(v: unknown, max: number): string {
+  return typeof v === "string" ? v.slice(0, max) : "";
+}
+
+function noStore(status: number): Response {
+  return new Response(null, { status, headers: { "Cache-Control": "no-store" } });
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -117,6 +222,11 @@ export default {
         headers: { "Cache-Control": "no-store" },
       });
     }
+
+    // Before the origin branch, so the beacon behaves identically under
+    // `wrangler dev`, under a local `scripts/serve.sh`, and in production.
+    // Proxying it would send it to the Go binary, which has never heard of it.
+    if (url.pathname === BEACON_PATH) return beacon(request, env);
 
     if (env.API_ORIGIN) return proxy(request, url, env.API_ORIGIN);
 
