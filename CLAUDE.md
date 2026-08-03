@@ -255,8 +255,8 @@ sea snail above the butterflies.
 
 **The keyboard surface is bare letters, and `web/src/chrome/bindings.ts` is
 the only table.** `P` palette, `S` species-filtered palette, `F` fit (`⇧F` fit
-selection), `/` isolate, `Tab` step, `L` time scale, `R` random species, `⇧R`
-random fossil, `C` clear. `matchKey` refuses any press holding ctrl, meta or
+selection), `/` isolate, `Tab` step, `L` time scale, `R` random species, `C`
+clear. `matchKey` refuses any press holding ctrl, meta or
 alt — that refusal is the feature, because the old `⌘`-based surface was a
 losing negotiation with the browser (`⌘L` is the URL bar and cannot be
 prevented, `⌘F` is find, `⌘R` is reload) and every binding that survived it was
@@ -538,15 +538,27 @@ divergences, and the numbers are there. Three refusals, none of them
 approximated: no bracket (21.4% of PBDB), attach node not on a drawn branch, no
 `pbdb_taxon_no`.
 
-**Fossils are searchable and selectable, and neither needed a pipeline run.**
-`SearchFossils` full-scans the 523,112-row table at ~40ms — there is no index on
-`name` — and the palette renders it as its own section, pinned *last* whatever
-it scores, because a species is a node you can build a tree from and a fossil is
-an observation that hangs off one. Sections are a **grouping, not a
-re-ranking**: inside one, rows keep the server's order with only the session
-boost layered on top, exactly as before — fossils on the server's
-tier-then-notability, nodes on `/v1/search`'s. The rule above holds unchanged,
-and now covers two corpora: `web/` must not re-sort either. A graft selects like a node:
+**They are all species, and one search answers for both corpora.**
+`docs/fossil-grafts.md` §9 is the account and the first thing to read here. The
+two catalogues **overlap** — 32,386 accepted PBDB taxa are themselves nodes,
+which is `attach_walk = 0`, and *Tyrannosaurus*, *T. rex* and *Stegosaurus* are
+all in that set — so "Tyrannosaurus" used to return the same animal twice with
+two different futures while *Triceratops*, which the tree has never heard of,
+sat under nine orchids and beetles named after it. `store.notInTree` now refuses
+`attach_walk = 0` from **both** `SearchFossils` and `RandomFossils`, on the
+merits rather than a preference: phase 4 already wrote the taxon's PBDB bracket
+onto the node as its `occurrence` row, so the node carries the dates *and* an
+ancestry *and* an MRCA. That costs 8.9% of the accepted corpus, all of it
+reachable by the same name as a node, and it is what earns the only sentence a
+reader is asked to hold — **a fossil row is a species the tree has no lineage
+for.** Not "extinct", which would be wrong about *T. rex*; the badge therefore
+reads **"on a branch"**. `store.Interleave` ranks the two lists into one order
+server-side (band, then position in the row's own corpus, then node-before-
+fossil as the *last* tiebreak) and stamps every pickable row with `order`; the
+client sorts on that integer, which is reading a rank rather than computing one.
+`⇧R` is gone and unbound — `R` rolls a die, 20% fossil, falling through to a
+species in silence. `SearchFossils` is still a full scan of the 523,112-row
+table at ~40ms; there is no index on `name`. A graft selects like a node:
 same click, same `sel=`, and `pbdb108454` cannot collide with an OTT id. Its
 card is not the node card with fields blanked — it has no age, no tip count and
 no ancestry, and it is where the PhyloPic credit finally lives. That credit was

@@ -149,27 +149,35 @@ func (s *Store) RandomNodes(ctx context.Context, limit int) ([]SearchResult, err
 
 // RandomFossils picks PBDB taxa that can be drawn against the tree.
 //
-// Four filters. The first three are the graft's own refusals stated in SQL, so
+// Five filters. The first three are the graft's own refusals stated in SQL, so
 // a pick can never land on something `makeGraft` would then decline to place;
-// the fourth is the silhouette rule above.
+// the fourth is the silhouette rule above, and the fifth is {@link notInTree}.
+//
+//   - **Not itself a node.** A pick that lands on *Tyrannosaurus rex* has found
+//     a taxon the tree already contains, and drawing it as a graft is drawing
+//     the poorer of two things the reader could have been handed. Costs 168 of
+//     2,114 — every one of them still reachable, as a species.
 //
 //   - **`is_primary`.** PBDB carries a row per `taxon_no` and synonyms collapse
 //     onto one accepted name, so without this the same animal is drawn several
 //     times over and the pool is weighted by how heavily a taxon was renamed.
+//
 //   - **A last appearance.** 21.4% of the corpus has no interval at all, and
 //     `lla` is the end phase 4 trusts and the only one the layout reads. No
 //     `lla`, no x — and a fossil placed at a guessed date is the one thing
 //     worse than a fossil not placed.
+//
 //   - **Extinct, and ended before the Holocene.** `is_extant` alone is not
 //     enough and the docs are emphatic about why: PBDB flags *Thalassia
 //     testudinum*, the living turtle grass, extinct at 48.07–0.0117 Ma. A range
 //     running to the present is a living thing wearing a fossil's clothes, and
 //     drawing one at the right-hand edge of deep time as a "random fossil" is
 //     the same wrong flag arriving somewhere new.
+//
 //   - **A drawing**, joined through `fossil_image`. A fossil has no clade to
 //     borrow a picture from — `node_image` cannot reach a thing that is not a
-//     node — so this join is exact by construction, and the 2,114 taxa that
-//     survive all four filters are all illustrated portraits.
+//     node — so this join is exact by construction, and the 1,946 taxa that
+//     survive all five filters are all illustrated portraits.
 //
 // The one thing this cannot filter on is whether the taxon's attachment point
 // is currently drawn, because that is a fact about the reader's canvas and not
@@ -198,6 +206,9 @@ func (s *Store) RandomFossils(ctx context.Context, limit int) ([]Fossil, error) 
 	}
 	if f.IsPrimary != "" {
 		where = append(where, fmt.Sprintf("t.%q = 1", f.IsPrimary))
+	}
+	if nit := notInTree(f); nit != "" {
+		where = append(where, nit)
 	}
 	if f.IsExtant != "" {
 		// `IS NULL` is excluded rather than admitted. 1.7% of the corpus has

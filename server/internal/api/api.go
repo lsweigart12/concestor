@@ -496,15 +496,16 @@ func (s *Server) handleAbout(w http.ResponseWriter, r *http.Request) {
 type searchBody struct {
 	Query   string               `json:"query"`
 	Results []store.SearchResult `json:"results"`
-	// PBDB taxa matching the same query, ranked separately and never merged
-	// into `Results`.
+	// PBDB taxa the tree does not contain, matching the same query.
 	//
-	// Two corpora answering two different questions: `Results` are *nodes* —
-	// things with a position, an ancestry and an MRCA — while these are
-	// observations from the rock that hang off a branch. Interleaving them by
-	// score would put a one-occurrence fossil genus above the species someone
-	// typed, and would imply the two can be picked for the same purpose. The
-	// client renders them as their own section, below.
+	// They stay in an array of their own because they are a different *shape* —
+	// a stratigraphic bracket and an occurrence count where a node has an
+	// ancestry and a subtree — not because they are a lesser answer. Both
+	// arrays carry `order`, the row's position in the single ranking
+	// `store.Interleave` computed over the two of them, and the client draws
+	// one list in that order. It used to draw two, with these pinned below
+	// however well they matched, which answered "triceratops" with every
+	// species that nearly matches the word before the animal itself.
 	Fossils []store.Fossil `json:"fossils"`
 	// False when the fossil table has not been built, so an empty list can be
 	// told apart from "nothing matched".
@@ -534,13 +535,17 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	//502-ing the whole palette because a supplementary scan failed would trade
 	// a degraded list for no list.
 	if s.St.Schema.Fossil != nil {
-		fos, err := s.St.SearchFossils(r.Context(), q, 0)
+		fos, err := s.St.SearchFossils(r.Context(), q, limit)
 		if err != nil {
 			s.Log.Warn("fossil search", "q", q, "err", err)
 		} else {
 			body.Fossils, body.FossilsAvailable = fos, true
 		}
 	}
+	// After both lists exist and before either is written, because `order` is a
+	// statement about the pair. A fossil scan that failed leaves the nodes
+	// stamped 0..n-1, which is the same order they were already in.
+	store.Interleave(body.Results, body.Fossils, q)
 	s.writeJSON(w, r, http.StatusOK, body)
 }
 

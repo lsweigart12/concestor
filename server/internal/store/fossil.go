@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -139,6 +140,10 @@ type Fossil struct {
 	// be assembling a bracket out of two different records — for Stegosaurus,
 	// a corrected 143.1 against a 100.5 that is the very occurrence refused.
 	LEADrawn *float64 `json:"lea_drawn,omitempty"`
+
+	// Where this row sits in the one ranking that covers both corpora. See
+	// {@link Interleave}. Set by /v1/search and nil everywhere else.
+	Order *int `json:"order,omitempty"`
 }
 
 // maxSegmentFossils caps a drill-down lane. A single node has 12,964 children
@@ -358,12 +363,55 @@ func (s *Store) FossilByTaxonNo(ctx context.Context, taxonNo int64) (*Fossil, er
 	return &fo, nil
 }
 
-// maxFossilSearch caps a palette query. Deliberately small: fossils are the
-// *secondary* section and a long tail of near-matches would push the species
-// a reader actually asked for off the bottom of the list.
-const maxFossilSearch = 8
+// maxFossilSearch caps a palette query.
+//
+// It used to be 8, and the small number was doing a job that no longer exists:
+// fossils were pinned to a section at the tail of the list, so a long tail of
+// near-matches would push the species a reader actually asked for off the
+// bottom. They are now ranked against nodes by the same band, so a fossil is
+// only high in the list when it is a better answer than the nodes above it —
+// and the number that has to be generous is the *candidate* count, or a taxon
+// that would have led the page is cut before the merge ever sees it.
+const maxFossilSearch = 24
 
-// SearchFossils finds PBDB taxa by name, best match first.
+// notInTree refuses a PBDB taxon that is itself a node in the synthesis tree.
+//
+// This is the line the whole search rests on, so it is drawn once here rather
+// than restated at each call site. `attach_walk` is how many PBDB `parent_no`
+// hops phase 3 took to reach a node; zero means it took none, which means this
+// taxon *is* that node. 32,386 accepted PBDB taxa are in that position —
+// *Tyrannosaurus*, *Tyrannosaurus rex* and *Stegosaurus* among them — and
+// before this they arrived twice on one query, once as something that joins the
+// tree and once as something that hangs off it, with nothing on either row
+// saying why the same animal was being offered two different futures.
+//
+// The node wins that duplicate every time, and not on a preference: phase 4
+// already writes the taxon's PBDB bracket onto the node as its `occurrence`
+// row, so the node row carries the fossil's dates *and* an ancestry, *and* the
+// ability to induce an MRCA. There is nothing the graft was adding.
+//
+// So the exclusion is what makes the corpus mean something a reader can hold:
+// **a fossil row is a taxon the tree does not contain.** Not "a taxon that is
+// extinct" — the tree is full of extinct taxa — and not "a taxon in PBDB",
+// which is 93,686 living things. Cost: 8.9% of the accepted corpus, all of it
+// reachable by the same name through `/v1/search`'s node path.
+//
+// Name equality is deliberately *not* also required. 1,320 of these rows differ
+// from their node's name — PBDB's `Animalia` against OTT's `Metazoa`,
+// `Haplorhini` against `Haplorrhini` — and those are the same taxon spelled
+// twice, which is precisely the case a graft has nothing to add to. OTT carries
+// the alternatives as synonyms, so the node path answers them.
+func notInTree(f *FossilSchema) string {
+	if f.AttachWalk == "" {
+		// A build predating the column cannot tell the two apart. Serving the
+		// whole corpus is the old behaviour and the honest degradation; the
+		// duplicate is visible and a silently empty list is not.
+		return ""
+	}
+	return fmt.Sprintf("t.%q <> 0", f.AttachWalk)
+}
+
+// SearchFossils finds PBDB taxa the tree does not contain, best match first.
 //
 // A full scan of the 523,112-row table, and that is the measured right answer
 // rather than a concession: there is no index on `name` — the fossil table is
@@ -372,11 +420,13 @@ const maxFossilSearch = 8
 // Building an in-memory prefix index at startup would cost ~15MB and a slower
 // boot to save something nobody can perceive.
 //
-// The ordering is match quality first, then `notability` — exact name, then
-// prefix, then contains, and inside each the same extinct/drawn/specific/count
-// ranking a drill-down lane uses. Without the match tier, "homo" returns
-// whatever the most-recorded substring match happens to be; with it, *Homo*
-// comes first.
+// SQL orders by a coarse match tier and then `notability` — the same
+// extinct/drawn/specific/count ranking a drill-down lane uses. That tier is
+// candidate *generation*, not the answer: the rows are re-banded in Go by
+// {@link matchBand}, the same function that ranks nodes, because the two lists
+// are about to be merged into one and a corpus ranked by its own private scale
+// cannot be interleaved with another. `notability` survives as the order
+// *within* a band, which is what it was always measuring.
 func (s *Store) SearchFossils(ctx context.Context, q string, limit int) ([]Fossil, error) {
 	f := s.Schema.Fossil
 	if f == nil || f.TaxonNo == "" {
@@ -402,6 +452,9 @@ func (s *Store) SearchFossils(ctx context.Context, q string, limit int) ([]Fossi
 	where := fmt.Sprintf("%s LIKE ? ESCAPE '\\'", name)
 	if f.IsPrimary != "" {
 		where += fmt.Sprintf(" AND t.%q = 1", f.IsPrimary)
+	}
+	if nit := notInTree(f); nit != "" {
+		where += " AND " + nit
 	}
 	q2 := fmt.Sprintf(
 		"SELECT %s FROM %q t%s WHERE %s ORDER BY %s, %s, t.%q DESC, length(t.%q) LIMIT %d",
@@ -434,11 +487,24 @@ func (s *Store) SearchFossils(ctx context.Context, q string, limit int) ([]Fossi
 		}
 		seen[fo.Name] = struct{}{}
 		list = append(list, fo)
-		if len(list) >= limit {
-			break
-		}
 	}
-	return list, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// Re-band, and truncate *after* rather than before. The SQL tier cannot see
+	// head position or a plural, so it files "swallowtail" and "oak moss" the
+	// same way `matchBand` was written to separate — and truncating on the
+	// coarse order would drop the row the fine one was going to promote.
+	// Stable, so `notability` still decides inside a band.
+	qFold := strings.ToLower(q)
+	sort.SliceStable(list, func(i, j int) bool {
+		return matchBand(list[i].Name, qFold) < matchBand(list[j].Name, qFold)
+	})
+	if len(list) > limit {
+		list = list[:limit]
+	}
+	return list, nil
 }
 
 // colOrNullT is colOrNull for a column on the aliased fossil table.

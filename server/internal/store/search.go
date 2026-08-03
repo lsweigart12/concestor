@@ -40,6 +40,12 @@ type SearchResult struct {
 	// unexplained answer about a different species.
 	MatchedName *string `json:"matched_name,omitempty"`
 
+	// Where this row sits in the one ranking that covers both corpora. See
+	// {@link Interleave}. Set by /v1/search and nil everywhere else — a random
+	// pick and a segment listing are not answers to a query and have no
+	// position in one.
+	Order *int `json:"order,omitempty"`
+
 	// The silhouette, for callers that draw one. HasImage on its own is a
 	// ranking signal; these three are what it takes to *show* the thing, and
 	// resolution has already happened by the time HasImage is set, so sending
@@ -253,6 +259,85 @@ func (s *Store) Search(ctx context.Context, q string, limit int) ([]SearchResult
 		results = []SearchResult{}
 	}
 	return results, nil
+}
+
+// Interleave puts the two corpora in one order and stamps each row with its
+// position in it, in place.
+//
+// # Why the server does this
+//
+// Because it is ranking, and `web/` may not rank. The client used to receive
+// two lists and pin the fossils to a section at the tail however well they
+// matched, which is a defensible answer to a question nobody was asking: the
+// reader typing "triceratops" does not want the species that nearly match it
+// followed, eventually, by the animal. Both lists are answers to one query and
+// they belong in one order — but a client that *computed* that order would be
+// the fuzzy-score bug again, where a score the client can see outweighs four
+// ranks it cannot. So the order is decided here and travels as an integer.
+//
+// # The rule, and why the parts are in this order
+//
+//  1. **Band.** How well the query sits inside the name, from {@link
+//     matchBand} — the same function, run over both corpora, which is the whole
+//     reason a merge is possible at all. It does nearly all the work: there is
+//     no node called *Triceratops*, so the fossil takes the exact band and
+//     leads; there is a node called *Canidae* headlined "dog family", so "dog"
+//     is a head-word match on a node and no PBDB row gets near it.
+//
+//  2. **Position within the row's own corpus.** Each list arrives ranked by
+//     signals the other has no counterpart for — a node has a subtree size and
+//     a common name, a fossil has occurrence counts and a stratigraphic
+//     record — and inventing a common scale for those would be inventing a
+//     number. Comparing *positions* asks each corpus how good this row is
+//     relative to its own best, which is a question both can answer.
+//
+//  3. **Node before fossil.** The last tiebreak and the smallest claim: where
+//     two rows are equally good answers, the one that can join the tree is
+//     worth more than the one that can only hang off it.
+//
+// Broken taxa are left unstamped. They render as a note rather than a row —
+// they cannot be picked — so a position in a list of pickable things would be a
+// position in a list they are not in.
+func Interleave(nodes []SearchResult, fossils []Fossil, q string) {
+	qFold := strings.ToLower(q)
+	type slot struct {
+		band   int
+		pos    int
+		fossil bool
+		i      int
+	}
+	slots := make([]slot, 0, len(nodes)+len(fossils))
+	pos := 0
+	for i := range nodes {
+		if nodes[i].Kind == "broken" {
+			continue
+		}
+		slots = append(slots, slot{band: nodes[i].band, pos: pos, i: i})
+		pos++
+	}
+	for i := range fossils {
+		slots = append(slots, slot{
+			band: matchBand(fossils[i].Name, qFold), pos: i, fossil: true, i: i,
+		})
+	}
+	sort.SliceStable(slots, func(a, b int) bool {
+		x, y := slots[a], slots[b]
+		if x.band != y.band {
+			return x.band < y.band
+		}
+		if x.pos != y.pos {
+			return x.pos < y.pos
+		}
+		return !x.fossil && y.fossil
+	})
+	for n, sl := range slots {
+		order := n
+		if sl.fossil {
+			fossils[sl.i].Order = &order
+		} else {
+			nodes[sl.i].Order = &order
+		}
+	}
 }
 
 func matchStrength(m string) int {

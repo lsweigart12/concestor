@@ -252,6 +252,22 @@ interface HitBase {
    * species and reads as the search having misheard.
    */
   matched_name?: string | null;
+  /**
+   * Where this row sits in the one ranking that covers both corpora.
+   *
+   * `/v1/search` answers with two arrays because a node and a PBDB taxon are
+   * different shapes, not because they are different qualities of answer, and
+   * this integer is what lets the palette draw them as the single list they
+   * are. Absent on a broken taxon, which renders as a note rather than a row,
+   * and absent from every other endpoint — a segment listing and a random pick
+   * are not answers to a query and have no position in one.
+   *
+   * **Sorting by it is not re-ranking.** The rule in `handoff.md` is that
+   * `web/` must not re-sort `/v1/search`, and this is the server handing over
+   * an order rather than the client computing one — the distinction that the
+   * old client-side fuzzy score got wrong.
+   */
+  order?: number | null;
   /** Present when the server resolved a silhouette for this hit. */
   phylopic_id?: string | null;
   /** The node the image is actually a drawing of. Often a relative. */
@@ -440,6 +456,11 @@ export interface FossilTaxon {
    */
   pbdb_taxon_no?: number;
   rank: string | null;
+  /**
+   * Where this row sits in the one ranking that covers both corpora, on a
+   * `/v1/search` response and nowhere else. See {@link HitBase.order}.
+   */
+  order?: number | null;
   /** The tree node it resolves to. Always on the segment we asked about. */
   attach_idx: number;
   /**

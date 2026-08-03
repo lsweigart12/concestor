@@ -23,6 +23,7 @@ import {
   type SearchHit,
   type TimescaleInterval,
 } from "./api";
+import { randomKind } from "./corpora";
 import { Graph } from "./canvas/Graph";
 import { isScientificItalic } from "./canvas/NodeMark";
 import { Detail } from "./detail/Detail";
@@ -81,6 +82,7 @@ const REFUSAL_REASONS: GraftRefusal[] = ["off-tree", "no-range", "no-identity"];
  * command at all.
  */
 const RANDOM_CANDIDATES = 12;
+
 
 export default function App() {
   const tree = useTree();
@@ -514,26 +516,52 @@ export default function App() {
    * Put something on the canvas without being asked what.
    *
    * The empty canvas is a command list, and every other command on it assumes
-   * you have already thought of a species. Nobody browses 2.4 million of them,
+   * you have already thought of a species. Nobody browses 2.7 million of them,
    * and for an audience of curious people rather than systematists the first
    * move is the hard one — so there has to be an action that answers "show me
    * *something*".
    *
-   * Both picks come from `/v1/random`, which draws only from taxa that carry
+   * The pick comes from `/v1/random`, which draws only from taxa that carry
    * their own drawing. That filter is the whole design: a uniform draw over the
    * corpus returns an unnamed `mrcaott…` clade or an undescribed mite, and a
    * surprise that is mostly nothing to look at is one a reader stops pressing.
    * The server-side note on `RandomNodes` has the pools and the counts.
+   *
+   * **One command, two corpora**, weighted by {@link RANDOM_FOSSIL_CHANCE}.
+   * There is no second key and no second row in the palette, because the thing
+   * a second key would let the reader choose — which catalogue the animal is
+   * filed in — is not something they can know in advance and not something they
+   * asked about. A fossil roll that comes back with nothing falls through to a
+   * species rather than reporting a failure: the reader pressed *surprise me*,
+   * and "the pool you did not pick was empty" is an answer to a question they
+   * never asked.
    *
    * Over-asking and filtering here is what keeps the confirmation honest.
    * Adding something already on the canvas is a no-op, and a toast saying
    * "Added X" over a canvas that did not change is a false statement about the
    * one thing the reader was watching for.
    */
-  const randomSpecies = useCallback(async () => {
+  const randomPick = useCallback(async () => {
     setPaletteOpen(false);
     setPicking(true);
     try {
+      if (randomKind(Math.random()) === "fossil") {
+        const r = await api.random("fossil", RANDOM_CANDIDATES);
+        const f = r.available
+          ? r.fossils.find((x) => !presentFossils.has(x.pbdb_taxon_no ?? -1))
+          : undefined;
+        if (f) {
+          // `drawFossil` does the rest, including adding the clade the fossil
+          // hangs below when it is not on the canvas. That is not an extra, it
+          // is the whole of the pick: a fossil the tree does not contain almost
+          // always attaches to a branch nobody has drawn yet, so without it the
+          // usual outcome would be a refusal for something never chosen by name.
+          await drawFossil(f);
+          return;
+        }
+        // Fall through to a species. Nothing is said about the roll — the
+        // reader asked for something to look at, not for a report on a corpus.
+      }
       const r = await api.random("species", RANDOM_CANDIDATES);
       if (!r.available) {
         toast(
@@ -564,37 +592,7 @@ export default function App() {
     } finally {
       setPicking(false);
     }
-  }, [tree, toast, present]);
-
-  const randomFossil = useCallback(async () => {
-    setPaletteOpen(false);
-    setPicking(true);
-    try {
-      const r = await api.random("fossil", RANDOM_CANDIDATES);
-      if (!r.available) {
-        toast(
-          "This build has no fossil drawings, so there is no pool of illustrated fossils to pick from.",
-          true,
-        );
-        return;
-      }
-      const f = r.fossils.find((x) => !presentFossils.has(x.pbdb_taxon_no ?? -1));
-      if (!f) {
-        toast("Every pick this round is already drawn — try again.", true);
-        return;
-      }
-      // `drawFossil` does the rest, including adding the clade the fossil hangs
-      // below when it is not on the canvas. That is not an extra here, it is
-      // the whole command: a random fossil almost always attaches to a branch
-      // nobody has drawn yet, so without it the usual outcome would be a
-      // refusal notice for something the reader never chose by name.
-      await drawFossil(f);
-    } catch {
-      toast("Could not reach the search API for a random pick", true);
-    } finally {
-      setPicking(false);
-    }
-  }, [drawFossil, toast, presentFossils]);
+  }, [tree, toast, present, presentFossils, drawFossil]);
 
   /**
    * Nothing on the canvas at all.
@@ -688,34 +686,28 @@ export default function App() {
           setPaletteOpen(false);
         },
       },
-      // Filed under Selection rather than under a section of their own: what
-      // they do is add to the selection, and the reader who wants one is the
-      // reader looking at an empty canvas wondering what to put on it.
+      // Filed under Selection rather than under a section of its own: what it
+      // does is add to the selection, and the reader who wants it is the reader
+      // looking at an empty canvas wondering what to put on it.
+      //
+      // One row where there were two. The second read "Draw a random fossil",
+      // and having both in a list is how the palette taught the split the rest
+      // of this change removes — a reader scanning two rows has to work out
+      // which of two catalogues holds the animal they have not met yet.
       {
         id: "random-species",
         title: "Add a random species",
         subtitle: "Something illustrated, picked for you",
         hint:
           "Draws from the ~14,000 taxa that have a silhouette of their own, so the pick " +
-          "always arrives with a picture rather than a bare name. Press again to keep going " +
-          "— each one joins the tree through its common ancestors with whatever is already here.",
+          "always arrives with a picture rather than a bare name. Roughly one in five comes " +
+          "from the fossil record instead, pinned to its branch at its own date. Press again " +
+          "to keep going — each one joins the tree through its common ancestors with " +
+          "whatever is already here.",
         icon: "✦",
         keys: kbd("random-species"),
         section: "Selection",
-        run: () => void randomSpecies(),
-      },
-      {
-        id: "random-fossil",
-        title: "Draw a random fossil",
-        subtitle: "An illustrated extinct taxon, at its own date",
-        hint:
-          "Picked from PBDB taxa that are drawn, extinct, and carry a stratigraphic range — " +
-          "the three things it takes to place one on the axis. It hangs off the branch it " +
-          "belongs below, and the clade it needs is added if the canvas has not got it yet.",
-        icon: "◈",
-        keys: kbd("random-fossil"),
-        section: "Selection",
-        run: () => void randomFossil(),
+        run: () => void randomPick(),
       },
       {
         id: "clear",
@@ -854,8 +846,7 @@ export default function App() {
     focusedNode,
     toast,
     share,
-    randomSpecies,
-    randomFossil,
+    randomPick,
     openOpening,
     empty,
     viewFit,
@@ -1209,10 +1200,7 @@ export default function App() {
           tree.toggleBiolum();
           break;
         case "random-species":
-          void randomSpecies();
-          break;
-        case "random-fossil":
-          void randomFossil();
+          void randomPick();
           break;
         case "clear":
           if (!empty) setConfirmClear(true);
@@ -1240,8 +1228,7 @@ export default function App() {
     focusedIdx,
     focusedNode,
     toast,
-    randomSpecies,
-    randomFossil,
+    randomPick,
     openPalette,
     openSpecies,
     stepSelection,
@@ -1263,8 +1250,7 @@ export default function App() {
     () => [
       { id: "palette", run: openPalette },
       { id: "species", run: openSpecies },
-      { id: "random-species", run: () => void randomSpecies() },
-      { id: "random-fossil", run: () => void randomFossil() },
+      { id: "random-species", run: () => void randomPick() },
       {
         id: "fit",
         run: () => setFitSignal({ kind: "all", token: Date.now() }),
@@ -1298,8 +1284,7 @@ export default function App() {
     [
       openPalette,
       openSpecies,
-      randomSpecies,
-      randomFossil,
+      randomPick,
       stepSelection,
       tree,
       focusedIdx,
@@ -1450,7 +1435,7 @@ export default function App() {
                 <OpeningCarousel onOpen={openOpening} />
                 <p className="boot-alt">
                   Or press <span className="kbd">{kbd("species")}</span> to
-                  search 2.4 million species, <span className="kbd">
+                  search 2.7 million species, <span className="kbd">
                     {kbd("random-species")}
                   </span>{" "}
                   for one picked at random, or{" "}
