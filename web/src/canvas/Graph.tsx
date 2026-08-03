@@ -72,6 +72,10 @@ import { Legend, type TracePattern } from "./Legend";
 import { DrillLane, useSegment, type Drill, type LaneEndpoint } from "./DrillLane";
 import { laneHeight, laneRows } from "./lane";
 import { mayDrawExemplar, witnessOn } from "./witness";
+import { Water } from "./Water";
+import type { Emitter } from "./biolum";
+import { EMIT_BASE } from "./particles";
+import { BiolumToggle } from "../chrome/BiolumToggle";
 
 const nodeTypes = { mark: NodeMark };
 const edgeTypes = { trace: TraceEdge };
@@ -168,6 +172,12 @@ export interface GraphProps {
   onPickFossil: (f: FossilTaxon) => void;
   /** Fossils drawn against the tree. See `tree/graft.ts`. */
   grafts: readonly Graft[];
+  /**
+   * The optional light. See `canvas/biolum.ts` for what it does and, more to
+   * the point, for what it is not allowed to do.
+   */
+  biolum: boolean;
+  onBiolum: (v: boolean) => void;
 }
 
 const prefersReduced = () =>
@@ -191,11 +201,14 @@ function Inner(props: GraphProps) {
     onDrill,
     onPickFossil,
     grafts,
+    biolum,
+    onBiolum,
   } = props;
 
   const rf = useReactFlow();
   const zoom = useStore((s) => s.transform[2]);
   const tx = useStore((s) => s.transform[0]);
+  const ty = useStore((s) => s.transform[1]);
   const vw = useStore((s) => s.width);
   const vh = useStore((s) => s.height);
   const reduced = useMemo(prefersReduced, []);
@@ -325,6 +338,36 @@ function Inner(props: GraphProps) {
   const bloomOff = zoom < 0.5;
 
   /**
+   * Which marks are leaking light into the water, and how much.
+   *
+   * The whole of bioluminescence's claim to be legal under "the data is the
+   * light source" rests on this list: the particle field has no emitters of its
+   * own, so with nothing on the canvas the water is genuinely black. Positions
+   * are the layout's, so the light drifts in the same space the branches
+   * occupy and pan and zoom carry both together.
+   *
+   * The rate ladder is **the selection channel**, which is the one thing
+   * luminance is already allowed to encode: a species the reader chose and the
+   * common ancestor they came for shed more light than an intermediate
+   * divergence. That is the same statement the corona and the label brightness
+   * already make, said a third way, rather than a new channel carrying a new
+   * fact. It is deliberately *not* keyed to age, tier or tip count — those are
+   * data values, and a mark that glittered harder because a clade was large
+   * would be exactly the failure this mode is written to avoid.
+   *
+   * Recomputed with the layout, and cheap: it is at most `2|L| − 1` entries.
+   */
+  const emitters: Emitter[] = useMemo(() => {
+    if (!biolum) return [];
+    return [...lay.placed.values()].map((p) => ({
+      x: p.x,
+      y: p.y,
+      hue: p.hue,
+      rate: EMIT_BASE * (p.isMRCA ? 1.9 : p.isLeaf ? 1.5 : 1),
+    }));
+  }, [lay, biolum]);
+
+  /**
    * Counter-scale for silhouettes as the canvas shrinks.
    *
    * Images live in the transformed viewport, so pulling back shrinks them with
@@ -410,6 +453,12 @@ function Inner(props: GraphProps) {
           witness: witnessOn(p),
           // Only worth saying when the picture is not a portrait. "Silhouette
           // of Homo sapiens" on Homo sapiens is noise.
+          // Layout coordinates, so a hovered mark knows where in the water to
+          // puff. Nothing else on a mark needs them — React Flow does the
+          // positioning — and nothing else may read them for layout.
+          x: p.x,
+          y: p.y,
+          biolum,
           silhouetteClade:
             showSilhouette && p.node.silhouette_source_idx !== p.idx
               ? {
@@ -438,7 +487,7 @@ function Inner(props: GraphProps) {
           height: NODE_BOX,
         };
       }),
-    [lay, focusedIdx, focusLineage, isolate, flaring, zoomTier, nodeMap, ind],
+    [lay, focusedIdx, focusLineage, isolate, flaring, zoomTier, nodeMap, ind, biolum],
   );
 
   const rfEdges: Edge[] = useMemo(() => {
@@ -471,6 +520,7 @@ function Inner(props: GraphProps) {
         drawToken: drawDelay.has(v) ? (delta?.token ?? null) : null,
         delay: drawDelay.get(v) ?? 0,
         reduced,
+        biolum,
       };
       out.push({
         id: `${seg.anc}-${v}`,
@@ -502,6 +552,7 @@ function Inner(props: GraphProps) {
         drawToken: null,
         delay: 0,
         reduced,
+        biolum,
       };
       out.push({
         id: `graft-${l.idx}`,
@@ -523,6 +574,7 @@ function Inner(props: GraphProps) {
     reduced,
     nodeMap,
     activeDrill,
+    biolum,
   ]);
 
   // The legend reads the edges that were actually built rather than
@@ -726,9 +778,31 @@ function Inner(props: GraphProps) {
 
   return (
     <div
-      className={`canvas${bloomOff ? " bloom-off" : ""}`}
-      style={{ "--icon-scale": iconScale } as React.CSSProperties}
+      className={`canvas${bloomOff ? " bloom-off" : ""}${biolum ? " biolum" : ""}`}
+      style={
+        {
+          "--icon-scale": iconScale,
+          // The bioluminescence switch sits above the axis, and an open lane
+          // stacks on top of the axis — so the one number that says how far up
+          // it has to start is `laneH`, which only this component knows.
+          "--lane-h": `${laneH}px`,
+        } as React.CSSProperties
+      }
     >
+      {/*
+        The water, behind everything and holding only what the tree has spilled
+        into it. A real element rather than a pseudo on `.canvas`: `::before` is
+        already the grid, and `::after` paints *above* the element's real
+        children, which would put the particles in front of the names.
+      */}
+      <Water
+        tx={tx}
+        ty={ty}
+        zoom={zoom}
+        emitters={emitters}
+        active={biolum}
+        reduced={reduced}
+      />
       <ReactFlow
         nodes={rfNodes}
         edges={rfEdges}
@@ -752,9 +826,10 @@ function Inner(props: GraphProps) {
           variant={BackgroundVariant.Dots}
           gap={56}
           size={1}
-          color="rgba(120,190,200,0.07)"
+          color={biolum ? "rgba(90,220,235,0.13)" : "rgba(120,190,200,0.07)"}
         />
       </ReactFlow>
+      <BiolumToggle on={biolum} onChange={onBiolum} />
       {activeDrill && (
         <DrillLane
           upper={endpoint(activeDrill.upper, ind, nodeMap)}

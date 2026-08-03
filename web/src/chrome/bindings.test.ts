@@ -22,6 +22,7 @@ describe("matchKey", () => {
     expect(matchKey(press("l"))).toBe("axis");
     expect(matchKey(press("r"))).toBe("random-species");
     expect(matchKey(press("c"))).toBe("clear");
+    expect(matchKey(press("b"))).toBe("biolum");
   });
 
   it("reads a shifted letter by its shifted character", () => {

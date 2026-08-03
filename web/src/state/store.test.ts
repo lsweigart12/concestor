@@ -29,6 +29,17 @@ describe("axis in the URL", () => {
     }
   });
 
+  it("keeps bioluminescence in the link, and out of a plain one", () => {
+    // It is view state like everything else here, so a canvas somebody lit is a
+    // canvas they can send. Same quiet-default shape as the axis: absent means
+    // off, and only the departure is written.
+    expect(encode({ ...decode(""), biolum: false })).toBe("/");
+    expect(encode({ ...decode(""), biolum: true })).toBe("?bio=1");
+    expect(decode("").biolum).toBe(false);
+    expect(decode("?n=770315").biolum).toBe(false);
+    expect(decode(encode({ ...decode("?n=770315"), biolum: true })).biolum).toBe(true);
+  });
+
   it("keeps the selection across the round trip", () => {
     const v = decode("?n=770315,773491,688328&axis=log&sel=770315&iso=1");
     const back = decode(encode(v));

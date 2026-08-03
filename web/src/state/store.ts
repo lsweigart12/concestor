@@ -45,6 +45,21 @@ export interface ViewState {
    * stopped failing, a fossil would start contributing to an MRCA.
    */
   fossils: number[];
+  /**
+   * Bioluminescence: the optional light. `bio=1`.
+   *
+   * View state, so it is in the URL like everything else — design-reference.md
+   * asks that any view be a shareable link, and a canvas lit like the deep sea
+   * is precisely the view somebody wants to send. A `localStorage` preference
+   * was the obvious alternative and is refused for the reason the whole store
+   * exists: a second source of truth for what is on screen means the URL stops
+   * describing the screen, and every link would then arrive looking like
+   * whatever the *recipient* last chose.
+   *
+   * It is the only member of {@link ViewState} that says nothing about the
+   * data, which is why {@link DEFAULT} does not reset it — see `open`.
+   */
+  biolum: boolean;
 }
 
 /**
@@ -78,6 +93,7 @@ const DEFAULT: ViewState = {
   isolate: false,
   drill: null,
   fossils: [],
+  biolum: false,
 };
 
 export function decode(search: string): ViewState {
@@ -102,6 +118,7 @@ export function decode(search: string): ViewState {
     // Deduplicated on the way in rather than on the way out: the same taxon
     // twice would be two React keys for one mark and two rows for one fossil.
     fossils: [...new Set(fossils)],
+    biolum: p.get("bio") === "1",
   };
 }
 
@@ -113,6 +130,7 @@ export function encode(v: ViewState): string {
   if (v.isolate) p.set("iso", "1");
   if (v.drill) p.set("seg", `${v.drill.upper}-${v.drill.lower}`);
   if (v.fossils.length) p.set("f", v.fossils.join(","));
+  if (v.biolum) p.set("bio", "1");
   const q = p.toString();
   return q ? `?${q}` : "/";
 }
@@ -376,11 +394,18 @@ export function useTree() {
     // which is the one that renders correctly.
     prevInduced.current = null;
     lastCount.current = 0;
-    setView({
+    setView((v) => ({
       ...DEFAULT,
+      // Everything an opening resets is a claim about *taxa* — which ones, on
+      // what scale, with what dimmed. Bioluminescence is a claim about nothing:
+      // it says how the reader wants light drawn, and an opening has no opinion
+      // on that. Resetting it would mean pressing "Are you a fish?" turned the
+      // lights off, which reads as a bug and costs the reader the one setting
+      // they had chosen for themselves rather than been handed.
+      biolum: v.biolum,
       keys: [...new Set(keys.map(toUrlKey))],
       ...(axis ? { axis } : {}),
-    });
+    }));
   }, []);
 
   /**
@@ -401,8 +426,18 @@ export function useTree() {
     setView((v) => ({ ...v, fossils: v.fossils.filter((n) => n !== taxonNo) }));
   }, []);
 
-  const clear = useCallback(() => setView({ ...DEFAULT }), []);
+  // Same reasoning as `open`: clearing takes the taxa off the canvas, and the
+  // lighting is not one of them. The confirmation dialog promises this removes
+  // species and fossils and that "nothing else is affected".
+  const clear = useCallback(
+    () => setView((v) => ({ ...DEFAULT, biolum: v.biolum })),
+    [],
+  );
   const setAxis = useCallback((axis: AxisMode) => setView((v) => ({ ...v, axis })), []);
+  const toggleBiolum = useCallback(
+    () => setView((v) => ({ ...v, biolum: !v.biolum })),
+    [],
+  );
   const select = useCallback(
     (key: string | null) => setView((v) => ({ ...v, selected: key && toUrlKey(key) })),
     [],
@@ -445,6 +480,7 @@ export function useTree() {
     setAxis,
     select,
     toggleIsolate,
+    toggleBiolum,
     setDrill,
     addFossil,
     removeFossil,

@@ -563,6 +563,31 @@ export default function App() {
         },
       },
       {
+        // "Every action has a command *and* a button" — the button is the
+        // switch above the axis, and this is the command. Worth a row in its
+        // own right: it is the one thing in this app a reader would never guess
+        // exists, and the palette is where you go to find out what does.
+        id: "biolum",
+        title: tree.view.biolum
+          ? "Turn bioluminescence off"
+          : "Turn bioluminescence on",
+        subtitle: tree.view.biolum
+          ? "Back to the plain instrument"
+          : "Light the canvas like the deep sea",
+        hint:
+          "Additive bloom on the branches, light travelling down each lineage, and a drifting " +
+          "field of plankton behind the tree. Nothing about the data changes: every dash, every " +
+          "tier and every figure is identical in both states, and the state rides in the URL " +
+          "so a link carries it.",
+        icon: "✷",
+        keys: kbd("biolum"),
+        section: "View",
+        run: () => {
+          tree.toggleBiolum();
+          setPaletteOpen(false);
+        },
+      },
+      {
         // No key of its own, and that is the cost of a modifier-free surface
         // rather than an oversight: the letters that would be honest here — `s`
         // for share, `l` for link — are the two most-used bindings in the app.
@@ -1094,6 +1119,9 @@ export default function App() {
         case "axis":
           tree.setAxis(tree.view.axis === "log" ? "linear" : "log");
           break;
+        case "biolum":
+          tree.toggleBiolum();
+          break;
         case "random-species":
           void randomSpecies();
           break;
@@ -1193,6 +1221,25 @@ export default function App() {
     ],
   );
 
+  /**
+   * The mode, on the document as well as on the canvas.
+   *
+   * The canvas carries its own class and always will — it is the element the
+   * effect is *about*, and it has to be right on the first painted frame. This
+   * exists for the chrome that is not inside it: the control bar is `position:
+   * fixed` on the top edge and fades to `--void`, which is the neutral
+   * instrument's black and a visibly lighter grey than the water. Left alone it
+   * drew a pale band across the top of the abyss.
+   *
+   * One class, read by one rule. It is not a second source of truth — nothing
+   * branches on it, and it cannot disagree with the canvas because both are
+   * written from the same boolean on the same render.
+   */
+  useEffect(() => {
+    document.body.classList.toggle("biolum", tree.view.biolum);
+    return () => document.body.classList.remove("biolum");
+  }, [tree.view.biolum]);
+
   // Chrome auto-hides. The canvas is the page.
   useEffect(() => {
     let t = window.setTimeout(() => setIdle(true), 4000);
@@ -1261,6 +1308,10 @@ export default function App() {
         drill={tree.view.drill}
         onDrill={tree.setDrill}
         grafts={grafts}
+        biolum={tree.view.biolum}
+        onBiolum={(v) => {
+          if (v !== tree.view.biolum) tree.toggleBiolum();
+        }}
         onPickFossil={(f) => {
           setPickedFossil(f);
           setScoped(true);
