@@ -375,7 +375,7 @@ from a machine that has `build/`, by hand or by a release script, and
 
 ```jsonc
 "containers": [{ "class_name": "ReadApi",
-                 "image": "registry.cloudflare.com/<account>/concestor-api:<build_id>" }]
+                 "image": "registry.cloudflare.com/<account>/concestor-api:<build_id>-<commit>" }]
 ```
 
 That form is load-bearing and was verified against wrangler 4.118.0 locally:
@@ -422,7 +422,7 @@ copies `snapshot/manifest.json` and the phase gate files not because the app
 needs them to answer a query, but because leaving them out silently changes the
 identity of the build.
 
-### The tag is the manifest's build id, and it is committed
+### The tag is the build id *and* the commit, and it is committed
 
 Pinning the tag in the config rather than deploying `:latest` is what keeps
 rollback meaningful: shipping a new dataset is a commit that says which one,
@@ -450,13 +450,36 @@ until someone does test it.
 [Rollouts]: https://developers.cloudflare.com/containers/platform-details/rollouts/
 [Rollbacks]: https://developers.cloudflare.com/workers/versions-and-deployments/rollbacks/
 
-**And the tag names the dataset, not the image.** It is the manifest's content
-hash over the artifact set, so a change to the *server binary* alone — a
-version string, a bug fix — rebuilds to the same tag and replaces what is in
-the registry under it. Nothing warns. Two images sharing a tag is exactly the
-mutability `:latest` was refused for, so a binary change that matters must
-either ride with the next dataset or be pushed under a tag that says it does
-not name one.
+**The tag used to name the dataset and not the image, and that cost two
+releases.** It was the manifest's content hash over the artifact set alone, so
+a change to the *server binary* — a version string, a bug fix — rebuilt to the
+same tag and replaced what was in the registry under it, with nothing warning.
+This paragraph predicted that and asked for a binary change that matters to
+"ride with the next dataset or be pushed under a tag that says it does not name
+one". Neither happened, and here is what it cost.
+
+`Entry.Vernacular` shipped in #51, the commit that also gave the canvas its
+labels switcher. The dataset did not move, so no image was pushed. Production
+kept serving a binary compiled at #47: `/v1/path` carried no `vernacular` key
+at all, `markName` read `undefined` and fell back to `node.name` for every
+mark, and the canvas drew scientific names in **both** switch positions. The
+common-name default and the toggle were not broken — they were rendering
+identical strings. It survived review and two releases because every local
+test passed, `/v1/search` has carried `vernacular` since long before #51 and so
+kept showing common names, and `/v1/about` reported a `release` nobody read
+against the frontend's.
+
+The tag is now **`<build_id>-<commit>`**. A dataset rebuild and a code change
+both mint a new tag, so an unchanged tag means an unchanged image, and rolling
+the Worker back rolls the *server* back and not only the data. A tree with
+uncommitted edits appends `-dirty`, and `push-api-image.sh` prints a warning
+refusing to have it pinned: a tag naming no commit cannot be rebuilt, which is
+the same reproducibility claim in the other direction.
+
+The general lesson is worth more than the fix: **an artifact's name must cover
+everything inside it.** Half a name is a mutable tag wearing an immutable
+one's clothes, and it fails silently by construction — the registry cannot warn
+about a collision it cannot see.
 
 ### Bootstrap order, once there is an account
 
