@@ -36,6 +36,7 @@ export type ActionId =
   | "axis"
   | "random-species"
   | "random-fossil"
+  | "biolum"
   | "clear"
   | "remove"
   | "escape";
@@ -146,6 +147,20 @@ export const BINDINGS: readonly Binding[] = [
     label: "Step",
     hint: "Move the selection to the next species",
     chrome: "secondary",
+  },
+  {
+    // No `chrome` entry, and that is placement rather than demotion: the toggle
+    // draws itself beside the time scale, on the bottom edge, because both
+    // answer questions about the *canvas* rather than about the selection. The
+    // control bar at the top is the things you do to a tree. So this row's job
+    // here is to own the letter and to print it — a key that appears nowhere is
+    // a key nobody learns, which is the whole argument for the badge.
+    id: "biolum",
+    key: "b",
+    shift: false,
+    kbd: "B",
+    label: "Bioluminescence",
+    hint: "Light the canvas like the deep sea. Nothing about the data changes — the dashes, the tiers and every figure are the same in both states",
   },
   {
     id: "axis",

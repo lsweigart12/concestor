@@ -24,7 +24,10 @@ const CSS = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
 
 /** Every `.tsx` that renders something, as source text. */
 const SOURCES: [string, string][] = Object.entries(
-  import.meta.glob("./**/*.tsx", {
+  // The generic is what says `?raw` returns text. Without it every value is
+  // `unknown` and the annotation above is a type error rather than a claim —
+  // which `tsc -b` fails the whole build on, tests included.
+  import.meta.glob<string>("./**/*.tsx", {
     query: "?raw",
     import: "default",
     eager: true,

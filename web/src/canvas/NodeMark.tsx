@@ -28,7 +28,7 @@
  * that pass hands it.
  */
 
-import { memo } from "react";
+import { memo, useCallback } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import {
   TIER_INTERPOLATED,
@@ -45,6 +45,7 @@ import type { LabelBox } from "../tree/labels";
 import { branchProse, UNNAMED, type Divergence } from "../tree/naming";
 import { Silhouette } from "./Silhouette";
 import { fossilSpan, type Graft } from "../tree/graft";
+import { spill } from "./biolum";
 
 export type ZoomTier = "point" | "label" | "detail";
 
@@ -85,6 +86,18 @@ export interface MarkData extends Record<string, unknown> {
   label: LabelBox | undefined;
   /** Set only where the taxonomy has no name and we derived one. See naming.ts. */
   divergence: Divergence | null;
+  /**
+   * The mark's own layout coordinate, and the mode.
+   *
+   * Both exist for one thing: pointing at a mark makes it puff light into the
+   * water, and the water is in layout space (see `particles.ts`). A mark
+   * otherwise has no idea where it is — React Flow positions it and the
+   * component only ever draws relative to itself — so the one thing it cannot
+   * work out for itself is the one thing a spill needs.
+   */
+  x: number;
+  y: number;
+  biolum: boolean;
 }
 
 /**
@@ -481,6 +494,42 @@ export const NodeMark = memo(function NodeMark({ data }: NodeProps) {
     witness !== null || (d.showSilhouette && Boolean(n.phylopic_id));
   const meta = div && showText ? DIVERGENCE_META : metaLine(n.rank, showText);
 
+  /*
+    The lane hue, carried separately from `color`, because on a leaf the two are
+    not the same thing and the light has to follow the lane.
+
+    `.mark.is-leaf .mark-label` sets the label column to `--ink`, so a chosen
+    species' silhouette is drawn near-white — deliberately, and it is what makes
+    a leaf read as brighter than a divergence. `currentColor` inside the label is
+    therefore white, and a glow taken from it blew every leaf out to a white
+    smear that said nothing about which lineage it was on. The hue says which
+    lineage; the fill says whether you chose it. Two channels, two properties.
+  */
+  const markStyle = { color, "--hue": d.hue } as React.CSSProperties;
+
+  /*
+    Pointing at a mark disturbs it, and it lets go of some light.
+
+    The same gesture already does something on this canvas — the dot scales up,
+    which is the hover affordance and says *this is clickable* — so this is that
+    affordance answered in the mode's own vocabulary rather than a second one.
+    It is also the only thing on the canvas a reader can make happen without
+    committing to anything, which for a first look is most of the point.
+
+    Aimed nowhere in particular and slow: a node is not a direction. The pluck a
+    branch gets is aimed across the line, because a string is.
+  */
+  const puff = useCallback(() => {
+    if (!d.biolum) return;
+    spill({
+      x: d.x,
+      y: d.y,
+      hue: d.hue,
+      count: d.isLeaf || d.isMRCA ? 12 : 7,
+      speed: 26,
+    });
+  }, [d.biolum, d.x, d.y, d.hue, d.isLeaf, d.isMRCA]);
+
   const box = d.label;
   const right = box ? box.side === "right" : d.isLeaf;
   const style: React.CSSProperties = {
@@ -512,7 +561,8 @@ export const NodeMark = memo(function NodeMark({ data }: NodeProps) {
       ]
         .filter(Boolean)
         .join(" ")}
-      style={{ color }}
+      style={markStyle}
+      onPointerEnter={d.biolum ? puff : undefined}
     >
       <Handle type="target" position={Position.Left} />
       <Handle type="source" position={Position.Right} />

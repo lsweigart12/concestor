@@ -1679,8 +1679,15 @@ body {
      covering the other loses the more useful of the two. `--axis-h` is the same
      number the drill lane stacks on, so the three keep one column — but the
      axis grows upward when its footer wraps, so the gap has to be at least the
-     slack `AXIS_RESERVE` in Graph.tsx allows for that. 84 + 24 clears its 104. */
-  bottom: calc(var(--axis-h) + var(--s5));
+     slack `AXIS_RESERVE` in Graph.tsx allows for that. 84 + 24 cleared its 104.
+
+     It is 48 now, not 24, because the bottom edge grew a second occupant: the
+     bioluminescence switch sits at `--axis-h + 12` and stands about 25px, and a
+     toast is up to 88vw wide, so on a narrow window the two shared pixels and
+     the toast — z-index 45 against the switch's 6 — won. Clearing the switch
+     outright costs a toast 24px of height it was not using; overlapping it
+     costs the reader a control they can see and cannot press. */
+  bottom: calc(var(--axis-h) + 48px);
   transform: translateX(-50%);
   z-index: 45;
   display: flex;
@@ -2427,6 +2434,350 @@ body {
   font-family: var(--mono);
   font-size: 11px;
   color: var(--ink-5, var(--ink-4));
+}
+/* ----------------------------------------------------- bioluminescence -- */
+
+/*
+ * The optional light, and every rule below is behind one class.
+ *
+ * **The data is the light source.** That rule at the top of this file is not
+ * relaxed here — it is taken literally, and taking it literally is what decided
+ * the whole design. Nothing in this section emits on its own. There is no
+ * background wash, no caustic, no shaft of surface light. Every photon the mode
+ * adds either *is* a branch, or *is* a mark, or came out of one:
+ *
+ *   pump    a branch is a tentacle with a reaction being pushed down it,
+ *           ancestor to descendant, at an organic and irregular pace
+ *   spill   marks leak light into the water, which drifts, twinkles and goes
+ *           out — every particle in `canvas/particles.ts` has a node it came
+ *           from, so an empty canvas has black water
+ *   strum   a pointer crossing a branch plucks it, and it sheds where it rang
+ *
+ * A first cut of this section had drifting caustics and light from an unseen
+ * surface. They were pretty and they were wrong twice over: a second light
+ * source competing with the graph is the exact thing the rule forbids, and at
+ * low opacity across a whole viewport the effect reads as astigmatism rather
+ * than as depth. The glow is tighter here for the same reason — a 22px bloom at
+ * 11% turns two branches crossing into a smear, and the crossing was the thing
+ * worth seeing.
+ *
+ * The other standing rules survive unchanged:
+ *
+ *   - **Brightness encodes recency and selection.** The corona has four
+ *     strengths and the spill has three rates, and both ladders are the same
+ *     one luminance already carries: plain node, chosen leaf, MRCA, focused.
+ *   - **Cool throughout.** Marine bioluminescence is 470–500 nm. Nothing here
+ *     is warm.
+ *   - **Frame budget beats glow**, which is why `.bloom-off` reaches into this
+ *     section and why the expensive things are conditionally *rendered*.
+ *
+ * And the one that never bends: the **dash channel and the tier desaturation
+ * are untouched in both states**. Turn every light in the room on and the
+ * picture says exactly the same thing about what is known and what is guessed.
+ * The pump is dimmed on the undated tiers below for that reason alone.
+ */
+
+/*
+ * A deeper, bluer black — and that is the whole of the background change.
+ *
+ * The deep sea is not a different *brightness* from the instrument's void, it
+ * is a different *hue*: the water absorbs red first, so everything that is not
+ * emitting settles toward blue-green. Two near-black steps, exactly as the
+ * neutral canvas has, shifted along that axis. No gradient carrying light, and
+ * no vignette — a vignette is a lamp somewhere, and there is no lamp.
+ */
+.canvas.biolum {
+  background:
+    radial-gradient(ellipse 120% 92% at 60% 46%, #05101a 0%, #02070c 74%),
+    #02060a;
+}
+
+/* The grid stays, tinted to the water. It is the one piece of ambient
+   structure the instrument already had, and taking it away in the mode that is
+   about depth would be backwards. */
+.canvas.biolum::before {
+  background-image:
+    linear-gradient(hsl(186 70% 60% / 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(186 70% 60% / 0.05) 1px, transparent 1px);
+}
+
+/*
+ * The water: a transparent additive layer, behind React Flow, holding nothing
+ * but what the tree has spilled. It paints no background of its own — see
+ * `Water.tsx` — so it is invisible until a node has leaked something into it.
+ */
+.water {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* ---- the branches: a reaction pumped down a tentacle ---- */
+
+/*
+ * The tube is glass, and the light in it is the stream.
+ *
+ * This is the one rule that makes the branches read as *tentacles* rather than
+ * as lines with an animation on them. In the neutral instrument a trace is a
+ * luminous core: it emits, and the halo is its own bloom. Here it emits nothing.
+ * The wall goes mostly transparent and the light a reader sees along a branch is
+ * the light of whatever tracers are inside it at that moment, drawn on the
+ * water's canvas *behind* the wall and summed there — so a branch brightens
+ * where the stream bunches and goes nearly dark where it has strung out, with no
+ * per-branch glow anywhere in the stylesheet doing it.
+ *
+ * **The dash pattern is what stops this going further.** It is the one channel
+ * saying whether anybody has estimated a date, and it lives on this stroke — so
+ * the wall may become glass but it may not become invisible, and 0.5 is where
+ * the dashes are still unambiguous against the void. `flow.ts`'s
+ * `tierBrightness` carries the other half of the same obligation, dimming the
+ * stream itself on the tiers that concede most.
+ */
+.biolum .trace-core {
+  opacity: 0.62;
+}
+
+/*
+ * The halo is the light caught in the wall, not a bloom of its own.
+ *
+ * Tighter and fainter than the instrument's, because the stream behind it is
+ * now supplying the glow: a wide soft halo on top of a lit interior reads as
+ * the astigmatic smear this mode was rebuilt to get rid of.
+ */
+.biolum .trace-halo {
+  stroke-width: 5;
+  opacity: 0.16;
+  filter: blur(2.5px);
+}
+
+/* ---- the marks: photophores ---- */
+
+/*
+ * A tight corona on every mark, in the four strengths brightness is already
+ * allowed to mean.
+ *
+ * On `.mark` rather than on `.mark-dot`, and that is what makes it universal:
+ * three different shapes stand on this canvas — the dot, the arrow into the
+ * present, the ammonite — and only one of them is an element whose border box
+ * is its own outline. `.mark` is the 10px square every one of them is centred
+ * in, so a corona hung there is centred on the node's coordinate whatever shape
+ * is sitting on it. Same lesson the flare learned when it moved from
+ * `box-shadow` to `drop-shadow`, arrived at from the other direction.
+ *
+ * It does not breathe. An earlier cut had it swelling on a slow loop and the
+ * canvas read as *thinking*; the light that moves in this mode is the light
+ * that has somewhere to go — down a branch, or out into the water.
+ */
+.biolum .mark::before {
+  content: "";
+  position: absolute;
+  --corona-a: 0.1;
+  --corona-r: 9px;
+  inset: calc(-1 * var(--corona-r));
+  border-radius: 50%;
+  background: radial-gradient(circle, currentColor 0%, transparent 62%);
+  opacity: var(--corona-a);
+  pointer-events: none;
+  transition: opacity 200ms var(--spring);
+}
+
+.biolum .mark.is-leaf::before {
+  --corona-a: 0.2;
+  --corona-r: 14px;
+}
+.biolum .mark.is-mrca::before {
+  --corona-a: 0.26;
+  --corona-r: 17px;
+}
+.biolum .mark.is-graft::before {
+  --corona-a: 0.16;
+  --corona-r: 13px;
+}
+.biolum .mark.is-focus::before,
+.biolum .mark:hover::before {
+  --corona-a: 0.4;
+  --corona-r: 20px;
+}
+
+/*
+ * The silhouettes are lit from inside.
+ *
+ * They already take a colour through `fill: currentColor` — architecture §7's
+ * whole argument for monochrome drawings — so one drop-shadow in the lane hue
+ * is all it takes to turn a shape sitting on the canvas into a shape that is
+ * emitting. It is the lane hue and not `currentColor` because on a leaf those
+ * are not the same thing: `.mark.is-leaf .mark-label` sets the column to
+ * `--ink`, so a halo taken from `currentColor` came out white on exactly the
+ * marks a reader is looking at, and every lineage's light was the same light.
+ */
+.biolum .mark .silhouette {
+  opacity: 1;
+  filter: drop-shadow(0 0 6px hsl(var(--hue, 190) 96% 60% / 0.7));
+}
+
+/* The names lift off the water. A glow and not a weight or a size — those are
+   spoken for, and `labels.ts` has measured every one of them. */
+.biolum .mark-name {
+  color: var(--ink);
+  text-shadow: 0 0 10px hsl(190 92% 62% / 0.28);
+}
+.biolum .mark-meta,
+.biolum .mark-age {
+  color: var(--ink-3);
+}
+
+/* The scrim under a label that had nowhere clear to go. Deeper, to match the
+   water, and a hairline so it reads as glass rather than as a hole. */
+.biolum .mark-label.crowded .mark-text {
+  background: hsl(206 60% 4% / 0.84);
+  box-shadow: 0 0 0 1px hsl(188 70% 60% / 0.12);
+}
+
+/* ---- the chrome ---- */
+
+/* The axis fades into the water rather than into the neutral void, or the join
+   is a visible seam across the bottom of the screen. Nothing *in* the band
+   changes: it is a reference scale, and the rule that nothing in it glows is
+   not one this mode gets to relax. */
+.biolum .axis {
+  background: linear-gradient(to top, #02060a 46%, transparent);
+}
+.biolum .drill {
+  background: hsl(206 55% 5% / 0.95);
+}
+
+/* The one rule the document-level class exists for. `--void` is the neutral
+   instrument's black and reads as a pale band against the water. */
+body.biolum .controls {
+  background: linear-gradient(to bottom, #02060a 46%, transparent);
+}
+body.biolum .control:hover:not(:disabled) {
+  background: hsl(200 45% 9%);
+  border-color: hsl(188 60% 55% / 0.22);
+}
+
+/*
+ * The switch itself, bottom left, above the axis.
+ *
+ * It shares `.axis-mode`'s anatomy and its quiet-default rule — plain ink at
+ * the default, the whole chip lit when the reader has departed from it. What it
+ * does not share is the position: the two are the only controls on this edge,
+ * and putting them at opposite ends keeps the axis footer's own line free
+ * between them.
+ *
+ * `--lane-h` is why the offset is a `calc` rather than a constant. The
+ * drill-down lane stacks on the axis and can be several rows tall, and a switch
+ * pinned to `--axis-h` alone would slide underneath it the moment a reader
+ * opened one. `Graph.tsx` publishes the live height because it is the only
+ * thing that knows it.
+ */
+.biolum-mode {
+  position: absolute;
+  left: var(--s4);
+  bottom: calc(var(--axis-h) + var(--lane-h, 0px) + 12px);
+  z-index: 6;
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 4px 3px 5px;
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  background: var(--void-3);
+  font-family: var(--sans);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  color: var(--ink-2);
+  transition:
+    background 140ms ease,
+    border-color 140ms ease,
+    box-shadow 140ms ease,
+    bottom 240ms var(--spring);
+}
+
+.biolum-mode:hover {
+  border-color: var(--hairline-strong);
+}
+.biolum-mode:hover .kbd {
+  border-color: var(--hairline-strong);
+  color: var(--accent);
+}
+
+/* The word is outside both segments, unlike the scale's. "off" and "on" name
+   nothing on their own, where "linear" and "log" do. */
+.biolum-name {
+  color: var(--ink-4);
+  padding-right: 2px;
+}
+
+.biolum-seg {
+  appearance: none;
+  padding: 2px 7px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  font: inherit;
+  letter-spacing: inherit;
+  color: var(--ink-4);
+  cursor: pointer;
+  transition:
+    background 140ms ease,
+    color 140ms ease,
+    border-color 140ms ease;
+}
+.biolum-seg:hover {
+  color: var(--ink-2);
+}
+.biolum-seg:focus-visible {
+  outline: none;
+  border-color: var(--accent-dim);
+  color: var(--ink);
+}
+.biolum-seg.is-on {
+  background: var(--void);
+  border-color: var(--hairline);
+  color: var(--ink);
+  cursor: default;
+}
+
+/*
+ * Lit, away from the default — and this is the one control in the app whose
+ * "on" state is allowed to glow, because glowing is literally what it does.
+ * Everywhere else `is-modified` is a colour change and nothing more.
+ */
+.biolum-mode.is-modified {
+  border-color: hsl(186 80% 60% / 0.34);
+  background: hsl(196 60% 7% / 0.92);
+  box-shadow:
+    0 0 0 1px hsl(186 90% 60% / 0.06),
+    0 0 16px hsl(186 95% 55% / 0.14);
+}
+.biolum-mode.is-modified .biolum-name {
+  color: var(--accent-dim);
+}
+.biolum-mode.is-modified .biolum-seg.is-on {
+  background: hsl(186 70% 46% / 0.16);
+  border-color: hsl(186 75% 58% / 0.4);
+  color: hsl(186 90% 82%);
+  text-shadow: 0 0 10px hsl(186 100% 60% / 0.5);
+}
+.biolum-mode.is-modified .biolum-seg:not(.is-on) {
+  color: var(--ink-4);
+}
+.biolum-mode.is-modified .biolum-seg:not(.is-on):hover {
+  color: var(--ink-2);
+}
+
+/* Narrow: the word goes, the switch stays. Same trade the control bar makes,
+   and for the same reason — the badge and the two states still say everything
+   the control does. */
+@media (max-width: 620px) {
+  .biolum-name {
+    display: none;
+  }
 }
 
 /* ------------------------------------------------------------- reduced -- */
