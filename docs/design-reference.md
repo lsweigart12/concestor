@@ -493,6 +493,34 @@ it is chrome flashing over facts the app already holds.
 - Full keyboard operation: search, add, remove, clear, fit, isolate, and
   step through selection are all bound.
 
+## The tab
+
+- **The icon is the MRCA mark**: a bright core with a ring standing off it, on
+  the void, in the accent. The app is named after the common ancestor and the
+  signature interaction takes it as its subject, so the tab wears the mark that
+  means *this is the one* — `NodeMark.tsx`'s `is-mrca`, which is a filled dot
+  and then `0 0 0 3px` of the same hue at low alpha.
+- **A branching fork was drawn first and rejected on measurement, not taste.**
+  It says more about the product — a dot and the two lineages leaving it — and
+  at 16px a stem with two arms is a `<`, or a terminal prompt. Three glyphs
+  were compared at 64, 32 and 16; the only question a favicon answers is
+  legibility at the last of those, and concentric circles are the shape that
+  survives it. A second fork, drawn to look more like a tree, was worse again.
+- **The void is baked in, not transparent**, because a tab strip is white in
+  light mode and a thin cyan ring on white is not there at all. "Light theme is
+  out of scope" is a statement about the app; the tab is not ours.
+- **The gap between core and ring is the shape**, and stays empty. At 16px the
+  ring is 1.3px and the gap 2px, so the canvas's own bloom on the core — the
+  obvious embellishment — spends exactly the pixels doing the work. The bloom
+  is drawn outward from the ring instead, where it costs nothing small and
+  reads at 180.
+- `web/public/favicon.svg` is the design and carries the reasoning;
+  `scripts/make-icons.py` generates the `.ico` and the touch icon from the same
+  geometry, in the standard library and nothing else. Two tests keep the three
+  files honest in both directions — `web/src/icons.test.ts` pins the generator
+  and the palette to the SVG, and `make-icons.py --check` pins the committed
+  bytes to the generator.
+
 ---
 
 ## Explicit non-goals
