@@ -181,6 +181,9 @@ func detectSchema(ctx context.Context, db *sql.DB) (*Schema, error) {
 	s.resolveSynonym()
 	s.resolveRanking()
 	s.resolveFossil()
+	// Last, and with the database in hand: this is the one resolution that
+	// cannot be settled from column names alone. See verifyFossilFTS.
+	s.verifyFossilFTS(ctx, db)
 	return s, nil
 }
 

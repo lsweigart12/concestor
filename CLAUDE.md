@@ -584,14 +584,48 @@ server-side (band, then position in the row's own corpus, then node-before-
 fossil as the *last* tiebreak) and stamps every pickable row with `order`; the
 client sorts on that integer, which is reading a rank rather than computing one.
 `⇧R` is gone and unbound — `R` rolls a die, 20% fossil, falling through to a
-species in silence. `SearchFossils` is still a full scan of the 523,112-row
-table at ~40ms; there is no index on `name`. A graft selects like a node:
+species in silence. A graft selects like a node:
 same click, same `sel=`, and `pbdb108454` cannot collide with an OTT id. Its
 card is not the node card with fields blanked — it has no age, no tip count and
 no ancestry, and it is where the PhyloPic credit finally lives. That credit was
 blank at first because the server sends `creator`/`uploader` while every card
 reads `attribution`/`contributor`; `normalise()` was doing that rename for
 `/v1/node/` alone.
+
+**Fossil names are indexed, and the figure that said they needn't be was
+wrong.** `SearchFossils` was a full scan of the 523,112-row table, accepted at a
+measured ~40 ms. Through the serving binary it is **100–117 ms** and flat
+against match count — `zzzqqq` costs 100 ms — which made it **~90%** of
+`/v1/search`, everything else in the endpoint being 0.02–11 ms. And the figure
+came from a laptop: production is a `standard-1` container with **half a
+vCPU**, which is the whole of why search felt fine locally and slow deployed.
+Phase 6 now builds `fossil_fts` (18 MB, 1.0 s) and the same queries cost
+0.1–15 ms. Four things not to redo, all in `docs/fossil-grafts.md` §7: the
+index covers **every** row because `notInTree`'s filter is a serving policy and
+an index encoding it goes wrong silently the day the policy changes; the rowid
+is a `pbdb_taxon_no` and `verifyFossilFTS` **proves** it by sampling both ends
+of the keyspace, because this is the `node_fts.rowid` trap and a wrong key
+there joins cleanly and describes a different animal; that proof must go
+through `MATCH`, since the index is `content=''` and a join-and-compare gate
+reads NULL and passes on a corrupted index — both the gate and the probe were
+written that way first; and the index **narrows** recall, dropping the mid-word
+substring matches (*Eotriceratops* for "triceratops"), which is safe only
+because `matchBand` already scores those `bandNone` and `Interleave` ranks them
+behind every node. Separately, `lower()` came off the column in both paths: the
+corpus has **zero** non-ASCII names and SQLite's LIKE is already
+case-insensitive over ASCII, so it was a call and an allocation per row, worth
+30% of the fallback scan.
+
+**And a superseded search is now cancelled.** The palette's 110 ms debounce only
+ever stopped a request being *sent*; one already in flight ran to completion and
+had its answer thrown away. With `max_instances: 1` that is not idle waiting —
+it is a full search's worth of the only half-vCPU there is, taken from the
+keystroke the reader is actually waiting on. `api.get` takes an `AbortSignal`
+and the palette aborts on cleanup. Two things worth knowing: the signal cancels
+only a request **this call started**, never one it joined from the memo cache,
+because a cache hit is somebody else's request already paid for; and no new
+error path was needed, since every branch below the `await` was already guarded
+by `cancelled`.
 
 **A row can say which name got it there**, and only for a synonym.
 `matched_name` rides alongside `matched_on` from `searchFTS`, tracked in

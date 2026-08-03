@@ -123,7 +123,7 @@ product is broken at its front door, not merely incomplete.
 | 4 — fossils | built — `fossils.py`, **39/39 gates**, `fossil` table populated |
 | 5a — images | built — `images.py`, **39/39 gates**. Coverage is 100% and says nothing; the gate is the size of the clade a picture speaks for. Divergences carry a second silhouette, the fossil witness, now on 885 forks (§5) |
 | 5b — timescale | built — `timescale.py`, 26/26 gates, `build/timescale.json` |
-| 6 — vernaculars | built — `vernaculars.py` + `search.py`, `node_fts` live |
+| 6 — vernaculars | built — `vernaculars.py` + `search.py`, `node_fts` live. `search.py` also builds `fossil_fts`, which ended the full scan behind `/v1/search` (§2, [fossil-grafts.md §7](fossil-grafts.md)) |
 | 6b — name ranking | built — `name_rank.py`, **31/31 gates**, `usage_rank` live. A taxon's names in the order people use them, measured against English Wikipedia's title and redirect graph. Moved 7,958 headline names and gave an order to the 26,262 nodes that had none. [name-ranking.md](name-ranking.md) |
 | walking-skeleton renderer | done, throwaway, superseded |
 | serving binary | **built, in Go** — `server/`, every endpoint live. [serving-binary.md](serving-binary.md) |
@@ -131,6 +131,26 @@ product is broken at its front door, not merely incomplete.
 
 Everything in `ingest.md` is now implemented. What remains is depth and polish,
 not new machinery — see §7 for the honest list of what is thin.
+
+> **The current artifact set is `67630b66a5d425ca`, and it is the first with
+> `fossil_fts` in it.** That index ended the full scan of the 523,112-row
+> `fossil` table behind `/v1/search` — about 90% of the endpoint, 100–117 ms
+> flat against match count, and several times worse in production than on the
+> machine it was measured on, because the container is a `standard-1` with
+> **half a vCPU**. The same queries now cost 0.1–15 ms. Two smaller changes rode
+> with it: `lower()` came off the fallback scan's column (30%), and the palette
+> aborts superseded requests instead of paying for answers it discards.
+> [fossil-grafts.md §7](fossil-grafts.md) is the account.
+>
+> **Rebuilding it is `uv run concestor-build search` then `concestor-build
+> package`, and it takes about a minute** — but do not run it against
+> `build/concestor.db` while anything is serving from it. Every worktree
+> symlinks `build/` to the main checkout's, `search.py` drops and rebuilds
+> `node_fts`, and there were three live servers on it at the time. Build into a
+> staging directory (point the worktree's `build` symlink at it; `paths.py`
+> resolves through the link) and `mv` the finished database into place —
+> `rename(2)` is atomic, so a running server keeps its open inode and keeps
+> answering until it restarts.
 
 **The MRCA and tree-drawing primitive already works and is proven.** Everything
 rests on `path(node) → [root, …, node]`; induced subtrees are the union of

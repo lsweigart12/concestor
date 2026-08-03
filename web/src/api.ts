@@ -785,11 +785,33 @@ function creditFields(sil: Record<string, unknown> | null | undefined): void {
 
 const cache = new Map<string, Promise<unknown>>();
 
-async function get<T>(url: string): Promise<T> {
+/**
+ * Fetch once per URL and remember the answer for the life of the tab.
+ *
+ * `signal` cancels a request **this call started**, and deliberately not one it
+ * merely joined: a cache hit is somebody else's request, already paid for, and
+ * a second caller is not entitled to cancel work the first is still waiting on.
+ * In practice only the palette passes a signal and only one search is ever out
+ * at a time, so the two cases do not meet — but the rule is the one that stays
+ * correct if they ever do.
+ *
+ * Cancelling matters more than it looks. `/v1/search` is served by a *single*
+ * container instance with half a vCPU, so an abandoned request is not free — it
+ * is a full search's worth of the only CPU there is, taken from the keystroke
+ * the reader is actually waiting on. Typing past the debounce used to leave
+ * every one of those in flight to completion, with their answers thrown away.
+ */
+async function get<T>(url: string, signal?: AbortSignal): Promise<T> {
   const hit = cache.get(url);
   if (hit) return hit as Promise<T>;
   const p = (async () => {
-    const res = await fetch(url, { headers: { accept: "application/json" } });
+    const res = await fetch(url, {
+      headers: { accept: "application/json" },
+      // `null` rather than `undefined`: under `exactOptionalPropertyTypes` the
+      // two are not interchangeable, and `RequestInit.signal` accepts the one
+      // that means "no signal" explicitly.
+      signal: signal ?? null,
+    });
     if (!res.ok) {
       throw new ApiError(
         res.status,
@@ -800,6 +822,10 @@ async function get<T>(url: string): Promise<T> {
   })();
   // A failed request must not poison the cache — the palette retries on the
   // next keystroke and a stuck rejection would look like a dead search box.
+  // This is also what makes an abort safe to remember nothing about: the entry
+  // is gone before the debounce on the next keystroke has even elapsed, so
+  // backspacing to a query that was cancelled asks again rather than
+  // rediscovering its cancellation.
   p.catch(() => cache.delete(url));
   cache.set(url, p);
   return p as Promise<T>;
@@ -854,14 +880,14 @@ export const api = {
   random: (kind: RandomKind, limit = 1) =>
     getFresh<RandomResponse>(`/v1/random?kind=${kind}&limit=${limit}`),
 
-  search: (q: string, limit = 20) =>
+  search: (q: string, limit = 20, signal?: AbortSignal) =>
     get<{
       query: string;
       results: AnyHit[];
       /** PBDB taxa matching the same query. Ranked separately, never merged. */
       fossils?: FossilTaxon[];
       fossils_available?: boolean;
-    }>(`/v1/search?q=${encodeURIComponent(q)}&limit=${limit}`),
+    }>(`/v1/search?q=${encodeURIComponent(q)}&limit=${limit}`, signal),
 
   path: (key: string) => get<Resolved>(`/v1/path/${encodeURIComponent(key)}`),
 

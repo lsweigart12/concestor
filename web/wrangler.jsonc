@@ -92,11 +92,18 @@
   "containers": [
     {
       "class_name": "ReadApi",
-      "image": "registry.cloudflare.com/ACCOUNT_ID/concestor-api:854cdfa42f77e78e",
+      "image": "registry.cloudflare.com/ACCOUNT_ID/concestor-api:67630b66a5d425ca",
 
-      // 4 GiB and 8 GB of disk against a measured 463 MB working set and a
-      // 2,229 MB image. `basic` fits on both axes and fits nothing else;
-      // docs/deployment.md §2 has the table.
+      // `standard-1`: 1/2 vCPU, 4 GiB, 8 GB of disk, against a measured 463 MB
+      // working set and a 2,229 MB image. The next size down, `basic`, is
+      // 1 GiB and 4 GB and fits neither. docs/deployment.md §2 has the table.
+      //
+      // **The half vCPU is the number to remember**, and it is not the one
+      // this comment used to lead with. Every latency figure in deployment.md
+      // §1 was measured on the machine the pipeline runs on, so any CPU-bound
+      // endpoint costs several times more here than it does there — which is
+      // exactly how a 100 ms unindexed scan in `/v1/search` read as acceptable
+      // for as long as it did.
       "instance_type": "standard-1",
       "max_instances": 1,
     },

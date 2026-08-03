@@ -142,6 +142,26 @@ CREATE TABLE search_rank (
 );
 """
 
+# The fossil corpus gets its own index, and it is deliberately not a sixth
+# column of `node_fts`.
+#
+# `node_fts` is keyed by `search_name.id`, which is a *node* name's id assigned
+# in descending node rank order. A PBDB taxon has no node and no rank_score, so
+# a fossil row in that table would either need a fabricated idx — the
+# `node_fts.rowid` trap, which joins cleanly to an unrelated node and returns
+# confident nonsense — or would break the "id is in rank order" invariant that
+# every short-prefix query depends on. Two corpora, two indexes, one query each.
+#
+# `rowid` is `fossil.pbdb_taxon_no`, so no mapping table is needed; the server
+# verifies that identity at startup rather than trusting it.
+FOSSIL_SCHEMA = """
+DROP TABLE IF EXISTS fossil_fts;
+
+CREATE VIRTUAL TABLE fossil_fts USING fts5(
+  name, content='', tokenize='unicode61 remove_diacritics 2'
+);
+"""
+
 INDEXES = """
 CREATE INDEX search_name_idx ON search_name(idx);
 """
@@ -413,6 +433,136 @@ def renumber_by_rank(con: sqlite3.Connection, log: Log = print) -> None:
     log(f"  renumbered in rank order in {time.monotonic() - t0:,.1f}s")
 
 
+def build_fossil_index(con: sqlite3.Connection, log: Log = print) -> int:
+    """Index every PBDB taxon name, so `/v1/search` stops scanning the table.
+
+    `SearchFossils` matched with `lower(name) LIKE '%q%'` against 523,112 rows
+    and no index on `name`, ordering the survivors. That is a full scan of the
+    69 MB table on **every keystroke**, measured at 100–117 ms in the serving
+    binary and flat against match count — `zzzqqq`, which matches nothing, cost
+    100 ms. It was 90% of the endpoint. Against the deployed container, which is
+    a `standard-1` instance with **half a vCPU**, that is several times worse
+    again, and it is the whole reason search feels fine locally and slow in
+    production. This index answers the same queries in 0.1–15 ms.
+
+    **Every row is indexed, not just the searchable ones.** `SearchFossils`
+    only ever returns taxa with `is_primary = 1 AND attach_walk <> 0` — see
+    `notInTree` in the serving binary — and restricting the index to those would
+    make it 40% smaller. It is refused because that filter is a *serving*
+    policy, argued out in one place and revisable there, and an index that
+    quietly encodes it is an index that goes wrong without anything failing on
+    the day the policy changes. This table means one thing: the names in
+    `fossil`, tokenised. The server keeps its own WHERE.
+
+    **What this cannot match, and why that is the right trade.** FTS5 matches
+    whole tokens and token prefixes; `LIKE '%q%'` also matched inside a word, so
+    "rex" reached *Aulacorexia* and 525 others. Measured over nine real queries
+    the index returns **no row LIKE would not** — it is a strict subset — and
+    the rows it drops are exactly those the serving binary's `matchBand` already
+    scores `bandNone`, its worst band, which `Interleave` then ranks behind
+    every node. They could not reach a 24-row page. The one `matchBand` rule a
+    prefix cannot reproduce is `samePlural`, and it is inert here: PBDB names
+    are Linnean, not vernacular, so there are no plurals to miss.
+    """
+    if not _table_exists(con, "fossil"):
+        log("  fossil: table absent — run `concestor-build fossils`")
+        return 0
+    con.executescript(FOSSIL_SCHEMA)
+    t0 = time.monotonic()
+    con.execute(
+        "INSERT INTO fossil_fts(rowid, name) "
+        "SELECT pbdb_taxon_no, name FROM fossil WHERE trim(name) <> ''"
+    )
+    con.commit()
+    con.execute("INSERT INTO fossil_fts(fossil_fts) VALUES ('optimize')")
+    con.commit()
+    n = con.execute("SELECT count(*) FROM fossil_fts").fetchone()[0]
+    log(f"  fossil names indexed: {n:,} in {time.monotonic() - t0:,.1f}s")
+    return int(n)
+
+
+# The words the fossil index is gated on. Real queries rather than synthetic
+# ones, and chosen to cover the shapes that behave differently: a taxon the tree
+# does not contain (`triceratops`), one it does (`tyrannosaurus`), a bare genus
+# fragment (`stegosaur`), a word that is a token inside many names (`rex`), and
+# a two-character prefix, which is the shortest the palette ever sends.
+FOSSIL_GATE_QUERIES = (
+    "tyrannosaurus",
+    "triceratops",
+    "stegosaur",
+    "georgicus",
+    "rex",
+    "dino",
+    "whale",
+    "oak",
+    "ca",
+)
+
+
+def fossil_index_miskeyed(con: sqlite3.Connection, per_end: int = 16) -> int:
+    """Count sampled taxa the index does not return under their own name.
+
+    Zero is the only acceptable answer, and the question has to be asked this
+    way round. `fossil_fts` is `content=''`, so its columns read back as NULL
+    and any gate phrased as "join on the key and compare the names" is vacuous
+    — it answers 0 whatever the index was built from. Looking each taxon up *by
+    its own name* and requiring its own key in the answer is a question the
+    index can actually be wrong about.
+
+    Sampled from both ends of the keyspace, because a key that partly overlaps
+    the right one agrees across a whole region and diverges outside it.
+    """
+    rows: list[tuple[int, str]] = []
+    for direction in ("ASC", "DESC"):
+        rows += con.execute(
+            "SELECT pbdb_taxon_no, name FROM fossil WHERE trim(name) <> '' "
+            f"ORDER BY pbdb_taxon_no {direction} LIMIT ?",
+            (per_end,),
+        ).fetchall()
+    missing = 0
+    for taxon_no, name in rows:
+        expr = match_expression(name)
+        if not expr:
+            continue
+        found = con.execute(
+            "SELECT count(*) FROM fossil_fts WHERE fossil_fts MATCH ? AND rowid = ?",
+            (expr, taxon_no),
+        ).fetchone()[0]
+        missing += found == 0
+    return missing
+
+
+def fossil_index_recall(
+    con: sqlite3.Connection, queries: tuple[str, ...] = FOSSIL_GATE_QUERIES
+) -> tuple[int, int]:
+    """Compare the index against the scan it replaces.
+
+    Returns `(invented, dropped)` — rows the index returns that the `LIKE` scan
+    would not, and rows the scan returns that the index does not. `invented`
+    must be zero: the index may narrow the corpus, never widen it. `dropped` is
+    recorded rather than required, because it is the mid-word substring class
+    that `matchBand` already ranks last.
+    """
+    invented = dropped = 0
+    for q in queries:
+        fts = {
+            r[0]
+            for r in con.execute(
+                "SELECT rowid FROM fossil_fts WHERE fossil_fts MATCH ?", (f'"{q}"*',)
+            )
+        }
+        like = {
+            r[0]
+            for r in con.execute(
+                "SELECT pbdb_taxon_no FROM fossil WHERE lower(name) LIKE ?",
+                (f"%{q.lower()}%",),
+            )
+        }
+        invented += len(fts - like)
+        dropped += len(like - fts)
+    return invented, dropped
+
+
 # --------------------------------------------------------------------------
 # Querying — the reference implementation of what the serving binary does
 # --------------------------------------------------------------------------
@@ -632,6 +782,9 @@ def run() -> int:
     con.execute("INSERT INTO node_fts(node_fts) VALUES ('optimize')")
     con.commit()
 
+    print("\n--- fossil names ---", flush=True)
+    n_fossil_fts = build_fossil_index(con, log=print)
+
     # ---- gates ----------------------------------------------------------
     print("\n--- gates ---", flush=True)
     n_names = con.execute("SELECT count(*) FROM search_name").fetchone()[0]
@@ -763,6 +916,44 @@ def run() -> int:
         True,
     )
 
+    if n_fossil_fts:
+        g.require(
+            "every fossil name is indexed",
+            n_fossil_fts,
+            con.execute(
+                "SELECT count(*) FROM fossil WHERE trim(name) <> ''"
+            ).fetchone()[0],
+        )
+        # The identity the serving binary depends on and cannot infer: the FTS
+        # rowid is a `pbdb_taxon_no`. Getting this wrong does not error — it
+        # joins cleanly to the wrong animal, which is the `node_fts.rowid`
+        # failure this project has already paid for once.
+        #
+        # The check goes through MATCH, and it has to. `fossil_fts` is
+        # `content=''`, so `SELECT f.name FROM fossil_fts f` yields NULL,
+        # `NULL <> t.name` is NULL rather than true, and the obvious join-and-
+        # compare gate reports 0 for a correct index and a corrupted one alike.
+        # It was written that way first and passed on an index built from the
+        # wrong key.
+        g.require(
+            "fossil_fts.rowid is pbdb_taxon_no",
+            fossil_index_miskeyed(con),
+            0,
+            note="each sampled taxon must be returned by a search for its own "
+            "name; a column comparison cannot answer this, the table is "
+            "contentless",
+        )
+        invented, dropped = fossil_index_recall(con)
+        g.require(
+            "the index never returns a row the scan would not",
+            invented,
+            0,
+            note="it may narrow the corpus and may not widen it; the rows it "
+            "drops are mid-word substring matches, which matchBand scores "
+            "bandNone and Interleave ranks behind every node",
+        )
+        g.observe("fossil rows dropped vs the LIKE scan", f"{dropped:,}")
+
     size_after = DB.stat().st_size
     g.observe(
         "rows by kind",
@@ -775,6 +966,7 @@ def run() -> int:
     )
     g.observe("total indexed names", f"{n_names:,}")
     g.observe("vernacular names indexed", f"{n_vern_rows:,}")
+    g.observe("fossil names indexed", f"{n_fossil_fts:,}")
     g.observe("rank signals", rank_report)
     g.observe(
         "concestor.db grew by",
