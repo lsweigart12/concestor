@@ -196,7 +196,9 @@ export interface TreeState {
   induced: Induced;
   /** Most recent add, driving the signature animation. Cleared once played. */
   delta: (AddDelta & { token: number }) | null;
+  /** The *tree* is resolving. Not fossils — see `fossilsLoading`. */
   loading: boolean;
+  fossilsLoading: boolean;
   /** Selections that resolved to a non-monophyletic taxon and were not added. */
   broken: Broken[];
   /** Selections the API could not resolve at all — a stale or mistyped id. */
@@ -220,6 +222,7 @@ export function useTree() {
   // API is immutable within a build, so removing a graft from the view need
   // not throw away the row it was drawn from.
   const [fossils, setFossils] = useState<Map<number, FossilTaxon>>(() => new Map());
+  const [fossilsLoading, setFossilsLoading] = useState(false);
   const prevInduced = useRef<Induced | null>(null);
   const token = useRef(0);
 
@@ -327,13 +330,27 @@ export function useTree() {
   // to resolve one must cost that fossil rather than the tree it annotates.
   useEffect(() => {
     const missing = view.fossils.filter((n) => !fossils.has(n));
-    if (missing.length === 0) return;
+    // Cleared here as well as on completion, because a cancelled run never
+    // reaches its own reset: the deps changed under it, and the run that
+    // replaces it may have nothing left to fetch. Without this the control bar
+    // would report a fetch that finished two views ago.
+    if (missing.length === 0) {
+      setFossilsLoading(false);
+      return;
+    }
     let cancelled = false;
+    // Its own flag rather than a second writer of `loading`, which means "the
+    // *tree* is resolving" and is read as that: the graft-refusal announcer
+    // waits on it, and a fossil fetch flipping it would suppress notices about
+    // grafts that had already settled. Both feed the control bar, which is
+    // asking a broader question — is anything still in flight.
+    setFossilsLoading(true);
     (async () => {
       const got = await Promise.all(
         missing.map((n) => api.fossil(n).catch(() => null)),
       );
       if (cancelled) return;
+      setFossilsLoading(false);
       const found = new Map<number, FossilTaxon>();
       const lost: number[] = [];
       missing.forEach((n, i) => {
@@ -510,6 +527,8 @@ export function useTree() {
     idxOf,
     delta,
     loading,
+    /** Grafts in the view whose PBDB rows have not arrived. Never `loading`. */
+    fossilsLoading,
     broken,
     unresolved,
     error,

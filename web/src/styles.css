@@ -104,6 +104,46 @@ body {
   font-style: italic;
 }
 
+/*
+ * Waiting. `chrome/Pending.tsx` is the account; this is the whole of its look.
+ *
+ * Breathing, not spinning, and dim rather than loud. The rule at the top of
+ * this file says nothing animates but data arriving — this *is* data arriving,
+ * and it is the only exception the file makes. It is deliberately quieter than
+ * the thing it stands in for, because the reader's attention belongs to the
+ * answer when it lands and not to the notice that it has not yet.
+ *
+ * Two seconds a cycle rather than one: a fast pulse reads as urgency, and the
+ * message here is the opposite of urgent.
+ */
+.pending {
+  color: var(--ink-4);
+  font-size: 11.5px;
+  animation: pending-breathe 1.8s ease-in-out infinite;
+}
+
+@keyframes pending-breathe {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+
+/*
+ * An infinite animation is the exact thing this setting is about, and the
+ * static state has to stay legible on its own — so it rests at the bright end
+ * of the cycle rather than the dim one.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .pending {
+    animation: none;
+    opacity: 0.9;
+  }
+}
+
 /* ---------------------------------------------------------------- canvas -- */
 
 .canvas {
@@ -1194,6 +1234,25 @@ body {
   padding: var(--s2) 0;
   scrollbar-width: thin;
   scrollbar-color: var(--ink-4) transparent;
+  /*
+   * Recovering from stale, and deliberately not the other way.
+   *
+   * A transition takes its timing from the state being entered, so this one
+   * only ever runs on the way *back*: the list brightening is the answer
+   * landing, and it gets the easing everything else here gets. Going dim is a
+   * statement about staleness and is instant — see `.is-stale`.
+   */
+  transition: opacity 160ms var(--spring);
+}
+
+/*
+ * These rows answer the query before the one in the box.
+ *
+ * Dimmed rather than emptied; Palette.tsx says why the alternative is worse.
+ */
+.palette-list.is-stale {
+  opacity: 0.45;
+  transition: none;
 }
 
 /*
@@ -1348,6 +1407,12 @@ body {
   line-height: 1.55;
 }
 
+/* Here the pending line *is* the panel's content rather than a note beside
+   something, so it takes the size of the message it stands in for. */
+.palette-empty .pending {
+  font-size: 13px;
+}
+
 /* A non-monophyletic taxon: an answer to what you typed, but not a row you
    can pick. Borrows the row's anatomy and drops everything that implies it is
    selectable — no hover, no cursor, no keybind hint. */
@@ -1491,10 +1556,11 @@ body {
   white-space: nowrap;
 }
 
+/* Colour and cadence are `.pending`'s; this is placement and the one size
+   override the bar's own scale needs. */
 .controls-busy {
   margin-left: var(--s2);
   font-size: 11px;
-  color: var(--ink-4);
 }
 
 /*
@@ -1767,6 +1833,17 @@ body {
   }
 }
 
+/*
+ * The placeholder card holds the corner but not the height.
+ *
+ * `min-height` rather than the card's own, because a full-height empty panel
+ * over the canvas is a hole in the picture, and the reader is still looking at
+ * the tree while this waits. One line, in the place the heading will be.
+ */
+.detail.detail-pending {
+  padding: var(--s3) var(--s4);
+}
+
 .detail-image {
   position: relative;
   display: flex;
@@ -1983,26 +2060,14 @@ body {
 /*
  * The pending line holds the space the paragraph will take.
  *
- * It is a sentence rather than a shimmer because a skeleton block is a promise
- * that something is definitely coming, and for most of the corpus nothing is.
- * Breathing rather than spinning: nothing in this instrument animates except
- * data arriving, and this is data arriving.
+ * Everything about how it reads — a sentence rather than a shimmer, breathing
+ * rather than spinning — is now `.pending`, which was generalised out of this
+ * rule when the rest of the app needed the same thing. What is left here is
+ * placement: a line of its own, under the block above it.
  */
 .detail .wiki-pending {
-  margin: var(--s4) 0 0;
-  font-size: 11.5px;
-  color: var(--ink-4);
-  animation: wiki-breathe 1.8s ease-in-out infinite;
-}
-
-@keyframes wiki-breathe {
-  0%,
-  100% {
-    opacity: 0.45;
-  }
-  50% {
-    opacity: 0.9;
-  }
+  display: block;
+  margin-top: var(--s4);
 }
 
 .detail .wiki-extract {
@@ -2073,6 +2138,12 @@ body {
  */
 .detail .cl-row {
   display: contents;
+}
+
+/* Under the heading, on a line of its own, where the first rank will land. */
+.detail .cl-pending {
+  display: block;
+  margin-top: var(--s1);
 }
 
 .detail .lineage {
@@ -2265,6 +2336,12 @@ body {
 .boot-lede {
   margin: 0 0 var(--s4);
   color: var(--ink-3);
+}
+/* Stands where the lede does, at the lede's size, so the panel does not resize
+   under the reader when the tree lands. */
+.boot-pending {
+  display: block;
+  font-size: 13.5px;
 }
 .boot-inner h1 {
   font-size: 15px;

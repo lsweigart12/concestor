@@ -399,6 +399,47 @@ Wikipedia and the licence — leave the app, and look different because they do.
 - Enter/exit is fade plus draw-on. Never slide.
 - Respect `prefers-reduced-motion`: cut to final state, keep glow static.
 
+## Waiting
+
+Everything the API serves is immutable within a build and memoised for the
+session, so **most requests answer in the frame the click happened in** and the
+default rendering of a wait is nothing at all. That is the constraint the rest
+of this section exists inside: the failure mode here is not an absent spinner,
+it is chrome flashing over facts the app already holds.
+
+- **A sentence, never a spinner.** `.pending` is the whole vocabulary — a dim
+  line of text, breathing on a 1.8 s cycle, saying *what* is being waited for.
+  Named corpora over generic verbs: "Searching 2.4 million species and 523,112
+  fossil taxa" tells a reader whether to keep waiting; "Loading…" does not. The
+  one exception this file's "no ambient animation" rule makes, because it is
+  data arriving.
+- **No skeletons.** A grey bar predicts a shape — an image or not, five ranks or
+  twenty — and a wrong prediction reads as the layout settling. It is also a
+  promise that something is definitely coming, which for much of this corpus is
+  false.
+- **Delayed by `PENDING_DELAY_MS`, and the delay is the component's, not the
+  caller's.** `usePending` in `web/src/chrome/Pending.tsx` is the only place a
+  wait becomes visible. A cached node, a warm search and a reopened drill-down
+  lane say nothing; only a request that genuinely made somebody wait announces
+  itself. Every call site would otherwise make this decision differently, and
+  getting it wrong is invisible on a developer's machine, where the API is on
+  localhost and every request is instant.
+- **A pending state is never a denial, and this is the rule with teeth.** "No
+  results", "no fossils on this branch" and an empty card are *answers*, and are
+  reachable only from a settled request. The palette shipped for months printing
+  "Nothing matched **dog**" for the whole of every round trip; `emptyState` in
+  `Palette.tsx` and the branch order in `DrillLane.tsx` are where that is now
+  enforced, and `empty.test.ts` is the invariant.
+- **Stale content is dimmed, not cleared.** A list that empties on every
+  keystroke cannot be read while typing, and clearing collapses the panel and
+  moves the pointer's target. Dim says *these answer the previous question*.
+  The exception is anything whose stale version is **plausible**: the detail
+  card is replaced by a placeholder rather than left standing, because a
+  complete, confidently-numbered card about the wrong animal does not look
+  wrong.
+- **`role="status"`** on every pending line. A purely visual indicator tells a
+  screen reader nothing, and this is exactly what a polite live region is for.
+
 ## Typography
 
 - One geometric or grotesque sans for UI. One mono for identifiers,
