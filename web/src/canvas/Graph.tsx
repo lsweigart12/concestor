@@ -53,6 +53,16 @@ import {
   type AxisMode,
   type LabelText,
 } from "../tree/layout";
+import { dotRect, labelRect } from "../tree/labels";
+import {
+  cardReserve,
+  fitContentPad,
+  fitViewport,
+  freeRect,
+  revealShift,
+  toScreenRect,
+  union,
+} from "./viewport";
 import type { Induced } from "../tree/induced";
 import type { AddDelta } from "../tree/induced";
 import { isGraftIdx, type Graft } from "../tree/graft";
@@ -116,6 +126,20 @@ const AXIS_RESERVE = 104;
 const MAX_FIT_ZOOM = 1.4;
 
 /**
+ * Margin the reveal keeps between the subject and every edge it clears, and the
+ * shortest it will ever wait before deciding there is anything to do.
+ *
+ * The wait is not a polish delay, and it is a *floor* rather than the whole
+ * answer — `scheduleFit` raises it past any reframe already on its way. A
+ * selection very often arrives together with something that moves the viewport
+ * on its own: an add, a lane, the card's own reframe. A pan computed against a
+ * transform that is still animating cancels that animation and lands somewhere
+ * neither of them asked for.
+ */
+const REVEAL_PAD = 18;
+const REVEAL_DELAY = 140;
+
+/**
  * The two semantic-zoom thresholds, in scale factors.
  *
  * `Z_LABEL` is a legibility floor: below it the name renders under 7px and the
@@ -165,6 +189,14 @@ export interface GraphProps {
   fitSignal: { kind: "all" | "selection"; token: number } | null;
   /** Reports whether the canvas is already showing the fit. */
   onFitState?: (fit: boolean) => void;
+  /**
+   * A detail card is on screen, over the top-right of the canvas.
+   *
+   * The canvas cannot ask — the card is a sibling, `position: fixed`, and
+   * measuring it from here would make the layout depend on the DOM it produces.
+   * What it does with the answer is `canvas/viewport.ts`.
+   */
+  cardOpen: boolean;
   /** The segment whose drill-down lane is open. Lives in the URL. */
   drill: Drill | null;
   onDrill: (d: Drill | null) => void;
@@ -197,6 +229,7 @@ function Inner(props: GraphProps) {
     intervals,
     fitSignal,
     onFitState,
+    cardOpen,
     drill,
     onDrill,
     onPickFossil,
@@ -215,14 +248,51 @@ function Inner(props: GraphProps) {
   const [flaring, setFlaring] = useState<number | null>(null);
   const playedToken = useRef<number | null>(null);
 
+  /**
+   * Whether the canvas is showing its own fit.
+   *
+   * The same answer `reportFit` sends the app, kept here as well because the
+   * card reserve turns on it: reframing the tree is the right response to the
+   * canvas getting smaller only while the frame is ours to move. A reader who
+   * has zoomed into a corner and then clicks a mark to read about it has not
+   * asked for the whole tree back.
+   *
+   * Starts true so the first card opened on a freshly fitted canvas reserves
+   * rather than waiting for the first report.
+   */
+  const [atFit, setAtFit] = useState(true);
+
+  /**
+   * Whether the layout is currently arranged around an open card.
+   *
+   * State rather than a derived value, because it may **lag** what the card is
+   * doing. Taking or releasing the reserve re-lays out the tree — the plot
+   * width follows the free width — so it happens only at a moment when the
+   * canvas is about to be reframed anyway. Off the fit, the card opens over a
+   * canvas that does not move at all and {@link revealShift} does the work.
+   *
+   * A reserve left standing after its card closed is reconciled the next time
+   * the reader returns to the fit, which costs an empty strip on the right and
+   * never a jump under their hands.
+   */
+  const [reserved, setReserved] = useState(false);
+  const wantReserve = cardReserve(vw, cardOpen) > 0;
+  const reserve = reserved ? cardReserve(vw, true) : 0;
+
+  useEffect(() => {
+    if (reserved !== wantReserve && atFit) setReserved(wantReserve);
+  }, [reserved, wantReserve, atFit]);
+
   // Reserve for the leaf labels that hang off the right edge, proportional in
   // a small panel and capped in a large one.
   // Leave roughly a third of the panel for labels, which hang off both sides
   // of the graph. The exact reserve no longer has to be right — the fit reads
   // the real bounds afterwards — but the plot must still shrink in a narrow
-  // panel so the fit stays near 1:1 and text stays legible.
+  // panel so the fit stays near 1:1 and text stays legible. An open card is a
+  // narrow panel by another route, so it is subtracted here and nowhere else:
+  // the layout is told how much canvas there is, not what is sitting on it.
   const plotWidth = vw
-    ? Math.max(MIN_PLOT_W, Math.min(PLOT_W, vw * 0.62 - PAD_X))
+    ? Math.max(MIN_PLOT_W, Math.min(PLOT_W, (vw - reserve) * 0.62 - PAD_X))
     : PLOT_W;
 
   /**
@@ -605,34 +675,63 @@ function Inner(props: GraphProps) {
   const fitTarget = useCallback((): Viewport | null => {
     const c = lay.content;
     if (!c || !vw || !vh) return null;
-    // The bounds already include every placed label, so the fit frames what
-    // is actually drawn rather than the dots plus a guessed margin.
-    const minX = c.x - EDGE_PAD;
-    const maxX = c.x + c.w + EDGE_PAD;
-    const minY = c.y - EDGE_PAD;
-    const maxY = c.y + c.h + EDGE_PAD;
-    // The axis owns the bottom strip, and an open drill-down lane owns more
-    // of it; fitting into the full height would slide the lowest lineage
-    // underneath whichever is there.
-    const usableH = Math.max(vh - AXIS_RESERVE - laneH, 160);
-    const z = Math.min(
-      vw / Math.max(maxX - minX, 1),
-      usableH / Math.max(maxY - minY, 1),
-      MAX_FIT_ZOOM,
-    );
-    return {
-      x: (vw - (minX + maxX) * z) / 2,
-      y: (usableH - (minY + maxY) * z) / 2,
-      zoom: z,
-    };
-  }, [lay, vw, vh, laneH]);
+    return fitViewport({
+      // The bounds already include every placed label, so the fit frames what
+      // is actually drawn rather than the dots plus a guessed margin.
+      content: fitContentPad(c, EDGE_PAD),
+      vw,
+      vh,
+      // The card owns a strip on the right, and the axis owns one at the
+      // bottom that an open drill-down lane makes taller. Fitting into the
+      // whole container would slide content under all three.
+      reserve,
+      bottom: AXIS_RESERVE + laneH,
+      maxZoom: MAX_FIT_ZOOM,
+    });
+  }, [lay, vw, vh, laneH, reserve]);
+
+  /**
+   * When the last fit animation is expected to have landed, as a timestamp.
+   *
+   * The reveal below reads the live transform, so it must not read one that is
+   * still moving — a pan computed from a half-finished fit both cancels the fit
+   * and lands somewhere neither of them asked for.
+   */
+  const fitUntil = useRef(0);
 
   const fitToContent = useCallback(
     (duration: number) => {
       const t = fitTarget();
-      if (t) rf.setViewport(t, { duration });
+      if (!t) return;
+      rf.setViewport(t, { duration });
+      fitUntil.current = Date.now() + duration;
+      // About to be, and said now rather than 480ms from now: the reserve is
+      // reconciled off this, and a reader who opens a card immediately after an
+      // add should get the reframe rather than the deferred path.
+      setAtFit(true);
     },
     [fitTarget, rf],
+  );
+
+  /**
+   * Fit after `delay`, and record *now* when it will have landed.
+   *
+   * Recording it at scheduling time is the whole point. Every automatic reframe
+   * here waits a beat before it starts — for a draw to read, for a lane to reach
+   * its real height — and the reveal below computes its own wait from
+   * `fitUntil`. Set only when the fit *starts*, that timestamp is still in the
+   * past during the delay, so the reveal took its 140ms floor, fired partway
+   * into the animation, read a transform that was still moving and panned from
+   * wherever it had got to. The reframe stopped a few tens of pixels short of
+   * its target — which is exactly enough to leave the last label under the card.
+   */
+  const scheduleFit = useCallback(
+    (delay: number, duration: number) => {
+      fitUntil.current = Date.now() + delay + duration;
+      const t = window.setTimeout(() => fitToContent(duration), delay);
+      return () => window.clearTimeout(t);
+    },
+    [fitToContent],
   );
 
   /**
@@ -650,21 +749,23 @@ function Inner(props: GraphProps) {
    * drag for it. The palette is opened between gestures, not during one.
    */
   const reportFit = useCallback(() => {
-    if (!onFitState) return;
     const t = fitTarget();
     if (!t) {
-      onFitState(false);
+      // Nothing drawn is not a view worth protecting, so the reserve may still
+      // take effect — but there is no fit to offer the reader either.
+      onFitState?.(false);
       return;
     }
     const v = rf.getViewport();
     // A whole pixel of pan and a half percent of zoom are both invisible, and
     // the animated fit lands a hair off its own target often enough that an
     // exact test would report "not fit" immediately after fitting.
-    onFitState(
+    const fit =
       Math.abs(v.x - t.x) < 1.5 &&
-        Math.abs(v.y - t.y) < 1.5 &&
-        Math.abs(v.zoom - t.zoom) < t.zoom * 0.005,
-    );
+      Math.abs(v.y - t.y) < 1.5 &&
+      Math.abs(v.zoom - t.zoom) < t.zoom * 0.005;
+    setAtFit(fit);
+    onFitState?.(fit);
   }, [onFitState, fitTarget, rf]);
 
   // The target moves when the layout, the viewport size or the lane does, so
@@ -685,9 +786,19 @@ function Inner(props: GraphProps) {
   useEffect(() => {
     if (lastLaneH.current === laneH) return;
     lastLaneH.current = laneH;
-    const t = window.setTimeout(() => fitToContent(reduced ? 0 : 380), 30);
-    return () => window.clearTimeout(t);
-  }, [laneH, fitToContent, reduced]);
+    return scheduleFit(30, reduced ? 0 : 380);
+  }, [laneH, scheduleFit, reduced]);
+
+  // And the card, for exactly the reason above: it is the same event on the
+  // other axis. Taking the reserve has already narrowed the plot by the time
+  // this runs, so the fit is being asked to frame a tree that is genuinely a
+  // different shape, not the old one pushed left.
+  const lastReserved = useRef(reserved);
+  useEffect(() => {
+    if (lastReserved.current === reserved) return;
+    lastReserved.current = reserved;
+    return scheduleFit(30, reduced ? 0 : 380);
+  }, [reserved, scheduleFit, reduced]);
 
   useEffect(() => {
     if (!fitSignal) return;
@@ -710,12 +821,8 @@ function Inner(props: GraphProps) {
     if (ind.rendered.length === lastCount.current) return;
     const first = lastCount.current === 0;
     lastCount.current = ind.rendered.length;
-    const t = window.setTimeout(
-      () => fitToContent(reduced || first ? 0 : 520),
-      first ? 0 : 260,
-    );
-    return () => window.clearTimeout(t);
-  }, [ind.rendered.length, fitToContent, reduced]);
+    return scheduleFit(first ? 0 : 260, reduced || first ? 0 : 520);
+  }, [ind.rendered.length, scheduleFit, reduced]);
 
   // Switching scales moves every node in x, and by a lot — the point of linear
   // is that it collapses the recent past against the present. Reframing is what
@@ -724,9 +831,56 @@ function Inner(props: GraphProps) {
   useEffect(() => {
     if (lastAxis.current === axisMode) return;
     lastAxis.current = axisMode;
-    const t = window.setTimeout(() => fitToContent(reduced ? 0 : 420), 20);
+    return scheduleFit(20, reduced ? 0 : 420);
+  }, [axisMode, scheduleFit, reduced]);
+
+  /**
+   * The floor under all of it: whatever else happened, the thing the card is
+   * about is on screen and not underneath the card.
+   *
+   * Runs on the subject and on the card's footprint, never on the live
+   * transform — a reader who deliberately drags a mark under the card is
+   * panning, and a viewport that pans back is a viewport fighting its own
+   * reader. So this fires when the *selection* changes, or when the card
+   * appears or goes, and is otherwise silent.
+   *
+   * The subject is the mark **and its label**, because a dot on the seam with
+   * its name printed underneath the card is not visible in any sense a reader
+   * would recognise. Where the two together are wider than the free strip, the
+   * shift centres them rather than picking an edge — see `revealShift`.
+   *
+   * Deliberately last: it reads the settled transform, so if the reframe above
+   * has already brought the subject into the clear there is nothing to do and
+   * nothing happens.
+   */
+  useEffect(() => {
+    if (focusedIdx === null || !vw || !vh) return;
+    const p = lay.placed.get(focusedIdx);
+    if (!p) return;
+    const box = lay.labels.get(focusedIdx);
+    const dot = dotRect(p.x, p.y);
+    const subject = box ? union(dot, labelRect(p.x, p.y, box)) : dot;
+    const wait = Math.max(REVEAL_DELAY, fitUntil.current - Date.now() + 60);
+    const t = window.setTimeout(() => {
+      const v = rf.getViewport();
+      const { dx, dy } = revealShift(
+        toScreenRect(subject, v),
+        freeRect({
+          vw,
+          vh,
+          bottom: AXIS_RESERVE + laneH,
+          cardOpen,
+          pad: REVEAL_PAD,
+        }),
+      );
+      if (dx === 0 && dy === 0) return;
+      rf.setViewport(
+        { x: v.x + dx, y: v.y + dy, zoom: v.zoom },
+        { duration: reduced ? 0 : 320 },
+      );
+    }, wait);
     return () => window.clearTimeout(t);
-  }, [axisMode, fitToContent, reduced]);
+  }, [focusedIdx, cardOpen, lay, vw, vh, laneH, rf, reduced]);
 
   const toScreenX = useCallback(
     (age: number) =>

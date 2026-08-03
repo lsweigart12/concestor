@@ -337,7 +337,20 @@ below is that one rule applied to the three things that overlap on the canvas.
 ## The detail card
 
 The third zoom tier, and the only surface in the product that is *read* rather
-than scanned. Its order is the design:
+than scanned.
+
+**The card never covers what it is about.** It hangs in the top-right corner
+over a canvas that used to measure itself against the whole window, so opening a
+card on a mark near the present routinely hid that mark, its silhouette and its
+name. On a desktop window the canvas now treats the card's footprint as an edge:
+the tree reframes into what is left, timeline and all, exactly as it does when
+the window itself narrows. Where that is refused — too little canvas to draw a
+legible tree in, or a reader who has panned to a view of their own that
+reframing would destroy — the viewport instead makes the smallest pan that
+brings the subject back into the clear. `docs/handoff.md` §3 has the rules and
+the two geometries they need.
+
+Its order is the design:
 
 1. **The silhouette**, watermarked with what it is actually of when that is not
    this taxon.

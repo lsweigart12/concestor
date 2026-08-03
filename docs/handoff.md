@@ -1181,6 +1181,63 @@ what kind of thing this is could say `NO RANK - TERMINAL` above the name. The
 card's `rankIsInformative` had the full set from the day it was written, and
 `metaLine` now calls it rather than approximating it.
 
+### The canvas knows the card is there, and gets out from under it
+
+Clicking a mark opened a 360px panel directly on top of the mark that had just
+been clicked. Select the moose beside a bat and a mouse and the card covers the
+moose's dot, its silhouette and its name — the one element on screen the reader
+has just said they are looking at. The canvas measured itself against the whole
+window and the card is `position: fixed` over the corner of it, so nothing in
+the layout had any idea.
+
+`canvas/viewport.ts` is the whole of the fix and it gives **two** answers,
+because there are two questions:
+
+- **The reserve.** `cardReserve` narrows the width the fit is computed against,
+  and `plotWidth` follows it. That is deliberately the same path a real window
+  resize takes: the plot shrinks so the fit stays near 1:1 and the labels keep
+  their designed size, rather than the same tree being scaled down until
+  semantic zoom drops every name it has. The whole tree then reframes into the
+  strip beside the card, timeline and all.
+- **The reveal.** `revealShift` is the floor under that — the smallest pan that
+  puts the subject back inside the part of the canvas the card is not on.
+  Exactly `{0, 0}` when it is already clear, so the caller has no second
+  predicate that could disagree with it.
+
+Five things not to redo:
+
+- **The reserve is refused below `MIN_FREE_W`.** At 800px wide the card leaves
+  408px of canvas, which fits a `MIN_PLOT_W` tree and its labels at a scale
+  under `Z_LABEL` — so honouring the card would buy a tree with no names on it,
+  which is worse than a tree with a corner covered. Under that width the reveal
+  is the entire remedy, and it is enough.
+- **The reserve is also refused while the reader is off the fit**, and this is
+  the constraint that shaped the design. Taking it *re-lays out* the tree, so it
+  cannot be a pure function of "is a card open" — a reader who has zoomed into a
+  corner and clicks a mark to read about it would have the tree reflow and
+  reframe under their hands. So `reserved` is state that lags `cardOpen`, moving
+  only at a moment the canvas was going to be reframed anyway. A reserve left
+  standing after its card closed is reconciled the next time the reader returns
+  to the fit; the cost is an empty strip on the right, and it is the right cost.
+- **The reveal must not run on the live transform.** It fires on the selection
+  and on the card appearing or going, never on pan — a reader dragging a mark
+  under the card is panning, and a viewport that pans back is fighting them.
+- **The two questions need two geometries**, which is why `freeRect` is not
+  `cardReserve`. A card refused a reserve is still 360px of opaque panel, and
+  below 620px it is not on the right at all — it spans the window under the
+  control bar, so the free region is the strip *below* it.
+- **The subject is the mark and its label.** A dot on the seam with its name
+  printed under the card is not visible in any sense a reader would recognise.
+  Where the two together are wider than the strip, `revealShift` centres rather
+  than clamping an edge: clamping something too large resolves to whichever edge
+  is tested first, so the mark would jump left or right depending on which way
+  it was already overflowing.
+
+`viewport.test.ts` pins `CARD_W`, `--s4`, the 620px stacking width and the
+stacked card's `top` and `max-height` to styles.css by reading it, on the same
+principle as `labels.ts`'s font constants. The failure mode without that is
+silent: the tree simply starts sliding a little way back under the card.
+
 ---
 
 ## 4. Corrections to the design docs

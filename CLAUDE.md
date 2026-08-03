@@ -309,6 +309,27 @@ add button has **three** states, because a drawn divergence exists only as long
 as the selections that induced it and "Add" over something already visible
 promises a change the press does not make. `docs/handoff.md` §3 has the rest.
 
+**And the canvas knows the card is on top of it.** `canvas/viewport.ts` gives
+two answers because there are two questions. `cardReserve` narrows the width the
+fit is computed against and `plotWidth` follows it, so the tree **reframes into
+the strip beside the card** by the same path a window resize takes — the plot
+shrinks, the fit stays near 1:1, and the labels keep their size instead of being
+scaled under `Z_LABEL` until the tree has no names on it. `revealShift` is the
+floor under that: the smallest pan that puts the subject back in the clear,
+exactly `{0, 0}` when it already is. Five things not to redo: the reserve is
+**refused below `MIN_FREE_W`**, because 408px of canvas fits a tree only at a
+scale that costs every label; it is **also refused while the reader is off the
+fit**, which is why `reserved` is state that lags `cardOpen` rather than a
+derived value — taking it re-lays out the tree, and a reader who zoomed into a
+corner and clicked a mark did not ask for the whole tree back; the reveal
+**never runs on the live transform**, because a reader dragging a mark under the
+card is panning and a viewport that pans back is fighting them; **`freeRect` is
+not `cardReserve`** — a card refused a reserve is still an opaque panel, and
+under 620px it spans the top rather than the right; and the subject is **the
+mark and its label**, centred rather than edge-clamped when the two together are
+wider than the strip. `viewport.test.ts` pins the card's width, gap and stacking
+width to styles.css by reading it, because the failure without that is silent.
+
 **Decisions in this codebase are made by whoever holds it.** These docs escalate
 nothing and hold nothing open pending approval; where a question was once
 deferred, the file now records what was decided and on what evidence. If you
