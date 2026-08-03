@@ -60,7 +60,18 @@ done
 # artifact set. docs/deployment.md §5 records both.
 BUILD_ID=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["build_id"])' \
   "$CONCESTOR_BUILD/manifest.json")
-TAG="registry.cloudflare.com/${CLOUDFLARE_ACCOUNT_ID:-ACCOUNT_ID}/concestor-api:${BUILD_ID}"
+# The fallback is lowercase and that is not a style choice: Docker refuses a
+# repository name containing an uppercase letter, so an `ACCOUNT_ID` stand-in
+# fails the build itself with `repository name must be lowercase` — which is
+# only ever hit under --no-push, the one path that has no account id and the
+# one path whose whole job is to prove the image builds. A real Cloudflare
+# account id is 32 lowercase hex characters and was never at risk.
+#
+# web/wrangler.jsonc's placeholder stays uppercase ACCOUNT_ID deliberately.
+# It is a config string that deploy-web.yml greps for and substitutes, never a
+# tag handed to Docker, and making it shout is what stops it being mistaken
+# for a real account id in review.
+TAG="registry.cloudflare.com/${CLOUDFLARE_ACCOUNT_ID:-account_id}/concestor-api:${BUILD_ID}"
 
 echo "build    $CONCESTOR_BUILD${CONCESTOR_BORROWED_FROM:+  (borrowed from $CONCESTOR_BORROWED_FROM)}"
 echo "phylopic $CONCESTOR_SILHOUETTES"

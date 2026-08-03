@@ -169,10 +169,18 @@ Active-CPU pricing is why the CPU line is zero: the container is billed for
 cycles it uses, and this one is idle between requests. The memory line is the
 whole bill, and it is the price of not cold-starting.
 
-Set `sleepAfter` long rather than short. The alternative — let it sleep and pay
-nothing — costs a **1–3 s** image cold start plus the measured **0.78 s** open
-on the first request after every idle period, and this is an app whose first
-interaction is someone typing a species name.
+`sleepAfter` is the dial on that memory line, and it is set to **1h**. Letting
+it sleep costs a **1–3 s** image cold start plus the measured **0.78 s** open on
+the first request after every idle period, and this is an app whose first
+interaction is someone typing a species name — so the value is bought with
+someone's first impression, not with money alone.
+
+An hour is the trade this project takes: a reader browsing the tree never meets
+a cold start, a second visit within the hour does not either, and the container
+stops billing overnight. It was 6h, which bought nearly every first impression
+at the full $26.06. §6.1 is why the shorter value won — the owner's constraint
+is a low ceiling rather than a low average, and this is the largest cost that
+can be lowered without touching the architecture.
 
 ---
 
@@ -425,8 +433,9 @@ Worker. A list of cacheable paths is a list somebody eventually forgets to add
 ## 6. What this costs, stated plainly
 
 - **Cold starts.** 1–3 s to start a container from stopped, plus 0.78 s to open
-  the dataset. Mitigated by `sleepAfter` and ~$32/month; not mitigated by
-  anything clever.
+  the dataset. Traded against the memory bill by `sleepAfter`, which is 1h and
+  therefore accepts one overnight cold start a day; not mitigated by anything
+  clever. §6.1 is the reasoning.
 - **No autoscaling.** Cloudflare's own docs say built-in autoscaling does not
   exist yet — the pattern is `getRandom(env.READ_API, N)` over a fixed *N*, and
   the routing is random rather than nearest. For this app, behind an immutable
@@ -451,6 +460,62 @@ Worker. A list of cacheable paths is a list somebody eventually forgets to add
   check first is that `/srv/snapshot/phylopic` landed beside `/srv/build`,
   because the server infers the silhouette mirror from `-build`'s parent and a
   wrong answer there is 12,863 silent 404s rather than an error.
+
+### 6.1 There is no spend cap, and the ceiling is built rather than set
+
+Read against Cloudflare's own billing docs on 2026-08-02. **Cloudflare offers no
+hard spend limit on Workers or Containers.** The feature that sounds like one
+says otherwise in as many words: *"Budget alerts are informational only. They do
+not pause or cap usage."* They also fire the day *after* a threshold is crossed.
+A budget alert is a smoke detector, not a circuit breaker, and nothing on this
+platform will stop serving to protect a bill.
+
+So the ceiling is a property of the configuration, and the useful thing is that
+the costs split in two.
+
+**Traffic-independent, and already capped** by `max_instances: 1` and a fixed
+instance type. There is an arithmetic maximum and this is it:
+
+| | worst case / month |
+|---|---:|
+| Workers Paid base | $5.00 |
+| memory, 4 GiB × 730 h | $26.06 |
+| disk, 8 GB × 730 h | $1.42 |
+| CPU, half a vCPU pegged for the whole month | $25.83 |
+| **ceiling** | **$58.31** |
+
+**The container cannot run away.** That is worth stating plainly because it is
+the part that reads as frightening and is not, and because `max_instances` is
+doing the work — raising it multiplies this table directly.
+
+**Traffic-dependent, and genuinely uncapped:** Workers requests at $0.30/M over
+10M, Durable Object requests at $0.15/M over 1M — every `/v1` call is both — and
+egress at $0.025/GB over 1 TB. Static asset requests are free and unlimited, so
+the bundle costs nothing however often it is served and only `/v1/*` bills, which
+is `run_worker_first`'s bill as well as its correctness. At a 5 KB mean response
+that is $1.35 at 10M `/v1` requests, $41.85 at 100M and **$546.85 at 1G**. A
+sustained denial-of-wallet attack here is a bad month, not a ruinous one, and
+the number is bounded partly because one instance at half a vCPU can only serve
+so fast.
+
+Three consequences worth keeping:
+
+- **The throttle belongs in the WAF, not in the Worker.** Requests blocked by a
+  rate limiting rule never reach the Worker and are not billed — so a WAF rule
+  cuts all three uncapped lines at once. The Workers rate-limiting *binding*
+  cannot: it runs inside the Worker, so the request is already paid for when it
+  answers, and it is per-location rather than global and documented as *"not to
+  be used as an accurate accounting system"*. The rule in force is `/v1/*`, 100
+  requests per 10 s per IP, which is the Free plan's one rule and its fixed
+  10 s window.
+- **The DO duration line is the one to watch on the first real bill.** No
+  official page states whether a container's Durable Object accrues duration
+  while the container is awake. If it does, one DO at the billed 128 MB for a
+  full month is 336,384 GB-s against 400,000 included — inside, but 84% of the
+  allowance, and that is an estimate rather than a measurement.
+- **There is no automatic stop, so the stop is a procedure.** `wrangler delete`
+  removes the Worker, takes both uncapped lines to zero immediately, and costs
+  a redeploy to undo. Deciding that at 2am is worse than deciding it now.
 
 ## 7. What would reopen this
 
