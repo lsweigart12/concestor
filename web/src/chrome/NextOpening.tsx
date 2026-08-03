@@ -25,7 +25,6 @@
 
 import { Silhouette } from "../canvas/Silhouette";
 import type { Opening } from "../openings";
-import { kbd } from "./bindings";
 
 export function NextOpening({
   opening,
@@ -50,22 +49,37 @@ export function NextOpening({
           ))}
         </span>
         <span className="next-up-q">{opening.question}</span>
+        {/*
+          The same mark the carousel's card ends on, at the same corner and
+          lit by the same rule — the whole card's hover, never its own. This
+          is a small echo of that surface and the thing they most need to have
+          in common is what the press looks like before you make it.
+        */}
+        <span className="next-up-arrow" aria-hidden="true">
+          →
+        </span>
       </button>
       {/*
         Its own control rather than a corner of the card, because the card is one
         big target that draws a tree and a dismiss hidden inside it would be a
-        press that does the opposite of what the thing it sits on promises. The
-        badge is the same key the pinned answer above it took, so one letter
-        closes both in the order they arrived.
+        press that does the opposite of what the thing it sits on promises.
+
+        It used to print `esc`. The key still closes this — nothing about the
+        binding changed — but a keycap is a *teaching* mark and this corner is
+        not where that lesson belongs: it sat at the top of the reading order
+        of a card whose whole job is to offer a question, and the first thing
+        the reader met was how to refuse. An `×` is the same control read at a
+        glance and costs the offer nothing. The key survives in the tooltip,
+        for anyone who goes looking.
       */}
       <button
         type="button"
         className="next-up-close"
         onClick={onClose}
         aria-label="Dismiss"
-        title="Dismiss"
+        title="Dismiss (esc)"
       >
-        <span className="kbd">{kbd("escape")}</span>
+        ×
       </button>
     </aside>
   );

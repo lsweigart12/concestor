@@ -32,9 +32,21 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Silhouette } from "../canvas/Silhouette";
 import { OPENINGS, type Opening } from "../openings";
+import { kbd, matchKey } from "./bindings";
 
 /** Long enough to read two lines without racing, per the note above. */
 const DWELL_MS = 7600;
+
+/**
+ * Everything the browser already activates with Enter.
+ *
+ * The card, the arrows and the dots are all in here, which is the point: a
+ * reader who has tabbed to the card and presses Enter gets a click on it, and
+ * a window listener firing alongside that click would draw the opening twice.
+ * So the key is ours only when it is nobody else's.
+ */
+const OWNS_ENTER =
+  "button, a[href], input, select, textarea, summary, [role='button'], [contenteditable]";
 
 export function OpeningCarousel({
   onOpen,
@@ -50,9 +62,26 @@ export function OpeningCarousel({
    * paragraphs down has moved on.
    */
   autoRotate = true,
+  /**
+   * Whether Enter draws the question on show — see the `open-opening` row in
+   * `bindings.ts`.
+   *
+   * Its own prop rather than a second reading of `autoRotate`, because it is
+   * not a fact about this component at all: it is a fact about what is *on top
+   * of* it. The empty canvas's carousel stays mounted behind the about panel
+   * when that opens, and a key still bound to a card the reader can no longer
+   * see redraws the screen underneath the one they are reading. So the canvas
+   * turns this off while the panel is up, and the panel's own copy never turns
+   * it on — inside a modal a bare Enter belongs to the focus ring.
+   *
+   * The badge on the card rides on this too, on the rule the rest of the app
+   * follows: **a key is printed only where the press would do it.**
+   */
+  keyToOpen = false,
 }: {
   onOpen: (o: Opening) => void;
   autoRotate?: boolean;
+  keyToOpen?: boolean;
 }) {
   const [at, setAt] = useState(0);
   /** Set once the reader presses anything. Never cleared — see rule 2. */
@@ -77,6 +106,37 @@ export function OpeningCarousel({
     );
     return () => window.clearTimeout(t);
   }, [at, taken, held, autoRotate]);
+
+  /**
+   * Enter draws whatever is on show.
+   *
+   * The card has always been pressable and nothing on it said so — a question
+   * and an answer, centred, in an app whose empty state is otherwise prose. A
+   * reader who took it for a caption was reading it correctly. The badge below
+   * is half the fix and this is the other half: a key printed on a surface
+   * that does not answer it is worse than no badge at all.
+   *
+   * Deliberately *not* wired into `App`'s handler with the rest of the table.
+   * That one matches a key and then `preventDefault`s everything it matched,
+   * which is right for a letter the canvas owns outright and catastrophic for
+   * Enter — it would take keyboard activation off every button in the app. The
+   * `surface` scope is what keeps the two apart, and it does it structurally:
+   * `App` calls `matchKey` with the default scope and so is never handed this
+   * press at all, rather than being trusted to give it back.
+   */
+  useEffect(() => {
+    if (!keyToOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (matchKey(e, "surface") !== "open-opening") return;
+      if (e.target instanceof Element && e.target.closest(OWNS_ENTER)) return;
+      const shown = OPENINGS[at];
+      if (!shown) return;
+      e.preventDefault();
+      onOpen(shown);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [keyToOpen, at, onOpen]);
 
   const o = OPENINGS[at];
   if (!o) return null;
@@ -120,6 +180,40 @@ export function OpeningCarousel({
         </span>
         <span className="carousel-q">{o.question}</span>
         <span className="carousel-a">{o.reveal}</span>
+        {/*
+          What the press does, said inside the thing that does it.
+
+          A `span`, and styled with no box of its own, because **there is one
+          target here and it is the card**. The first attempt drew this as a
+          filled pill, which put a button inside a button: two shapes, the
+          inner one smaller and so read as the real one, on a surface where
+          pressing anywhere does the same thing. `styles.css` carries the rest
+          — the card is the object, this is its caption, and one hover lights
+          them together.
+
+          The badge rides on `keyToOpen` for the same reason the detail card's
+          remove badge rides on its remove state: **a key is printed only
+          where the press would do it.** In the about panel the card is still
+          one press away from a tree, so the words stay; Enter there belongs
+          to the modal's focus ring, so the badge goes.
+
+          No arrow beside the words, which is the one piece of the obvious
+          shape this refuses. A `→` on a carousel, six pixels from the `‹` and
+          `›` that step through it, reads as "next question" — the card would
+          gain an affordance and lose the two it had.
+        */}
+        <span className="carousel-go">
+          Explore this question
+          {keyToOpen && <span className="kbd">{kbd("open-opening")}</span>}
+          {/*
+            Decoration to a screen reader, which already has "Explore this
+            question" and the key: an arrow read aloud is a character name, not
+            a direction.
+          */}
+          <span className="carousel-go-arrow" aria-hidden="true">
+            →
+          </span>
+        </span>
       </button>
 
       <button
