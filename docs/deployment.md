@@ -676,19 +676,33 @@ replaced that binary. One `curl` did that. Real traffic would have done it to
 every popular URL, and the entries would have sat there for a year looking
 exactly like a successful deploy.
 
-`deploy-web.yml` now closes it: after `deploy`, poll `/v1/about` until the
-container reports the commit the pinned image tag names, then deploy again. The
-second version is a second empty cache, filled by the build that is actually
-running. It costs one extra Worker version and only when the container really
-rolled — a deploy that changes no image matches on the first poll and stops
-there. A timeout warns rather than fails, because the deploy did succeed; what
-is unestablished is that the container caught up.
+**The remedy is manual, and it is two commands.** After an image deploy, wait
+until `/v1/about` reports the commit the pinned tag names, then deploy again:
 
-Two things worth keeping if this is ever rewritten. **The window cannot be
-closed by ordering the deploy differently** — the container is named *by* the
-Worker config, so there is no way to roll it first. And **the second deploy is
-the cheap purge**: Workers Cache has no purge API of its own, and a new version
-is a new keyspace.
+```bash
+curl -s -H 'Cache-Control: no-cache' https://concestor.com/v1/about | jq -r .commit
+gh workflow run "Deploy web" -f release_tag=<the tag just released>
+```
+
+The second deploy is a new Worker version and so a new, empty cache — filled
+this time by the build that is actually running. **That is the whole purge
+mechanism available**: Workers Cache has no purge API of its own, and a new
+version is a new keyspace. Only needed where the *image tag* changed; a deploy
+that moves no image rolls no container and opens no window.
+
+**This was automated in `deploy-web.yml` and the automation was removed the
+same day.** The step polled `/v1/about` from the GitHub runner and every request
+came back unreachable — a `curl` from those IPs does not get through, where the
+identical one from a laptop is a `200`, bot protection on the zone being the
+likely reason. So it read "cannot see the site" as "still rolling" and spent its
+full ten-minute window on it, on every deploy, warning at the end and doing
+nothing. A guard that cannot reach the thing it guards is worse than a
+documented step: it stalls the pipeline and it looks like protection. Do not
+re-add it without first establishing that CI can read `concestor.com` at all.
+
+One more thing worth keeping: **the window cannot be closed by ordering the
+deploy differently.** The container is named *by* the Worker config, so there is
+no way to roll it first.
 
 ### `/v1/about` is short-lived
 

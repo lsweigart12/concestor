@@ -212,64 +212,22 @@ jobs:
             --var "API_ORIGIN:${API_ORIGIN}" \
             --message "${{ inputs.release_tag || github.sha }}"
 
-      # **A deploy is two things and they are not atomic.** The Worker version
-      # flips the moment `deploy` returns; the Container then pulls a 2.2 GB
-      # image, measured at ~3 minutes on 2026-08-03. Workers Cache is keyed by
-      # Worker version, so the new version starts with an empty cache — and
-      # every request arriving in that gap is answered by the **old**
-      # container and stored under the **new** version's key, wearing the long
-      # lifetime `docs/architecture.md` §4 gives a /v1 response. The deploy
-      # that was supposed to replace those bodies is what created the cache
-      # entries holding them.
+      # **A deploy is two things and they are not atomic**, and nothing here
+      # closes that. `deploy` returns when the Worker version is live; the
+      # Container pulls a 2.2 GB image behind it, ~3 minutes measured. Workers
+      # Cache is keyed by Worker version, so the new version starts empty and
+      # requests arriving in the gap are answered by the *old* container and
+      # cached under the *new* version's key for a year — the deploy creating
+      # the entries that outlive it. docs/deployment.md §5 has the measurement
+      # and the manual remedy, which is to wait for /v1/about to report the
+      # pinned commit and then re-run this workflow.
       #
-      # Not hypothetical. Verifying the v0.24.3 deploy two minutes in left
-      # `/v1/node/ott770315` HIT at the edge with the previous build's body
-      # and ETag, under an `immutable` the old binary was still sending. One
-      # curl did that; real traffic would have done it to every popular URL.
-      #
-      # So wait for the container to report the commit the pinned image tag
-      # names, then deploy again: a second version, a second empty cache,
-      # filled this time by the build that is actually running. It costs one
-      # extra version and only when the container really rolled — a deploy
-      # that changes no image matches on the first poll and stops there.
-      #
-      # A timeout warns rather than fails. The deploy itself succeeded; what
-      # has not been established is that the container caught up, and turning
-      # that into a red release would misname it.
-      - name: Wait for the container, then reset the edge cache
-        if: steps.guard.outputs.configured == 'true' && github.event_name != 'pull_request' && env.API_ORIGIN == ''
-        working-directory: web
-        env:
-          SITE: https://concestor.com
-        run: |
-          want=$(grep -o 'concestor-api:[^"]*' wrangler.jsonc | head -1)
-          want=${want##*-}
-          if [ -z "$want" ]; then
-            echo "::warning::Could not read the code half of the image tag; skipping the cache reset."
-            exit 0
-          fi
-          echo "pinned image names commit $want"
-
-          rolled=false
-          for i in $(seq 1 40); do
-            got=$(curl -fsS -H 'Cache-Control: no-cache' "$SITE/v1/about?deploy=$i" \
-                  | jq -r '.commit // ""' 2>/dev/null || echo "")
-            echo "  $(date -u +%H:%M:%S) container reports '${got:-unreachable}'"
-            if [ "$got" = "$want" ]; then rolled=true; break; fi
-            if [ "$i" = 1 ]; then first="$got"; fi
-            sleep 15
-          done
-
-          if [ "$rolled" != true ]; then
-            echo "::warning::The container has not reported $want after 10 minutes. The edge cache may hold responses from the previous build; re-run this workflow once /v1/about reports $want. docs/deployment.md §5."
-            exit 0
-          fi
-          if [ "$first" = "$want" ]; then
-            echo "The container was already on $want — no rollout, no window, nothing to reset."
-            exit 0
-          fi
-
-          echo "Container rolled to $want; redeploying to give it an empty cache."
-          npx wrangler deploy \
-            --var "API_ORIGIN:${API_ORIGIN}" \
-            --message "${{ inputs.release_tag || github.sha }} (post-rollout cache reset)"
+      # **This was automated here and the automation is deliberately gone.**
+      # The step polled `/v1/about` from the runner; every request came back
+      # unreachable — a curl from these IPs does not get through, where the
+      # same one from a laptop is a 200 — so it treated "cannot see the site"
+      # as "still rolling" and spent its whole ten-minute window on it, on
+      # every deploy, warning at the end. A guard that cannot reach the thing
+      # it guards is worse than a documented step: it stalls the pipeline and
+      # it looks like protection. Do not re-add it without first establishing
+      # that CI can read concestor.com at all.

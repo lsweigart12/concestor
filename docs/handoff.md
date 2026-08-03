@@ -1657,9 +1657,13 @@ back to a fingerprint of the executable where no commit was compiled in.
   pulls 2.2 GB behind it — ~3 minutes measured — and Workers Cache is keyed by
   version, so requests in that gap are answered by the **old** container and
   cached under the **new** version for a year. Verifying the deploy is what
-  triggered it. `deploy-web.yml` now waits for `/v1/about` to report the
-  commit the pinned tag names and then deploys again, because a new version is
-  the only purge Workers Cache has. deployment.md §5 has it.
+  triggered it. The remedy is manual and is two commands in deployment.md §5:
+  wait for `/v1/about` to report the pinned commit, then deploy again, because
+  a new version is the only purge Workers Cache has. It **was** automated in
+  `deploy-web.yml` and the automation is gone — the runner cannot reach
+  `concestor.com` at all, so the step read "unreachable" as "still rolling" and
+  stalled every deploy for its full ten-minute window while protecting nothing.
+  A guard that cannot see what it guards is worse than a documented step.
 - **`/v1/about` is `max-age=60, must-revalidate`, not `no-store`.** It is the
   endpoint that answers "what is running", so it must be askable again; but it
   is fetched on every page load, and `no-store` would take request collapsing
