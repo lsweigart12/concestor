@@ -376,6 +376,34 @@ second copy on a page the reader is not on could only go stale against it. This
 does not weaken the honesty rule; it stops stating it twice in two places that
 can disagree.
 
+**The column is a layout width, and each run of prose carries its own measure.**
+It was `65ch` on `.page-body` alone, which is a reading measure standing in for a
+layout, and on a large monitor the difference showed: 573px of content centred in
+1920, under a strip of drawings running the full width, with the feature cards
+pinned at the 260px floor `auto-fit` will not go below. A 3× mismatch between the
+widest thing on the page and the column under it does not read as a comfortable
+measure; it reads as a broken one. `.page` now carries `--page-w: 62rem` and
+`.page-bar`, `.page-body` and the footer all hang off it, so the way back sits
+over the first word of the hero instead of in the viewport's corner half a screen
+away. Three things decided it:
+
+- **62rem is chosen by the feature grid, not by taste.** 960px of content divides
+  three ways at the grid's own 260px floor and not four, so six cards are two full
+  rows; a wider column gives four and leaves a row of two hanging.
+- **A measure that stayed on the container silently stops working when the
+  container becomes a layout.** `.page-list` went to `auto-fit` with a 28rem
+  floor — two columns of ~65 characters where the page has room for two, one
+  below — and a floor has to leave room for *two* of itself inside `--page-w` or
+  it buys nothing: at 34rem the pair wanted 1112px of 960 and the list stayed
+  single at full width, the 140-character line the rule exists to prevent. The
+  cap that keeps a *single* column readable is on the `li` (34rem), because a
+  `1fr` track fills whatever it is handed and between one column and two — a
+  768px tablet — that track is 721px.
+- **The hero claim has a display measure of its own (28ch).** Across the full
+  62rem the sentence fits *once*, in a single 900px run, which is the one shape a
+  claim must not take: the eye travels the whole page width to read the thing it
+  stopped on. The clamp's cap rose 34 → 38px with the extra room.
+
 `Where this comes from` names **the joins rather than the sources** — a
 chronogram matched clade by clade, PBDB homonyms refused on an extancy
 disagreement, a silhouette carrying the size of its own claim, names ordered by

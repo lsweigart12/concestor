@@ -3626,6 +3626,26 @@ body {
  * documents' scroll behaviour in a global that either of them can get wrong.
  */
 .page {
+  /*
+   * The column every block on this page hangs off, the bar included.
+   *
+   * It was `65ch` on `.page-body` alone, which is a reading measure standing in
+   * for a layout, and on a large monitor the difference showed: 573px of
+   * content centred in 1920, under a strip of drawings running the full width,
+   * with feature cards pinned at the 260px floor `auto-fit` will not go below.
+   * A 3× mismatch between the widest thing on the page and the column under it
+   * does not read as a comfortable measure, it reads as a broken one.
+   *
+   * So the column is a *layout* width and each run of prose carries its own
+   * measure — `.hero-claim`, `.hero-sub`, `.page-list`. Nothing gained a line
+   * length by this; the cards and the source list gained the room to sit two
+   * and three abreast, which is what a wide screen is for.
+   *
+   * 62rem is where the feature grid resolves to three columns rather than four:
+   * six cards are two rows of three, and four would leave a row of two hanging.
+   */
+  --page-w: 62rem;
+
   height: 100%;
   overflow-y: auto;
   /* Pays for the stream's full-bleed break-out. `.stream` says why. */
@@ -3634,23 +3654,27 @@ body {
   color: var(--ink-3);
 }
 
-/* Sticky, because the way back should not require finding the top again. */
+/*
+ * Sticky, because the way back should not require finding the top again.
+ *
+ * Its padding is the column's own left edge rather than a flat `--s4`: with the
+ * body centred and the button at the viewport's corner, the two are half a
+ * screen apart on a wide monitor and nothing says they belong to one page. The
+ * `max()` floors it at `--s4`, so below the column width this is the rule it
+ * replaced. `+ var(--s4)` lands it on the body's *text*, not on its border box.
+ */
 .page-bar {
   position: sticky;
   top: 0;
   z-index: 2;
   display: flex;
-  padding: var(--s3) var(--s4);
+  padding: var(--s3)
+    max(var(--s4), calc((100% - var(--page-w)) / 2 + var(--s4)));
   background: linear-gradient(var(--void) 68%, transparent);
 }
 
-/*
- * `65ch` rather than a pixel width: the measure that matters is characters per
- * line, and this page is text. The feature grid below breaks out of it on its
- * own by going two-column, which is the only place a wider column reads better.
- */
 .page-body {
-  max-width: 65ch;
+  max-width: var(--page-w);
   margin: 0 auto;
   padding: 0 var(--s4) var(--s6);
 }
@@ -3696,10 +3720,17 @@ body {
  * `clamp` because at 30px this is two lines on a phone and one on a laptop, and
  * a fixed size gets one of those wrong. `--w-med` is the heaviest weight the
  * project has; the emphasis is size and ink, never a third weight.
+ *
+ * The measure is its own and is not the column's. A display line set across the
+ * full 62rem fits this sentence *once*, in a single 900px run — which is the
+ * one shape a claim like this must not take, because the eye has to travel the
+ * whole page width to read the thing it stopped on. 28ch holds it to two lines
+ * at every size the clamp reaches, and `balance` splits them evenly.
  */
 .hero-claim {
   margin: 0 0 var(--s3);
-  font-size: clamp(24px, 4.4vw, 34px);
+  max-width: 28ch;
+  font-size: clamp(24px, 4.4vw, 38px);
   line-height: 1.18;
   letter-spacing: -0.015em;
   font-weight: var(--w-med);
@@ -3840,11 +3871,16 @@ body {
 /* -------------------------------------------------------------- features -- */
 
 /*
- * Two columns from 640px up, one below.
+ * One column, then two from 640px up, then three once the column reaches its
+ * full 62rem.
  *
  * `auto-fit` with a 260px floor rather than a media query, so the breakpoint is
  * a property of the content: the cards go one-up exactly when two of them would
  * be too narrow to hold a heading on one line, whatever the viewport is doing.
+ * The third column is the same rule read the other way, and it is why `--page-w`
+ * is 62rem and not more — the floor divides 960px of content three ways and not
+ * four, so six cards are two full rows rather than a row of four and a row of
+ * two.
  */
 .feature-grid {
   display: grid;
@@ -3893,8 +3929,38 @@ body {
  * `em` so it tracks the text if the size ever moves. The hanging indent is what
  * `list-style: none` buys: a wrapped second line aligns with the first word,
  * not with the dot, so a four-line item still reads as one claim.
+ *
+ * **Two columns where the page has the room for two full measures**, by the
+ * same `auto-fit` reasoning the feature grid uses and for a stronger reason:
+ * these items run three and four lines each, so in one column across a wide
+ * page they are either a 120-character line or a narrow ribbon down the left of
+ * a great deal of nothing. `28rem` is the floor because that is this measure —
+ * about 65 characters at 13px — and a column that cannot hold it is not a
+ * column. `min(100%, …)` keeps the item from overflowing a viewport narrower
+ * than the floor, which is the standard `auto-fit` guard.
+ *
+ * The floor has to leave room for *two* of itself inside `--page-w` or it
+ * silently buys nothing: at 34rem the pair wanted 1112px of a 960px column and
+ * the list stayed single, at its full width, which is the 140-character line
+ * this rule exists to prevent.
+ *
+ * **The measure is the item's, and the grid only decides how many columns.** A
+ * `1fr` track fills whatever it is handed, so between one column and two — a
+ * 768px tablet, where the page is full width and a second track still will not
+ * fit — the single track came out 721px and the line 110 characters. The cap on
+ * the `li` is what `.page-body`'s old 65ch was quietly doing for this list; it
+ * is stated here now because the column above is a layout and no longer a
+ * measure. Two columns never reach it, so it costs nothing where it does not
+ * apply.
+ *
+ * The gap replaces the per-item margin rather than joining it: with rows laid
+ * out by the grid, `:last-child` zeroing a margin would only ever have caught
+ * the last *item* and not the last item in the first column.
  */
 .page-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 28rem), 1fr));
+  gap: var(--s3) var(--s5);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -3904,11 +3970,9 @@ body {
 }
 .page-list li {
   position: relative;
-  margin: 0 0 var(--s3);
+  max-width: 34rem;
+  margin: 0;
   padding-left: var(--s4);
-}
-.page-list li:last-child {
-  margin-bottom: 0;
 }
 .page-list li::before {
   content: "";
