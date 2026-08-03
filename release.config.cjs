@@ -23,7 +23,47 @@ module.exports = {
   branches: ["main"],
   tagFormat: "v${version}",
   plugins: [
-    "@semantic-release/commit-analyzer",
+    [
+      "@semantic-release/commit-analyzer",
+      {
+        // **This is the only place the bump is decided, and the only place it
+        // is written down.** `feat:` bumps the minor, `fix:` the patch,
+        // `BREAKING CHANGE:` in a body the major; `build`, `chore`, `ci`,
+        // `docs`, `refactor`, `style` and `test` release nothing. A `revert:`
+        // releases nothing on its own but cuts a patch when it carries git's
+        // own `This reverts commit <sha>.` footer — the analyser reads the
+        // footer rather than the prefix, and the same footer is what drops the
+        // reverted commit from the analysis.
+        //
+        // `perf` deliberately does not bump — a faster induced-subtree walk is
+        // not a new capability, and shipping it as one would make the version
+        // number a worse description of the change than the commit already is.
+        // That is the whole of the difference from the preset: everything
+        // above is the default angular rules, under which `perf` cuts a patch.
+        //
+        // It had been asserted in three prose files and enforced in none, and
+        // the prose named `commitlint.config.cjs` as the source — a file that
+        // decides which types are *well-formed* and has never decided which
+        // ones bump. So the rule is stated here, next to the two lines that
+        // make it true, and the prose now points here rather than restating
+        // it.
+        //
+        // The second rule is not redundant and is the one to watch: a commit
+        // matching *any* custom rule skips the default rules entirely, so
+        // `{type: "perf", release: false}` alone swallows a breaking `perf:`
+        // — measured, no release at all, which is a worse answer than the
+        // patch this exists to prevent. Handing the breaking case back to
+        // `major` explicitly is what keeps `BREAKING CHANGE:` unconditional.
+        //
+        // Not bumping is not the same as not being mentioned: a `perf:` riding
+        // in the same release as a `feat:` still gets its own line in the
+        // notes below. It just cannot cut a version by itself.
+        releaseRules: [
+          { type: "perf", release: false },
+          { type: "perf", breaking: true, release: "major" },
+        ],
+      },
+    ],
     "@semantic-release/release-notes-generator",
 
     [

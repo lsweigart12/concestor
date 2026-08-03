@@ -29,7 +29,7 @@ concurrency:
 
 jobs:
   # The version is a function of the commit log, so the commit log is an
-  # input to the build and gets checked like one. `.commitlintrc.json` turns
+  # input to the build and gets checked like one. `commitlint.config.cjs` turns
   # off everything the default config asks for beyond the type prefix — the
   # subject stays a sentence in this project's own voice.
   commits:

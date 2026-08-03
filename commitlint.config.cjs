@@ -36,11 +36,13 @@ module.exports = {
   ignores: [(message) => /^Signed-off-by: dependabot\[bot\]/m.test(message)],
 
   rules: {
-    // The types semantic-release's default analyser understands. `feat`
-    // bumps the minor and `fix` the patch; the rest release nothing.
-    // `perf` deliberately does not bump — a faster induced-subtree walk is
-    // not a new capability, and shipping it as one would make the version
-    // number a worse description of the change than the commit already is.
+    // The types semantic-release's analyser understands. This list decides
+    // which types are *well-formed*, and nothing else: which of them bump,
+    // and by how much, is `release.config.cjs`'s `releaseRules` and is
+    // written down there. It used to be described here too, and the
+    // description drifted out of agreement with the analyser without anything
+    // failing — a linter that cannot cut a release is not a place to record
+    // what cutting one costs.
     "type-enum": [
       2,
       "always",

@@ -195,12 +195,13 @@ merge → CI green on main → semantic-release → tag + GitHub Release → dep
 
 ### The version is a function of the commit log
 
-Conventional Commits, per `commitlint.config.cjs`. `feat:` bumps the minor,
-`fix:` the patch, `BREAKING CHANGE:` in a body bumps the major; `docs`,
-`chore`, `ci`, `refactor`, `test`, `build`, `style` and `revert` release
-nothing. **`perf` deliberately does not bump** — a faster induced-subtree walk
-is not a new capability, and shipping it as one makes the version a worse
-description of the change than the commit already was.
+Conventional Commits. Two files, and they do different jobs: which types are
+**allowed** is `commitlint.config.cjs`, which of them **bump** is
+`release.config.cjs`'s `releaseRules`. **The mapping is written down in that
+second file and deliberately nowhere else**, including here — it was stated in
+three prose places and enforced in none, all three naming the linter as the
+source, and under the analyser's untouched preset defaults `perf` had been
+cutting a patch the whole time it was documented not to.
 
 The type prefix is the whole of what the convention imposes here. The subject
 stays a sentence in this project's voice:
@@ -230,10 +231,10 @@ only who wrote it.
 So `commitlint.config.cjs` **ignores commits signed off by
 `dependabot[bot]`**, and `.github/dependabot.yml` settles the type instead,
 before the commit is written rather than after: **`ci` for the workflows,
-`build` for npm, gomod and uv.** Both release nothing, which is the intended
-answer — a dependency bump is not a feature and not a fix, and cutting a
-version for one makes the tag a worse description of what changed than the
-commit already is.
+`build` for npm, gomod and uv.** Both are types `release.config.cjs` leaves
+alone, which is the intended answer — a dependency bump is not a feature and
+not a fix, and cutting a version for one makes the tag a worse description of
+what changed than the commit already is.
 
 Two things follow that are easy to get wrong. The exemption keys on the
 **sign-off trailer**, not the author, because commitlint is handed a message
