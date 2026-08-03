@@ -67,9 +67,12 @@ filter tween on the same element.
 
 - **Every binding is a bare letter, and nothing here holds a modifier.** `P`
   opens the palette, `S` opens it filtered to species, `F` fits, `/` isolates,
-  `Tab` steps, `L` switches the time scale, `R` adds a random species, `C`
-  clears. Shift is the *variant* of a binding and never a second one, so a
-  reader who learns `F` has already guessed `⇧F`. A variant is only earned
+  `Tab` steps, `T` switches the time scale, `L` cycles the labels, `A` the ages,
+  `B` the light, `R` adds a random species, `C` clears. The four canvas modes
+  hold the letters that name them, which is why the time scale is on `T` and no
+  longer on `L`: `l` names the labels, where it only ever named one of the two
+  scales it toggled between. Shift is the *variant* of a binding and never a
+  second one, so a reader who learns `F` has already guessed `⇧F`. A variant is only earned
   where the two halves are the same action pointed at different scopes: `⇧R`
   drew a random *fossil* until the two corpora became one search, and it was a
   variant of nothing — the two picks differed in which catalogue the animal was
@@ -255,7 +258,7 @@ below is that one rule applied to the three things that overlap on the canvas.
   10px dot. In practice the case is rare — the placement pass tests every
   candidate against the traces, so it only arises when nothing is clear, which
   is the same condition that draws the scrim. Measured on a twelve-carnivoran
-  canvas at the lowest zoom tier, 2,249 points sampled along every drawn trace:
+  canvas fully pulled back, 2,249 points sampled along every drawn trace:
   **no point of any trace was taken by a label**, and 92.9% of trace centreline
   stayed reachable both before and after labels became clickable. The 7.1% that
   is not reachable is covered by the node dots at the segment endpoints, which
@@ -318,26 +321,128 @@ below is that one rule applied to the three things that overlap on the canvas.
 
 ## Zoom
 
-- Semantic zoom, not scale zoom. Nodes change *what* they render at each
-  level, not just their size.
-- Three tiers: mark and silhouette → **+ rank and name** → **+ age**.
-- **The age is last on and first off**, because the canvas already states it
-  another way: x is time and there is a ruler under it. Everything else on a
-  label is unavailable anywhere else on screen, so a figure that repeats a
-  position is the first thing that can be spent.
-- **But last is not much later.** The ruler gives a *position*; only the row
-  gives the number and its tier, so the two thresholds sit close together —
-  0.55 for the name, 0.62 for the age. They were 0.55 and **1.15**, and the fit
-  lands at 0.70 for four species and 1.144 for six, so the age was absent from
-  the default view and from nearly the whole band in which a label is drawn at
-  all. A tier that is never reached is not a tier. `Z_LABEL` / `Z_DETAIL` in
-  `web/src/canvas/Graph.tsx` are the numbers.
+- **Zoom is scale and nothing else.** A mark renders the same rows at 0.12 as
+  at 3.0; only their size changes.
+- **Semantic zoom was tried here and removed.** Three tiers — mark and
+  silhouette → + rank and name at 0.55 → + age at 0.62 — and it was the wrong
+  instrument for this canvas. Zoom is how a reader *looks* at a tree: pulling
+  back to see the whole shape is the most ordinary thing they do, and it took
+  every name with it, while reading one name meant zooming until the tree no
+  longer fitted. Neither was ever asked for.
+- It also hung meaning off a threshold the fit wanders across. The age tier sat
+  at **1.15** and the fit lands at 1.144 for six species, so *adding a sixth
+  species* silently stripped a row from every label on screen. The rule worth
+  keeping from all of it: **nothing load-bearing may hang off a threshold the
+  fit can cross on its own.**
+- What survives is the *ordering* the tiers had right, now as two controls
+  rather than one axis. **The age is the row a reader can spend**, because the
+  canvas already states it another way — x is time and there is a ruler under
+  it — where everything else on a label is unavailable anywhere else on screen.
+  So the ages switch separately from the words. The rank does not: it is what
+  says a derived name is derived, and a control whose only honest setting is on
+  is not a control.
 - `F` fit all · `⇧F` fit selection · `/` isolate path to root.
+
+## What a label says
+
+Three controls on the bottom-left edge, above the axis, one set: **things that
+change how the canvas is drawn rather than what is on it.** The control bar at
+the top owns the other half of that split.
+
+**They are drawn as one panel and not as three chips**, and the anatomy is worth
+stating because the first version got all three parts of it wrong:
+
+- **One border, and two columns the rows share.** Each control drawing its own
+  border made a set look like clutter: three widths, three left edges, and the
+  columns inside them starting at three different x positions. The rows share
+  the panel's grid through `subgrid`, so the badges and the switches line up
+  down the stack whatever the words are, and a row with no key leaves its cell
+  empty rather than sliding left.
+- **The caption stacks above its own switch**, on a line of its own. Given a
+  column instead, that column is as wide as the longest word in the *set* —
+  `BIOLUMINESCENCE` setting the indent of a row that reads `AGES` — so two of
+  three rows carried a run of dead space and the panel was half caption. A line
+  costs one row of 9px type and takes the panel from 322px wide to 217.
+- **The caption is not one of the options.** Set in the same face as the
+  segments it read as a fourth one — `labels off scientific common` is four
+  words in a row and only three are pressable. It is small-caps mono, the
+  vocabulary this app already uses for a field label (a mark's rank row), and
+  the options sit in a **recessed track** so the boundary of what can be pressed
+  is visible before any of the words are read.
+- **The switches are one width, and it is the narrowest one available.** An
+  option grows from its own word rather than from zero (`flex: 1 1 auto`), so
+  the three-option row packs as tight as its words allow and therefore *sets*
+  the common width — 164px — while the two-option rows spread into it. Sharing a
+  width out equally instead (`flex: 1`) makes the widest word in a row set every
+  option in it: `off` as wide as `scientific`, three times over, and a switch
+  half again as wide as it needs to be. The horizontal padding is 6px because it
+  is multiplied by six across the widest row.
+- **The panel clears the epoch band.** Resting a control on the chart it
+  annotates reads as one object.
+- **It is not a card, and it does not announce itself.** It had a border, a
+  filled background and `--ink` on the chosen option, which made it the
+  brightest thing on screen — a lit rectangle in the corner of an instrument
+  whose whole principle is *the graph is the only light source*. It has no
+  border and no fill now, sits at 0.62 opacity until hovered or focused, and
+  the chosen option is `--ink-2` on the faintest well that still reads as a
+  container. Chrome here recedes; `.controls` along the top edge has done this
+  from the beginning.
+- **A choice away from the default is not lit, and exactly one control is.**
+  Every chip used to take the accent when it left its default — a tinted row, an
+  accent ring, accent type — and three of those at once is what made the corner
+  shout, for a *setting*. The chosen segment already says where the control is;
+  that the reader chose it rather than inherited it is not worth a colour.
+  **Bioluminescence is the exception and stays the exception**: it glows,
+  in the mode's own cyan, because glowing is literally what it does and the chip
+  is the only chrome that can preview the mode before a reader commits to it.
+  The `modified` prop went with the rule — two of three callers were carrying a
+  flag nothing read.
+
+- **labels: off · common · scientific**, with **common the default** and sitting
+  in the middle. The default follows from the audience and nothing else: this is
+  for curious people rather than for biologists, so `Human` and `Chimpanzee`
+  tell a stranger what they are looking at where `Homo sapiens` and *Pan
+  troglodytes* tell a specialist something they already knew. The formal name is
+  one press away and is what a reader who wants it goes looking for. Ordered by
+  how much they take away from the canvas, so the two things a reader might want
+  next sit either side of where they land, and `L` walks the segments left to
+  right — the chip is a picture of what the key does.
+- `off` is a real state and not an absence of one — a tree read for its shape is
+  a different reading from a tree read for its names, and the words are what
+  make the first hard to see; the marks, traces and silhouettes stay.
+- **common names are for genus, species and subspecies only**, and are the name
+  ranked *first* by use (`docs/name-ranking.md`). Above genus a common name
+  names a group rather than a kind of animal and the word's ordinary referent is
+  usually something else — `bug`, `man`, `moth`. The restriction is applied in
+  the server, which does not send one, and again in `markName`, which would not
+  draw one.
+- **The canvas is mixed in common mode and that is the design** — which is the
+  cost of the default rather than an argument against it: it is free where there
+  is no English name and pays where there is. 110,794 nodes
+  of 2,725,682 carry an English name, so most of a deep tree falls back — and a
+  divergence falls back more often than a leaf, because the derived name reads
+  the *genus* off the suppressed run and 5,548 genera have a ranked name against
+  99,960 species. **Italics are the channel that says which**: a scientific name
+  is italic at genus and below, a common name never is.
+- **ages: on · off.** On by default, since deep time is what the app is for.
+- **None of the three is in the URL.** They join bioluminescence in
+  `sessionStorage`, per-tab, and the line is what a setting is *about*:
+  everything in the link is a claim about taxa, and these are claims about the
+  reader — which name they read a taxon by, whether they want the figure, how
+  they want light drawn. A shared link would otherwise impose one person's
+  habits, and in the worst case open on a canvas of unnamed dots. The time
+  scale stays in the link, because it is the scale the tree was *read* on.
+- `L` cycles the labels, `A` flips the ages, `B` the light, and `T` is the time
+  scale — moved off `L` when the labels wanted the letter it named better.
+  Cycling is legible on `L` alone because the chip beside it shows where the
+  press landed and what the next one will do.
 
 ## The detail card
 
-The third zoom tier, and the only surface in the product that is *read* rather
-than scanned.
+The only surface in the product that is *read* rather than scanned. It was
+described here as "the third zoom tier" while the canvas had tiers; it never
+was one — it is opened by a click and closed by `esc`, and the zoom has nothing
+to do with it.
 
 **The card never covers what it is about.** It hangs in the top-right corner
 over a canvas that used to measure itself against the whole window, so opening a

@@ -1,5 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { decode, encode, loadBiolum, toUrlKey } from "./store";
+import {
+  AGES_DEFAULT,
+  decode,
+  encode,
+  LABELS_DEFAULT,
+  loadAges,
+  loadBiolum,
+  loadLabels,
+  toUrlKey,
+} from "./store";
 
 /**
  * `encode` and `decode` each name the *non-default* axis explicitly, in
@@ -48,6 +57,33 @@ describe("axis in the URL", () => {
     expect(back.axis).toBe("log");
     expect(back.selected).toBe("770315");
     expect(back.isolate).toBe(true);
+  });
+});
+
+/**
+ * The two label switches stay out of the link, like the light.
+ *
+ * The rule is what a setting is *about*. Everything `encode` writes is a claim
+ * about taxa; these two are claims about the reader — which name they read a
+ * taxon by, whether they want the figure — and a link carrying them imposes one
+ * person's habits on somebody who did not ask. The louder half of that: a link
+ * made while the labels were **off** would open on a canvas of unnamed dots,
+ * with nothing on screen saying why.
+ */
+describe("the canvas modes are not in the link", () => {
+  it("writes neither, whatever the reader chose", () => {
+    expect(encode(decode(""))).toBe("/");
+    expect(encode(decode("?n=770315"))).toBe("?n=770315");
+  });
+
+  it("reads neither back, including from a link that carries them", () => {
+    // A link from the build that did put them there, or a hand-written one.
+    // Both are answered the same way: the parameters are dropped, the taxa are
+    // kept. Same treatment `bio=1` gets.
+    expect(encode(decode("?names=common&ages=0"))).toBe("/");
+    expect(encode(decode("?n=770315&names=off&ages=0&bio=1"))).toBe("?n=770315");
+    expect("labels" in decode("?names=common")).toBe(false);
+    expect("ages" in decode("?ages=0")).toBe(false);
   });
 });
 
@@ -108,14 +144,14 @@ describe("keys have one spelling", () => {
 });
 
 /**
- * The mode is off unless this tab's own session says otherwise, and these pin
- * the two halves of that.
+ * Each canvas mode is at its default unless this tab's own session says
+ * otherwise, and these pin the two halves of that.
  *
  * Worth its own block because the failure is silent and it is the one the whole
- * design is arranged to prevent: a reader who never asked for it arriving at a
- * canvas that moves. Nothing here can be satisfied by a value that leaks in
- * from a link, from another tab, or from a previous visit — only from a
- * deliberate `sessionStorage` write in this one.
+ * design is arranged to prevent: a reader who never asked for a mode arriving in
+ * it. Nothing here can be satisfied by a value that leaks in from a link, from
+ * another tab, or from a previous visit — only from a deliberate
+ * `sessionStorage` write in this one.
  */
 describe("bioluminescence is off by default", () => {
   const stub = (store: Record<string, string>) =>
@@ -151,5 +187,67 @@ describe("bioluminescence is off by default", () => {
       },
     });
     expect(loadBiolum()).toBe(false);
+  });
+});
+
+describe("the labels and the ages come out of this tab's session", () => {
+  const stub = (store: Record<string, string>) =>
+    vi.stubGlobal("sessionStorage", {
+      getItem: (k: string) => store[k] ?? null,
+    });
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("puts a stranger on common names, with the ages on", () => {
+    // The one place the *value* is pinned rather than the behaviour, because
+    // this is a decision rather than a mechanism: the product is for curious
+    // people rather than for biologists, so `Human` leads and `Homo sapiens` is
+    // one press away. Changing it should mean editing a test that says so.
+    expect(LABELS_DEFAULT).toBe("common");
+    expect(AGES_DEFAULT).toBe(true);
+    stub({});
+    expect(loadLabels()).toBe(LABELS_DEFAULT);
+    expect(loadAges()).toBe(AGES_DEFAULT);
+  });
+
+  it("reads back only the three values it writes", () => {
+    for (const m of ["off", "scientific", "common"] as const) {
+      stub({ "concestor.labels": m });
+      expect(loadLabels(), m).toBe(m);
+    }
+    // Three states is the failure the booleans cannot have: a stored value this
+    // app did not write has somewhere *wrong* to land, so it is looked up in
+    // the list rather than compared down a chain. Asserted against the default
+    // rather than against a literal — what is under test is that it lands
+    // *home*, wherever home is.
+    for (const v of ["vernacular", "common names", "1", "", "OFF"]) {
+      stub({ "concestor.labels": v });
+      expect(loadLabels(), v).toBe(LABELS_DEFAULT);
+    }
+  });
+
+  it("turns the ages off only for an exact stored '0'", () => {
+    // Spelled as the negative because on is the default, which is the same
+    // shape as the light's rule read from the other side: a value we did not
+    // write leaves the reader where a stranger starts.
+    stub({ "concestor.ages": "0" });
+    expect(loadAges()).toBe(false);
+    for (const v of ["1", "", "off", "false"]) {
+      stub({ "concestor.ages": v });
+      expect(loadAges(), v).toBe(true);
+    }
+  });
+
+  it("falls back to the defaults where storage throws", () => {
+    // Private browsing and blocked-storage settings throw on access rather than
+    // returning null. A mode that is optional by design must not take the app
+    // down with it, and the default costs nothing to fall back to.
+    vi.stubGlobal("sessionStorage", {
+      getItem: () => {
+        throw new Error("SecurityError");
+      },
+    });
+    expect(loadLabels()).toBe(LABELS_DEFAULT);
+    expect(loadAges()).toBe(AGES_DEFAULT);
   });
 });

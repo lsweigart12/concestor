@@ -9,11 +9,20 @@
  *
  *   /?n=770315,153563,664349&axis=log&sel=770315&iso=1
  *
- * The one thing deliberately outside that is bioluminescence, which is not view
- * state at all: it says how one reader wants light drawn rather than anything
- * about the taxa on screen, so it lives in `sessionStorage` and never in a link.
- * See {@link BIOLUM_KEY}. Nothing else may follow it out — the rule holds for
- * every claim the canvas makes about data.
+ * Outside that sit the three **canvas modes** — bioluminescence, the labels and
+ * the ages — in `sessionStorage` and never in a link. The line is what a setting
+ * is *about*: everything in `ViewState` is a claim about taxa, and a link
+ * carrying it hands the recipient the sender's finding. These three say how one
+ * reader wants the canvas drawn, which is a fact about the reader. A tree shared
+ * with `names=common` would impose one person's reading habit on somebody who
+ * did not ask for it, and — the sharper case — a link made while the labels were
+ * *off* would open on a canvas of unnamed dots.
+ *
+ * `sessionStorage` rather than `localStorage`, per-tab, so a link always opens
+ * at the defaults in a fresh tab while a reader who chose something keeps it
+ * across reloads and across every link they follow in that tab. {@link BIOLUM_KEY}
+ * carries the rest of the argument; the labels and the ages joined it, and
+ * nothing that makes a claim about the *data* may follow them out.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -21,12 +30,15 @@ import { beacon, type Cause } from "../analytics/beacon";
 import { api, type FossilTaxon, type PathNode, type Resolved } from "../api";
 import { addDelta, induced, type AddDelta, type Induced } from "../tree/induced";
 import type { AxisMode } from "../tree/layout";
+import type { LabelMode } from "../tree/naming";
 import { plan, remaining, step, type Sequence } from "./sequence";
 
 // One definition, in the module that does the mapping. The axis mode is view
 // state, but it is *also* the scale the layout is computed on, and two copies
-// of the union is how the toggle became a caption in the first place.
-export type { AxisMode };
+// of the union is how the toggle became a caption in the first place. The label
+// mode is the same shape of thing: `naming.ts` resolves a mark's string from it
+// and the layout is measured against that string, so the union belongs there.
+export type { AxisMode, LabelMode };
 
 export interface ViewState {
   /** OTT ids or node keys, in selection order (which is *not* render order). */
@@ -56,51 +68,132 @@ export interface ViewState {
 }
 
 /**
- * Bioluminescence: the optional light. Deliberately **not** in {@link ViewState},
- * and so deliberately not in the URL.
+ * The three canvas modes: the light, the labels and the ages. Deliberately
+ * **not** in {@link ViewState}, and so deliberately not in the URL.
  *
- * Every other member of `ViewState` is a claim about *taxa* — which ones, on
- * what scale, with what dimmed — and a link carrying them hands the recipient
- * the sender's finding. Bioluminescence is a claim about nothing: it says how
- * one reader wants light drawn. Putting it in the link means sharing a tree
- * also imposes the lighting somebody happened to be using, on a reader who did
- * not ask for it and may not want a canvas that moves.
+ * Every member of `ViewState` is a claim about *taxa* — which ones, on what
+ * scale, with what dimmed — and a link carrying them hands the recipient the
+ * sender's finding. These three are claims about the reader: how they want light
+ * drawn, which name they read a taxon by, whether they want the figure. Putting
+ * them in the link means sharing a tree also imposes the habits somebody
+ * happened to be using on a reader who did not ask for them — and one of the
+ * three fails louder than the others, because a link made while the labels were
+ * *off* opens on a canvas of unnamed dots.
  *
  * `sessionStorage` rather than `localStorage`, and the difference is the whole
- * point: it is per-tab, so a shared link opened in a new tab starts at
- * {@link BIOLUM_DEFAULT} — off — while a reader who turned it on keeps it
- * across reloads and across every link they follow in that tab. That also
- * answers the objection to a stored preference, which was that a link would
- * arrive looking like whatever the *recipient* last chose: a fresh tab has
- * chosen nothing.
+ * point: it is per-tab, so a shared link opened in a new tab starts at the
+ * defaults below, while a reader who chose something keeps it across reloads and
+ * across every link they follow in that tab. That also answers the objection to
+ * a stored preference, which was that a link would arrive looking like whatever
+ * the *recipient* last chose: a fresh tab has chosen nothing.
  *
- * Consequences worth knowing. The mode is outside history, so back and forward
- * no longer toggle the lights — correct, because pressing back is a request for
- * a previous *view*. And a canvas somebody lit is no longer a canvas they can
- * send; that is the trade this makes on purpose.
+ * Consequences worth knowing. The modes are outside history, so back and forward
+ * no longer step through them — correct, because pressing back is a request for
+ * a previous *view*. And a canvas somebody lit, or read in English, is not a
+ * canvas they can send; that is the trade this makes on purpose.
  */
 const BIOLUM_KEY = "concestor.biolum";
+const LABELS_KEY = "concestor.labels";
+const AGES_KEY = "concestor.ages";
 
-/** Off, and it must stay off: the instrument as it was is what a reader arrives at. */
-const BIOLUM_DEFAULT = false;
+/**
+ * Every value the labels mode may take, most importantly for *reading one back*.
+ *
+ * Three states rather than two, which adds a failure the booleans cannot have:
+ * a stored value this app did not write has somewhere wrong to land. So the
+ * loader looks it up in this list and falls to the default, rather than falling
+ * through a chain of comparisons.
+ */
+export const LABEL_MODES = ["off", "scientific", "common"] as const;
 
-export function loadBiolum(): boolean {
+/**
+ * Common, on, off — and a default is an answer to *who arrives here*.
+ *
+ * Nobody sees a default having chosen it, so the question is what a stranger
+ * should meet rather than what an enthusiast would pick. **This product is for
+ * curious people interested in evolution, not for evolutionary biologists**, and
+ * the whole of the labels default follows from that one sentence: `Human` and
+ * `Chimpanzee` tell a stranger what they are looking at, where `Homo sapiens`
+ * and `Pan troglodytes` tell a specialist something they already knew. The
+ * scientific name is one press away and is what a reader who wants it goes
+ * looking for; a reader who does not know they want it will never find the tree
+ * legible.
+ *
+ * The mixture is the cost rather than the argument against. 110,794 nodes of
+ * 2.7M carry an English name, so most of a deep tree falls back to Latin anyway
+ * — which means this default is free where there is no common name and pays
+ * where there is, and the italics say which is which.
+ *
+ * Ages on because deep time is what this app is *for*: the figure beside a fork
+ * is the finding, and a first view without it is a shape. The light off because
+ * the plain instrument is what a reader arrives at.
+ *
+ * They are exported because the chips read them. Which value is the default
+ * decides which way `is-modified` lights, and a control with its own copy of
+ * that is a control that can disagree with the store about what it is showing.
+ */
+export const BIOLUM_DEFAULT = false;
+export const LABELS_DEFAULT: LabelMode = "common";
+export const AGES_DEFAULT = true;
+
+/**
+ * Read one stored mode, or the default.
+ *
+ * One function for all three, because the failure they share is the one worth
+ * handling: private browsing and blocked-storage settings **throw** on access
+ * rather than returning null, and a mode that is optional by design must not
+ * take the app down with it. Falling back is free — the default is the canvas
+ * as it was.
+ */
+function readMode<T>(key: string, parse: (raw: string) => T | null, fallback: T): T {
   try {
-    return sessionStorage.getItem(BIOLUM_KEY) === "1";
+    const raw = sessionStorage.getItem(key);
+    return raw === null ? fallback : (parse(raw) ?? fallback);
   } catch {
-    // Private browsing, or storage disabled. Falling back to the default is
-    // right: the mode is optional and off is the instrument as it was.
-    return BIOLUM_DEFAULT;
+    return fallback;
   }
 }
 
-function saveBiolum(on: boolean): void {
+/** Write one, or clear it where it is back at its default. */
+function writeMode(key: string, value: string | null): void {
   try {
-    if (on) sessionStorage.setItem(BIOLUM_KEY, "1");
-    else sessionStorage.removeItem(BIOLUM_KEY);
+    if (value === null) sessionStorage.removeItem(key);
+    else sessionStorage.setItem(key, value);
   } catch {
     /* private browsing; the mode still works, it just will not outlive a reload */
   }
+}
+
+export function loadBiolum(): boolean {
+  // Only an exact "1" is on. Anything else is a value this app did not write,
+  // and the benefit of the doubt goes to the plain instrument.
+  return readMode(BIOLUM_KEY, (raw) => raw === "1", BIOLUM_DEFAULT);
+}
+
+function saveBiolum(on: boolean): void {
+  writeMode(BIOLUM_KEY, on ? "1" : null);
+}
+
+export function loadLabels(): LabelMode {
+  return readMode(
+    LABELS_KEY,
+    (raw) => LABEL_MODES.find((m) => m === raw) ?? null,
+    LABELS_DEFAULT,
+  );
+}
+
+function saveLabels(mode: LabelMode): void {
+  writeMode(LABELS_KEY, mode === LABELS_DEFAULT ? null : mode);
+}
+
+export function loadAges(): boolean {
+  // Spelled as the negative, because on is the default: only an exact "0"
+  // turns them off, so a stored value we did not write leaves them on.
+  return readMode(AGES_KEY, (raw) => raw !== "0", AGES_DEFAULT);
+}
+
+function saveAges(on: boolean): void {
+  writeMode(AGES_KEY, on ? null : "0");
 }
 
 /**
@@ -238,6 +331,8 @@ export function useTree() {
   const [view, setView] = useState<ViewState>(() => decode(window.location.search));
   // Not part of `view`, and so not in the URL or in history. See `BIOLUM_KEY`.
   const [biolum, setBiolum] = useState<boolean>(loadBiolum);
+  const [labels, setLabelsState] = useState<LabelMode>(loadLabels);
+  const [ages, setAgesState] = useState<boolean>(loadAges);
   const [nodes, setNodes] = useState<Map<number, PathNode>>(() => new Map());
   const [paths, setPaths] = useState<Map<string, number[]>>(() => new Map());
   const [idxOf, setIdxOf] = useState<Map<string, number>>(() => new Map());
@@ -749,6 +844,16 @@ export function useTree() {
     setView(DEFAULT);
   }, []);
   const setAxis = useCallback((axis: AxisMode) => setView((v) => ({ ...v, axis })), []);
+  // Written through on the setter, like the light above, so the store is the
+  // only thing that touches the key and a render can never overwrite a choice.
+  const setLabels = useCallback((mode: LabelMode) => {
+    saveLabels(mode);
+    setLabelsState(mode);
+  }, []);
+  const setAges = useCallback((on: boolean) => {
+    saveAges(on);
+    setAgesState(on);
+  }, []);
   // Written through on the toggle rather than in an effect, so the store is the
   // only thing that touches the key and a render can never overwrite a choice.
   const toggleBiolum = useCallback(
@@ -783,8 +888,13 @@ export function useTree() {
 
   return {
     view,
-    /** The optional light. Session state, not view state — it is not in `view`. */
+    /**
+     * The three canvas modes. Session state, not view state — none is in `view`,
+     * so none is in a link. See `BIOLUM_KEY`.
+     */
     biolum,
+    labels,
+    ages,
     nodes,
     /** Resolved fossil rows, by PBDB taxon number. `view.fossils` is the order. */
     fossils,
@@ -809,6 +919,8 @@ export function useTree() {
     remove,
     clear,
     setAxis,
+    setLabels,
+    setAges,
     select,
     toggleIsolate,
     toggleBiolum,

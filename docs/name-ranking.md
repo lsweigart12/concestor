@@ -1,9 +1,10 @@
 # Ranking common names by use
 
 **Status: shipped**, 31/31 gates, build `854cdfa42f77e78e`. Phase 6b,
-`concestor-build names`. §7 is the canvas scientific/common switcher —
-**designed, not built**, and the reason this document exists in the shape it
-does.
+`concestor-build names`. §7 is the canvas scientific/common switcher, **also
+shipped** — and the reason this document exists in the shape it does. The canvas
+now opens on common names, which is what the ranking was for: without
+`usage_rank` the default would be whichever name a crawl returned first.
 
 It moved **7,958 headline names** of 110,794, and gave an order to the 26,262
 nodes that had none. Nothing was added, removed or rewritten: the phase writes
@@ -296,10 +297,11 @@ below the headline back into arrival order. `web/src/api.test.ts` pins it.
 
 ---
 
-## 7. The canvas scientific/common switcher — designed, not built
+## 7. The canvas scientific/common switcher — shipped
 
-A control that flips the canvas between scientific and common names. Not built.
-What follows is what it needs and what will bite.
+A control that flips the canvas between scientific and common names. **Built.**
+What follows is what it needed, what bit, and the two things the design as
+written here got wrong.
 
 **The data hook is `/v1/path`, and nothing else is needed.** `PathNode` carries
 `name` and no vernacular. It gains `vernacular: string | null`, filled by one
@@ -334,17 +336,75 @@ Swapping every label's string changes every label's width, so the fit and the
 tier-off both have to re-run. They already recompute on layout change; the
 point is that the switch must go through that path and not around it.
 
-**It is a view preference, so it belongs in the URL** beside `axis=`. Read
-`handoff.md` on that first: `encode` and `decode` each name the *non-default*
-value, in opposite directions, and getting one of them is silent — every shared
-link either carries a redundant parameter or drops the caller's choice.
-`state/store.test.ts` pins the pair and would need the same treatment here.
+~~**It is a view preference, so it belongs in the URL** beside `axis=`.~~ **It
+does not**, and this is the other thing the design above got wrong. It went in
+the link first and came back out: the test is what a setting is *about*, and
+this one is about the **reader** rather than about the taxa. A shared tree would
+otherwise impose the sender's reading habit, and a link made with the labels off
+would open on a canvas of unnamed dots. It lives in `sessionStorage` with
+bioluminescence, per-tab, so a link always opens at the defaults in a fresh tab.
+`state/store.test.ts` pins both halves: `encode` writes neither, and `decode`
+drops them from a link that carries them.
 
 **If it gets a key, it goes in `bindings.ts`**, which is the only table, and it
 feeds the control bar and the palette from the same rows so a key cannot print
-one thing and do another.
+one thing and do another. It got **`L`**, and the time scale moved to `T` to
+free it — `l` names the labels better than it named one of two scales. `A` flips
+the ages. Both also have a palette command and a button, which is the rule
+design-reference.md actually states.
 
 **What it must not do is re-rank.** Same rule as everywhere else in this file.
+
+### What it cost, and the two things above that were wrong
+
+**A common name is served for genus, species and subspecies only**, which this
+section did not anticipate and which is the single most important clause in the
+feature. `Entry.Vernacular` applies it and `markName` applies it again. Above
+genus a common name names a *group* rather than a kind of animal, and the whole
+of §3's demotion machinery exists because those words' ordinary referents are
+something else — a fork captioned "great apes" or "animals" has named a clade
+after its crown group, which is exactly the failure `node_image` versus
+`node_divergence_witness` was built to prevent on the picture side. It costs
+2.9% of the ranked names: 107,593 of 110,794 sit at those three ranks.
+
+**Rank 1 or nothing, and no fallback.** `BestVernaculars` degrades to
+`is_primary` and then to the first row seen, which is right for a caption
+sitting beside the scientific name it captions. On the canvas the common name
+*replaces* it, so an unranked guess would be another taxon's word in the only
+slot saying which taxon a mark is. `HeadlineVernaculars` is the strict sibling:
+`usage_rank = 1`, or silence, and silence means the scientific name, which is
+never wrong. A build predating this phase therefore shows no common names at
+all — the intended degradation.
+
+**The switch touches divergences even less than this section warned**, and the
+reason is worth writing down because it looks like a bug. `divergenceFor` reads
+the *suppressed run* before the leaf, deliberately — a node separating two
+genera must not be labelled with two species — and 5,548 genera carry a ranked
+English name against 99,960 species. So choosing human and chimp alone still
+draws "Homo / Pan" in both modes. Where the genera do have names it does
+translate, run by run: the human/chimp fork reads "human / chimpanzee", and
+`abbreviateRepeatedGenus` is skipped for a common run, since `H. erectus` is a
+convention of scientific names and applied to "Human" it produces "H. uman".
+
+**The italics carried it.** `NamePart.rank` was already the italic channel and
+already null for punctuation, so a common name is a run with `rank: null` and
+the existing renderer sets it roman with no new rule. One fork can now carry
+both kinds of name and say so typographically.
+
+**It replaced semantic zoom rather than joining it.** The canvas used to decide
+which rows to draw from the zoom level; that is gone, and `ages` is the second
+switch left over from it. design-reference.md's *Zoom* and *What a label says*
+are the account.
+
+**And common is the *default*, which is what this whole phase was for.** The
+switch opened on scientific names at first, on the argument that the mixture
+would leave a reader unable to tell whether it had done anything. That reads the
+audience backwards: this product is for curious people rather than for
+evolutionary biologists, and a canvas of binomials asks a stranger to learn a
+vocabulary before it will tell them anything. The ranking is what makes the
+other setting safe to open on — without `usage_rank` the default would be
+whichever name a crawl happened to return first, and *Homo sapiens* would
+headline as `man`.
 
 ---
 

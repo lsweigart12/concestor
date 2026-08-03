@@ -47,6 +47,8 @@ export type ActionId =
   | "step"
   | "step-back"
   | "axis"
+  | "labels"
+  | "ages"
   | "random-species"
   | "biolum"
   | "clear"
@@ -203,12 +205,14 @@ export const BINDINGS: readonly Binding[] = [
     chrome: "secondary",
   },
   {
-    // No `chrome` entry, and that is placement rather than demotion: the toggle
-    // draws itself beside the time scale, on the bottom edge, because both
-    // answer questions about the *canvas* rather than about the selection. The
-    // control bar at the top is the things you do to a tree. So this row's job
-    // here is to own the letter and to print it — a key that appears nowhere is
-    // a key nobody learns, which is the whole argument for the badge.
+    // No `chrome` entry, and that is placement rather than demotion. This is
+    // one of four rows whose control lives on the *bottom* edge — the axis
+    // scale, the labels, the ages and the light — because all four answer
+    // questions about the **canvas** rather than about the selection, and the
+    // control bar at the top is the things you do to a tree. So their job in
+    // this table is to own the letter and to print it on the chip: a key that
+    // appears nowhere is a key nobody learns, which is the whole argument for
+    // the badge.
     id: "biolum",
     key: "b",
     shift: false,
@@ -217,12 +221,38 @@ export const BINDINGS: readonly Binding[] = [
     hint: "Light the canvas like the deep sea. Nothing about the data changes — the dashes, the tiers and every figure are the same in both states",
   },
   {
+    // `t` for time, and it was `l` for log until the labels wanted a letter.
+    // Moving it is the better trade in both directions: `l` names the thing it
+    // now switches, where it only ever named one of the two scales it used to,
+    // and a reader who half-remembers `l` finds a control on the same edge of
+    // the canvas rather than nothing at all.
     id: "axis",
+    key: "t",
+    shift: false,
+    kbd: "T",
+    label: "Time scale",
+    hint: "Switch between a logarithmic and a linear time axis",
+  },
+  {
+    // Three states on one key, so this cycles where every other toggle here
+    // flips: off → scientific → common → off. The cycle passes through the
+    // default on its way round, so a reader who overshoots is one press from
+    // home, and the chip beside the axis shows where they are at every step —
+    // which is what makes a three-state key legible at all.
+    id: "labels",
     key: "l",
     shift: false,
     kbd: "L",
-    label: "Time scale",
-    hint: "Switch between a logarithmic and a linear time axis",
+    label: "Labels",
+    hint: "Cycle the words on the canvas: off, scientific names, common names",
+  },
+  {
+    id: "ages",
+    key: "a",
+    shift: false,
+    kbd: "A",
+    label: "Ages",
+    hint: "Show or hide the age on every mark. The axis still says when",
   },
   {
     // Primary, and the reason is the narrow layout rather than the wide one:

@@ -760,8 +760,12 @@ Rendering a mole for "Mammalia" is worse than rendering nothing.
 > postdate that fork by 25 Ma. Most forks therefore now carry no picture, which is the
 > honest answer rather than a gap.
 
-They belong at the upper tiers of semantic zoom — a silhouette *is* the "full detail
-card" tier for a clade, and arguably earns a place at the label tier for well-known ones.
+A silhouette is drawn at every scale and in every label mode, including with the words
+switched off. This paragraph used to file them "at the upper tiers of semantic zoom",
+which was backwards for this element and is now moot: pulled back, type is too small to
+read and a shape is not, so the picture is the *last* thing carrying meaning rather than
+the first to go. With the words deliberately off it is the whole label, which is most of
+why that state is worth having. design-reference.md's *Zoom* has the rest.
 
 Resolution is baked, so there is no client-side climb — though not in
 `node.phylopic_id`: it lives in `node_image`, which carries the drawing's own node, the

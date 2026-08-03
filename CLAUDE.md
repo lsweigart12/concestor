@@ -20,7 +20,7 @@ wrong and these docs record the corrections.
 | [docs/architecture.md](docs/architecture.md) | Data model, storage, backend, rendering |
 | [docs/image-store.md](docs/image-store.md) | How drawings are identified, stored, ranked and served. Governs every image source. Designed, not built — the migration is only needed when a *second* source arrives |
 | [docs/ingest.md](docs/ingest.md) | The six build phases and their validation gates |
-| [docs/name-ranking.md](docs/name-ranking.md) | Ordering a taxon's common names by use. **Shipped**; §7 is the canvas scientific/common switcher, designed and not built |
+| [docs/name-ranking.md](docs/name-ranking.md) | Ordering a taxon's common names by use. **Shipped**, §7 included — the canvas switcher, and what the design there got wrong |
 | [docs/phase2-decision.md](docs/phase2-decision.md) | The dating decision — accepted, with the evidence |
 | [docs/phase3-pbdb-path.md](docs/phase3-pbdb-path.md) | How fossils resolve to the tree, measured |
 | [docs/phase5c-decision.md](docs/phase5c-decision.md) | Generated outlines from Wikimedia photos — **optional future enhancement, not scheduled**. Kept complete and measured. Four rejected approaches, with numbers |
@@ -235,9 +235,9 @@ never removed**, and that **corpus frequency is refused** because it measures
 the string rather than the name — inside *Homo sapiens*'s own names it ranks
 `man` above `human`. The score is **display-only**: `band.go` decides which
 *taxon* a query means and nothing here touches it. The canvas
-scientific/common-name switcher is **designed and not built** —
-`name-ranking.md` §7 has the `/v1/path` hook and the three things that will
-bite.
+scientific/common-name switcher is **shipped** — `name-ranking.md` §7 is the
+account, including the two clauses the design there did not anticipate: only
+genus, species and subspecies get a common name, and it is rank 1 or nothing.
 
 **Ranking at the front door is fixed too**, and the principle is worth keeping:
 *an exact match settles which **name** the query is, not which **taxon** the
@@ -256,8 +256,11 @@ sea snail above the butterflies.
 
 **The keyboard surface is bare letters, and `web/src/chrome/bindings.ts` is
 the only table.** `P` palette, `S` species-filtered palette, `F` fit (`⇧F` fit
-selection), `/` isolate, `Tab` step, `L` time scale, `R` random species, `C`
-clear. `matchKey` refuses any press holding ctrl, meta or
+selection), `/` isolate, `Tab` step, `T` time scale, `L` labels, `A` ages, `B`
+bioluminescence, `R` random species, `C` clear. **The four canvas modes hold the
+letters that name them**, which is why the time scale is on `T`: `l` names the
+labels, where it only ever named one of the two scales it switched between.
+`matchKey` refuses any press holding ctrl, meta or
 alt — that refusal is the feature, because the old `⌘`-based surface was a
 losing negotiation with the browser (`⌘L` is the URL bar and cannot be
 prevented, `⌘F` is find, `⌘R` is reload) and every binding that survived it was
@@ -500,12 +503,7 @@ nearest the dot and pushed the *name* away from the thing it names. The age slot
 also used to carry a **clock** where a taxon reached the present, and
 `caption.test.ts` had already written down why that was wrong: *"'present' is a
 position, not a quantity."* That fact now decorates the **mark** — a rounded
-arrow into the present, in the dot's own footprint. **The three rows also tier
-off in reverse — the age is last on and first off**, because x is time and there
-is a ruler under it, so a figure repeating a position is the first thing that can
-be spent; promoting the rank alongside the name also fixed `DIVERGENCE_META`,
-the only mark saying a derived name is derived, which had been gated a tier below
-the name it qualifies. Five things not to redo, all in `docs/handoff.md` §3:
+arrow into the present, in the dot's own footprint. Five things not to redo, all in `docs/handoff.md` §3:
 **a tip has no start date and there is none to find** (`age_ma` is a divergence
 age, a tip's own is zero, the stem age belongs to the fork above and is drawn
 there, and a PBDB first appearance is the `occurrence` tier — never collapsed to
@@ -527,6 +525,52 @@ inheriting `.mark.is-leaf .mark-label`'s 13.5px stood 17.9px against a reserved
 15. Relatedly, `labels.ts`'s font constants are pinned to styles.css by a test
 that reads the stylesheet: three had drifted, all under-measuring, and `SLACK`
 was spending its whole 6% hiding the largest of them.
+
+**Which of those rows a mark draws is the reader's choice, and semantic zoom is
+gone.** Three tiers used to decide it from the scale — name at 0.55, age at 0.62
+— which is a rule about legibility answering a question about intent: pulling
+back to see the whole tree took every name with it, and reading one name meant
+zooming until the tree no longer fitted. Two switches replace it, in one panel
+bottom-left above the axis with bioluminescence, because the three are one set —
+*controls that change how the canvas is drawn rather than what is on it*. They
+share a `subgrid` so the key, the caption and the switch line up down the stack;
+the caption is small-caps mono and the options sit in a recessed track, because
+set alike the caption read as a fourth option. It carries **no border, no fill
+and no lit state**, at 0.62 opacity until hovered: it was a bright card brighter
+than the tree, and three controls taking the accent to report a *setting* is not
+what "the graph is the only light source" means. **Bioluminescence is the one
+choice allowed to glow**, in the mode's own cyan, because glowing is what it
+does and the chip is the only preview of it.
+`labels` is **off · common · scientific** on `L` — **common is the default**,
+because the product is for curious people rather than biologists and `Human`
+tells a stranger what they are looking at where *Homo sapiens* tells a
+specialist what they knew — `ages` is **on · off** on `A`,
+and both are held in `sessionStorage` with the light rather than in the URL — a
+setting that is a claim about the *reader* may not ride in a link, and a link
+made with the labels off would open on a canvas of unnamed dots. Eight things
+not to redo, all in `docs/handoff.md` §3. The lesson worth carrying is the **threshold**
+rather than the tiers: the age tier sat at 1.15 and the fit lands at 1.144 for
+six species, so *adding a sixth species* stripped a row from every label on
+screen — nothing load-bearing may hang off a number the fit can wander across,
+which is the second time that exact fact has cost this canvas something. The
+rank gets **no switch of its own** because it carries `DIVERGENCE_META`, the only
+mark saying a derived name is derived, and a control whose only honest setting is
+on is not a control. A **common name is served for genus, species and subspecies
+only** — above that it names a group rather than a kind of animal and the word
+usually belongs to something else, so a fork would be captioned "great apes",
+which is naming a clade after its crown group; the rule is enforced in the server
+*and* in `markName`, deliberately twice. It is **rank 1 or silence**
+(`HeadlineVernaculars`, not `BestVernaculars`): here the common name *replaces*
+the scientific one rather than captioning it, so an unranked guess is another
+taxon's word in the only slot saying which taxon a mark is, and silence means the
+scientific name, which is never wrong. The canvas is a **mixture** in common mode
+— 110,794 nodes of 2.7M carry an English name — and `NamePart.rank` being null
+for a common run is what sets it roman, which is the only thing telling a reader
+which kind of name they have. A **divergence keeps its Latin more often than you
+would expect**, and that is `firstNamed` working as designed: it reads the
+suppressed run before the leaf so a fork between two genera is not labelled with
+two species, and genera rarely have ranked English names. `docs/name-ranking.md`
+§7 is the account of the switcher, now shipped.
 
 **A row belongs to a lineage that ends there.** A node with rendered
 descendants is drawn *on* the lineage that continues past it, at the midpoint of

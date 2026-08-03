@@ -229,6 +229,63 @@ func TestPathHomoSapiens(t *testing.T) {
 	}
 }
 
+// The canvas can draw a path in common names, and this is the whole of what it
+// is given to do it with.
+//
+// Two claims, and the second is the one worth a test on the real build: the
+// species carries the name the ranking put first, and **nothing above genus
+// carries one at all**. The human lineage is the case that makes the rule
+// visible — Mammalia, Primates and Hominidae all have perfectly good English
+// names, and every one of them names a *group* rather than a kind of animal.
+// Drawn on a fork they say something the fork does not: a canvas that captions
+// the human/chimp split "great apes" has named a clade after its crown group.
+func TestPathCarriesAHeadlineNameForSpeciesAndNothingAbove(t *testing.T) {
+	ts, _ := serve(t)
+	var p pathResp
+	getJSON(t, ts, "/v1/path/ott770315", &p)
+
+	last := p.Path[len(p.Path)-1]
+	if last.Vernacular == nil || *last.Vernacular != "Human" {
+		t.Errorf("Homo sapiens vernacular = %v, want \"Human\"", last.Vernacular)
+	}
+	for _, e := range p.Path {
+		if e.Vernacular == nil {
+			continue
+		}
+		rank := ""
+		if e.Rank != nil {
+			rank = *e.Rank
+		}
+		if !vernacularRanks[rank] {
+			t.Errorf("%q (rank %q) was given the common name %q",
+				deref(e.Name), rank, *e.Vernacular)
+		}
+	}
+	// A path of 60 nodes must not be 60 name lookups' worth of payload either.
+	// Two or three of them are eligible at all; the rest is the fallback, and
+	// the fallback is silence.
+	var named int
+	for _, e := range p.Path {
+		if e.Vernacular != nil {
+			named++
+		}
+	}
+	if named == 0 {
+		t.Error("no node on the human lineage carried a common name")
+	}
+	if named > 6 {
+		t.Errorf("%d of %d nodes carried one; the rank filter is not biting",
+			named, len(p.Path))
+	}
+}
+
+func deref(s *string) string {
+	if s == nil {
+		return "<unnamed>"
+	}
+	return *s
+}
+
 func TestPathByIdxAndByMrcaKey(t *testing.T) {
 	ts, _ := serve(t)
 	var byOtt pathResp
