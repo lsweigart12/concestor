@@ -320,6 +320,13 @@ below is that one rule applied to the three things that overlap on the canvas.
   another way: x is time and there is a ruler under it. Everything else on a
   label is unavailable anywhere else on screen, so a figure that repeats a
   position is the first thing that can be spent.
+- **But last is not much later.** The ruler gives a *position*; only the row
+  gives the number and its tier, so the two thresholds sit close together —
+  0.55 for the name, 0.62 for the age. They were 0.55 and **1.15**, and the fit
+  lands at 0.70 for four species and 1.144 for six, so the age was absent from
+  the default view and from nearly the whole band in which a label is drawn at
+  all. A tier that is never reached is not a tier. `Z_LABEL` / `Z_DETAIL` in
+  `web/src/canvas/Graph.tsx` are the numbers.
 - `F` fit all · `⇧F` fit selection · `/` isolate path to root.
 
 ## The detail card

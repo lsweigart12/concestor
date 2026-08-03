@@ -67,6 +67,11 @@ type Store struct {
 	broken     []BrokenTaxon
 	brokenByID map[int64]int
 	log        *slog.Logger
+
+	// A rank for the ~2,000 nodes the taxonomy leaves unranked and PBDB does
+	// not, keyed by idx. Loaded once because the join is on a name and `fossil`
+	// has no index on one. See rank.go.
+	pbdbRank map[int]string
 }
 
 // BrokenTaxon is a non-monophyletic taxon rejected from synthesis. It is not a
@@ -167,6 +172,7 @@ func Open(ctx context.Context, opt Options) (*Store, error) {
 	s.loadSnapshotMeta()
 	s.countOptional(ctx)
 	s.countAges()
+	s.loadPBDBRanks(ctx)
 	s.loadHotNames(ctx)
 	s.computeBuildID()
 	return s, nil
@@ -439,7 +445,11 @@ func (s *Store) Metas(ctx context.Context, idxs []int) (map[int]NodeMeta, error)
 				m.OttID = &v
 			}
 			m.Name = nullStr(name)
-			m.Rank = nullStr(rank)
+			// The taxonomy's rank where it has one, PBDB's where it does not.
+			// Here rather than at each caller because a rank that differs
+			// between the canvas label and the card is the kind of thing this
+			// audience notices, and `Metas` is what both of them read.
+			m.Rank = s.rankFor(m.Idx, nullStr(rank))
 			m.Flags = nullStr(flags)
 			out[m.Idx] = m
 		}

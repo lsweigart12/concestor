@@ -20,6 +20,7 @@ import {
   borrowedTitle,
   isExtant,
   markAge,
+  metaLine,
   occurrenceSpan,
 } from "./NodeMark";
 
@@ -178,5 +179,22 @@ describe("the age slot's marks", () => {
 
   it("shows nothing where no age may be shown", () => {
     expect(markAge(96, TIER_STRUCTURAL, null)).toBeNull();
+  });
+});
+
+describe("metaLine", () => {
+  it("prints a rank the reader can use", () => {
+    expect(metaLine("species", true)).toBe("SPECIES");
+    expect(metaLine("species", false)).toBe("");
+  });
+
+  it("refuses every string the taxonomy uses to mean 'unranked'", () => {
+    // The canvas knew about `no rank` and not about `no rank - terminal`, which
+    // 78,696 nodes carry — so the row meant to say what kind of thing this is
+    // could say NO RANK - TERMINAL above the name. One predicate now, shared
+    // with the card, which had the full set from the day it was written.
+    for (const r of ["no rank", "no rank - terminal", "unranked", "", null]) {
+      expect(metaLine(r, true)).toBe("");
+    }
   });
 });

@@ -1000,6 +1000,62 @@ pointing at the present, in the dot's own footprint. Four things not to redo:
 `AgeGlyphKind` is down to one member, correctly: the only word the age slot
 still has to say is *fossils*.
 
+**The age row also arrives far earlier than it used to.** The detail tier began
+at zoom **1.15**; the fit lands at 0.70 for four species and 1.144 for six, so
+the figure was absent from the default view and from nearly the whole band in
+which a label is drawn at all — a tier that is never reached is not a tier. It
+begins at **0.62** now, a hair above the 0.55 where the name itself arrives. The
+ordering above stands and the reasoning is unchanged; what was wrong was
+applying it as though the ruler answered the same question. It does not: the
+axis gives a node's **position**, and only the row gives its **number** and its
+**tier**. The two cannot be equal — the age is 11px against the name's 12.5, so
+the band is what spends the smaller row first — and below 0.55 no text renders
+at all, which is the legibility floor the silhouette exists to cover.
+`Z_LABEL` / `Z_DETAIL` in `canvas/Graph.tsx` are the numbers and carry the note.
+
+### A rank the taxonomy does not give, from the catalogue that does
+
+The Open Tree taxonomy files *Tyrannosaurus rex* as `no rank`. Not blank, not
+"species" — the literal string OTT writes for a row whose source gave it no
+Linnaean rung. So the most famous fossil in the product carried **no rank row**,
+and `isScientificItalic` set its name roman while *Homo sapiens* two rows above
+it was italic. One missing field, three visible symptoms, across the canvas, the
+card and the palette.
+
+PBDB has the field: taxon 54833 is a **species**, and phase 3 already resolved
+that taxon to that node. **2,039 nodes** are in the same position — unranked in
+OTT, ranked by a PBDB taxon of the same name attached at the node — and across
+all of them the PBDB rows never disagree with each other about the rank.
+`store/rank.go` loads them once at open and `Metas` serves them, so every
+surface reads one answer. Four things to know before touching it:
+
+- **This is not the gap-filling the card refuses.** Naming the gaps in a
+  classification rather than filling them is about *rungs* — Hominidae is not a
+  node, and inventing one would be a lie about the tree's shape. Here nothing is
+  invented and no rung is added: a second catalogue records a rank for a taxon
+  this same node already **is**. Requiring the two names to match exactly is the
+  guard on top of phase 3's `refuse_disagreements`, and it is what keeps PBDB's
+  Ediacaran *Ivesia* from ranking OTT's rose.
+- **The taxonomy always wins where it has an answer**; PBDB only ever fills a
+  hole. `TestPBDBNeverOverridesTheTaxonomy` is that claim.
+- **PBDB spells "unranked" its own way**, as `unranked clade` and `informal`, and
+  both must be refused or they print as ranks. This is not hypothetical:
+  *Amniota* and *Sauropsida* are `no rank` in OTT and `unranked clade` in PBDB,
+  so they keep an empty rank row — which is right, because both catalogues agree
+  there is no rung, and `AMNIOTA / UNRANKED CLADE` would be worse than silence.
+- **It is loaded at open, not joined per request.** The join is name equality and
+  `fossil` has no index on `name` — only `(attach_idx, n_occs DESC)`. A path
+  through *Sauropsida* would pay for its 10,818 attached rows to answer about
+  one, and *Sauropsida* is itself unranked, so every dinosaur in the product
+  would pay it. Once at open it is a 150 ms scan and ~2,000 map entries.
+
+Found alongside it and fixed with it: the canvas kept its **own** copy of "is
+this word a rank", and that copy knew about `no rank` but not `no rank -
+terminal` — the other unranked string, on **78,696** nodes. The row that says
+what kind of thing this is could say `NO RANK - TERMINAL` above the name. The
+card's `rankIsInformative` had the full set from the day it was written, and
+`metaLine` now calls it rather than approximating it.
+
 ---
 
 ## 4. Corrections to the design docs
