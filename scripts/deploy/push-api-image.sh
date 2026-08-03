@@ -49,8 +49,10 @@ for tool in docker go python3; do
   command -v "$tool" >/dev/null || { echo "$tool is required but not on PATH" >&2; exit 1; }
 done
 
-# The tag is the manifest's build id — `concestor-build package`'s, hashed
-# from artifact *content*.
+# The tag names the *image*, and an image is a dataset **and** a binary.
+#
+# The first half is the manifest's build id — `concestor-build package`'s,
+# hashed from artifact *content*.
 #
 # It is deliberately not the id /v1/about reports. `store.computeBuildID`
 # hashes file sizes and *mtimes*, so it changes when a file is copied and
@@ -60,6 +62,35 @@ done
 # artifact set. docs/deployment.md §5 records both.
 BUILD_ID=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["build_id"])' \
   "$CONCESTOR_BUILD/manifest.json")
+
+# The second half is the commit the binary is compiled from, and it is here
+# because the dataset id alone was a name for half the image.
+#
+# The image carries the Go server as well as the arrays, so the code can change
+# while the artifacts do not — which is exactly what happened between #47 and
+# #51. The server grew `Entry.Vernacular`, the dataset did not move, and a
+# rebuild would have produced the *same* tag as the image already in the
+# registry: a silent overwrite, `web/wrangler.jsonc` unchanged, and the
+# promise this pinning exists to keep — roll the Worker back and the dataset
+# rolls back with it — quietly not holding for the binary. Production ran a
+# pre-#51 server for two releases and the tag had no way to say so.
+#
+# So the code identity goes in the tag. Two consequences worth keeping:
+#
+#   - A dataset rebuild and a code change now both mint a new tag, which is
+#     what makes an unchanged tag mean an unchanged image.
+#   - `--dirty` is carried through for the same reason VERSION carries it
+#     below: an image built from uncommitted edits must not take the name of
+#     the commit it was nearly built from. A dirty tag is not reproducible,
+#     and having it say so in the registry is the point.
+#
+# `git describe` is not used here. It is right for VERSION, which answers
+# "which release is this near"; a tag answers "which code is this exactly",
+# and the abbreviated sha answers that without a tag's distance arithmetic.
+VERSION=$(git -C "$ROOT" describe --tags --always --dirty 2>/dev/null || echo dev)
+COMMIT=$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo "")
+CODE_ID="${COMMIT:-nogit}"
+git -C "$ROOT" diff-index --quiet HEAD -- 2>/dev/null || CODE_ID="${CODE_ID}-dirty"
 # The fallback is lowercase and that is not a style choice: Docker refuses a
 # repository name containing an uppercase letter, so an `ACCOUNT_ID` stand-in
 # fails the build itself with `repository name must be lowercase` — which is
@@ -71,10 +102,12 @@ BUILD_ID=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["buil
 # It is a config string that deploy-web.yml greps for and substitutes, never a
 # tag handed to Docker, and making it shout is what stops it being mistaken
 # for a real account id in review.
-TAG="registry.cloudflare.com/${CLOUDFLARE_ACCOUNT_ID:-account_id}/concestor-api:${BUILD_ID}"
+TAG="registry.cloudflare.com/${CLOUDFLARE_ACCOUNT_ID:-account_id}/concestor-api:${BUILD_ID}-${CODE_ID}"
 
 echo "build    $CONCESTOR_BUILD${CONCESTOR_BORROWED_FROM:+  (borrowed from $CONCESTOR_BORROWED_FROM)}"
 echo "phylopic $CONCESTOR_SILHOUETTES"
+echo "dataset  $BUILD_ID"
+echo "code     $CODE_ID"
 echo "tag      $TAG"
 
 # --- staging ----------------------------------------------------------------
@@ -147,8 +180,9 @@ fi
 # bare `v0.5.0` would claim to be a release it is not. --dirty is deliberate —
 # an image built from uncommitted edits should say it on /v1/about rather than
 # impersonate the commit it was nearly built from.
-VERSION=$(git -C "$ROOT" describe --tags --always --dirty 2>/dev/null || echo dev)
-COMMIT=$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo "")
+#
+# VERSION and COMMIT are derived up where the tag is built, because the tag
+# needs the commit too and deriving it twice is how the two drift apart.
 echo "version  $VERSION"
 echo "compiling server for linux/amd64…"
 (cd "$ROOT/server" && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
@@ -182,9 +216,21 @@ cat <<EOF
 
 Pushed. Now pin it, or nothing points at it:
 
-  web/wrangler.jsonc  ->  "image": "registry.cloudflare.com/ACCOUNT_ID/concestor-api:${BUILD_ID}"
+  web/wrangler.jsonc  ->  "image": "registry.cloudflare.com/ACCOUNT_ID/concestor-api:${BUILD_ID}-${CODE_ID}"
 
 The tag is committed and the account id is substituted at deploy time. Rolling
 the Worker back to a previous version rolls the dataset back with it, which is
-the whole reason this is not :latest.
+the whole reason this is not :latest — and the code half is why it rolls the
+*server* back too, which the dataset id alone could not say.
 EOF
+
+case "$CODE_ID" in
+  *-dirty)
+    cat <<EOF
+
+WARNING: this tag says -dirty, so it names no commit and cannot be rebuilt.
+Fine for a throwaway check; do not pin it in web/wrangler.jsonc. Commit, then
+run this again.
+EOF
+    ;;
+esac
