@@ -261,11 +261,16 @@ clear. `matchKey` refuses any press holding ctrl, meta or
 alt — that refusal is the feature, because the old `⌘`-based surface was a
 losing negotiation with the browser (`⌘L` is the URL bar and cannot be
 prevented, `⌘F` is find, `⌘R` is reload) and every binding that survived it was
-double-shifted. The same table feeds the control bar's buttons and the palette
-rows, so a key cannot print one thing and do another. Two consequences worth
-knowing before changing it: **share has no key** on purpose, and **clear is the
-one action with a confirmation dialog** — one unshifted letter beside two
-others, and the only one that can destroy an hour of work.
+double-shifted. The same table feeds the control bar's buttons, the palette
+rows and the card's remove button, so a key cannot print one thing and do
+another. Three consequences worth knowing before changing it: **share has no
+key** on purpose; **clear is the one action with a confirmation dialog** — one
+unshifted letter beside two others, and the only one that can destroy an hour of
+work; and a badge is printed **only where the press would do it**, which is why
+`⌫` rides on the card's remove state and not on its add state or on the fossil
+card. `remove` fires on `induced.leaves`, which is the selection, which is
+exactly what puts that button in its remove state; a graft's index is negative,
+so the handler resolves no node and the press does nothing.
 
 **The detail card leads with what a thing is, and the tree prose is folded
 away.** `web/src/detail/` is the whole surface — common name, a Wikipedia
