@@ -302,6 +302,27 @@ card. `remove` fires on `induced.leaves`, which is the selection, which is
 exactly what puts that button in its remove state; a graft's index is negative,
 so the handler resolves no node and the press does nothing.
 
+**The control bar is captioned groups, and on a phone it is one button.** Each
+group is a `ModeChip`'s anatomy — small-caps mono caption over a recessed track
+— because a reader has to see where the pressable thing starts before reading
+any of the words in it, which is the argument the canvas-mode panel already
+settled. Four: **Concestor** (the app's mark, the palette under it), **Add
+species** (`S` and `R` as *search* and *random*), **Canvas** (clear and share),
+**Navigate** (fit, isolate, step, second row). **Below 620px none of it is drawn** — nor the
+mode panel, nor the scale switch — and a 54px circle wearing the same mark sits
+bottom right above the timeline, opening the palette. That swap is only
+legitimate because of a rule the app already kept: every control has a command,
+and the palette's field searches species as well as commands. Seven things not
+to redo are in `docs/handoff.md` §3, chief among them that the media block
+**must sit at the foot of styles.css** (it hides `.canvas-modes`, declared two
+thousand lines lower, and at equal specificity the later rule wins — the first
+draft drew a permanently hidden button and nothing else), that `share` **must
+not get a row in `bindings.ts`** so `ControlAction` is a union requiring the one
+keyless control to carry its own words, that the mark in `BrandMark.tsx` is a
+**third copy of the favicon** and is pinned to it by `icons.test.ts`, and that
+`TIPPED` is **exactly the bar's `lead` slot** — the outline wraps whole groups,
+so a fourth button in either takes it off both.
+
 **The detail card leads with what a thing is, and the tree prose is folded
 away.** `web/src/detail/` is the whole surface — common name, a Wikipedia
 description, the classification, the figures, then one collapsed disclosure

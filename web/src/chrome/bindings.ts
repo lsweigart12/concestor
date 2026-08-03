@@ -24,10 +24,17 @@
  * or should have to decide before pressing a key.
  *
  * **A binding is a thing you can also click.** Keyboard operation is first
- * class and no longer exclusive: `chrome` marks the ones the control bar draws
- * as buttons, with the key printed on the button rather than described in a
- * hint. The two cannot drift, because the button and the handler read the same
- * row.
+ * class and no longer exclusive: the control bar draws buttons, with the key
+ * printed on the button rather than described in a hint. The two cannot drift,
+ * because the button and the handler read the same row.
+ *
+ * There was a `chrome` field here saying which rows the bar drew and at what
+ * prominence, and it is gone rather than updated. It could never be the whole
+ * answer — `App.tsx` composes the bar and always did, the bar now holds a
+ * control with no row here at all (share, which has no key on purpose), and a
+ * flat flag cannot say which of four captioned groups a button belongs in. A
+ * field that describes the layout from a distance and is not read by it is a
+ * second source of truth with no way to be wrong out loud.
  *
  * **A key the browser already spends is scoped to the one surface that wants
  * it.** Enter is the only such row so far, and it is here for the two things
@@ -92,8 +99,6 @@ export interface Binding {
   label: string;
   /** What it does, for a tooltip. */
   hint: string;
-  /** Drawn in the control bar, and at what prominence. */
-  chrome?: "primary" | "secondary";
 }
 
 /**
@@ -130,7 +135,6 @@ export const BINDINGS: readonly Binding[] = [
     kbd: "P",
     label: "Commands",
     hint: "Everything this app can do, in one searchable list",
-    chrome: "primary",
   },
   {
     id: "species",
@@ -141,7 +145,6 @@ export const BINDINGS: readonly Binding[] = [
     hint:
       "Search 2.7 million species, in the tree and in the fossil record. " +
       "Also reachable from the palette by typing s then space",
-    chrome: "primary",
   },
   {
     // No `⇧R` beside it any more, and the missing variant is the point rather
@@ -158,7 +161,6 @@ export const BINDINGS: readonly Binding[] = [
     hint:
       "Add a random illustrated species — the way in that needs no name in mind. " +
       "About one in five comes from the fossil record, pinned to its branch",
-    chrome: "primary",
   },
   {
     id: "fit-selection",
@@ -175,7 +177,6 @@ export const BINDINGS: readonly Binding[] = [
     kbd: "F",
     label: "Fit",
     hint: "Frame the whole tree",
-    chrome: "primary",
   },
   {
     // Unshifted on a US layout and shifted on several others, so this one row
@@ -185,7 +186,6 @@ export const BINDINGS: readonly Binding[] = [
     kbd: "/",
     label: "Isolate",
     hint: "Dim every lineage except the path to the selected node",
-    chrome: "primary",
   },
   {
     id: "step-back",
@@ -202,17 +202,16 @@ export const BINDINGS: readonly Binding[] = [
     kbd: "Tab",
     label: "Step",
     hint: "Move the selection to the next species",
-    chrome: "secondary",
   },
   {
-    // No `chrome` entry, and that is placement rather than demotion. This is
-    // one of four rows whose control lives on the *bottom* edge — the axis
-    // scale, the labels, the ages and the light — because all four answer
-    // questions about the **canvas** rather than about the selection, and the
-    // control bar at the top is the things you do to a tree. So their job in
-    // this table is to own the letter and to print it on the chip: a key that
-    // appears nowhere is a key nobody learns, which is the whole argument for
-    // the badge.
+    // No button on the control bar, and that is placement rather than
+    // demotion. This is one of four rows whose control lives on the *bottom*
+    // edge — the axis scale, the labels, the ages and the light — because all
+    // four answer questions about the **canvas** rather than about the
+    // selection, and the control bar at the top is the things you do to a tree.
+    // So their job in this table is to own the letter and to print it on the
+    // chip: a key that appears nowhere is a key nobody learns, which is the
+    // whole argument for the badge.
     id: "biolum",
     key: "b",
     shift: false,
@@ -255,10 +254,12 @@ export const BINDINGS: readonly Binding[] = [
     hint: "Show or hide the age on every mark. The axis still says when",
   },
   {
-    // Primary, and the reason is the narrow layout rather than the wide one:
-    // `secondary` means "drop me below 620px", and the reader on a phone is the
-    // one who cannot fall back to a key. Stepping is meaningless without a
-    // keyboard and framing is recoverable; starting over is neither.
+    // On the bar beside share rather than among the rest, because both are
+    // one-way: this one can destroy an hour of work and is the only action in
+    // the app that asks first. It is also the one binding whose loss on a phone
+    // would be felt — the reader there cannot fall back to a key — which is
+    // what the palette behind `PaletteFab` is for, and why every button here
+    // has a command as well as a letter.
     id: "clear",
     key: "c",
     shift: false,

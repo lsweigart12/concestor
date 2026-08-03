@@ -149,9 +149,40 @@ filter tween on the same element.
   faded control is still a control. An action that cannot run right now is
   **disabled, never hidden**: a bar that reshuffles as the selection changes
   costs the reader the button they were already reaching for, and the tooltip
-  on a greyed one says what would make it work. Below 720px the labels go and
-  the badges stay; below 620px the one binding a touch reader cannot use
-  anyway — step, which is meaningless without a keyboard — goes with them.
+  on a greyed one says what would make it work.
+- **The bar's buttons are grouped, and a group wears the mode panel's
+  anatomy** — a small-caps mono caption over a recessed track. It is the same
+  argument three free-floating chips lost above the axis: a reader has to see
+  where the pressable thing starts *without reading any of the words in it*,
+  and a row of bare buttons on scrim gave them nothing to see. Four groups.
+  **Concestor** carries the app's own mark and the one door that reaches every
+  other, because a palette is not a feature and the honest caption over it is
+  the product. **Add species** holds `S` and `R` as **search** and **random** —
+  the caption is the action and the two buttons are the two ways to take it,
+  where they used to read "Species" and "Random", which spent both words on the
+  noun and neither on the difference. **Canvas** is clear and share, opposite corner, paired on being the
+  two one-way things you do to the whole of it. **Navigate** takes the second
+  row: fit, isolate, step are how you look at what you built, which is what you
+  reach for after there is something to look at.
+- **A group's caption is what survives the narrow layout.** Below 720px the
+  labels go and the badges stay, and `ADD SPECIES` over `S R` reads where `S R`
+  on its own would not — the second thing the grouping bought. Share keeps its
+  word at every width, because it is the one control with no badge to fall back
+  on and hiding its label leaves an empty button.
+- **Below 620px there is no chrome but one round button.** The bar, the
+  canvas-mode panel and the scale switch are all gone, and a 54px circle
+  wearing the app's mark sits bottom right, above the timeline and under a
+  thumb, opening the palette. It is a swap and not a removal, and what makes it
+  one is a rule this app already kept: every control has a command, and the
+  palette's own field searches 2.7 million species as well as the command list,
+  so nothing is behind two taps that was behind one. What it buys is the
+  canvas — at 375px the bar is two wrapped rows and the panel is a stack in the
+  corner, over a tree with about 500px of height to draw itself in, and every
+  one of those controls is a target sized for a mouse being hit by a thumb.
+  **One thing is genuinely lost and it is the right one**: `step` has no
+  command, because stepping a selection with no keyboard to step from is
+  meaningless. The button also carries the post-opening invitation, since the
+  bar that would otherwise pulse is not on screen.
 - Confirmations are brief HUD toasts. **One dialog exists**, and only one:
   clearing the canvas asks first. It is a single unshifted letter beside two
   other single unshifted letters, it is the only action that can destroy an
@@ -397,6 +428,11 @@ stating because the first version got all three parts of it wrong:
   is the only chrome that can preview the mode before a reader commits to it.
   The `modified` prop went with the rule — two of three callers were carrying a
   flag nothing read.
+- **The panel is not drawn below 620px**, and neither is the scale switch on the
+  axis footer. All four members of this set go together with the control bar,
+  replaced by the one palette button — see the command surface above. Shortening
+  a control to fit a window it is absent from is not a trade, which is why the
+  question of whether a chip can lose its caption stopped arising.
 
 - **labels: off · common · scientific**, with **common the default** and sitting
   in the middle. The default follows from the audience and nothing else: this is

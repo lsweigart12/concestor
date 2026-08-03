@@ -86,6 +86,7 @@ import type { Emitter } from "./biolum";
 import { EMIT_BASE } from "./particles";
 import { BiolumToggle } from "../chrome/BiolumToggle";
 import { AgesToggle, LabelsToggle } from "../chrome/LabelModes";
+import { PaletteFab } from "../chrome/PaletteFab";
 import { prefersReduced } from "../chrome/motion";
 
 const nodeTypes = { mark: NodeMark };
@@ -208,6 +209,17 @@ export interface GraphProps {
    */
   biolum: boolean;
   onBiolum: (v: boolean) => void;
+  /**
+   * Open the command palette — the whole of the chrome on a narrow window.
+   *
+   * The button is here rather than beside the control bar it replaces because
+   * of one number: it rides `--axis-h + --lane-h` so an open drill lane pushes
+   * it up, and this component is the only thing that knows the lane's height.
+   * `chrome/PaletteFab.tsx` argues the swap.
+   */
+  onPalette: () => void;
+  /** The invitation after an opening, when the bar cannot carry it. */
+  tip?: boolean;
 }
 
 function Inner(props: GraphProps) {
@@ -236,6 +248,8 @@ function Inner(props: GraphProps) {
     holdMaxAge = null,
     biolum,
     onBiolum,
+    onPalette,
+    tip,
   } = props;
 
   const rf = useReactFlow();
@@ -1076,6 +1090,18 @@ function Inner(props: GraphProps) {
         <AgesToggle on={ages} onChange={onAges} />
         <BiolumToggle on={biolum} onChange={onBiolum} />
       </div>
+      {/*
+        The other side of the same shelf, and the only chrome below 620px.
+
+        This panel and the control bar are both gone at that width and this one
+        button stands in for both — the palette behind it can do everything they
+        can, which is a rule the app already kept rather than something arranged
+        for the occasion. It sits here rather than beside the bar because it
+        rides `--lane-h` exactly as the panel opposite does, so a drill lane
+        opening under it moves it instead of covering it.
+        `chrome/PaletteFab.tsx` carries the argument.
+      */}
+      <PaletteFab onOpen={onPalette} {...(tip === true ? { tip } : {})} />
       {activeDrill && (
         <DrillLane
           upper={endpoint(activeDrill.upper, ind, nodeMap)}

@@ -1557,17 +1557,39 @@ body {
  * split by edge is unchanged and is why this is at the top — it says what you
  * can *do*, and the axis at the bottom says how to *read* what you see.
  *
- * What changed is that the row is now made of controls. Each is a key badge
+ * What changed first is that the row became controls. Each is a key badge
  * followed by a word, in that order and at that emphasis: the badge is what a
  * reader will be using in a minute, so it leads and the label explains it.
  * That ordering is the whole design — a toolbar with the keys hidden in
  * tooltips teaches nobody anything, and a hint bar that cannot be clicked
  * strands the reader who has not learned them yet.
  *
+ * **What changed second is that the buttons are grouped, and a group wears the
+ * canvas-mode panel's anatomy**: a small-caps mono caption over a recessed
+ * track holding the pressable things. Eight bare buttons on a strip of scrim
+ * had the problem `.canvas-modes` had before it became a panel — a reader has
+ * to be able to see where the pressable thing starts *without reading any of
+ * the words in it*, and there was nothing to see. The well is that boundary,
+ * and it is the same well, at the same radius, in the same fill, as the one
+ * above the axis: this app has one switch idiom and the top edge now uses it.
+ *
+ * Two rows, and the split is what each group is *for*. Building the tree leads
+ * at the top left; the two one-way actions on the canvas as a whole — clear and
+ * share — hold the opposite corner; how you *look* at what you have built takes
+ * the second row, because framing and stepping are what you reach for after
+ * there is something to frame.
+ *
  * It keeps the axis's treatment rather than taking a panel of its own: a fade
  * to void that guarantees legibility over a trace, and no object outline. The
- * strip itself is click-through — only the buttons take a press, so a drag
- * that starts on a lineage under the fade still pans the canvas.
+ * strip itself is click-through — only the tracks take a press, so a drag that
+ * starts on a lineage under the fade still pans the canvas.
+ *
+ * **None of it is drawn below 620px.** The swap is at the foot of this file
+ * under `narrow window`, and it is down there rather than here for a reason
+ * worth knowing: it has to hide `.canvas-modes` too, which is declared two
+ * thousand lines below this, and at equal specificity the later rule wins. The
+ * first draft of that block sat here and drew nothing but a hidden button.
+ * `chrome/Controls.test.ts` is what caught it and what keeps it caught.
  */
 .controls {
   position: fixed;
@@ -1575,15 +1597,42 @@ body {
   left: 0;
   right: 0;
   z-index: 20;
-  min-height: 40px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--s1);
-  align-items: center;
-  padding: var(--s1) var(--s3);
+  /* Three columns and two rows: lead, the gap that pushes them apart, trail —
+     then the second row under both. The middle column is what holds the two
+     corners apart rather than a margin on either, so neither corner has to know
+     how wide the other one is. */
+  display: grid;
+  grid-template-columns: auto minmax(var(--s3), 1fr) auto;
+  align-items: start;
+  row-gap: 5px;
+  padding: var(--s2) var(--s3) var(--s3);
   background: linear-gradient(to bottom, var(--void) 46%, transparent);
   pointer-events: none;
   transition: opacity 400ms ease;
+}
+
+.controls-lead,
+.controls-trail,
+.controls-rest {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--s3);
+  min-width: 0;
+}
+.controls-lead {
+  grid-area: 1 / 1;
+}
+.controls-trail {
+  grid-area: 1 / 3;
+  justify-self: end;
+}
+/* Under both corners rather than under the lead alone: the row is the bar's
+   own second line, and a reader scanning down the left edge should not find it
+   indented under one group. */
+.controls-rest {
+  grid-area: 2 / 1 / 2 / -1;
+  align-items: baseline;
 }
 
 /* Chrome auto-hides. The canvas is the page — but a control that has faded is
@@ -1597,15 +1646,94 @@ body {
   opacity: 1;
 }
 
-.control {
+/*
+ * One group: a caption on its own line, then the track under it.
+ *
+ * Deliberately *not* `.mode-chip`'s subgrid. There the four rows have to align
+ * their badges with each other down a column; here the groups sit side by side
+ * on a row, so there is no column to line up with and each group is as wide as
+ * its own track.
+ */
+.control-group {
+  display: grid;
+  justify-items: start;
+  row-gap: 3px;
+}
+
+/* The trailing corner reads inward from the right edge, so its caption hangs
+   off the same edge its track does. */
+.controls-trail .control-group {
+  justify-items: end;
+}
+
+/*
+ * The caption, in this app's existing vocabulary for a field label: small-caps
+ * mono, the way `.mark-meta` prints a taxon's rank and `.mode-name` captions a
+ * switch. It is a different *typeface* from the words in the track rather than
+ * a different shade of the same one, which is the part that survives a glance
+ * and is what stops `SPECIES add random` reading as three options.
+ */
+.control-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 3px;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+  white-space: nowrap;
+}
+
+/*
+ * The app's mark, at the head of the one group that carries the wordmark.
+ *
+ * It takes the accent because it is the MRCA's own colour and the icon's, and
+ * because this is the one place in the chrome that is *identity* rather than a
+ * control — the rule it would otherwise break, "the graph is the only light
+ * source", is about controls announcing their state. It still recedes: the bar
+ * fades with everything else, and this sits under full brightness until the
+ * reader is actually here.
+ */
+.brand-mark {
+  flex: none;
+  color: var(--accent);
+  opacity: 0.72;
+  transition: opacity 140ms ease;
+}
+.controls:hover .brand-mark {
+  opacity: 1;
+}
+
+/*
+ * The track: a recessed well holding the buttons.
+ *
+ * The same fill, radius and padding as `.mode-track` above the axis, and the
+ * same reason — an inset well with a raised active thing in it is the one
+ * convention that says *pressable* at this size without a border round every
+ * button. It is also the only part of this bar that takes a pointer, so the
+ * scrim around it stays click-through.
+ */
+.control-track {
   pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 2px;
+  border-radius: 7px;
+  background: rgba(150, 200, 210, 0.045);
+}
+
+.control {
+  appearance: none;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 8px 4px 5px;
+  padding: 3px 8px 3px 6px;
   border: 1px solid transparent;
-  border-radius: 6px;
-  background: none;
+  border-radius: 5px;
+  background: transparent;
   font-family: var(--sans);
   font-size: 11.5px;
   font-weight: var(--w-reg);
@@ -1617,8 +1745,21 @@ body {
     border-color 120ms ease;
 }
 
+/* Lower case, because the caption above it is the noun and the button is the
+   verb: `SPECIES` / add, random. The words stay title case in `bindings.ts`,
+   where they are also a tooltip and a palette row. */
+.control-label {
+  text-transform: lowercase;
+}
+
+/*
+ * Hover raises the button out of the well, at exactly the figures
+ * `.mode-seg.is-on` uses to raise a chosen segment. That equivalence is the
+ * point: on the mode panel the raised thing is where you *are*, and here it is
+ * where you would land — one language, two tenses.
+ */
 .control:hover:not(:disabled) {
-  background: var(--void-3);
+  background: var(--void-2);
   border-color: var(--hairline);
   color: var(--ink);
 }
@@ -1635,9 +1776,19 @@ body {
   color: var(--ink);
 }
 
-/* Held state, for the toggles. The one channel that is not brightness, because
-   brightness encodes recency and selection and never anything else. */
+/*
+ * Held state, for the one control on this bar that has one — isolate.
+ *
+ * It is raised like a hovered button *and* takes the accent, which is the
+ * opposite of the rule the canvas-mode panel follows. The two are consistent
+ * on what they are actually about: a switch above the axis reports a *setting*
+ * and gets no colour for it, while this reports that a view of the tree is
+ * currently being suppressed, which is a thing the reader has done to the data
+ * and has to be able to see from the canvas.
+ */
 .control.on {
+  background: var(--void-2);
+  border-color: var(--hairline);
   color: var(--accent);
 }
 .control.on .kbd {
@@ -1652,9 +1803,27 @@ body {
   cursor: default;
 }
 
+/* The badge, at the mode panel's weight rather than the palette's. `.kbd` is
+   filled and bordered for a row in a list, which inside a recessed well reads
+   as a second raised object beside the label; here it is the outline alone,
+   exactly like `.mode-key`. */
+.control .kbd {
+  padding: 1px 4px;
+  font-size: 10px;
+  background: none;
+  border-color: var(--hairline);
+  color: var(--ink-4);
+}
+
+/* The pending line rides the second row's baseline rather than a track of its
+   own — it is a note about the app, not a thing to press. */
+.controls-busy {
+  padding-bottom: 4px;
+}
+
 /*
- * Pointed at: one outline round the three ways to make this tree yours, and a
- * tray of copy under it.
+ * Pointed at: one outline round the two groups that are the ways to make this
+ * tree yours, and a tray of copy under it.
  *
  * Set only in the moments after an opening finishes drawing. It replaced a
  * sentence on the end of the answer's own toast, and the trade is the point —
@@ -1669,31 +1838,38 @@ body {
  * three separate demands. It is one offer with three doors.
  *
  * The padding is cancelled by an equal negative margin, so the box is drawn
- * around the buttons without moving them or anything after them: the bar looks
+ * around the groups without moving them or anything after them: the bar looks
  * identical the instant before and after this appears, and only the outline is
  * new.
  */
 .control-tip {
-  position: relative;
   display: inline-flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: var(--s1);
-  padding: 3px 5px;
-  margin: -3px -5px;
+  align-items: flex-start;
+  gap: var(--s3);
+  padding: 3px 6px;
+  margin: -3px -6px;
   border: 1px solid var(--accent-dim);
-  border-radius: 9px;
+  border-radius: 10px;
   animation: tip-breathe 2600ms ease-in-out infinite;
 }
 
 /*
- * The tray, sliding down from under the row it belongs to.
+ * The tray, sliding down from under the bar it belongs to.
  *
  * Absolutely positioned, so it is outside the bar's flow — a line that pushed
- * its own row would move the three buttons it is pointing at, on the one frame
- * they must not move. `transform-origin` at the top and a squashed start make
- * it unroll downward rather than fade in place, which is what says it came
- * from the thing above it.
+ * its own row would move the buttons it is pointing at, on the one frame they
+ * must not move. `transform-origin` at the top and a squashed start make it
+ * unroll downward rather than fade in place, which is what says it came from
+ * the thing above it.
+ *
+ * **It hangs off `.controls`, not off the outline it belongs to**, and that is
+ * why `.control-tip` is no longer `position: relative`. The bar has a second
+ * row now; anchored to the tip the tray landed *on* it, under `NAVIGATE` and
+ * over three buttons, which is a notice covering the controls it is pointing
+ * at. `.controls` is `position: fixed` and so is already the containing block —
+ * `top: 100%` is the foot of the whole bar whatever the rows do, which is the
+ * only number here that stays true when a group is added.
  *
  * It is not pressable and takes no pointer: the buttons are the target, and a
  * caption that swallowed a click aimed past it would cost the reader the very
@@ -1701,8 +1877,8 @@ body {
  */
 .control-tip-tray {
   position: absolute;
-  top: calc(100% + 5px);
-  left: 5px;
+  top: 100%;
+  left: var(--s3);
   max-width: min(340px, 74vw);
   padding: 4px 9px;
   border: 1px solid var(--hairline);
@@ -1746,26 +1922,27 @@ body {
 }
 
 /*
- * Narrow: the labels go, the buttons stay.
+ * Narrow: the labels go, the badges and the captions stay.
  *
  * The old hint bar hid itself entirely here, which was defensible when it was
- * only advertising. It is not defensible for a control — the reader on a
- * narrow window is the one least likely to be using a keyboard at all. The
- * badges alone are 30px each and eight of them fit; the secondary ones go
- * first if they do not.
+ * only advertising. It is not defensible for a control. The badge alone is
+ * about 26px and the caption above it still names the group, so `SPECIES` over
+ * `S R` is legible in a way `S R` on its own would not be — which is the second
+ * thing the grouping bought.
+ *
+ * Share is the exception and keeps its word at every width, because it is the
+ * one control with no badge to fall back on: hiding its label leaves a button
+ * with nothing in it at all.
  */
 @media (max-width: 720px) {
   .control-label {
     display: none;
   }
-  .control {
-    padding: 4px 5px;
+  .control.no-key .control-label {
+    display: inline;
   }
-}
-
-@media (max-width: 620px) {
-  .control.secondary {
-    display: none;
+  .control {
+    padding: 3px 6px;
   }
 }
 
@@ -3737,9 +3914,16 @@ body {
 body.biolum .controls {
   background: linear-gradient(to bottom, #02060a 46%, transparent);
 }
-body.biolum .control:hover:not(:disabled) {
+body.biolum .control:hover:not(:disabled),
+body.biolum .control.on {
   background: hsl(200 45% 9%);
   border-color: hsl(188 60% 55% / 0.22);
+}
+/* The one button that floats over the water rather than over a scrim, so it is
+   the one that would still be the instrument's black in the deep sea. */
+body.biolum .palette-fab {
+  background: hsl(200 45% 7% / 0.94);
+  border-color: hsl(188 60% 55% / 0.28);
 }
 
 /*
@@ -4041,15 +4225,108 @@ body.biolum .control:hover:not(:disabled) {
 }
 
 /*
- * The word stays at every width, and it used to go under 620px.
+ * The word stays at every width this panel is drawn at, and it used to go
+ * under 620px.
  *
  * That was a fair trade while there was one chip here: a lit switch reading
  * "off | on" beside a `B` badge could only be the one control on that edge.
  * With three stacked it is not — two of them are "off | on" and neither says
  * which. Measured at 375px the widest chip is 222px with its word, so the trade
- * was buying nothing. The control bar still makes it, because there the badge
- * is the name.
+ * was buying nothing.
+ *
+ * The question stopped arising at all when 620px became the width where this
+ * panel is not drawn: shortening a control to fit a window it is absent from is
+ * not a trade, and what stands there instead is `.palette-fab`. The control bar
+ * still drops its labels between 620 and 720, where the badge is the name and
+ * the group's caption says the rest.
  */
+
+/* -------------------------------------------------------- narrow window -- */
+
+/*
+ * The one button, and it is not drawn at all on a window wide enough for the
+ * bar: two ways to reach the same palette, one of them a circle floating over
+ * the tree, is exactly the clutter the swap exists to remove.
+ *
+ * It rides the same shelf as `.canvas-modes` on the opposite side —
+ * `--axis-h` plus any open drill lane — so it clears the epoch band by the same
+ * measure and a lane opening under it moves it rather than covering it. That is
+ * why it is rendered inside the canvas: `--lane-h` is published there.
+ *
+ * Solid rather than the recessed well the bar uses, because there is no set for
+ * it to belong to and nothing beside it to be raised out of. It is the one
+ * object on the canvas that is not the tree, so it says so.
+ */
+.palette-fab {
+  position: absolute;
+  right: var(--s4);
+  bottom: calc(var(--axis-h) + var(--lane-h, 0px) + 26px);
+  z-index: 6;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 54px;
+  height: 54px;
+  padding: 0;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 50%;
+  background: rgba(14, 14, 17, 0.94);
+  color: var(--ink);
+  cursor: pointer;
+  pointer-events: auto;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease,
+    bottom 240ms var(--spring);
+}
+
+.palette-fab:active {
+  background: var(--void-3);
+  border-color: var(--accent-dim);
+}
+.palette-fab:focus-visible {
+  outline: none;
+  border-color: var(--accent-dim);
+}
+
+/* Full brightness on the mark here, unlike in the bar: this is the only thing
+   on screen asking to be pressed, and there is no caption beside it to carry
+   the invitation. */
+.palette-fab .brand-mark {
+  opacity: 1;
+}
+
+/* The invitation, when the bar that would normally carry it is not drawn. Same
+   pulse as `.control-tip`, on the door it is pointing at. */
+.palette-fab.is-tip {
+  border-color: var(--accent-dim);
+  animation: tip-breathe 2600ms ease-in-out infinite;
+}
+
+/*
+ * Below 620px there is no chrome on the canvas but one round button.
+ *
+ * The bar goes, and so does the canvas-mode panel and the scale switch on the
+ * axis footer — all of it replaced by `.palette-fab`, bottom right, above the
+ * timeline and under a thumb. `chrome/PaletteFab.tsx` is the argument, and the
+ * short version is that the palette behind that button can already do
+ * everything the hidden controls can, so this is a swap and not a removal.
+ *
+ * What it buys is the canvas. At 375px the bar is two wrapped rows and the
+ * panel is a stack in the corner, over a tree with about 500px of height to
+ * draw itself in, and every one of those controls is a target sized for a
+ * mouse being hit by a thumb.
+ */
+@media (max-width: 620px) {
+  .controls,
+  .canvas-modes,
+  .axis-foot > .scale-mode {
+    display: none;
+  }
+  .palette-fab {
+    display: inline-flex;
+  }
+}
 
 /* ------------------------------------------------------------- reduced -- */
 

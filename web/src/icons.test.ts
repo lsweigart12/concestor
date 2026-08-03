@@ -206,6 +206,65 @@ describe("the generator draws the same glyph as the SVG", () => {
   });
 });
 
+// ------------------------------------------------------------ the third copy --
+
+/**
+ * `chrome/BrandMark.tsx` draws the same glyph a third time, in JSX.
+ *
+ * The head of this file says the icon is the one asset that can drift silently
+ * in two directions at once; the mark in the control bar and on the palette
+ * button makes it three, and it is the copy a reader sees *beside* the tab it
+ * has to match. It cannot import the SVG — that file bakes in a black plate and
+ * literal hex, neither of which belongs on a strip of scrim — so it restates
+ * the geometry, and this is the check that the restatement is true.
+ *
+ * Only the circles are compared. The plate and the colours are deliberately
+ * different and are the subject of the two decisions in that file's header.
+ */
+describe("the inline mark is the icon's glyph", () => {
+  const TSX = read("./chrome/BrandMark.tsx");
+
+  it("is reading a component that draws circles at all", () => {
+    expect(TSX).toContain("viewBox=\"0 0 32 32\"");
+    expect([...TSX.matchAll(/<circle\b[^/>]*\/>/g)]).toHaveLength(3);
+  });
+
+  it("draws the icon's three circles, at the icon's radii", () => {
+    // Attribute by attribute rather than by string equality, because JSX spells
+    // `stroke-width` as `strokeWidth` and would fail a diff for a reason that
+    // is not drift.
+    const svg = [...DRAWN.matchAll(/<circle\b[^>]*>/g)].map((m) => m[0]);
+    const tsx = [...TSX.matchAll(/<circle\b[^>]*>/g)].map((m) => m[0]);
+    const num = (tag: string, name: string) =>
+      Number(new RegExp(`${name}="([^"]+)"`).exec(tag)?.[1]);
+
+    expect(tsx).toHaveLength(svg.length);
+    for (const [i, tag] of tsx.entries()) {
+      const ref = svg[i]!;
+      for (const [a, b] of [
+        ["cx", "cx"],
+        ["cy", "cy"],
+        ["r", "r"],
+        ["strokeWidth", "stroke-width"],
+        ["opacity", "opacity"],
+      ] as const) {
+        expect([i, a, num(tag, a)]).toEqual([i, a, num(ref, b)]);
+      }
+    }
+  });
+
+  /**
+   * The one thing it must *not* copy. A standalone icon cannot read a custom
+   * property so the SVG carries literal hex; this one can, and a hex value
+   * pasted in here is how the chrome ends up off the app's accent the next time
+   * `--accent-h` moves.
+   */
+  it("takes its colour from the caller and not from a literal", () => {
+    expect(TSX).not.toMatch(/#[0-9a-fA-F]{3,8}/);
+    expect(TSX).toContain("currentColor");
+  });
+});
+
 // ----------------------------------------------------------------- the html --
 
 describe("the document links what public/ actually holds", () => {

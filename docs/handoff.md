@@ -1458,9 +1458,10 @@ Eight things not to redo:
 - **The letter a mode takes is the letter that names it.** The labels took `L`
   and the time scale moved to `T` — `l` names the labels, where it only ever
   named one of the two scales it switched between. `A` is the ages, `B` the
-  light, and the four canvas modes are now the four rows in `bindings.ts` with
-  no `chrome` entry, because their controls live on the bottom edge rather than
-  in the control bar. `L` **cycles** through three states where every other
+  light, and the four canvas modes are the four rows in `bindings.ts` whose
+  control lives on the bottom edge rather than in the control bar. (A `chrome`
+  field used to say which rows the bar drew; it is gone — see the swap entry
+  below.) `L` **cycles** through three states where every other
   toggle here flips, which is legible only because the chip is beside it: the
   reader sees where the press landed and what the next one will do.
 - **A label with no words must reserve none.** `metricsFor` floored at
@@ -1514,6 +1515,77 @@ whose fingers remember the old `l` lands on a chip in the same corner of the
 canvas rather than on nothing. `L` **cycles** where every other toggle on that
 edge flips, which is legible only because the chip is beside it: the reader sees
 where the press landed and what the next one will do.
+
+### The bar is groups now, and on a phone it is one button
+
+Two changes, and the second is the reason the first was worth making.
+
+**The buttons are grouped, and a group wears a `ModeChip`'s anatomy** — a
+small-caps mono caption over a recessed track. That is the same argument the
+canvas-mode panel settled when three free-floating chips became one panel: a
+reader has to be able to see where the pressable thing starts *without reading
+any of the words in it*, and eight bare buttons on a strip of scrim gave them
+nothing to see. Four groups: **Concestor** (the app's mark, and the palette
+under it), **Add species** (`S` and `R` as *search* and *random*), **Canvas**
+(clear and share, opposite corner), **Navigate** (fit, isolate, step, second
+row).
+
+**Below 620px none of it is drawn.** The bar, the canvas-mode panel and the
+scale switch all go, and one 54px circle wearing the app's mark sits bottom
+right, above the timeline, opening the palette.
+
+Seven things not to redo:
+
+- **The swap is legitimate because of a rule the app already kept**, not
+  because of anything arranged for it: every control has a command, and the
+  palette's own field searches 2.7M species as well as the command list. So one
+  tap reaches the search, the random pick, clear, share, the axis, the labels,
+  the ages and the light. The one thing with no command is `step`, and losing it
+  is correct — stepping a selection with no keyboard to step from is meaningless,
+  which `bindings.ts` said where the key was claimed, years before this.
+- **The button is rendered inside the canvas, not beside the bar it replaces.**
+  It rides `--axis-h + --lane-h` exactly as `.canvas-modes` does on the other
+  side, so an open drill lane moves it instead of covering it — and `--lane-h`
+  is published by `Graph.tsx`, because that is the only thing that knows the
+  lane's height. That is the whole reason `onPalette` is a `GraphProps`.
+- **The media block has to sit at the foot of the stylesheet.** It hides
+  `.canvas-modes`, which is declared two thousand lines below the control bar,
+  and at equal specificity the later rule wins. The first draft put the block
+  with the bar and drew nothing but a permanently hidden button.
+  `chrome/Controls.test.ts` caught it and is what keeps it caught: four rules in
+  three sections of one file have to agree, and getting three of them right
+  fails silently — the app just opens on a phone with no way to add a species,
+  or with a floating button *and* the bar it was meant to replace.
+- **`share` has no row in `bindings.ts` and must not get one.** That table is
+  *every key this app claims*; share has no key on purpose (`s` and `l` are the
+  two most-used letters here), and a keyless row in a key table is a lie about
+  what the table is. `ControlAction` is a union instead, so the one control with
+  no binding is *required* to carry its own label and hint, and `Controls`
+  prints no badge where there is no key to print. It is also why `.control` has
+  a `no-key` class: at 720px the labels go, and a share button with no badge and
+  no label is an empty button.
+- **The `chrome` field on a binding is gone rather than updated.** It said
+  which rows the bar drew and at what prominence, and it could never be the
+  whole answer — `App.tsx` composes the bar and always did, the bar now holds a
+  control with no row in that table at all, and a flat flag cannot say which of
+  four captioned groups a button belongs in. Its one live use was
+  `secondary`, meaning "drop me below 620px", which is a width where nothing is
+  drawn any more.
+- **The inline mark is a third copy of the icon, and it is pinned.** The favicon
+  is already two copies in two languages — the SVG and `make-icons.py` —
+  and `icons.test.ts` exists because of it. `BrandMark.tsx` cannot import the
+  SVG (that file bakes in a black plate for a white tab strip, and literal hex,
+  neither of which belongs on scrim), so it restates the geometry and the test
+  compares the three circles attribute by attribute. It takes `currentColor`
+  and the test refuses any hex literal in it, because the reason it is a
+  component rather than an `<img>` is that it *can* read the app's accent.
+- **The tip outline is a run of groups now, not of buttons.** `TIPPED` is
+  exactly the bar's `lead` slot, and it has to stay exactly that: `Controls`
+  outlines a contiguous run of groups whose *every* action is marked, so a
+  fourth button in either group silently takes the outline off both. The button
+  on a phone carries the same pulse, because the bar that would otherwise
+  carry it is not on screen and the reader who has just been shown a tree they
+  did not build is exactly the one who needs telling where their own species go.
 
 ---
 

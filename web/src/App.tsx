@@ -48,9 +48,9 @@ import {
 import { OpeningCarousel } from "./chrome/OpeningCarousel";
 import { keysOf, nextOpening, type Opening } from "./openings";
 import { Confirm } from "./chrome/Confirm";
-import { Controls, type ControlAction } from "./chrome/Controls";
+import { Controls, type ControlGroup, type ControlId } from "./chrome/Controls";
 import { PendingLine, usePending } from "./chrome/Pending";
-import { kbd, matchKey, type ActionId } from "./chrome/bindings";
+import { kbd, matchKey } from "./chrome/bindings";
 import { prefersReduced } from "./chrome/motion";
 import { goAbout } from "./route";
 import { NextOpening } from "./chrome/NextOpening";
@@ -125,11 +125,12 @@ const RANDOM_CANDIDATES = 12;
  * Which controls are pointed at once an opening has finished drawing, and what
  * the tray under them says.
  *
- * The three ways to put something of your own on the canvas, in the order the
- * bar already draws them — and they must stay adjacent, because `Controls`
- * draws a contiguous run of them inside one outline. That grouping is the
- * claim: it is **one** invitation with three doors, and three separately
- * decorated buttons said there were three invitations.
+ * The three ways to put something of your own on the canvas, which is exactly
+ * the bar's whole `lead` slot — and it has to stay exactly that, because
+ * `Controls` outlines a contiguous run of *groups* whose every action is marked
+ * here. A fourth button in either group would silently take the outline off
+ * both. That grouping is the claim: it is **one** invitation with three doors,
+ * and three separately decorated buttons said there were three invitations.
  *
  * The line was a sentence on the end of the answer's own toast once — "press S
  * to search, or R for a surprise" — and both halves of that were wrong. It
@@ -138,7 +139,7 @@ const RANDOM_CANDIDATES = 12;
  * missing is *where*. Under the buttons it needs neither: the badges are
  * directly above it, so the copy can be the invitation and nothing else.
  */
-const TIPPED: ActionId[] = ["palette", "species", "random-species"];
+const TIPPED: ControlId[] = ["palette", "species", "random-species"];
 const TIP_LINE = "Now put something of your own beside it";
 
 /**
@@ -1575,39 +1576,85 @@ export default function App() {
    * reader's hand costs them the button they were reaching for, and the
    * tooltip on a disabled one says what would make it work.
    */
-  const controls: ControlAction[] = useMemo(() => {
-    const rows: ControlAction[] = [
-      { id: "palette", run: openPalette },
-      { id: "species", run: openSpecies },
-      { id: "random-species", run: () => void randomPick() },
+  const controls: ControlGroup[] = useMemo(() => {
+    const groups: ControlGroup[] = [
+      // The wordmark, and under it the one door that reaches every other. The
+      // caption is the product rather than the feature because a palette is not
+      // a feature: `Commands` is what the button does and `Concestor` is what
+      // you are in. See `BrandMark.tsx`.
       {
-        id: "fit",
-        run: () => setFitSignal({ kind: "all", token: Date.now() }),
-        ...(empty
-          ? { disabledBecause: "Nothing on the canvas to frame yet" }
-          : viewFit
-            ? { disabledBecause: "The whole tree is already framed" }
-            : {}),
+        name: "Concestor",
+        slot: "lead",
+        brand: true,
+        actions: [{ id: "palette", run: openPalette }],
       },
+      // The caption is the whole action and the two buttons are the two ways to
+      // take it — which is the shape this pair actually has: `S` and `R` both
+      // put a species on the canvas and differ only in who chooses it. Naming
+      // the corpus twice, as "Species" and "Random" side by side once did,
+      // spent both words on the noun and neither on the difference.
       {
-        id: "isolate",
-        run: () => tree.toggleIsolate(),
-        active: tree.view.isolate,
-        ...(focusedIdx === null
-          ? { disabledBecause: "Select a node first — isolate dims everything off its path" }
-          : {}),
+        name: "Add species",
+        slot: "lead",
+        actions: [
+          { id: "species", label: "Search", run: openSpecies },
+          { id: "random-species", run: () => void randomPick() },
+        ],
       },
+      // Opposite the lead group, and the pairing is what the two have in
+      // common rather than what they do: both act on the canvas as a whole, and
+      // both are the kind of thing you reach for when you have stopped building
+      // — one to send it, one to start over.
       {
-        id: "step",
-        run: () => stepSelection(false),
-        ...(tree.induced.leaves.length === 0
-          ? { disabledBecause: "Add a species and this steps through the selection" }
-          : {}),
+        name: "Canvas",
+        slot: "trail",
+        actions: [
+          {
+            id: "clear",
+            run: () => setConfirmClear(true),
+            ...(empty ? { disabledBecause: "The canvas is already empty" } : {}),
+          },
+          {
+            // The one control with no key, so it carries its own words —
+            // `chrome/Controls.tsx` is why they are required rather than
+            // optional, and `bindings.ts` is why there is no letter to print.
+            id: "share",
+            label: "Share",
+            hint: "Copy a link to this view — every view of this app is a URL",
+            run: share,
+          },
+        ],
       },
+      // The second row: not what you put on the canvas but how you look at it.
       {
-        id: "clear",
-        run: () => setConfirmClear(true),
-        ...(empty ? { disabledBecause: "The canvas is already empty" } : {}),
+        name: "Navigate",
+        slot: "rest",
+        actions: [
+          {
+            id: "fit",
+            run: () => setFitSignal({ kind: "all", token: Date.now() }),
+            ...(empty
+              ? { disabledBecause: "Nothing on the canvas to frame yet" }
+              : viewFit
+                ? { disabledBecause: "The whole tree is already framed" }
+                : {}),
+          },
+          {
+            id: "isolate",
+            run: () => tree.toggleIsolate(),
+            active: tree.view.isolate,
+            ...(focusedIdx === null
+              ? { disabledBecause: "Select a node first — isolate dims everything off its path" }
+              : {}),
+          },
+          {
+            id: "step",
+            run: () => stepSelection(false),
+            ...(tree.induced.leaves.length === 0
+              ? { disabledBecause: "Add a species and this steps through the selection" }
+              : {}),
+          },
+        ],
       },
     ];
     // Pointed at once an opening's answer has been read rather than the moment
@@ -1619,12 +1666,18 @@ export default function App() {
     // This and the tray below must read the *same* value. They are the outline
     // and the line inside it, and gating them apart draws a box around three
     // buttons with nothing to say about why.
-    if (!tipShown) return rows;
-    return rows.map((r) => (TIPPED.includes(r.id) ? { ...r, tip: true } : r));
+    if (!tipShown) return groups;
+    return groups.map((g) => ({
+      ...g,
+      actions: g.actions.map((a) =>
+        TIPPED.includes(a.id) ? { ...a, tip: true } : a,
+      ),
+    }));
   }, [
     openPalette,
     openSpecies,
     randomPick,
+    share,
     stepSelection,
     tree,
     focusedIdx,
@@ -1735,6 +1788,12 @@ export default function App() {
           setScoped(true);
           setPaletteOpen(true);
         }}
+        // The narrow window's one control, drawn inside the canvas because that
+        // is where `--lane-h` is published — see `chrome/PaletteFab.tsx`. It
+        // takes the invitation too, since the bar that would otherwise carry it
+        // is not on screen at that width.
+        onPalette={openPalette}
+        tip={tipShown}
       />
 
       {/*
@@ -1981,7 +2040,7 @@ export default function App() {
         open for the whole afterglow; only the outline inside it waits.
       */}
       <Controls
-        actions={controls}
+        groups={controls}
         idle={idle && afterglow === null}
         busy={busy}
         {...(tipShown ? { tip: TIP_LINE } : {})}
