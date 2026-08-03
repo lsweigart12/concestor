@@ -2975,10 +2975,68 @@ body {
   margin: 0 0 var(--s3);
 }
 /* The second way in, for a reader with no species in mind. Quieter than the
-   first, because it is the fallback and not the instruction. */
+   first, because it is the fallback and not the instruction.
+
+   Two columns, centred as a block rather than stretched: `auto auto` under
+   `justify-content: center` makes the pair as wide as its contents, so the rule
+   between them sits beside the words instead of out at the panel's margin. The
+   rows inside are left-aligned — the panel above is centred, but a column of
+   badges that is centred has no column in it. */
 .boot-alt {
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: center;
+  justify-content: center;
+  column-gap: var(--s5);
   color: var(--ink-4);
   font-size: 12.5px;
+  text-align: left;
+}
+.boot-keys {
+  display: grid;
+  gap: var(--s2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.boot-keys li {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+}
+/* The badges are one letter each today, so they align by accident. `min-width`
+   is what keeps the words in a column the day one of them is not. */
+.boot-keys .kbd {
+  min-width: 1.9em;
+  text-align: center;
+}
+/* `.boot` is `pointer-events: none` so the empty canvas does not swallow
+   presses aimed at the axis behind it; this takes it back, as `.carousel`
+   does. The hairline is the whole of the division between the columns — a
+   second surface here would be a card on a panel that is deliberately not
+   one. */
+.boot-more {
+  pointer-events: auto;
+  align-self: center;
+  padding: var(--s1) 0 var(--s1) var(--s5);
+  border: 0;
+  border-left: 1px solid var(--hairline);
+  border-radius: 0;
+  background: none;
+  font: inherit;
+  color: var(--ink-4);
+  text-align: left;
+  cursor: pointer;
+  transition: color 140ms ease;
+}
+.boot-more:hover {
+  color: var(--ink-2);
+}
+.boot-more:focus-visible {
+  outline: none;
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 .boot-inner code {
   font-family: var(--mono);
@@ -4325,6 +4383,20 @@ body.biolum .palette-fab {
   }
   .palette-fab {
     display: inline-flex;
+  }
+  /* The empty canvas's two columns become two rows here, and the rule between
+     them turns with them. At 375px the pair is a column of badges squeezed
+     against a link that wraps to three lines, which is narrower than either
+     half needs. */
+  .boot-alt {
+    grid-template-columns: minmax(0, 1fr);
+    justify-content: stretch;
+    row-gap: var(--s3);
+  }
+  .boot-more {
+    padding: var(--s3) 0 0;
+    border-left: 0;
+    border-top: 1px solid var(--hairline);
   }
 }
 

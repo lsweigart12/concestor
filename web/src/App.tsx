@@ -1850,15 +1850,43 @@ export default function App() {
                   that list.
                 */}
                 <OpeningCarousel onOpen={openOpening} keyToOpen />
-                <p className="boot-alt">
-                  Or press <span className="kbd">{kbd("species")}</span> to
-                  search 2.7 million species, <span className="kbd">
-                    {kbd("random-species")}
-                  </span>{" "}
-                  for one picked at random, or{" "}
-                  <span className="kbd">{kbd("palette")}</span> for everything
-                  this can do.
-                </p>
+                {/*
+                  Two columns, because the three keys and the about link are
+                  two different offers and the sentence they used to share made
+                  them one. Run together — "or press S …, R …, or P …" — a
+                  reader has to parse the whole line to find the one way in
+                  they want, and the badges are the thing the eye lands on, so
+                  the line reads as a list that has been written out longhand.
+                  A row each puts the badge in a column of its own and the
+                  payoff beside it, which is what the palette rows already do.
+
+                  The link is the second column rather than a fourth row: it
+                  goes somewhere else, and the three above it stay here.
+                */}
+                <div className="boot-alt">
+                  <ul className="boot-keys">
+                    <li>
+                      <span className="kbd">{kbd("species")}</span>
+                      <span>Search 2.7 million species</span>
+                    </li>
+                    <li>
+                      <span className="kbd">{kbd("random-species")}</span>
+                      <span>Add one picked at random</span>
+                    </li>
+                    <li>
+                      <span className="kbd">{kbd("palette")}</span>
+                      <span>Everything this can do</span>
+                    </li>
+                  </ul>
+                  {/*
+                    A `button`, on `SourceLinks`'s reasoning: `goAbout` pushes
+                    history and swaps the root, so an `href` would offer a
+                    middle-click that reloads the app.
+                  */}
+                  <button type="button" className="boot-more" onClick={goAbout}>
+                    Learn more about Concestor
+                  </button>
+                </div>
               </>
             )}
           </div>
