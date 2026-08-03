@@ -86,13 +86,22 @@
   // ACCOUNT_ID is substituted by the deploy workflow: wrangler does not
   // interpolate environment variables into this file, and a literal
   // ${CLOUDFLARE_ACCOUNT_ID} would be pushed through to the registry path
-  // verbatim. The tag is a build id and is *committed*, so that rolling the
-  // Worker back rolls the dataset back with it — `:latest` would make "roll
-  // back the frontend" quietly mean "keep the new database".
+  // verbatim. The tag is *committed*, so that rolling the Worker back rolls
+  // the dataset back with it — `:latest` would make "roll back the frontend"
+  // quietly mean "keep the new database".
+  //
+  // The tag is `<dataset build id>-<commit>` and the second half is not
+  // decoration. It used to be the dataset id alone, which named half the
+  // image: the Go server ships in here too, so code could change while the
+  // artifacts did not and the rebuild would mint the tag already in the
+  // registry. That is not hypothetical — it is how a pre-#51 server ran in
+  // production for two releases while the frontend had the labels switcher,
+  // serving no vernacular on /v1/path so every mark fell back to its
+  // scientific name. An unchanged tag now means an unchanged image.
   "containers": [
     {
       "class_name": "ReadApi",
-      "image": "registry.cloudflare.com/ACCOUNT_ID/concestor-api:67630b66a5d425ca",
+      "image": "registry.cloudflare.com/ACCOUNT_ID/concestor-api:67630b66a5d425ca-60036c0",
 
       // `standard-1`: 1/2 vCPU, 4 GiB, 8 GB of disk, against a measured 463 MB
       // working set and a 2,229 MB image. The next size down, `basic`, is
