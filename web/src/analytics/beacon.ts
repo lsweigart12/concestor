@@ -18,7 +18,11 @@
  * somebody has to remember to set.
  *
  * **What is deliberately not collected**: no identity, no IP (Analytics Engine
- * stores what is written and nothing more), no cookie, no `localStorage`. The
+ * stores what is written and nothing more), no cookie, no `localStorage`. That
+ * is a claim about what this sends and where it lands, and it stops at the edge
+ * of it: the platform keeps its own record of every request to this Worker for
+ * seven days, IP included, and `docs/analytics.md` §9.4 is what is in there and
+ * the one line that removes it. The
  * session id is a random per-tab string in `sessionStorage`, on exactly the
  * reasoning that put bioluminescence there — per-tab means a shared link opened
  * tomorrow is a different session, which is what a session is. It exists to

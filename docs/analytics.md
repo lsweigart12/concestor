@@ -55,6 +55,11 @@ hit**, so it sees misses only: today that is nearly everything (473 invocations
 against ~438 `/v1` edge requests, a cold cache), and the blind spot widens
 exactly as the caching starts working.
 
+Both caveats are about reading the *request* log retroactively. Neither touches
+§9, where the same store holds the beacon's own events because the Worker puts
+them there: that is a dashboard rather than an API call, and a beacon is not a
+side effect of a request being served.
+
 So: the browser has to say what happened, because it is the only thing that
 knows.
 
@@ -148,6 +153,15 @@ paste is never sent, the Worker because the client is the open internet.
 
 No identity, no IP, no cookie, no `localStorage`. Analytics Engine stores what is
 written and nothing else, and nothing here writes anything about a person.
+
+**That is a claim about this dataset, and it stops there.** §9 writes each event a
+second time as a structured log, and Workers Logs is a different store with
+different contents: alongside what this Worker logs, the platform keeps its own
+record of the request for seven days, and that record carries the reader's IP.
+Nothing above became untrue — the beacon's rows hold no more than the table says,
+and the log line §9 adds holds the same seven validated values — but the sentence
+had to stop being about the whole Worker. §9.4 is what is in there, measured, and
+the lever for taking it out.
 
 The session id is a random 8-character string in **`sessionStorage`**, on exactly
 the reasoning that put bioluminescence there (`store.ts`): per-tab means a link
@@ -370,3 +384,211 @@ It refuses to run without `build/concestor.db` rather than falling back to
 printing keys, on `scripts/serve.sh`'s rule. A report whose every row reads
 `ott461645` is the thing this replaces, and a missing database would read as an
 empty week.
+
+---
+
+## 9. Browsing it
+
+§8 exists because Analytics Engine has no dashboard — a SQL API, a Grafana
+integration, and querying from a Worker, and that is the whole list. It still
+has none. What changed is that the **Workers Observability** dashboard became a
+real analytics browser — charts, a query builder, saved queries, CSV export, a
+query language in the search bar — and the one sentence that makes it usable
+here is that *the Query Builder can use any field you store in your logs as a
+key to visualize, filter and group by.*
+
+A `POST` body never appears in request metadata, so none of this could see the
+beacon. So `worker/index.ts` logs each accepted event a second time, as flat
+JSON, beside the `writeDataPoint` it already made:
+
+```jsonc
+{ "concestor": "beacon", "kind": "search", "subject": "whale",
+  "tree": "", "cause": "", "session": "a1b2c3d4", "size": 0 }
+```
+
+Seven keys, no nesting — a nested object would be one key holding JSON rather
+than seven keys to group by — and the values are the same variables
+`writeDataPoint` is given on the line above, after validation and truncation.
+Never the parsed body: an unknown kind never reaches either writer, every string
+is capped, and a log holding unchecked input from the open internet is a log you
+cannot trust when you read it back. The body cap is 8 KB and a single log is
+capped at 256 KB, so this is a correctness argument rather than a size one.
+
+**Where.** Cloudflare dashboard → **Workers & Pages** → `concestor-web` →
+**Observability**. The account-wide Observability tab shows every Worker at
+once; the **Investigate** tab is the Query Builder.
+
+### 9.1 Queries
+
+The search bar takes free text or field queries: `=`, `!=`, `>`, `>=`, `<`,
+`<=`, `:` (contains), the functions `contains()`, `startsWith()`, `regex()` and
+`exists()`, and `AND` / `OR` / `NOT`. Everything below is that language, not a
+description of it.
+
+```
+concestor = "beacon"
+```
+
+That is the one filter that isolates these events from the Worker's other logs,
+which is what the marker field is for — the key is the project's name rather
+than something plausible like `event` or `type`, so it cannot start matching
+lines nobody wrote. The three questions, each of which then wants **Visualize:
+COUNT**, **Group by** the field named:
+
+```
+concestor = "beacon" AND kind = "search"            → group by subject
+concestor = "beacon" AND kind = "add"               → group by subject
+concestor = "beacon" AND kind = "tree" AND (cause = "add" OR cause = "remove")
+                                                    → group by tree
+```
+
+The third repeats §2's last rule: `add` and `remove` are the trees people
+*built*, and dropping the filter mixes in the ones they were handed. Ask for
+those on their own with `cause = "link" OR cause = "back"`.
+
+The openings, which is the split `state/sequence.ts` was instrumented to settle:
+
+```
+concestor = "beacon" AND kind = "tree" AND startsWith(cause, "sequence")
+concestor = "beacon" AND kind = "tree" AND cause = "open"
+```
+
+Group the first by `cause` and it separates a run that finished from one the
+reader cut. **The conversion question is not answerable here**, and that is a
+property of the surface rather than of the fields: "did a session whose first
+`tree` row said `sequence` later emit a row with cause `add`" is a join from a
+session to its own later rows, and the Query Builder groups and counts rather
+than joining. That query belongs in §4's SQL, per `blob5`.
+
+Some others that have earned their place:
+
+```
+concestor = "beacon" AND size >= 5                     -- the big canvases
+concestor = "beacon" AND session = "a1b2c3d4"          -- one reader's whole visit
+concestor = "beacon" AND kind = "add" AND startsWith(subject, "mrcaott")
+                                                       -- adds of a divergence
+concestor = "beacon" AND kind = "add" AND startsWith(subject, "pbdb")
+                                                       -- adds of a fossil graft
+concestor = "beacon" AND contains(tree, "ott770315")   -- trees holding one taxon
+NOT exists(concestor)                                  -- everything that is not this
+```
+
+**A key is not a name, here as everywhere.** The dashboard will group `ott770315`
+and `ott461645,ott478542` and cannot do otherwise: what turns those into *Homo
+sapiens* and *Apis mellifera + Octopoda* is a 1.9 GB local database no hosted
+dashboard can join against. That is §8's whole argument and it is unchanged. The
+division of labour that follows is the useful one — **the dashboard answers how
+many, when, and which shape; §8's report answers which animal.**
+
+### 9.2 Which surface answers which question
+
+|  | Workers Logs | Analytics Engine |
+|---|---|---|
+| Retention | **7 days** (3 on Free) | **three months** |
+| Reading it | a dashboard, in a browser | SQL API, `scripts/analytics-report.sh` |
+| Names | keys only | keys resolved to names |
+| Sampling | head-based, off (§9.3) | per-index, weighted by `_sample_interval` |
+| Good for | this week, exploring, charts | last month, the recurring report |
+
+Neither replaces the other and the Analytics Engine write stays. A month-old
+question has only one store that can answer it, and a "what happened yesterday"
+question should not need a token, a SQL string and a local database.
+
+### 9.3 What it costs
+
+`web/wrangler.jsonc` now writes the logs configuration out in full, although
+both keys are already the default:
+
+```jsonc
+"observability": {
+  "enabled": true,
+  "logs": { "invocation_logs": true, "head_sampling_rate": 1 },
+},
+```
+
+`head_sampling_rate` is the one to have written down. Below 1 it drops that share
+of **requests** before anything they emit is stored, and nothing in the output
+says so — there is no `_sample_interval` to weight by, the way §4's dataset has.
+As a debugging setting that is a saved byte. As an analytics setting it is a
+wrong answer, so it stays at 1 and lowering it is now a decision somebody takes
+rather than a default they inherit.
+
+The arithmetic, on **Workers Paid** — which this account is on, Containers
+requiring it, whatever the zone's own Free plan says:
+
+- **20 million log events a month included**, then **$0.60 per additional
+  million**. That is about 658,000 a day.
+- One log per accepted event, plus one invocation log per request. §1 measured
+  ~500 invocations on the first day. A reader who searches twice, adds three
+  taxa and settles one tree emits six events, which `FLUSH_MS` batches into two
+  or three requests — under ten log events for the visit, plus an invocation log
+  for each `/v1` call that missed the edge cache.
+- Reckon **30 log events per reader** and the included allowance is about
+  **22,000 readers a day**. A day that ran a million events over the line would
+  cost 60 cents.
+- The account-wide ceiling is **5 billion a day**, past which everything drops
+  to a 1% sample for the rest of that day. That is four orders of magnitude
+  above this app.
+
+One multiplier is worth naming rather than rediscovering: a single request may
+carry `MAX_EVENTS` = **32** events, so 33 log lines. What bounds that is the WAF
+rule in `docs/deployment.md` §6.1 — `/v1/*`, 100 requests per 10 s per IP — and
+one IP sitting exactly on it is 864,000 requests a day, which at full batches is
+~28 million log events: the month's allowance in an afternoon. The exposure is
+not new (those same requests already write those same 32 data points to
+Analytics Engine) and the answer is the same rule, which drops the request before
+the Worker ever runs.
+
+### 9.4 What the Worker's own logs hold about a reader
+
+§3 says the beacon collects no identity, no IP, no cookie. That is true of the
+dataset. **Workers Logs is a different store**, and this section is why §3 now
+says where its claim stops.
+
+Measured on **2026-08-03**, `wrangler tail concestor-web --format json` against
+the deployed Worker with one ordinary browser request. The trace event — the
+object Workers Logs deserializes and indexes — carries, under
+`event.request`:
+
+- **`cf-connecting-ip`**, the reader's address in full, and `x-forwarded-for`
+  repeating it.
+- The complete **`user-agent`**.
+- **`cf`**: `city`, `region`, `postalCode`, `latitude`, `longitude`, `timezone`,
+  `asn`, `asOrganization`, `colo`, and TLS client fingerprints
+  (`tlsClientRandom`, `tlsClientExtensionsSha1`).
+- The **full URL**, query string included — which is §1's reason Workers Logs
+  is the one retroactive source that sees a search at all.
+
+Exactly one header is redacted: `cookie` arrives as the literal string
+`REDACTED`. The IP does not.
+
+So, plainly: **for seven days, this Worker's logs pair a reader's IP with the
+paths they asked for.** Three things about that are worth being exact on.
+
+- **This did not start with §9.** `observability.enabled` has been true since the
+  Worker shipped, and invocation logs are on by default; the request record was
+  already being kept. What §9 changes is that the logs became a surface someone
+  is meant to *read*, and a surface nobody reads is still a store. A section that
+  turns logs into the analytics browser cannot leave this unwritten.
+- **The beacon's own line holds none of it.** `/v1/e` is a `POST`, so the URL in
+  its invocation log is `/v1/e` and nothing more — the payload is in the body,
+  which no log holds — and the seven fields in §9's line are the validated ones.
+  The identifying material is the platform's record of the request, not ours.
+- **The lever is `"invocation_logs": false`**, and it is not taken. It removes
+  the platform's request record — which takes the IP, the geolocation and the
+  fingerprints with it — and takes with it every request's method, URL, status,
+  outcome, CPU and wall time. That is the whole of what makes this Worker
+  debuggable, and §1's note that Workers Logs is the only place a query string
+  survives retroactively. The trade is a real one and the reason to refuse it
+  today is that the data is Cloudflare's ordinary request handling, held for a
+  week, on a site with no accounts and nothing to correlate against. If that
+  stops being true — a login, a second data source, anything that could join an
+  IP to a person — this is the line to change, and it is one line.
+
+The honest limit on the measurement: it reads the **trace event**, which is what
+Cloudflare documents Workers Logs as ingesting and indexing. Enumerating the keys
+Workers Logs actually stores would need the observability telemetry API, and per
+§1 that refuses the token `wrangler login` leaves behind — `10000 Authentication
+error` — so it needs a minted token this project does not have a reason to hold
+yet. Where the two could differ, this section states the *larger* thing, which
+is the right way round for a privacy claim.
