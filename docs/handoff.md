@@ -1069,6 +1069,17 @@ card markup at all.
 For an `mrcaott…` node, "the last common ancestor of X and Y" is not provenance,
 it is the only identity the node has.
 
+**And it is that sentence and no more.** Each of the surviving face-of-card
+paragraphs had grown a trailing clause that explained the paragraph rather than
+the taxon — *"That is a statement about the tree, not a name anyone has given
+it"* after the derived name, *"This node is both a taxon you chose and the
+divergence you are looking for"* after the nested-selection note. Both are gone.
+The test is the ordering rule above applied one level down: a sentence stating a
+fact about *this animal* earns the face of the card; a sentence explaining what
+the previous sentence was doing is provenance, and provenance is a disclosure.
+Nothing moved into `WhyBlock` — these had no wrong reading of their own to
+stop, which is what separates them from the six paragraphs that may not be cut.
+
 Four things worth knowing before changing it:
 
 - **The classification is the ancestor path.** There is no taxonomy table and
@@ -1141,7 +1152,14 @@ Five things worth knowing:
   different things.** A drawn divergence is there only as long as the
   selections that induced it: *Boreoeutheria* while a human and a cat both are.
   Labelling that "Add to the canvas" promises a visible change and the press
-  then appears to do nothing, so it reads **Pin**, with one line saying why.
+  then appears to do nothing, so it reads **Pin**. The verb is the whole of it:
+  a hint under the button ("It is drawn now only because of what sits below it.
+  Pinning keeps it.") explained the mechanism above the name, the description
+  and the classification, and was therefore among the first things read on a
+  card opened to find out what an animal is. It is gone, along with the
+  `hint` prop that carried it. `refusal` is a different case and stays — it
+  says why a press would do nothing, and it replaces the button rather than
+  annotating it.
 - **A fossil card draws through `drawFossil`, not `addFossil`.** It is now
   routinely open on something whose host branch is nowhere near the canvas — a
   witness reached by a link, a search hit — and the bare add would put it in the
