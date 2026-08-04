@@ -1750,6 +1750,72 @@ rather than missed: compositing the WebGL water under React Flow's SVG at an
 export resolution, with the fonts and the axis, is a real piece of work and it
 lands squarely on the renderer. It is the next thing worth building.
 
+### Readership: four sources that fail differently, and no single number
+
+`docs/analytics.md` is the account and §9.6–§9.7 are the part written last.
+The decision worth carrying up here is the negative one: **do not reconcile
+these to one figure, and be suspicious of any answer that does.** Measured
+2026-08-02→04, the same three days, the same site:
+
+| Source | Says | Fails by |
+|---|---|---|
+| Zone GraphQL (`httpRequests1dGroups`) | 237 unique IPs in a day, 36 countries | counting scanners as readers |
+| Workers Logs | 52 IPs invoked the Worker, 22 drew a tree | blind to every cache hit |
+| Web Analytics (RUM) | **83 visits**, 3 countries | dropped by any content blocker |
+| Analytics Engine (the beacon) | 20 sessions, 189 events | only exists once somebody acts |
+
+The honest statement of outside readership on 2026-08-04 was **a handful, and
+the range is the answer** — most of the traffic in every store is this
+project's own machines, and the one most engaged outside reader is invisible to
+the instrument built for counting readers, because RUM's beacon is a
+third-party script and they blocked it. For a product aimed at curious
+tinkerers, that bias is structural: the reader most likely to block it is the
+reader most likely to enjoy the thing.
+
+Five things not to redo:
+
+- **`/v1/about` is not a proxy for "the app loaded".** It is one well-known URL
+  on an API and scanners probe it by name — 26 of its 38 addresses were
+  datacenter, most making a single request, and the same log shows `/.env`
+  fetched 28 times. `/v1/silhouette/…` is the honest load signal because it is
+  thousands of URLs only the running app knows to ask for. Even that catches
+  JS-executing crawlers.
+- **Comparing unique-IP counts across paths measures URL cardinality too.** A
+  cache hit does not invoke the Worker, so every stage is a floor, and the
+  single-URL stages hide more readers than the many-URL ones: `/v1/about` 38%
+  hit, `/v1/timescale` 30%, `/v1/silhouette/*` 25%, `/v1/search` 10%.
+- **Bot score is Enterprise and this zone is Free.** `botScoreSrcName` is
+  refused outright. `cf.verifiedBotCategory` exists but named only 14 requests
+  of 4,591; the discriminator that worked was `cf.asOrganization`.
+- **A beacon event cannot be grouped by geography.** The seven fields group
+  against each other, but city and ASN live on the *invocation* record and the
+  Query Builder groups rather than joins — the result is empty, not sparse.
+  Group the requests to `/v1/e` instead, which happen only when there is an
+  event to send.
+- **`refererHost` in RUM is the only place distribution is visible anywhere.**
+  It is what showed the first organic Google arrivals and the first link pasted
+  into somebody's Teams chat. Nothing else in any store can see that.
+
+### Reading any of this needs no credential this project holds
+
+Every figure above was pulled through Cloudflare's own MCP servers, which carry
+their own OAuth and are connected per-session rather than stored here. That
+matters because the previous account in `analytics.md` said twice that a token
+would have to be minted, and it does not.
+
+| Server | Reaches |
+|---|---|
+| `cloudflare-observability` | Workers Logs: keys, values, query builder |
+| `cloudflare-api` | **any** REST or GraphQL endpoint, via its `execute` tool |
+| `cloudflare-builds`, `cloudflare-bindings` | Workers, D1, KV, R2 |
+
+`cloudflare-api`'s `execute` is the general answer and the one to reach for
+first — it took the RUM datasets that refuse the wrangler token. What still
+uses the wrangler OAuth token is `scripts/analytics-report.sh`, per
+`analytics.md` §4, and that stays true: it is the only path that resolves a key
+to *Apis mellifera*, because that join needs the 1.9 GB local database and no
+hosted surface can do it.
+
 ---
 
 ## 4. Corrections to the design docs
@@ -2408,6 +2474,16 @@ either side of it.
 came from exactly that, including one where silencing an unused-variable warning
 left a database column permanently `NULL` while every gate passed. Counting rows
 is not checking them; `tests/test_db_contents.py` exists because of it.
+
+**A commit body line may not begin `word: `.** This repo writes long, prose
+commit bodies, and conventional-commits-parser reads any line matching
+`^[\w-]+: ` as the start of the footer — so a sentence that happens to wrap onto
+a line beginning `cannot: …` makes `Co-Authored-By:` no longer the first footer
+line, and CI's `commits` job fails with `footer-leading-blank`. The message is
+unhelpful because it names the footer rather than the line that stole it. Reflow
+the sentence; do not shorten the body. `npx commitlint --from <base> --to HEAD`
+reproduces it locally, and is worth running before pushing anything with a body
+longer than a paragraph.
 
 **Be honest about uncertainty visually, never numerically.** Only 6.7% of the
 synthesis tree is phylogenetically placed, so any dated version is overwhelmingly

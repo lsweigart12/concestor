@@ -30,7 +30,9 @@ is the opposite of the usual worry.
 - **The query string, on any plan below Enterprise.** The API refuses the
   dimension outright: *"zone … does not have access to the field
   'clientrequestquery'"*. So `/v1/search?q=whale` reads as `/v1/search`, and
-  **no search is recoverable**. Pro and Business do not change this.
+  **no search is recoverable from this dataset**. Pro and Business do not change
+  this. Workers Logs is the exception and §9.5 is the account — it indexes the
+  query as a field of its own, and holds more of it than the beacon does.
 - **More than 8 days.** *"cannot request data older than 1w1d"*, and a single
   query may span at most **1 day** — so it is one call per day, and anything not
   pulled inside the window is gone.
@@ -47,13 +49,21 @@ request *log* is the retroactive source, and §6 is how to pull it.
 
 **Workers Logs** (enabled, `observability.enabled`) is the one place a query
 string survives retroactively: the trace event carries `event.request.url` in
-full, for **7 days**. Two caveats make it a poor primary source. It is
-dashboard-only unless a token carrying Workers Observability read is minted —
-the wrangler OAuth token returns `10000 Authentication error` against
-`/workers/observability/telemetry/*`. And **the Worker is not invoked on a cache
-hit**, so it sees misses only: today that is nearly everything (473 invocations
-against ~438 `/v1` edge requests, a cold cache), and the blind spot widens
-exactly as the caching starts working.
+full, for **7 days**. One caveat that was written here has since been paid off
+and one has not.
+
+**It is no longer dashboard-only.** The wrangler OAuth token does return `10000
+Authentication error` against `/workers/observability/telemetry/*`, and that is
+still true — but the token is not the only door. Cloudflare's
+`cloudflare-observability` MCP server authenticates by its own OAuth flow and
+reads the same store, keys, values and query builder alike. Measured
+**2026-08-04**: it answers for `concestor-web` without this project minting or
+holding any token at all.
+
+**The Worker is still not invoked on a cache hit**, so it sees misses only:
+today that is nearly everything (473 invocations against ~438 `/v1` edge
+requests, a cold cache), and the blind spot widens exactly as the caching starts
+working. That one is structural and no credential fixes it.
 
 Both caveats are about reading the *request* log retroactively. Neither touches
 §9, where the same store holds the beacon's own events because the Worker puts
@@ -296,9 +306,16 @@ deduplicates within a session.
 - **`search` records what the palette ran**, which is at least
   `MIN_QUERY` characters. A one-letter query is not recorded because the server
   never searched it.
-- **Nothing is recorded about a fossil.** Grafts, drill-down and the detail card
-  are all outside these three events. They can be added — append to the schema,
-  never insert.
+- **Nothing is recorded about a fossil**, *by the beacon*. Grafts, drill-down and
+  the detail card are all outside these three events. They can be added — append
+  to the schema, never insert. But the claim stops at this dataset: a fossil card
+  is a `GET /v1/fossil/{pbdb_taxon_no}` and the key is **in the path**, so both
+  §1's edge log and §9's request record see it, and `pbdb_taxon_no` joins
+  straight to `fossil` in `build/concestor.db`. That is how the one non-local
+  session of 2026-08-04 was reconstructed as far as *Diodorus scytobrachion*
+  without a single beacon field naming a fossil. It is a weaker source in the
+  usual two ways — 7 days, and blind to a cache hit — and it is not a reason to
+  leave the schema as it is, but "invisible" was too strong.
 
 ---
 
@@ -460,6 +477,31 @@ property of the surface rather than of the fields: "did a session whose first
 session to its own later rows, and the Query Builder groups and counts rather
 than joining. That query belongs in §4's SQL, per `blob5`.
 
+**And a beacon event cannot be grouped by geography, which is the tempting
+query and the one this section came close to promising.** The seven fields above
+group cleanly against each other — `concestor`, `kind`, `cause`, `session`,
+`size` — but filter to `concestor = "beacon"` and group by
+`$workers.event.request.cf.country` and the result is **empty**, not sparse.
+The reason is that the beacon's `console.log` writes a *log* record and the
+reader's IP, city and ASN live on the *invocation* record, and the same
+groups-rather-than-joins property refuses to bridge them. Measured 2026-08-04
+against every `cf.*` field tried.
+
+The workaround costs nothing and is exact, because the beacon has an endpoint of
+its own: **group the requests to `/v1/e` instead of the events inside them.**
+
+```
+$workers.event.request.path = "/v1/e"       → group by cf.city, cf.country, cf.asOrganization
+```
+
+A `POST` to that path happens only when there is an event to send, so its
+request record is a reader who *did* something, carrying the geography the log
+record cannot. What it cannot tell you is *which* of the three things they did —
+for that, read the two sides separately and accept that they meet at the
+session rather than in a row. This is the same division of labour §9.1 already
+draws, one level down: the request record answers **who and where**, the log
+record answers **what**.
+
 Some others that have earned their place:
 
 ```
@@ -590,10 +632,166 @@ paths they asked for.** Three things about that are worth being exact on.
   stops being true — a login, a second data source, anything that could join an
   IP to a person — this is the line to change, and it is one line.
 
-The honest limit on the measurement: it reads the **trace event**, which is what
-Cloudflare documents Workers Logs as ingesting and indexing. Enumerating the keys
-Workers Logs actually stores would need the observability telemetry API, and per
-§1 that refuses the token `wrangler login` leaves behind — `10000 Authentication
-error` — so it needs a minted token this project does not have a reason to hold
-yet. Where the two could differ, this section states the *larger* thing, which
-is the right way round for a privacy claim.
+The honest limit on the measurement **has since been closed, and the
+conservative reading was right.** The paragraph here used to say that
+enumerating the keys Workers Logs actually stores would need the observability
+telemetry API, which refuses the wrangler token. §1's MCP server reaches it, so
+on **2026-08-04** the keys were enumerated rather than inferred from the trace
+event. Every field named above is indexed under its own key —
+`headers.cf-connecting-ip`, `cf.city`, `cf.region`, `cf.postalCode`,
+`cf.latitude`, `cf.longitude`, `cf.timezone`, `cf.asn`, `cf.asOrganization`,
+`cf.colo`, `cf.tlsClientRandom`, `cf.tlsClientExtensionsSha1`, and
+`headers.user-agent` — so these are not merely *ingested*, they are **groupable
+dimensions**, which is a stronger statement than this section originally made
+and in the same direction. Two additions the trace event did not reveal:
+`cf.verifiedBotCategory`, and the query string broken out as `search.q`, which
+§9.5 is about. Stating the larger thing was the right way round, and the
+measurement did not have to be walked back.
+
+### 9.5 The query string is a field, and it holds more than the beacon does
+
+`$workers.event.request.search.q` is indexed on its own. Not the URL with the
+query in it — the value of `q`, as a groupable dimension:
+
+```
+exists($workers.event.request.search.q)     → group by $workers.event.request.search.q
+```
+
+That is the correction to §1. A search *is* recoverable retroactively, for seven
+days, without the beacon and without Analytics Engine.
+
+**And it is not the same answer.** §2's first rule collapses a prefix chain to
+one search on purpose, because recording what the palette *ran* would answer
+"what do people search for" with `w`, `wh`, `wha`, `whal`, `whale`. The request
+log has no such rule and never did, so it holds exactly that: measured
+2026-08-04, `ha`, `har`, `hard`, `hard ma`, `hard map`, `hard mapl`,
+`hard maple`, each as its own row. The beacon is right about the question it
+answers and this does not replace it — **the beacon says what a reader searched
+for, the log says what they typed.**
+
+The second is worth having for one thing the first cannot show: **where a reader
+gave up.** A query typed to completion that returns nothing looks identical in
+the beacon to one that worked — `hard maple` is a real common name for *Acer
+saccharum* absent from the corpus, and `ardvark` is a typo the front door does
+not forgive. Both are visible here as a chain that ran to its end and stopped,
+and neither is distinguishable in `blob2` alone.
+
+Two consequences to carry. `zzzqqq` in this data is `fossil-grafts.md` §7's own
+benchmark rather than a reader, so **the corpus is not clean** and anything
+counted off it should exclude the strings this project types at it. And a
+per-keystroke record of what readers type sits in the same store as their IP,
+which is a larger claim than §3 makes about the dataset and belongs under §9.4's
+rule rather than this one: it is not something the beacon collects, it is
+something the platform already logged, and `"invocation_logs": false` remains
+the single lever over all of it.
+
+### 9.6 Telling a bot from a reader, on a Free zone
+
+**The real bot score is not available and no amount of querying finds it.** The
+zone refuses the dimension in the same shape it refuses the query string:
+*"zone … does not have access to the field 'botscoresrcname'"*. Bot Management
+is Enterprise and this is a Free zone.
+
+What Workers Logs does carry is **`cf.verifiedBotCategory`**, which is narrower
+and honest about it — a bot that declares itself and passes Cloudflare's
+verification. Measured 2026-08-02→04 across 4,591 invocations: **14 requests
+from 1 IP**, all `Search Engine Crawler`. That is the whole of what the platform
+will name.
+
+So the discriminator that actually worked was **`cf.asOrganization`**, and it
+worked well: residential carriers on one side, and on the other Palo Alto
+Networks, three Amazon organisations, HostRoyale, Datacamp, Linode, two OVH
+ranges, UAB code200, a Tor exit and an AS registered as `yyysqeortiwa`. None of
+those is a reader and none of them declared itself a bot.
+
+**The better instrument is the funnel, because a scanner cannot fake the far end
+of it.** Each stage is one path, and the drop between stages is the measurement:
+
+| Stage | Path | Unique IPs |
+|---|---|---|
+| Reached the edge | — | 237 / 113 per day |
+| Invoked the Worker | any | 52 |
+| Fetched the build id | `/v1/about` | 38 |
+| Drew a tree | `/v1/silhouette/…` | 22 |
+| Searched | `/v1/search` | 8 |
+| Emitted an event | `/v1/e` | 8 |
+
+**Read that table with two corrections, both of which cost something the first
+draft of this section claimed.**
+
+*`/v1/about` is not "ran the JavaScript".* It is a single well-known URL on an
+API, which is exactly what a scanner probes by name, and the ASN breakdown says
+so: of its 38 addresses, roughly 26 are datacenter — Palo Alto Networks, three
+Amazon organisations, three OVH ranges, Linode, HostRoyale, UAB code200,
+webshield.com, Rica Web Services, Cogent, a Tor exit — and almost every one of
+them made a single request and went no further. The same zone log shows
+`/.env` fetched 28 times, which is what that traffic is. `/v1/silhouette` is the
+honest load signal, because it is thousands of URLs that only the running app
+knows how to ask for.
+
+*And even 22 is not 22 readers.* Several of those datacenter ASNs **do** appear
+at the silhouette stage — webshield.com, Linode, HostRoyale, Rica Web Services,
+Amazon — so some of this traffic executes JavaScript and renders. Meanwhile
+Verizon and Cox account for 7 addresses and **90% of all silhouette requests**,
+which is this project's own machines. Subtract both ends and the number of
+distinct outside readers who have ever drawn a tree is around **eight**.
+
+The cache does not rescue this and does not wreck it either, but it must be
+stated or the table reads as more precise than it is: **every stage undercounts,
+and they do not undercount equally.** A cache hit does not invoke the Worker, so
+each row is a floor whose depth depends on how many distinct URLs the stage has.
+Measured 2026-08-03→04: `/v1/about` **38%** hit, `/v1/timescale` 30%,
+`/v1/silhouette/*` **25%**, `/v1/search` 10%. The single-URL stages hide more
+readers than the many-URL ones, so the drop from 38 to 22 is if anything
+understated — which is why the explanation had to come from ASN composition
+rather than from the shape of the funnel.
+
+Two further cautions. Unique *IPs* is not unique people in either direction: a
+household NATs to one and a phone changing networks is two. And a request count
+here is not a request — the store holds more than one record per request
+(`cf-worker` alongside `cf-worker-event`), so **compare unique-IP figures and
+treat the raw counts as relative**.
+
+### 9.7 Web Analytics is already running, and nothing here said so
+
+The zone log shows **`/cdn-cgi/rum` taking 171 requests** over 2026-08-03→04.
+That is Cloudflare Web Analytics' beacon, injected at the edge, and it means a
+third source has been collecting alongside the two this document is about since
+before any of it was written.
+
+It is worth knowing precisely because of what §9.6 is: it counts *visits* and
+*visitors* rather than IPs, applies Cloudflare's own bot filtering, and needs
+none of the ASN reasoning above. It cannot do what §8 does — it has never heard
+of a taxon key, so no row in it will ever say *Apis mellifera* — and it is not a
+substitute for either store. But for the one question this document answers
+worst, **how many actual people**, it is the right instrument and it is free.
+
+It is read in the dashboard under **Analytics & Logs → Web Analytics**, and by
+API. `/accounts/{id}/rum/*` refuses the token `wrangler login` leaves behind —
+`10000 Authentication error` — but the `cloudflare-api` MCP server carries its
+own credential and reaches both the site list and the GraphQL datasets. The site
+is `auto_install: true` on the zone and `lite: true`, which is the Free tier.
+The data lives in **`rumPageloadEventsAdaptiveGroups`** under `viewer.accounts`,
+filtered by `siteTag`: `count` is page views and `sum { visits }` is visits.
+
+Measured 2026-08-02→04: **100 page views, 83 visits**, against the edge's 237
+unique IPs in a single day. Three countries, not the edge's 36. And the useful
+column is `refererHost`, because it is the only place in any of these stores
+where **distribution** is visible: 80 visits direct, 17 internal, **2 from
+`www.google.com`** and **1 from `teams.public.onecdn.static.microsoft`** — the
+first organic search arrivals and the first evidence of the link being pasted
+into somebody's chat.
+
+**It has its own blind spot, and it is the opposite of the Worker's.** The
+non-local session of 2026-08-04 that §7 followed as far as *Diodorus
+scytobrachion* **does not appear in this dataset at all** — its country is
+missing from the breakdown. A beacon served from `static.cloudflareinsights.com`
+is a third-party script, so a content blocker or a privacy-minded browser drops
+it, and the reader is gone from RUM while remaining fully visible in §9.6's
+request log. That is not a small caveat for this product: the reader most likely
+to block it is the tinkerer most likely to enjoy the thing. So the three sources
+fail differently — the edge log counts scanners as readers, RUM discards readers
+who block scripts, and the Worker sees neither what the cache served nor what it
+was never asked for. **Do not reconcile them to a single number.** The honest
+statement of outside readership on 2026-08-04 is a range of a handful, and the
+range is the answer.

@@ -30,7 +30,7 @@ wrong and these docs record the corrections.
 | [docs/worktrees.md](docs/worktrees.md) | Why the preview works in a parallel session's worktree |
 | [docs/ci.md](docs/ci.md) | What CI checks, what a green run does *not* mean, and what can deploy on Cloudflare |
 | [docs/deployment.md](docs/deployment.md) | Where it runs: all of it on Cloudflare, the Go binary in a Container. The alternatives with numbers |
-| [docs/analytics.md](docs/analytics.md) | What readers search for, add and build. Why no server-side log can say, the three events that can, and the plan limits measured against the live account |
+| [docs/analytics.md](docs/analytics.md) | What readers search for, add and build. Why no server-side log can say, the three events that can, and the plan limits measured against the live account. §9.6–§9.7 are the four measurement sources and why they must not be added up |
 
 **This product is for curious people interested in evolution, not for evolutionary
 biologists.** Identifying an MRCA, drawing the tree well, and showing useful
@@ -729,6 +729,30 @@ without it the reader types a real hominin and is silently handed us. A `name`
 or `vernacular` match is already lit by `litRanges`, and an abbreviation repeats
 the same line down all eight rows of "T. rex" without distinguishing any of
 them — so neither is captioned.
+
+**Four things measure readership and they disagree by design, so a single
+number is always wrong.** Same three days, same site: the zone log says 237
+unique IPs, Workers Logs says 52 reached the Worker and 22 drew a tree, Web
+Analytics says 83 visits, and the beacon says 20 sessions. None is the truth
+and each fails in a different direction — **the edge counts scanners as
+readers** (`/.env` was fetched 28 times, and `/v1/about` is a single well-known
+URL that scanners probe by name, so it is *not* a proxy for "the app loaded" —
+26 of its 38 addresses were datacenter), **Workers Logs is blind to every cache
+hit**, **RUM's beacon is a third-party script that any content blocker drops**,
+and **the beacon only exists once somebody acts**. That third one is the bias
+to hold onto: the reader most likely to block `static.cloudflareinsights.com`
+is the curious tinkerer this product is for, and on 2026-08-04 the single most
+engaged outside reader was invisible to RUM while fully visible in the request
+log. Report a range and say which instrument produced it. `docs/handoff.md` §3
+has the five things not to redo, chief among them that comparing unique-IP
+counts across paths also measures URL cardinality, because a cached path stops
+invoking the Worker. **Reading any of it needs no credential this repository
+holds** — Cloudflare's own MCP servers carry their own OAuth, and
+`cloudflare-api`'s `execute` tool reaches any REST or GraphQL endpoint,
+including the RUM datasets that refuse the wrangler token. The one thing that
+still needs the wrangler token is `scripts/analytics-report.sh`, and only
+because resolving a key to *Apis mellifera* needs the 1.9 GB local database that
+no hosted dashboard can join against.
 
 `concestor-build package` gates the artifact set as a whole and writes
 `build/manifest.json`, which `/v1/about` serves. It refuses to package while any
