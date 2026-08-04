@@ -51,6 +51,7 @@ import { Confirm } from "./chrome/Confirm";
 import { Controls, type ControlGroup, type ControlId } from "./chrome/Controls";
 import { PendingLine, usePending } from "./chrome/Pending";
 import { kbd, matchKey } from "./chrome/bindings";
+import { FULLSCREEN_AVAILABLE, useFullscreen } from "./chrome/fullscreen";
 import { prefersReduced } from "./chrome/motion";
 import { goAbout } from "./route";
 import { NextOpening } from "./chrome/NextOpening";
@@ -709,6 +710,14 @@ export default function App() {
       .catch(() => toast("Could not reach the clipboard", true));
   }, [toast]);
 
+  // The window, not the tree. A refusal comes back as a toast rather than as
+  // silence — see `chrome/fullscreen.ts` for why the browser is allowed to say
+  // no to a press it was asked for by a press.
+  // Warned rather than announced, like the clipboard's own failure above: the
+  // reader asked for something and did not get it. The inline arrow is safe
+  // because the hook holds it in a ref — nothing downstream re-renders on it.
+  const fullscreen = useFullscreen((why) => toast(why, true));
+
   const present = useMemo(() => new Set(tree.induced.leaves), [tree.induced.leaves]);
   const presentFossils = useMemo(
     () => new Set(tree.view.fossils),
@@ -992,6 +1001,38 @@ export default function App() {
           setPaletteOpen(false);
         },
       },
+      // Gated on the browser, like the button — the two surfaces answer the
+      // same question and a command for a thing that cannot happen is worse
+      // here than on the bar, because a palette row gives no state to read.
+      ...(FULLSCREEN_AVAILABLE
+        ? [
+            {
+              id: "fullscreen",
+              // Says which way the press goes, where the button only lights.
+              // The bar has a state to show and one word to show it with, so it
+              // says **Fullscreen** and goes bright; a palette row is read once,
+              // in a list, with nothing beside it to compare against, and
+              // "Fullscreen" there would not say whether it takes you in or out.
+              title: fullscreen.on ? "Leave fullscreen" : "Go fullscreen",
+              subtitle: fullscreen.on
+                ? "Give the browser its chrome back"
+                : "Spend the tab strip and the URL bar on the time axis",
+              hint:
+                "A tree is wide, and the browser's own chrome is the easiest few centimetres of " +
+                "it to buy back. Nothing about the layout changes beyond the width it is drawn " +
+                "against — the canvas reframes the way it does on any window resize, and a " +
+                "reader who has zoomed into a corner keeps their view. Escape leaves it too, " +
+                "and the browser takes that key before this app sees it.",
+              icon: "⛶",
+              keys: kbd("fullscreen"),
+              section: "View",
+              run: () => {
+                fullscreen.toggle();
+                setPaletteOpen(false);
+              },
+            },
+          ]
+        : []),
       {
         // No key of its own, and that is the cost of a modifier-free surface
         // rather than an oversight: the letters that would be honest here — `s`
@@ -1176,6 +1217,7 @@ export default function App() {
     randomPick,
     empty,
     viewFit,
+    fullscreen,
   ]);
 
   /**
@@ -1547,6 +1589,13 @@ export default function App() {
         case "biolum":
           tree.toggleBiolum();
           break;
+        case "fullscreen":
+          // No availability guard here, and none is wanted: the hook refuses a
+          // browser that cannot do it, so a reader on one gets nothing from the
+          // key exactly as they get no button. Guarding in both places is how
+          // the two answers start to differ.
+          fullscreen.toggle();
+          break;
         case "random-species":
           void randomPick();
           break;
@@ -1593,6 +1642,7 @@ export default function App() {
       afterglow,
       dismissAnswer,
       settle,
+      fullscreen,
     ],
   );
 
@@ -1644,14 +1694,27 @@ export default function App() {
           { id: "random-species", run: () => void randomPick() },
         ],
       },
-      // Opposite the lead group, and the pairing is what the two have in
-      // common rather than what they do: both act on the canvas as a whole, and
-      // both are the kind of thing you reach for when you have stopped building
-      // — one to send it, one to start over.
+      // Opposite the lead group, and the pairing is what these have in common
+      // rather than what they do: every one of them acts on the canvas as a
+      // whole rather than on anything selected on it.
+      //
+      // Two of the three are also one-way — the kind of thing you reach for
+      // when you have stopped building, one to send it and one to start over —
+      // and they stay adjacent at the far right so that reading remains
+      // available. Fullscreen leads instead of joining them: it is the
+      // reversible one, and a reader whose pointer lands on the near edge of
+      // this group should not find `clear` there.
       {
         name: "Canvas",
         slot: "trail",
         actions: [
+          // Absent outright where the browser has no fullscreen — not disabled.
+          // `chrome/fullscreen.ts` is the argument, and it is the same one
+          // `BIOLUM_AVAILABLE` makes: a greyed button explaining that this
+          // browser will never do it tells the reader nothing they can act on.
+          ...(FULLSCREEN_AVAILABLE
+            ? [{ id: "fullscreen" as const, run: fullscreen.toggle, active: fullscreen.on }]
+            : []),
           {
             id: "clear",
             run: () => setConfirmClear(true),
@@ -1733,6 +1796,7 @@ export default function App() {
     empty,
     viewFit,
     tipShown,
+    fullscreen,
   ]);
 
   /**

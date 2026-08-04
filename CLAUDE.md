@@ -285,9 +285,19 @@ reason to weaken the rule.
 **The keyboard surface is bare letters, and `web/src/chrome/bindings.ts` is
 the only table.** `P` palette, `S` species-filtered palette, `F` fit (`⇧F` fit
 selection), `/` isolate, `Tab` step, `T` time scale, `L` labels, `A` ages, `B`
-bioluminescence, `R` random species, `C` clear. **The four canvas modes hold the
+bioluminescence, `R` random species, `E` expand to fullscreen, `C` clear. **The four canvas modes hold the
 letters that name them**, which is why the time scale is on `T`: `l` names the
 labels, where it only ever named one of the two scales it switched between.
+**Fullscreen is on `E` and the button says "Fullscreen"** — the second row here
+whose label is not the word its letter came from, after `P` **Commands**. The
+letter is forced: `f` is fit and names it exactly, so the trade that let the axis
+give `l` up to the labels has no counterpart here, and printing `F` on a button
+that does something else is the one failure this whole table exists to make
+impossible. The *word* is not forced, and **Expand** — tried first, for the
+symmetry — is wrong twice over: it names the gesture rather than the result, and
+a canvas that already opens drill lanes and isolates lineages gives "expand" a
+competing meaning. A badge teaches the key, a label teaches the action, and where
+they cannot be the same word the label wins.
 `matchKey` refuses any press holding ctrl, meta or
 alt — that refusal is the feature, because the old `⌘`-based surface was a
 losing negotiation with the browser (`⌘L` is the URL bar and cannot be
@@ -335,8 +345,17 @@ group is a `ModeChip`'s anatomy — small-caps mono caption over a recessed trac
 — because a reader has to see where the pressable thing starts before reading
 any of the words in it, which is the argument the canvas-mode panel already
 settled. Four: **Concestor** (the app's mark, the palette under it), **Add
-species** (`S` and `R` as *search* and *random*), **Canvas** (clear and share),
-**Navigate** (fit, isolate, step, second row). **Below 620px none of it is drawn** — nor the
+species** (`S` and `R` as *search* and *random*), **Canvas** (fullscreen, clear
+and share — everything that acts on the canvas as a whole, with the two one-way
+ones kept adjacent at the far right), **Navigate** (fit, isolate, step, second
+row).
+**Fullscreen is absent rather than disabled where the browser has none**, which
+is deliberately the opposite of the bar's own rule: a greyed `fit` says "add a
+species and this works" and a greyed fullscreen would say "your browser will
+never do this". `FULLSCREEN_AVAILABLE` is asked once at module scope on the
+`BIOLUM_AVAILABLE` precedent, and it gates the bar button and the palette row
+from the same expression — gating them separately is how an iPhone ends up with
+a command for a thing that cannot happen. **Below 620px none of it is drawn** — nor the
 mode panel, nor the scale switch — and a 54px circle wearing the same mark sits
 bottom right above the timeline, opening the palette. That swap is only
 legitimate because of a rule the app already kept: every control has a command,

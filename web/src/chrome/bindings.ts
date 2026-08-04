@@ -60,6 +60,7 @@ export type ActionId =
   | "ages"
   | "random-species"
   | "biolum"
+  | "fullscreen"
   | "clear"
   | "remove"
   | "escape";
@@ -254,6 +255,39 @@ export const BINDINGS: readonly Binding[] = [
     kbd: "A",
     label: "Ages",
     hint: "Show or hide the age on every mark. The axis still says when",
+  },
+  {
+    // **`E` over the word Fullscreen**, which is the second row here whose
+    // label is not the word its letter came from — `P` has printed
+    // **Commands** since this bar was built, because `p` names the palette and
+    // the word names what opening one is *for*.
+    //
+    // The letter is forced. `f` is spent on fit, with `⇧F` on fit-selection,
+    // and neither may move: the precedent that looks like it licenses a swap
+    // is the axis giving `l` up to the labels, and it does not reach here,
+    // because that trade went to the word the letter described and `f` names
+    // *fit* exactly. Taking it would swap one word starting with the letter
+    // for another and cost a reader the most-pressed key on this canvas.
+    // Printing `F` here anyway is refused hardest of all — the whole reason the
+    // bar reads its badges out of this table is that a key cannot print one
+    // thing and do another. So `e` is the nearest free mnemonic: expand,
+    // enlarge, enter.
+    //
+    // The word is not forced, and **Expand** was tried first for the symmetry.
+    // It is the wrong word twice over: it names the gesture rather than the
+    // result, and this canvas already *has* things you expand — a drill lane
+    // opens, isolate narrows — so a reader scanning the bar for more room can
+    // fairly read it as being about a clade. A badge teaches the key; a label
+    // teaches the action. Where the two cannot be the same word the label
+    // wins, because a reader who cannot find the control never gets as far as
+    // learning its letter. `bindings.test.ts` pins the pair, and pins that
+    // these two rows are the only ones allowed to disagree.
+    id: "fullscreen",
+    key: "e",
+    shift: false,
+    kbd: "E",
+    label: "Fullscreen",
+    hint: "Fill the screen with the canvas — a wide tree gets the browser's chrome back as time axis. Press again to leave, or Escape",
   },
   {
     // On the bar beside share rather than among the rest, because both are

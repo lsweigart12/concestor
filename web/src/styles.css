@@ -118,6 +118,15 @@ body {
   overflow: hidden;
 }
 
+/* Fullscreen paints the root element, and the root has never carried a
+   background — `body` does, and it reaches the canvas by propagation. That
+   propagation is exactly what the fullscreen backdrop sits behind, so the void
+   is stated here rather than relied upon: the failure without it is a black or
+   white frame around a dark instrument, on a surface nobody screenshots. */
+:root:fullscreen {
+  background: var(--void);
+}
+
 /* All numerics are tabular-figure mono. Confident, unapologetic. This
    supersedes the old-style figures architecture.md originally called for —
    those belong to a print aesthetic, not an instrument. */

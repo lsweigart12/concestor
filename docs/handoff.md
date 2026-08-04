@@ -1632,8 +1632,8 @@ reader has to be able to see where the pressable thing starts *without reading
 any of the words in it*, and eight bare buttons on a strip of scrim gave them
 nothing to see. Four groups: **Concestor** (the app's mark, and the palette
 under it), **Add species** (`S` and `R` as *search* and *random*), **Canvas**
-(clear and share, opposite corner), **Navigate** (fit, isolate, step, second
-row).
+(expand, clear and share, opposite corner), **Navigate** (fit, isolate, step,
+second row).
 
 **Below 620px none of it is drawn.** The bar, the canvas-mode panel and the
 scale switch all go, and one 54px circle wearing the app's mark sits bottom
@@ -1696,6 +1696,74 @@ Seven things not to redo:
   on a phone carries the same pulse, because the bar that would otherwise
   carry it is not on screen and the reader who has just been shown a tree they
   did not build is exactly the one who needs telling where their own species go.
+
+### Fullscreen is on `E`, and the button says the word rather than the letter
+
+A tree is wide and the browser's own chrome — tab strip, URL bar, bookmarks — is
+the easiest few centimetres of it to buy back. The toggle is the first control in
+the **Canvas** group at the top right, beside clear and share, on what all three
+have in common: they act on the canvas as a whole rather than on anything
+selected in it. `chrome/fullscreen.ts` is the whole implementation and
+`chrome/fullscreen.test.ts` pins the two failures that are invisible from the
+outside.
+
+Six things not to redo:
+
+- **`F` was asked for and is refused.** `f` is fit and `⇧F` is fit-selection.
+  The precedent that looks like it licenses a move is the axis giving `l` up to
+  the labels, and it does not reach here: that trade was allowed because `l`
+  names *labels* better than it names a logarithmic scale, so the letter went to
+  the thing it described. `f` names *fit* exactly, so the swap would buy nothing
+  and cost a reader the most-pressed key on this canvas. Printing `F` on the
+  button anyway is the option refused hardest — the entire reason the bar reads
+  its badges out of `bindings.ts` is that a key cannot print one thing and do
+  another. `e` is the nearest free mnemonic: expand, enlarge, enter.
+- **The button then says "Fullscreen", not "Expand", and the letter is left to
+  disagree with the word.** This is not a new exception: `P` has printed
+  **Commands** since the bar was built, because `p` names the palette and the
+  word names what opening one is *for*. **Expand** was tried first for the
+  symmetry with every other row, and it is wrong twice over — it names the
+  gesture rather than the result, and this canvas already has things you expand,
+  since a drill lane opens and isolate narrows, so a reader scanning for more
+  room can fairly read it as being about a clade. A badge teaches the key and a
+  label teaches the action; where they cannot be the same word the label wins,
+  because a reader who cannot find the control never gets as far as learning its
+  letter. `bindings.test.ts` pins the word *and* pins that these two rows are the
+  only ones allowed to disagree — the tidy-minded fix is to rename the odd one
+  out back to something starting with E, which is exactly how "Expand" arrived.
+  The palette's row is the one place that still varies its wording, saying **Go
+  fullscreen** or **Leave fullscreen**: a row is read once, in a list, with no
+  lit state beside it to say which way the press goes.
+- **The state is read off `fullscreenchange`, never remembered.** A reader leaves
+  with Escape or F11 as often as with this button, and the browser takes Escape
+  *before* the page sees it — so `App.tsx`'s `escape` case never learns, and a
+  boolean flipped on each press is wrong within one keystroke: a lit button over
+  a window that is not. The listener also syncs once on mount, because a reload
+  inside an already-fullscreen window fires no event at all.
+- **A refused request has to reach the reader.** `requestFullscreen` *rejects*
+  rather than throws when the browser declines — a spent gesture, an iframe
+  policy, a window manager — so the version without a `catch` is a button that
+  does nothing, says nothing, and logs into a console nobody has open. It comes
+  back as a warning toast. **`exitFullscreen` is deliberately silent**: its only
+  failure is the document having left fullscreen between the check and the call,
+  and telling a reader looking at a windowed canvas that we could not unwindow it
+  is noise.
+- **No fullscreen means no control, not a greyed one** — the opposite of the
+  bar's own "disabled, never hidden", and the split is capability against state.
+  A greyed `fit` says "add a species and this works"; a greyed fullscreen would
+  say "your browser will never do this" to somebody who cannot act on it.
+  `BIOLUM_AVAILABLE` already made this call. `FULLSCREEN_AVAILABLE` is asked once
+  at module scope and gates the bar button and the palette row from the *same*
+  expression — `Controls.test.ts` counts the readers, because gating them apart
+  is how an iPhone (no element fullscreen at all) ends up holding a command for a
+  thing that cannot happen.
+- **`:root:fullscreen` has to state the void.** `body` carries the background and
+  the root has never carried anything; fullscreen paints the root. Without the
+  rule the browser frames a dark instrument in its own default, which is a thing
+  you only find out about from a screenshot somebody else took. Nothing else was
+  needed for the canvas itself — fullscreen is a window resize, and `Graph.tsx`
+  already reframes on one if the reader is at the fit and leaves their view alone
+  if they are not.
 
 **The ETag names the code as well as the dataset, and `/v1/about` is no longer
 immutable.** `api.etag` was `store.BuildID` alone, which hashes the artifacts on
