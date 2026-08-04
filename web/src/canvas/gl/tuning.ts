@@ -282,6 +282,110 @@ export const SNOW_FALL_SPAN = 9.5;
 export const SNOW_Z_MIN = 0.3;
 export const SNOW_Z_SPAN = 0.7;
 
+/* ------------------------------------------- the light with no tree in it -- */
+
+/**
+ * The empty canvas's own light, and why it is allowed to exist at all.
+ *
+ * `Water.tsx` used to record, as the property that kept this mode honest, that
+ * *with nothing on the canvas there is nothing lit*. That was a claim about the
+ * **graph** and it was being read as a claim about the **canvas**, which is
+ * where it went wrong: the empty canvas is not blank. It carries the wordmark,
+ * an opening card and a row of silhouettes, and in the one state where there is
+ * no graph, those are the thing on the canvas. So they emit, under the same
+ * rule rather than a relaxation of it — *the thing on the canvas is the light
+ * source* — and the moment a species is drawn they are gone and the tree is the
+ * only light again.
+ *
+ * That is also the whole of the boundary. **Chrome does not emit.** Not the
+ * control bar, not this panel's own switch, not the axis, not the palette. A
+ * light behind every piece of furniture is decoration sprayed around a room;
+ * what is legal here is exactly the surface a reader is being invited *into*,
+ * and `bootLight.ts` is the list, the geometry and the argument for each entry.
+ *
+ * These lights are in **screen space** and carry a radius of their own, which
+ * is the one way they differ from a mark: a mark is at a place in the tree and
+ * pans with it, and a wordmark is at a place on the glass. They go into the
+ * same HDR light buffer as everything else, so the snow, the bloom and the tone
+ * map pick them up without being told they exist — which is the same reason a
+ * pluck brightens the water beside a branch.
+ */
+/**
+ * Saturation, and it is high for the reason `laneRGB` gives.
+ *
+ * These are area lights and they overlap — the four animals on a card are a
+ * hand's width apart with a pool under all of them — so an additive stack of
+ * three or four sums past white long before any one of them is bright. Set at a
+ * sensible-looking 0.66 the whole panel came out grey with a colour fringe. It
+ * sits where the river's does, and for the same reason.
+ */
+export const SCREEN_SAT = 0.82;
+/** A bright middle inside a wide soft field — the mark's profile, spread out. */
+export const SCREEN_CORE = 3.2;
+export const SCREEN_HALO = 1.5;
+export const SCREEN_HALO_GAIN = 0.34;
+/**
+ * How far the core mixes toward white, against a mark's 0.45.
+ *
+ * Lower, because these are *area* lights: a mark is fourteen pixels across and
+ * its white centre is a highlight, where a light seventy pixels across mixed
+ * that far is a grey disc with a colour fringe. The hue is most of what these
+ * are for — the row of silhouettes glows in the palette the tree uses — so the
+ * colour survives the middle.
+ */
+export const SCREEN_CORE_WHITE = 0.20;
+
+/**
+ * The breathing, and why every light gets its own rate.
+ *
+ * One rate across the set is a *pulse*, and a pulse is a signal — the reader
+ * looks for what it is counting. Incommensurate rates never line up, so the
+ * panel is alive without anything on it appearing to mean something. It is
+ * subtractive (`1 − depth·(0…1)`) rather than centred, so `power` stays a
+ * ceiling: nothing here is ever brighter than the number `bootLight.ts` gave
+ * it, which is what makes those numbers tunable against a still frame.
+ *
+ * Periods run from about 12 to 29 seconds. That is slower than it sounds — at
+ * anything under a few seconds the panel is twinkling, and the marine snow
+ * drifting past is already the fast element in this picture.
+ */
+export const SCREEN_BREATHE = 0.24;
+export const SCREEN_RATE_MIN = 0.034;
+export const SCREEN_RATE_SPAN = 0.048;
+
+/**
+ * How long a light that has just arrived takes to reach full, in seconds.
+ *
+ * The carousel turns and three new animals are on the card. Snapping their
+ * lights on is a flash — the eye reads a step in brightness as an event and
+ * there is no event, only a rotation the reader may not even be watching. A
+ * kindle over a second is the same rotation happening in the water.
+ *
+ * Applied on the CPU, in {@link kindle}, because it is keyed to *when a
+ * particular thing appeared* and the shader has no identity to hang that on.
+ * It is skipped entirely under `prefers-reduced-motion`, where the clock is
+ * held and a ramp would freeze part-way up.
+ */
+export const SCREEN_KINDLE_S = 1.05;
+
+/**
+ * A rising 0→1, given when something appeared. The complement of {@link decay}.
+ *
+ * **Undefined is full, not zero.** A light with no birth recorded is one that
+ * was already there — the still frame, a light whose element merely moved — and
+ * the first cut had it start dark, which put the reduced-motion canvas at zero
+ * brightness forever.
+ */
+export function kindle(bornMs: number | undefined, nowMs: number, seconds = SCREEN_KINDLE_S): number {
+  if (bornMs === undefined) return 1;
+  const t = (nowMs - bornMs) / 1000 / seconds;
+  if (!(t > 0)) return 0;
+  if (t >= 1) return 1;
+  // Ease out: a light comes up fast and settles, which is how a chemical
+  // reaction reaches its plateau and is the same curve the flare decays on.
+  return 1 - (1 - t) ** 2;
+}
+
 /* ------------------------------------------------------------- the glass -- */
 
 /**

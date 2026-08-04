@@ -82,6 +82,7 @@ import { DrillLane, useSegment, type Drill, type LaneEndpoint } from "./DrillLan
 import { laneHeight, laneRows } from "./lane";
 import { mayDrawExemplar, witnessOn } from "./witness";
 import { Water } from "./Water";
+import { useBootLights } from "./bootLight";
 import type { Emitter } from "./biolum";
 import { flareOf } from "./biolum";
 import { land } from "./flow";
@@ -474,6 +475,27 @@ function Inner(props: GraphProps) {
       flareAt: () => flareOf(String(p.idx)),
     }));
   }, [lay, biolum]);
+
+  /**
+   * And what is lit when there is no tree to light anything.
+   *
+   * The condition is deliberately `biolum && empty` and not `biolum` alone:
+   * these two lists are **never both non-empty**, so at no point does the
+   * canvas carry a light that is not the tree while a tree is on it. The moment
+   * a species is drawn the invitation unmounts and the panel's own lights go
+   * with it, so the water goes back to holding what the branches and the marks
+   * put in it — plus the one control that opens the palette, which stays lit
+   * because it is the way in rather than a comment on what is drawn.
+   *
+   * **The `empty` half of this condition is gone and that is not a widening.**
+   * It read `biolum && empty`, which tied every light in `bootLight.ts` to the
+   * panel; the panel's own sources are scoped to `.boot` inside that file now,
+   * so they still go out on the first species without anything here saying so,
+   * and the one source that outlives the panel is the only one that changed.
+   * `bootLight.ts` carries the argument for both the empty canvas earning a
+   * light source and that single piece of chrome earning one.
+   */
+  const bootLights = useBootLights(biolum, reduced);
 
   /**
    * Counter-scale for silhouettes as the canvas shrinks.
@@ -1097,6 +1119,7 @@ function Inner(props: GraphProps) {
         ty={ty}
         zoom={zoom}
         emitters={emitters}
+        lights={bootLights}
         active={biolum}
         reduced={reduced}
       />
@@ -1127,7 +1150,8 @@ function Inner(props: GraphProps) {
         />
       </ReactFlow>
       {/*
-        The three canvas-mode chips, stacked bottom-left above the axis.
+        The canvas-mode chips, stacked bottom-left above the axis. Three with a
+        tree on screen, one without.
 
         One stack, because they are one set: controls that change how the canvas
         is *drawn* rather than what is on it. The time scale is a fourth member
@@ -1142,32 +1166,58 @@ function Inner(props: GraphProps) {
         that annotates them, then the light — so the two that change what a
         label says sit above the one that changes nothing about the data at all.
 
-        **Not drawn while the canvas is empty**, and the collision is the
-        smaller half of the reason. These three annotate marks: with none on
-        screen, `labels` and `ages` are switches a reader can throw and watch do
-        nothing at all, which is the failure the bar already refuses when it
-        disables `fit`, `isolate` and `step` on the same canvas, and the palette
-        refuses by dropping `fit-all` from the list. Bioluminescence retints the
-        chrome, but its subject is the light the tree spills and `Water` draws
-        none of it with nothing on the tree — which its own header calls the
-        property that keeps the mode honest about where the light comes from.
+        **On an empty canvas it is one chip, not none**, and the difference
+        between the two that go and the one that stays is the difference between
+        annotating something and drawing something. `labels` and `ages` annotate
+        *marks*: with none on screen they are switches a reader can throw and
+        watch do nothing at all, which is the failure the bar already refuses
+        when it disables `fit`, `isolate` and `step` on the same canvas and the
+        palette refuses by dropping `fit-all` from the list. Bioluminescence has
+        never been in that set — its subject is the water and what is lit in it,
+        and the empty canvas is not empty. It carries the invitation, the
+        invitation emits, and the mode's own rule is satisfied by that rather
+        than bent for it: *the thing on the canvas is the light source*.
+        `bootLight.ts` is the argument in full and `Water.tsx`'s header is where
+        that sentence used to be written the narrower way.
 
-        What makes it a swap rather than a removal is the rule the narrow window
-        already stands on: every control has a command. `L`, `A` and `B` stay
-        bound, the palette still carries all three, and the settings are held in
-        `sessionStorage` — so a reader who sets one here has it waiting on the
-        canvas the panel comes back to.
+        All three keep their commands either way, which is the rule the narrow
+        window already stands on: `L`, `A` and `B` stay bound, the palette
+        carries all three, and the settings are held in `sessionStorage`, so a
+        reader who sets one here has it waiting on the canvas the panel comes
+        back to.
 
-        The collision it also fixes: the empty canvas's block is a centred
-        column ending in three key rows, and on a window roughly 620–860px wide
-        and under about 880 tall the last of them — `P` · *Everything this can
-        do* — was drawn straight through the `LABELS` chip. Reserving this
-        panel's shelf in `.boot`'s padding would move the invitation up on every
-        window to clear a panel that is beside it on none of them, and would
-        still overlap under about 735px of height, where the block, the bar and
-        this shelf do not fit in the window at any centring.
+        The collision this used to dodge was measured again rather than assumed.
+        The empty canvas's block is a centred column ending in three key rows,
+        and on a window roughly 620–860px wide and under about 880 tall the last
+        of them — `P` · *Everything this can do* — was drawn straight through
+        the `LABELS` chip, which is the **top** row of the three. One chip is
+        that stack's bottom row alone, some eighty pixels lower, and re-measured
+        at 640×760, 700×700 and 860×880 it clears the block at every size where
+        the block is drawn at all. What was refused then is still refused:
+        reserving this panel's shelf in `.boot`'s padding would move the
+        invitation up on every window to clear a panel that is beside it on
+        none of them.
       */}
-      {!empty && (
+      {empty ? (
+        /*
+          No `LabelsToggle`, no `AgesToggle`, and no caption saying why — the
+          panel is simply shorter. A disabled row is a control explaining
+          itself, and this one has nothing to explain: what a reader wants from
+          an empty canvas is a species on it.
+        */
+        /*
+          `is-lone` carries no rule of its own and is not meant to: a one-row
+          grid needs nothing a three-row one does not. It is a *name* for the
+          variant, so the narrow-window block at the foot of styles.css can say
+          which panel it is measuring against the empty canvas's block — that
+          rule is about this shape and would be wrong about the other one.
+        */
+        BIOLUM_AVAILABLE && (
+          <div className="canvas-modes is-lone">
+            <BiolumToggle on={biolum} onChange={onBiolum} />
+          </div>
+        )
+      ) : (
         <div className="canvas-modes">
           <LabelsToggle mode={labels} onChange={onLabels} />
           <AgesToggle on={ages} onChange={onAges} />
@@ -1179,7 +1229,9 @@ function Inner(props: GraphProps) {
             is offered and then turns the canvas black is worse than a switch
             that is not offered, and this is an optional flourish on a canvas
             that is complete without it. Asked once, at module scope, because
-            the answer cannot change during a session.
+            the answer cannot change during a session — and asked in both
+            branches above, because the empty canvas offers the same switch on
+            the same terms.
           */}
           {BIOLUM_AVAILABLE && <BiolumToggle on={biolum} onChange={onBiolum} />}
         </div>

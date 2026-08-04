@@ -35,8 +35,11 @@
 import { useEffect, useState } from "react";
 import { api, type About as AboutPayload } from "../api";
 import { Silhouette } from "../canvas/Silhouette";
+import { SPECIES_PHRASE } from "../corpora";
 import { OPENINGS } from "../openings";
 import { leaveAbout } from "../route";
+import { saveBiolum } from "../state/store";
+import { kbd } from "./bindings";
 
 /**
  * A named source, linked to the page a curious reader would want.
@@ -143,10 +146,9 @@ function Features() {
   return (
     <ul className="feature-grid">
       <li className="feature">
-        <h3 className="feature-h">Any of 2.7 million species</h3>
+        <h3 className="feature-h">Any of {SPECIES_PHRASE}</h3>
         <p className="feature-p">
-          Searched by the name you actually call it — <em>dog</em>,{" "}
-          <em>T. rex</em>, <em>oak</em> — not just the binomial.
+          Searched by the name you actually call it.  No struggling to spell <em>tyrannosaurus</em>.
         </p>
       </li>
       <li className="feature">
@@ -164,19 +166,39 @@ function Features() {
         </p>
       </li>
       <li className="feature">
-        <h3 className="feature-h">A fossil that was alive at each split</h3>
+        {/*
+          **"Nearest", not "alive at"**, which is what this said and which the
+          app disclaims to the reader's face: `Detail.tsx` prints *"Its range
+          does not reach this split — it stops N short. Read the picture as the
+          nearest available, not a contemporary"* on 695 of the 885 witnesses.
+          The body already hedged with "where one exists"; the heading, which is
+          the part anyone actually reads, promised a contemporary four times out
+          of five. It keeps the two examples because both are genuinely close —
+          the claim being softened is the general one, not those.
+        */}
+        <h3 className="feature-h">The nearest fossil to each split</h3>
         <p className="feature-p">
           Where one exists — <em>Pakicetus</em> where whales leave the hippos,{" "}
           <em>Acanthostega</em> where our own lineage leaves the fish. Nothing
           about those animals is written into the app. They are what the dates
-          pick out.
+          pick out, and the card says how near it actually got.
         </p>
       </li>
       <li className="feature">
-        <h3 className="feature-h">Every view is a link</h3>
+        {/*
+          "Every **tree** is a link", not "every view", and the one-word
+          change is the whole claim. A view includes how you are reading it,
+          and that half deliberately does not travel: labels, ages and the
+          light live in `sessionStorage` because a setting that is a claim
+          about the *reader* may not ride in a link. Saying "view" here
+          promised the bioluminescent canvas somebody had just turned on, and
+          the person who opened the link got daylight.
+        */}
+        <h3 className="feature-h">Every tree is a link</h3>
         <p className="feature-p">
           Whatever you build is in the address bar, so you can send it,
-          bookmark it, or come back to it.
+          bookmark it, or come back to it. How you are <em>reading</em> it —
+          the labels, the ages, the light — stays with you instead.
         </p>
       </li>
       <li className="feature">
@@ -248,16 +270,79 @@ export function AboutPage() {
             video, or the question you just thought of.
           </p>
           <SilhouetteStream />
-          <div className="hero-actions">
-            <button type="button" className="btn btn-hero" onClick={leaveAbout}>
-              Draw a tree
+          {/*
+            The hero's one action, and it is the light.
+
+            It replaced two — *Draw a tree* and *Watch it build one* — which
+            were the same offer written twice: both returned to the canvas, the
+            page bar above already says "Back to the tree", and the footer says
+            it a third time. A reader counting doors on a page about a tree of
+            life should be counting one.
+
+            The one that stayed is the one that is not just a door. Every other
+            claim on this page is about what the canvas *knows*; this is the
+            only thing here about what it *looks* like, and it is the reason the
+            product gets shown to somebody rather than described to them. It
+            still lands on the canvas, so nothing was lost by dropping the
+            plainer button — it lands there lit.
+
+            The words are three and stop: `openings.ts` records that the empty
+            canvas failed while it explained itself, and a paragraph about
+            travelling light in front of a button that would simply show you is
+            the same failure with better prose. `.btn-glow` does the explaining.
+
+            **Its position is a media query and the DOM order is the narrow
+            one**, which is `styles.css`'s to explain — the short version is
+            that it follows the strip until there is room to sit beside the
+            claim, and then it moves without moving in the source.
+
+            The setting is written and then the page leaves, which is not a
+            shortcut: `main.tsx` unmounts the app to show this page, so there is
+            no store here to toggle, and the canvas reads `sessionStorage` on
+            mount — see {@link saveBiolum}. Offered whatever the hardware
+            reports, because `BiolumRenderer.supported()` is asked in the canvas
+            and a reader without WebGL2 simply arrives at a plain tree.
+          */}
+          <div className="hero-dark">
+            <h2 className="hero-dark-h">The same tree, after dark</h2>
+            <button
+              type="button"
+              className="btn btn-glow"
+              onClick={() => {
+                saveBiolum(true);
+                leaveAbout();
+              }}
+            >
+              Try bioluminescence <span className="kbd">{kbd("biolum")}</span>
             </button>
+            <p className="hero-dark-p">Deep sea glow against marine snow</p>
           </div>
         </section>
 
         <section className="page-section">
           <h2 className="page-h">What it draws</h2>
           <Features />
+        </section>
+
+        {/*
+          Written in the first person, and it is the only thing on this page
+          that is. Everything else here answers *what does it do* and *who says
+          so*; a reader deciding whether to spend an afternoon on a stranger's
+          tool is also asking why it exists at all, and there is no honest way
+          to answer that in the passive voice.
+        */}
+        <section className="page-section">
+          <h2 className="page-h">Why this exists</h2>
+          <p className="feature-p">
+            I wanted to name the organisms in a lesson, an argument or a passing
+            question and immediately see the tree I needed: accurate enough to
+            trust, clear enough to show someone, and interactive enough to keep
+            exploring. I could not find that tool, so I built it.
+          </p>
+          <p className="feature-p">
+            Concestor is free and open source because the tree of life should be
+            easy for anyone to explore.
+          </p>
         </section>
 
         <section className="page-section">
@@ -271,8 +356,8 @@ export function AboutPage() {
             <li>
               <strong>The tree</strong> — the{" "}
               <Src href="https://tree.opentreeoflife.org/">Open Tree of Life</Src>{" "}
-              synthesis (v16.1), one topology over 2.7 million species,
-              assembled from published studies.
+              synthesis (v16.1), one topology over {SPECIES_PHRASE} and the
+              groups that contain them, assembled from published studies.
             </li>
             <li>
               <strong>The dates</strong> —{" "}

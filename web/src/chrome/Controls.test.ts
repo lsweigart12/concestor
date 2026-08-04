@@ -257,17 +257,22 @@ describe("the afterglow fits the one-button layout", () => {
  * The other chrome swap, and it fails the same way: silently, in text.
  *
  * The empty canvas is a centred column and the canvas-mode panel is pinned
- * bottom-left, so on a short window the third key row — `P` · *Everything this
- * can do* — was drawn straight through the `LABELS` chip. Nothing errors when
- * that comes back: two pieces of text overlap, at a size nobody is testing at.
+ * bottom-left, so on a short window a key row was drawn straight through a
+ * chip. Nothing errors when that comes back: two pieces of text overlap, at a
+ * size nobody is testing at. The stylesheet's own narrow-window block is what
+ * keeps them apart now, and it is written against the *one-chip* panel — so
+ * what has to hold here is that the empty canvas draws that panel and no other.
  *
- * The panel is what goes, because with no marks on screen `labels` and `ages`
- * are switches that visibly do nothing — which the bar already refuses by
- * disabling `fit`, `isolate` and `step` on this same canvas. So one flag has to
- * drive both surfaces: a second expression that means *nearly* "nothing is
- * drawn" would put the badge back on the chip and report nothing.
+ * Two of the three go and one stays, and the split is the argument. With no
+ * marks on screen `labels` and `ages` are switches that visibly do nothing —
+ * which the bar already refuses by disabling `fit`, `isolate` and `step` on
+ * this same canvas. Bioluminescence is not in that set: its subject is the
+ * water, the empty canvas's invitation lights it, and `canvas/bootLight.ts`
+ * carries that reasoning. So one flag still has to drive both surfaces: a
+ * second expression that means *nearly* "nothing is drawn" would put the
+ * invitation and the panel into different states and report nothing.
  */
-describe("the empty canvas draws no mode panel under its invitation", () => {
+describe("the empty canvas draws one chip under its invitation", () => {
   it("is reading App.tsx and the canvas at all", () => {
     expect(APP).toContain('className="boot"');
     expect(GRAPH).toContain('className="canvas-modes"');
@@ -298,19 +303,53 @@ describe("the empty canvas draws no mode panel under its invitation", () => {
    */
   it("hands the same flag to the canvas", () => {
     expect(APP).toContain("empty={nothingDrawn}");
-    expect(GRAPH).toMatch(/\{!empty && \(\s*<div className="canvas-modes">/);
+    expect(GRAPH).toMatch(/\{empty \? \(/);
+    expect(GRAPH).toMatch(/<div className="canvas-modes is-lone">/);
     // And works it out from nothing else. A local recount is the divergence
     // this whole arrangement exists to prevent.
     expect(GRAPH).not.toContain("induced.rendered.length === 0");
   });
 
   /**
+   * The one-chip branch holds exactly one chip, and the stylesheet is why this
+   * is worth asserting rather than reading.
+   *
+   * `styles.css`'s narrow-window block measures a panel about 52px tall ending
+   * some 110px off the bottom and drops the invitation's keys column where the
+   * two would meet. A second chip added to this branch makes that panel half
+   * again as tall, moves its top up past the bound that was measured, and the
+   * overlap comes back at a window size nobody is looking at — which is the
+   * exact failure this whole `describe` exists for.
+   */
+  it("puts one switch in that branch and only one", () => {
+    const lone = GRAPH.slice(
+      GRAPH.indexOf('<div className="canvas-modes is-lone">'),
+      GRAPH.indexOf("</div>", GRAPH.indexOf('<div className="canvas-modes is-lone">')),
+    );
+    expect(lone).toContain("<BiolumToggle");
+    expect(lone).not.toContain("<LabelsToggle");
+    expect(lone).not.toContain("<AgesToggle");
+  });
+
+  /**
+   * The switch that stays is offered on exactly the terms it is offered on
+   * everywhere else. `BiolumRenderer.supported()` is asked once at module
+   * scope, and a browser without WebGL2 gets no switch on the empty canvas
+   * either — a switch that is offered and then turns the canvas black is worse
+   * than one that is not offered, and that is not a rule the empty canvas gets
+   * to relax to show off its own light.
+   */
+  it("gates the empty canvas's chip on WebGL2 too", () => {
+    expect([...GRAPH.matchAll(/BIOLUM_AVAILABLE &&/g)].length).toBe(2);
+  });
+
+  /**
    * A swap and not a removal, on the rule the narrow window already stands on:
    * every control has a command. All three keep their rows, so the palette and
-   * the keyboard still reach every setting the hidden panel holds — which is
+   * the keyboard still reach every setting the shortened panel drops — which is
    * also why nothing here disables them.
    */
-  it("leaves all three reachable while the panel is gone", () => {
+  it("leaves all three reachable while two of them are gone", () => {
     for (const id of ["labels", "ages", "biolum"]) {
       expect(
         BINDINGS.some((b) => (b.id as string) === id),

@@ -23,7 +23,7 @@ import {
   type SearchHit,
   type TimescaleInterval,
 } from "./api";
-import { randomKind } from "./corpora";
+import { randomKind, SPECIES_PHRASE } from "./corpora";
 import { Graph } from "./canvas/Graph";
 import { isScientificItalic } from "./canvas/NodeMark";
 import { Detail } from "./detail/Detail";
@@ -705,7 +705,7 @@ export default function App() {
     const url = window.location.href;
     navigator.clipboard
       ?.writeText(url)
-      .then(() => toast("Link copied — every view is a shareable URL"))
+      .then(() => toast("Link copied — it opens on this exact tree"))
       .catch(() => toast("Could not reach the clipboard", true));
   }, [toast]);
 
@@ -781,7 +781,7 @@ export default function App() {
    * Put something on the canvas without being asked what.
    *
    * The empty canvas is a command list, and every other command on it assumes
-   * you have already thought of a species. Nobody browses 2.7 million of them,
+   * you have already thought of a species. Nobody browses millions of them,
    * and for an audience of curious people rather than systematists the first
    * move is the hard one — so there has to be an action that answers "show me
    * *something*".
@@ -999,7 +999,25 @@ export default function App() {
         // It is one of the few actions nobody reaches for mid-flow.
         id: "share",
         title: "Copy shareable link",
-        subtitle: "All view state lives in the URL",
+        // **Not "all view state lives in the URL"**, which is what this said
+        // and which the bioluminescence row four entries above already
+        // contradicted: *a tree you share arrives unlit, however you are
+        // reading it.* `store.ts` puts the tree, the axis, the selection, the
+        // isolate and the drill in the link and holds the light, the labels
+        // and the ages in `sessionStorage` on purpose — a setting that is a
+        // claim about the **reader** may not ride in a link, and one made with
+        // the labels off would open on a canvas of unnamed dots.
+        //
+        // So the subtitle promises the thing that does travel, and the hint
+        // says what does not. Both matter to the same reader: somebody who
+        // sends a bioluminescent canvas and is told it is "the exact view"
+        // finds out otherwise from whoever opens it.
+        subtitle: "It opens on this exact tree",
+        hint:
+          "The tree, the time scale, the selection, any fossil you have pinned to a branch, " +
+          "and anything you have isolated or drilled " +
+          "into are all in the address bar. The canvas settings are not: labels, ages and the " +
+          "light belong to how you are reading, not to what you found, so they stay in this tab.",
         icon: "↗",
         section: "View",
         run: () => {
@@ -1645,7 +1663,13 @@ export default function App() {
             // optional, and `bindings.ts` is why there is no letter to print.
             id: "share",
             label: "Share",
-            hint: "Copy a link to this view — every view of this app is a URL",
+            // **Not "every view of this app is a URL"**, which is what this
+            // said and which is the same false claim the palette row carried,
+            // in the same words, on the more visible of the two surfaces — a
+            // mouse user hovers this button, where the row needs `P` first.
+            // Fixing one and leaving the other is how a claim survives being
+            // corrected. See the palette's `share` row for what does travel.
+            hint: "Copy a link that opens on this exact tree — the labels, ages and light stay with you",
             run: share,
           },
         ],
@@ -1864,9 +1888,40 @@ export default function App() {
               </PendingLine>
             ) : (
               <>
+                {/*
+                  **A few, not two**, and the carousel underneath is the reason.
+
+                  `openings.ts` refuses to ship a two-taxon opening and says why
+                  in its own words: *a pair draws one number. Three or more draw
+                  an argument — the nesting itself is the proof.* Every question
+                  below this line therefore has three taxa or more, and this
+                  line was inviting the reader to the weaker version of the
+                  product, directly above fifteen demonstrations of the stronger
+                  one. It said it on the shared card and in the README too.
+
+                  "Name" rather than "pick" because the about page's own subhead
+                  already says *name the species you care about*, and because
+                  picking is what you do from a list somebody else wrote.
+
+                  **And it opens on the payoff rather than the mechanism**,
+                  which took two tries. "See where their lineages meet, in deep
+                  time" is a description of what the canvas *does*, and this
+                  file's own predecessor was thrown out for exactly that —
+                  `openings.ts` records it: the empty canvas used to say "press
+                  S and search for two species", which "described the mechanism
+                  … rather than the payoff, and nobody wants a minimal subtree.
+                  They want to find out they are a fish." A lineage meeting
+                  another lineage is a minimal subtree wearing a nicer coat.
+
+                  So the first clause is the fact that makes the rest worth
+                  doing, and it is the one claim here big enough to be worth a
+                  stranger's next thirty seconds. The second is what they do
+                  about it. "How — and when" is the whole product in three
+                  words, and it is the question the app was built to answer.
+                */}
                 <p className="boot-lede">
-                  Pick any two species; see where their lineages meet, in deep
-                  time.
+                  Everything alive is related. Name a few species and see
+                  exactly how — and when.
                 </p>
                 {/*
                   `keyToOpen` was `!aboutOpen`, because the carousel stayed
@@ -1903,7 +1958,7 @@ export default function App() {
                   <ul className="boot-keys">
                     <li>
                       <span className="kbd">{kbd("species")}</span>
-                      <span>Search 2.7 million species</span>
+                      <span>Search {SPECIES_PHRASE}</span>
                     </li>
                     <li>
                       <span className="kbd">{kbd("random-species")}</span>

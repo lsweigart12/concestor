@@ -43,6 +43,54 @@
 import type { RandomKind } from "./api";
 
 /**
+ * How many species there are to search, as a reader is told it.
+ *
+ * **There are three numbers here and only one of them is a species count.**
+ * The synthesis tree is 2,725,682 nodes; 2,385,875 of those are tips; and
+ * 2,295,972 carry `rank='species'`. Copy has reached for the wrong one twice.
+ *
+ * It said **2.7 million species** in five places, which is the node total —
+ * 339,807 of those are *groups*, Carnivora and Mammalia and the unnamed forks
+ * between them, and calling a group a species is the one error this product
+ * cannot afford to make in the sentence that invites somebody to search,
+ * because telling a clade from a species is most of what the canvas is for.
+ *
+ * The first correction reached for the **tip** count instead, on the reasoning
+ * that a tip is what a species is here. It is not, and the error survived a
+ * review that was looking straight at it: the tips include subspecies,
+ * varieties, cultivars and 1,615 group-rank terminals, while 21,977 species
+ * are *internal* nodes because they have subspecies beneath them. Tips and
+ * species disagree by about ninety thousand in each direction at once. So this
+ * is the rank count, which is the only figure answering the question the word
+ * "species" asks.
+ *
+ * **It is not the searchable set, and that is deliberate.** 2,599,664 nodes
+ * carry a name, and neither `search.py`'s index nor `store/search.go` filters
+ * on rank or on tip-ness — type `Carnivora` and you get the order, ranked
+ * above the beetle named after it. "Search 2.3 million species" stays true
+ * under that: there really are 2.3 million species to search. It simply does
+ * not boast about the groups, which the about page's sources list names in
+ * words rather than in a second number nobody asked for.
+ *
+ * The fossil corpus is left out on the same principle. 523,112 PBDB taxa are
+ * searchable too, but the two catalogues overlap by name — 32,386 accepted
+ * PBDB taxa are themselves nodes — so any sum double-counts. Where both matter
+ * the copy names the second corpus in words, which is what the species key's
+ * hint does.
+ *
+ * **The phrase is a phrase and not a number** so that no caller decides how to
+ * say it. Seven render sites read it. `corpora.test.ts` takes the exact figure
+ * out of `docs/data-sources.md`, checks this rounds from it, and — the part
+ * that matters more — refuses *any* hardcoded "N million species" outside this
+ * file, because guarding the one wrong string only stops the mistake that has
+ * already been made.
+ */
+export const TREE_SPECIES = 2_295_972;
+
+/** {@link TREE_SPECIES}, as it prints. */
+export const SPECIES_PHRASE = "2.3 million species";
+
+/**
  * How often the one random pick draws from the fossil corpus.
  *
  * There used to be two commands and two keys, and that split asked the reader a

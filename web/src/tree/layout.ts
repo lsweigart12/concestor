@@ -180,8 +180,14 @@ export interface Layout {
  *
  * The set is deliberately tight and cool: cyan through teal to pale green,
  * low chroma. Distinguishable, never candy.
+ *
+ * Exported because the empty canvas's lights need the *first* member by name —
+ * see `canvas/bootLight.ts`, which lights the wordmark in the app's own colour
+ * and cannot get at it through {@link laneHue}, whose whole job is to make the
+ * choice unpredictable. A literal `186` there would be a second spelling of a
+ * number that lives here.
  */
-const LANE_HUES = [186, 172, 200, 158, 212, 145, 194];
+export const LANE_HUES = [186, 172, 200, 158, 212, 145, 194];
 
 export function laneHue(idx: number): number {
   // A cheap integer hash so adjacent idx values (sister taxa, very common in a

@@ -139,6 +139,61 @@ describe("the tuning reaches the GLSL", () => {
     expect(S.glass.fs).toContain(`${g(T.END_TAPER)}, vS)`);
   });
 
+  /**
+   * The empty canvas's own lights, and the two numbers that decide what they
+   * look like rather than where they are.
+   *
+   * The profile is a mark's, spread over sixty to six hundred pixels instead of
+   * fourteen, so both exponents had to be re-argued — a mark's would draw a
+   * hard dot in a wide wash. Neither is arguable from this source and both are
+   * arguable from `tuning.ts`.
+   */
+  it("gives the empty canvas's lights their profile", () => {
+    expect(S.screen.fs).toContain(`pow(k, ${g(T.SCREEN_CORE)})`);
+    expect(S.screen.fs).toContain(`pow(k, ${g(T.SCREEN_HALO)}) * ${g(T.SCREEN_HALO_GAIN)}`);
+    expect(S.screen.fs).toContain(`vec3(1.0), ${g(T.SCREEN_CORE_WHITE)}`);
+    expect(S.screen.vs).toContain(`laneRGB(lit.x, ${g(T.SCREEN_SAT)})`);
+  });
+
+  /**
+   * The breathing, and the property that makes it breathing rather than a
+   * pulse: **a rate per light**, read off its own seed. One rate across the set
+   * is something a reader starts counting.
+   *
+   * Matched as the whole expression rather than as two loose numbers, because
+   * the failure that matters is the span being dropped — `RATE_MIN` alone
+   * compiles, runs, and gives every light on the panel the same clock.
+   */
+  it("gives each light its own breathing rate", () => {
+    expect(S.screen.vs).toContain(
+      `${g(T.SCREEN_RATE_MIN)} + lit.z * ${g(T.SCREEN_RATE_SPAN)}`,
+    );
+    expect(S.screen.vs).toContain(`1.0 - ${g(T.SCREEN_BREATHE)} *`);
+  });
+
+  /**
+   * **The breathing may only ever dim.** `power` is what `bootLight.ts` tunes
+   * against a still frame, so a term that could push past it would make those
+   * numbers a floor rather than the ceiling they are written as. Restated here
+   * as the shape of the expression: a half-cosine is 0…1, and subtracting it
+   * from 1 cannot exceed 1 for any clock.
+   */
+  it("never lets a light exceed the power it was given", () => {
+    expect(S.screen.vs).toContain("(0.5 - 0.5 * cos(");
+    expect(S.screen.vs).toContain("vA = lit.y * breathe;");
+    expect(T.SCREEN_BREATHE).toBeGreaterThan(0);
+    expect(T.SCREEN_BREATHE).toBeLessThan(1);
+  });
+
+  /**
+   * Screen space, and nothing else. A `uView` here would make the empty
+   * canvas's light pan with a tree that is not on the canvas — and it is the
+   * one pass in this file with no business reading the viewport transform.
+   */
+  it("keeps the empty canvas's lights off the viewport transform", () => {
+    expect(S.screen.vs).not.toContain("uView");
+  });
+
   /** The snow's fall and its depth, which is most of why a flat rain has volume. */
   it("gives the snow its fall rate and its depth range", () => {
     expect(S.snow.vs).toContain(g(T.SNOW_Z_MIN));

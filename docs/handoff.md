@@ -1669,6 +1669,87 @@ back to a fingerprint of the executable where no commit was compiled in.
   is fetched on every page load, and `no-store` would take request collapsing
   off the boot path on half a vCPU.
 
+### The front door was selling a weaker product than the one behind it
+
+Three claims a first-time reader met before anything was drawn, all wrong, none
+of them reachable by any gate. The pattern is worth more than the three fixes:
+**prose is the only output in this repo that nothing validates**, so an error
+introduced by editing a sentence survives every check, and all three of these
+were introduced exactly that way.
+
+- **The species count has been wrong twice, and the second time was while
+  fixing the first.** Five surfaces said 2.7 million, which is the *node* total;
+  339,807 of those are groups, and calling a group a species is the one error
+  the sentence inviting somebody to search cannot make. It arrived by deletion
+  rather than invention — the palette's waiting line named the species count and
+  the fossil count together, the second was dropped as plumbing, and the
+  survivor was rounded up on the way through. The correction then reached for
+  the **tip** total, which is a third wrong number: tips include subspecies,
+  varieties, cultivars and 1,615 group-rank terminals, while 21,977 species are
+  internal nodes with subspecies beneath them, so tips and species disagree by
+  about ninety thousand in each direction at once. The figure is
+  `rank='species'` — 2,295,972 — and `data-sources.md` now states all three
+  counts and which question each answers. The lesson is the one the guard was
+  rewritten around: **ban the shape, not the string.** `corpora.test.ts` refuses
+  any hardcoded "N million species" outside `corpora.ts`, across `web/src`, the
+  stylesheet, `index.html`, the Worker and the README — a guard on the two
+  strings already known to be wrong caught neither the tip count when it was
+  written nor the four comments still carrying their own copy of it. **The
+  fossil corpus is deliberately not added in** — the catalogues overlap by name,
+  32,386 accepted PBDB taxa being nodes, so any sum double-counts.
+- **A pair is the weaker product, and the card was selling it.** Both
+  descriptions, the README and the boot lede all opened "pick any two species",
+  directly above a carousel of fifteen questions none of which is a pair. (The
+  `<title>` never did, and an earlier draft of this bullet said it had — in a
+  paragraph whose thesis is that unvalidated prose is where this repo goes
+  wrong.) `openings.ts` had already written down why: *a pair draws one number.
+  Three or more draw an argument — the nesting itself is the proof.* So the
+  most-repeated sentence about this product contradicted the file that decides
+  what the product opens with. `meta.test.ts` now asserts the absence — the
+  count, not the phrasing, so the copy stays free to change.
+- **A link carries the tree, not the view.** The share command said "all view
+  state lives in the URL" while the bioluminescence command four rows above it
+  said *a tree you share arrives unlit, however you are reading it*. Both were
+  in the same list. `store.ts` is right and the share row was wrong: the tree,
+  the axis, the selection, the isolate and the drill are in the link, and the
+  labels, ages and light are in `sessionStorage` because a setting that is a
+  claim about the **reader** may not ride in one. The about page's feature is
+  "Every **tree** is a link" now, and the one-word change is the whole claim.
+
+The fourth thing found is not fixed and is not a copy bug: **the best-positioned
+artifact in the product is the one nobody opens.** `/about` leads with what this
+is for, names the educator use case in its subhead, and carries the divergence
+witness — *"a fossil that was alive at each split"*, the one thing here nothing
+else does — and it is reached from a link held below the canvas's own contrast
+in the corner of the axis footer. The witness now appears in the description
+every shared link unfurls into and in the README's first sentence, which is the
+cheap half. The expensive half is that a reader who never opens `/about` is
+still told none of it, and `analytics.md` §2 can already answer whether that
+matters: the `sequence` / `sequence-cut` / `open` causes are instrumented, the
+conversion query is written down, and nobody has run it.
+
+**The about page stopped asking the reader to think of a species first.** It
+had one door — *Draw a tree* — which lands somebody who has just read four
+paragraphs on an empty canvas and asks them for a name, the exact cold start
+the openings were built to remove. It now has two, and the second hands the
+canvas *Are you a fish?* and lets `state/sequence.ts` build the answer through
+the ordinary code path. **Do not replace that with a recording.** A video of
+this app is a claim about a build that has shipped since, and the sequence
+module is already the thing the carousel drives, so the demonstration cannot
+drift from the product. Two things not to redo: the handoff is `sessionStorage`
+because `main.tsx` unmounts the app to show the page and there is no store on
+that side, and `takeOpening` **clears as it answers** — `leaveAbout` is usually
+`history.back()`, so a request that outlived being answered would rebuild the
+demonstration over whatever the reader assembled next, for the life of the tab.
+
+**The known gap, and it is the educator's:** there is still no image export.
+`share` copies a URL, and for the audience the hero names in as many words — *a
+slide, a video* — "worth showing someone" currently cashes out as a link they
+must open live. It is not a copy problem and it was left alone deliberately
+rather than missed: compositing the WebGL water under React Flow's SVG at an
+export resolution, with the fonts and the axis, is a real piece of work and it
+lands squarely on the renderer. It is the next thing worth building.
+
 ---
 
 ## 4. Corrections to the design docs

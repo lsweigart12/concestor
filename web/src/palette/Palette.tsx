@@ -30,7 +30,7 @@ import {
   type FossilTaxon,
   type SearchHit,
 } from "../api";
-import { FOSSIL_BADGE, FOSSIL_BADGE_HINT, rowScore } from "../corpora";
+import { FOSSIL_BADGE, FOSSIL_BADGE_HINT, rowScore, SPECIES_PHRASE } from "../corpora";
 import { AgeGlyph } from "../canvas/AgeGlyph";
 import { endedSpanLabel } from "../canvas/Bracket";
 import { Silhouette } from "../canvas/Silhouette";
@@ -630,11 +630,19 @@ export function Palette({
                   // a reader who is told what is being searched knows whether
                   // to keep waiting or to type something shorter.
                   //
-                  // One number now, not two. It was "2.4 million species and
-                  // 523,112 fossil taxa", which named the plumbing: both
+                  // One number, not two. It named the species count and the
+                  // fossil count together, which is the plumbing: both
                   // catalogues are searched on every query and the reader has
                   // no use for the seam between them.
-                  <PendingLine>Searching 2.7 million species…</PendingLine>
+                  //
+                  // **Dropping the second number is what lost the first one.**
+                  // The survivor was rewritten on the way through to the node
+                  // total — the tree's whole size, a third of a million of it
+                  // groups rather than species — and the wrong figure then
+                  // spread to four more surfaces before anybody read it. It
+                  // comes from {@link SPECIES_PHRASE} now, which is the only
+                  // place in `web/` allowed to spell a figure of that shape.
+                  <PendingLine>Searching {SPECIES_PHRASE}…</PendingLine>
                 ) : empty === "no-match" ? (
                   <>
                     Nothing matched <strong>{needle}</strong>.
@@ -643,9 +651,9 @@ export function Palette({
                     vernacular index having been built.
                   </>
                 ) : filter ? (
-                  <>Type to search 2.7 million species.</>
+                  <>Type to search {SPECIES_PHRASE}.</>
                 ) : (
-                  <>Type to search 2.7 million species, or pick a command.</>
+                  <>Type to search {SPECIES_PHRASE}, or pick a command.</>
                 )}
               </div>
             )}
