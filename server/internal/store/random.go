@@ -6,7 +6,8 @@ import (
 	"strings"
 )
 
-// Random picks: the way in for a reader who does not yet know what to ask for.
+// The pools a random pick is drawn from — and the draw itself is not here,
+// because it is not the server's to make.
 //
 // The empty canvas is a command list, and every command on it so far assumes
 // you have already thought of something. 2.4 million species is not a thing a
@@ -28,29 +29,93 @@ import (
 // exactly what makes a random row legible to an audience of curious people
 // rather than systematists, who will not recognise the name.
 //
-// Neither query is cheap-because-indexed and neither needs to be: both are a
-// full scan behind `ORDER BY random()`, which is measured at a few tens of
-// milliseconds on this database — the same order as `SearchFossils`, which the
-// palette already runs on a keystroke. The picks are made per request and the
-// endpoint is `no-store`, because a random answer that an ETag froze for a year
-// is not a random answer.
+// # Why this file no longer draws
+//
+// There was a `/v1/random` that ran both queries behind `ORDER BY random()`
+// and returned a handful of decorated rows. It was the one endpoint in the API
+// that could not be cached — a random answer an ETag froze for a year is not a
+// random answer — and it carried a `no-store` exception through five files to
+// say so.
+//
+// It was also, measured against production, **the most expensive endpoint in
+// the app by an order of magnitude**: 1.19–1.51 s for `kind=species` and up to
+// 2.45 s for `kind=fossil`, against 49 ms for a search and 39 ms for a path.
+// The 167 ms in `docs/deployment.md` §1 is the same figure taken on the machine
+// the pipeline runs on, and `standard-1` is half a vCPU — the identical trap
+// that hid an unindexed scan inside `/v1/search` for as long as it did.
+//
+// The cost was never the draw. It was that **both queries are full scans and
+// both were run per press**, to produce a list that is a pure function of the
+// build. So the scan now runs at most once per process, the resolved pools go
+// to the client, and the client draws. That is not only cheaper, it is more
+// correct: which taxa are already on the canvas is a fact about the reader's
+// canvas that this process has never had, which is why the old endpoint
+// over-asked twelve candidates and threw eleven away. Filtering happens where
+// the knowledge is.
+//
+// **What ships is the resolved list and never the rule.** The two node filters
+// below and the five fossil ones are policy with real arguments behind them; a
+// client that recomputed them would be a second copy to keep in step. This is
+// the same line `Interleave` draws when it stamps `order` on a row so the
+// client reads a rank rather than computing one.
 
-// randomLimit bounds a pick request. A caller asks for a handful rather than
-// one so it can skip picks already on the canvas without a second round trip;
-// nothing needs more than that, and the cap keeps the response small enough to
-// stay uncacheable without mattering.
-const (
-	defaultRandomLimit = 1
-	maxRandomLimit     = 25
-)
+// Pool is what a client needs to make its own pick: two lists of identifiers,
+// ascending, and nothing else.
+//
+// Bare identifiers rather than decorated rows, and the ratio is the argument.
+// Both lists together are **114,193 bytes of JSON, 39.8 KB gzipped and 21.3 KB
+// brotli** — measured on the response, not estimated — where the same rows
+// carrying names, ranks and ages would be several hundred KB, to spend one of
+// them. A pick is followed by a lookup for the one taxon drawn — `/v1/node/
+// idx:N` and `/v1/fossil/{id}`, both immutable, both edge-cached, both free on
+// a repeat — so the decoration is fetched exactly where it is used.
+//
+// It compresses that well because the lists are ascending runs of integers, so
+// **the `ORDER BY` below is paying for itself twice**: once as the determinism
+// the ETag needs, and once as 5.4x off the wire. Delta-encoding would take
+// another few KB and was refused — it buys less than the sort already did and
+// costs a decoder on the other side of the wire.
+//
+// Ascending order is load-bearing rather than tidy. It is what the ETag and the
+// year-long `Cache-Control` on this response claim: the same build must produce
+// the same bytes, and SQLite's scan order is not a promise.
+type Pool struct {
+	Nodes   []int32 `json:"nodes"`
+	Fossils []int64 `json:"fossils"`
+}
 
-// matchedOnRandom is what a random pick reports in `matched_on`. Nothing
-// matched — no query was asked — and saying "name" would credit a match the
-// reader never made. A client that keys off `matched_on` to caption *why* a row
-// is on the page must therefore say nothing for these, which is correct.
-const matchedOnRandom = "random"
+// RandomPool returns both pools, building them at most once per process.
+//
+// Lazily rather than at startup, and the cadence is why. A container starts far
+// more often than a build changes — `sleepAfter` is an hour — so paying two
+// full scans in every `Store.Open` would lengthen a measured 0.78 s cold start
+// for a feature most readers never reach. Built here, the scans run once per
+// process and only if somebody asks; behind the edge's year-long cache on this
+// response, that is usually once per deploy per data centre and often never.
+//
+// A failure is not memoised. `loaded` stays false so the next caller tries
+// again, because a transient error that permanently disables the surface for
+// the process's lifetime is a worse outcome than repeating a slow query.
+func (s *Store) RandomPool(ctx context.Context) (*Pool, error) {
+	s.poolMu.Lock()
+	defer s.poolMu.Unlock()
+	if s.poolLoaded {
+		return s.pool, nil
+	}
+	nodes, err := s.randomNodePool(ctx)
+	if err != nil {
+		return nil, err
+	}
+	fossils, err := s.randomFossilPool(ctx)
+	if err != nil {
+		return nil, err
+	}
+	s.pool = &Pool{Nodes: nodes, Fossils: fossils}
+	s.poolLoaded = true
+	return s.pool, nil
+}
 
-// RandomNodes picks named nodes that carry their own drawing.
+// randomNodePool collects named nodes that carry their own drawing.
 //
 // Two filters, and the second is subtler than it looks:
 //
@@ -66,20 +131,15 @@ const matchedOnRandom = "random"
 //     honest rather than merely present.
 //
 // Measured on the current build: 30,982 nodes have `climb = 0`, and 13,918 of
-// those are named. That is the pool.
-//
-// The rows come back as `SearchResult` deliberately: a random pick and a search
-// hit are the same object to every caller — the same palette row, the same add
-// path — and giving them a shape of their own would fork both.
-func (s *Store) RandomNodes(ctx context.Context, limit int) ([]SearchResult, error) {
+// those are named. That is the pool, and it is the whole of what ships.
+func (s *Store) randomNodePool(ctx context.Context) ([]int32, error) {
 	ni := s.Schema.NodeImage
 	if ni == nil || ni.Climb == "" {
 		// No way to tell an own drawing from a borrowed one, so no way to keep
-		// the promise. An empty list is the honest answer; the caller reports
+		// the promise. An empty pool is the honest answer; the client reports
 		// it rather than picking something worse.
-		return []SearchResult{}, nil
+		return []int32{}, nil
 	}
-	limit = clampRandomLimit(limit)
 
 	// A subquery rather than a join, and the difference is 9x. Written as a
 	// join, SQLite drives from `node_name` — the partial index over the 1.1M
@@ -91,63 +151,25 @@ func (s *Store) RandomNodes(ctx context.Context, limit int) ([]SearchResult, err
 		`SELECT n.idx FROM node n
 		 WHERE n.name IS NOT NULL AND trim(n.name) <> ''
 		   AND n.idx IN (SELECT %q FROM %q WHERE %q = 0)
-		 ORDER BY random() LIMIT %d`,
-		ni.Idx, ni.Table, ni.Climb, limit)
+		 ORDER BY n.idx`,
+		ni.Idx, ni.Table, ni.Climb)
 	rows, err := s.DB.QueryContext(ctx, q)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close() //nolint:errcheck
-	var idxs []int
+	out := []int32{}
 	for rows.Next() {
-		var idx int
+		var idx int32
 		if err := rows.Scan(&idx); err != nil {
 			return nil, err
 		}
-		idxs = append(idxs, idx)
+		out = append(out, idx)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	if len(idxs) == 0 {
-		return []SearchResult{}, nil
-	}
-
-	ptrs, err := s.resultsForIdxs(ctx, idxs, matchedOnRandom)
-	if err != nil {
-		return nil, err
-	}
-	results := make([]SearchResult, 0, len(ptrs))
-	for _, r := range ptrs {
-		results = append(results, *r)
-	}
-	// The same decoration a search hit gets: age, silhouette, clade size,
-	// vernacular. The empty query is not a degenerate case here — `matchBand`
-	// returns `bandNone` for it, so every banding rule is a no-op and only the
-	// enrichment runs, which is all a pick with no query behind it can want.
-	if err := s.decorate(ctx, results, ""); err != nil {
-		return nil, err
-	}
-	// `resultsForIdxs` returns rows in whatever order the chunked IN scan hands
-	// them back, which for SQLite is idx order — a stable, *non*-random order
-	// that would make a multi-pick request read as sorted. Put them back in the
-	// order random() drew them.
-	byIdx := make(map[int]SearchResult, len(results))
-	for _, r := range results {
-		if r.Idx != nil {
-			byIdx[*r.Idx] = r
-		}
-	}
-	out := make([]SearchResult, 0, len(idxs))
-	for _, idx := range idxs {
-		if r, ok := byIdx[idx]; ok {
-			out = append(out, r)
-		}
-	}
-	return out, nil
+	return out, rows.Err()
 }
 
-// RandomFossils picks PBDB taxa that can be drawn against the tree.
+// randomFossilPool collects PBDB taxa that can be drawn against the tree.
 //
 // Five filters. The first three are the graft's own refusals stated in SQL, so
 // a pick can never land on something `makeGraft` would then decline to place;
@@ -176,18 +198,20 @@ func (s *Store) RandomNodes(ctx context.Context, limit int) ([]SearchResult, err
 //
 //   - **A drawing**, joined through `fossil_image`. A fossil has no clade to
 //     borrow a picture from — `node_image` cannot reach a thing that is not a
-//     node — so this join is exact by construction, and the 1,946 taxa that
-//     survive all five filters are all illustrated portraits.
+//     node — so this join is exact by construction, and the taxa that survive
+//     all five filters are all illustrated portraits. **1,935 of them**, read off
+//     build `03473db1bfce56ca` — a reading rather than a constant, like every
+//     other corpus figure here: the comment said 1,946 for a build two runs
+//     back and the difference is the pipeline, not a filter.
 //
 // The one thing this cannot filter on is whether the taxon's attachment point
 // is currently drawn, because that is a fact about the reader's canvas and not
-// about the fossil. The caller adds the attaching clade when it is missing.
-func (s *Store) RandomFossils(ctx context.Context, limit int) ([]Fossil, error) {
+// about the fossil. The client adds the attaching clade when it is missing.
+func (s *Store) randomFossilPool(ctx context.Context) ([]int64, error) {
 	f := s.Schema.Fossil
 	if f == nil || f.TaxonNo == "" || f.ImageTable == "" || !f.Brackets {
-		return []Fossil{}, nil
+		return []int64{}, nil
 	}
-	limit = clampRandomLimit(limit)
 
 	// `lla_drawn` where the build has it, because this is the position the
 	// graft will use and the filter has to be the graft's own refusal stated in
@@ -217,32 +241,26 @@ func (s *Store) RandomFossils(ctx context.Context, limit int) ([]Fossil, error) 
 		where = append(where, fmt.Sprintf("t.%q = 0", f.IsExtant))
 	}
 
-	sel, join := fossilRow(f)
-	if join == "" {
-		return []Fossil{}, nil
-	}
-	q := fmt.Sprintf("SELECT %s FROM %q t%s WHERE %s ORDER BY random() LIMIT %d",
-		sel, f.Table, join, strings.Join(where, " AND "), limit)
+	// The same join `fossilRow` builds, and it is on `accepted_no` rather than
+	// on the primary key: a synonym's drawing belongs to the taxon it collapses
+	// onto. Only the id is selected — the client fetches the row it draws.
+	q := fmt.Sprintf(
+		`SELECT t.%q FROM %q t LEFT JOIN %q img ON img.%q = t.%q WHERE %s ORDER BY t.%q`,
+		f.TaxonNo, f.Table, f.ImageTable, f.ImageKey, f.AcceptedNo,
+		strings.Join(where, " AND "), f.TaxonNo)
 
 	rows, err := s.DB.QueryContext(ctx, q)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close() //nolint:errcheck
-	list := []Fossil{}
+	out := []int64{}
 	for rows.Next() {
-		fo, err := scanFossil(rows)
-		if err != nil {
+		var no int64
+		if err := rows.Scan(&no); err != nil {
 			return nil, err
 		}
-		list = append(list, fo)
+		out = append(out, no)
 	}
-	return list, rows.Err()
-}
-
-func clampRandomLimit(limit int) int {
-	if limit <= 0 {
-		return defaultRandomLimit
-	}
-	return min(limit, maxRandomLimit)
+	return out, rows.Err()
 }

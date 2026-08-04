@@ -84,7 +84,7 @@ and mapping the arrays.
 | `/v1/path/{key}` (60 random species) | **0.4 ms** | 0.6 ms | 0.9 ms |
 | `/v1/search?q=` (16 queries × 4), before `fossil_fts` | 111 ms | 127 ms | 136 ms |
 | `/v1/search?q=` (16 queries × 4), after | **0.1–15 ms** | — | — |
-| `/v1/random?kind=species` | 167 ms | 174 ms | 187 ms |
+| `/v1/random?kind=species`, since deleted — see below | 167 ms | 174 ms | 187 ms |
 
 `/v1/path` at **0.4 ms** is the number that rules out every design in §3. It is
 41 dependent array reads and one batched database lookup — mean depth 41, and
@@ -110,6 +110,30 @@ so. The second is that a table of p50s hides a bimodal cost: 15 of the 16
 queries were cheap and the endpoint's whole expense sat in a stage none of them
 varied. Where an endpoint is suspected of being flat against its input, measure
 the stages rather than the endpoint.
+
+**The table above hid a second endpoint the same way, and the paragraph above
+names the trap it hid it with.** Measured against
+`concestor.com` with `curl` on 2026-08-04, the container warm throughout — a
+`/v1/search?q=whale` immediately afterwards cost 49 ms:
+
+| Endpoint, in production on `standard-1` | observed |
+|---|---:|
+| `/v1/random?kind=species&limit=12` (5 runs) | **1.19–1.51 s** |
+| `/v1/random?kind=fossil&limit=12` (3 runs) | **0.88–2.45 s** |
+| `/v1/search?q=whale` | 49–166 ms |
+| `/v1/path/ott770315` | 39–114 ms |
+
+So the most expensive endpoint in the app **by 10–30×** was written down here
+at 167 ms, for exactly the reason the unindexed `fossil` scan was: the figure
+came off the machine the pipeline runs on, the work is CPU-bound — two full
+scans behind `ORDER BY random()` — and half a vCPU multiplies it by something
+no local run will ever show you. Twice now. Treat every p50 in this section as
+a lower bound until it has been asked for over the wire.
+
+`/v1/random` is gone. `GET /v1/random-pool/{build_id}` serves the two *pools*
+as bare identifier lists, the client draws from them, and the scans run at most
+once per container process. `architecture.md` §4 has the endpoint and
+`handoff.md` §3 has the design.
 
 ---
 
@@ -506,8 +530,17 @@ anything else.
 
 The Worker returns the container's response unmodified, and that is deliberate
 for the reason it always was: `/v1` is long-lived and ETag'd by build id, and
-**`/v1/random` is `no-store` with no ETag**, because caching it hands every
-visitor the same "random" species forever.
+the response decides its own lifetime.
+
+This section used to carry an exception here — **`/v1/random` was `no-store`
+with no ETag**, because caching a server-side draw hands every visitor the same
+"random" species forever. That endpoint no longer exists.
+`/v1/random-pool/{build_id}` returns the two pools rather than a pick, a pool
+*is* a function of the build, and it is served
+`public, max-age=3600, s-maxage=31536000` with an
+ETag like `/v1/path` and `/v1/node`. **There is now no `no-store` JSON on `/v1`
+at all** outside error responses and the pool's own 404 refusal, which is
+described below.
 
 `docs/architecture.md` §4 costs the design at "a CDN in front absorbs
 essentially all traffic", and that is the mechanism that makes one container
@@ -525,12 +558,16 @@ the feature happens to agree with:
 
 - **It decides from the response's own `Cache-Control`, per RFC 9111.** That is
   the rule this section used to state as a warning for whoever added caching
-  later, and the mechanism now enforces it rather than a reviewer:
-  `/v1/random`'s `no-store` is refused at the edge without anything in the
-  Worker naming the path. The rule survives as a prohibition — nothing in
-  `worker/index.ts` may grow into a list of cacheable paths, because a list of
-  cacheable paths is a list somebody eventually forgets to add `/v1/random`'s
-  successor to.
+  later, and the mechanism enforces it rather than a reviewer: when `/v1/random`
+  existed, its `no-store` was refused at the edge without anything in the Worker
+  naming the path, and the pool's 404 refusal is refused the same way today. The
+  rule survives as a prohibition — nothing in `worker/index.ts` may grow into a
+  list of cacheable paths, because a list of cacheable paths is a list somebody
+  eventually forgets to add the next exception to. **The list of exceptions is
+  now empty**, which is the strongest form that rule can be in and not a reason
+  to relax it: the reason there is no special-cased path is that a special-cased
+  path got designed away, and the next one will arrive the same way the last one
+  did.
 - **The cache key is path + query string + Worker version.** The query string
   matters or `/v1/search?q=` would answer every reader with the first reader's
   query. The *version* is what makes a one-year `s-maxage` safe on a URL that
@@ -551,8 +588,10 @@ the feature happens to agree with:
   the ceiling is the share of traffic that never reaches the expensive thing.
 
 **What is still unverified is the hit rate, not the mechanism.** Every `/v1`
-path except `/v1/random` is cacheable and the popular ones repeat across
-readers — `/v1/timescale` is fetched by every session and is a certain hit —
+path is cacheable and the popular ones repeat across readers —
+`/v1/timescale` is fetched by every session and is a certain hit, and
+`/v1/random-pool/{build_id}` is one 114 KB body per build that every reader who
+presses `R` shares —
 but this app's `/v1/path/{key}` traffic has a long tail by construction, and
 nobody has measured what fraction of it repeats within a colo within a version.
 `Cf-Cache-Status` and the Workers observability dashboard are where that gets
@@ -655,6 +694,20 @@ Two ways to close it, and the cheaper one is not the obvious one:
   it for the frontend's own files, and the wrong shape for an API a reader
   reaches by name.
 
+  **One endpoint takes it anyway, and neither objection reaches it.**
+  `/v1/random-pool/{build_id}` is versioned in the path because its body is a
+  list of *node indices*, which mean nothing outside the build that assigned
+  them — a stale pool does not 404, it hands the reader a different and
+  entirely plausible animal. It is off the boot path (fetched on the first press
+  of `R`, never at load), so the identity fetch it queues behind is one the app
+  has already made; and the id is not baked into the bundle but read from
+  `/v1/about` at that moment, so the bundle can never pin an id the running API
+  does not have. A mismatch is refused with **404 and `no-store`** rather than
+  answered from the current pool: answering would let the edge file build B's
+  list under build A's URL and serve it to everyone still on A, and the
+  `no-store` is there because a 404 is heuristically cacheable and one pinned at
+  the edge would outlive the deploy that caused it.
+
 ### A deploy is two things and they are not atomic
 
 Found on the deploy that shipped the two fixes above, and it is the one in this
@@ -704,11 +757,12 @@ One more thing worth keeping: **the window cannot be closed by ordering the
 deploy differently.** The container is named *by* the Worker config, so there is
 no way to roll it first.
 
-### `/v1/about` is short-lived
+### `/v1/about` is short-lived, and it is the boot probe
 
 `max-age=60, must-revalidate`, with the same ETag as everything else —
-`api.writeShortLivedJSON`, and it is the third policy beside `writeJSON`'s hour
-and `writeVolatileJSON`'s `no-store`.
+`api.writeShortLivedJSON`, and it is now one of **two** JSON policies rather
+than three. `writeVolatileJSON` went with `/v1/random`; it had exactly one
+caller and there is no longer a `no-store` body on `/v1` at all.
 
 About is a function of the build, so its validator was never wrong; the
 *question* was. This is the endpoint a deploy check, a monitor or a person asks
@@ -717,12 +771,34 @@ a permanent answer to it. The transcript above is what that looks like: ten
 minutes and counting of a successful deploy reported as not having happened,
 and indefinitely to a browser.
 
-It is not `no-store`, which is what `/v1/random` needs and must keep. The store
-counts about's age statistics at startup precisely because it is fetched on
-**every page load**, so this is the boot path for every reader, and `no-store`
-would also take request collapsing off it — on half a vCPU a cold burst is the
-one thing worth collapsing (§2). A minute keeps the collapsing and bounds the
-staleness to less than any deploy takes.
+It is not `no-store`. The store counts about's age statistics at startup
+precisely because it is fetched on **every page load**, so this is the boot path
+for every reader, and `no-store` would also take request collapsing off it — on
+half a vCPU a cold burst is the one thing worth collapsing (§2). A minute keeps
+the collapsing and bounds the staleness to less than any deploy takes.
+
+**The minute is also what wakes the container, and that is not a side effect.**
+`must-revalidate` at 60 s means this request reaches the origin on every boot
+where an immutable one would not, so `/v1/about` is the app's warm-up as much as
+its identity check — which is why the frontend now asks it *first* rather than
+second, starting the wake a round trip earlier.
+
+**It is the health probe too, because the other one could not fail.** The
+frontend used to boot with a `fetch('/healthz')` and read `res.ok`. `/healthz`
+is registered on the Go mux and **nothing routes a non-`/v1/*` path to the
+container**: in production `run_worker_first` covers `/v1/*` and
+`not_found_handling: single-page-application` answers everything else with
+`index.html`, and under `scripts/dev.sh` vite's fallback does the same. Verified
+against production — `curl -sI https://concestor.com/healthz` returns `200` with
+`content-type: text/html`. The probe was reading the app's own HTML shell and
+reporting the API healthy whether or not it was running, so the boot-error
+screen was **unreachable in production for its entire life**, which is how its
+copy came to tell readers to run `go run ./server`. It only ever worked in the
+one mode it was written in, the Go binary serving both halves off one origin.
+`ping()` and the `/healthz` fetch are deleted; `/v1/about` is the probe, and it
+answers from the container or it does not answer. The screen now leads with the
+line for readers — nothing is wrong at your end, try again in a few minutes —
+and keeps the Go command below it for whoever is running the server themselves.
 
 ---
 
@@ -739,9 +815,9 @@ staleness to less than any deploy takes.
   *because the traffic is small*, not because the platform solved it.
 - **Placement is not the Worker's.** A container starts in the nearest location
   with a pre-fetched image, which is not necessarily where its Durable Object
-  runs or where the reader is. Every `/v1` response except `/v1/random` is held
-  at the edge for a year, so the second reader of anything pays nothing for
-  that; the first one might.
+  runs or where the reader is. Every `/v1` response is held at the edge for a
+  year, so the second reader of anything pays nothing for that; the first one
+  might.
 - **Unverified end to end.** There is no Cloudflare account, so the Worker
   config, the container config and the cache behaviour are validated by
   `wrangler deploy --dry-run` on every pull request and by nothing else. That

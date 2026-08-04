@@ -1226,93 +1226,95 @@ func TestSafeID(t *testing.T) {
 func itoa(v int) string     { return strconv.Itoa(v) }
 func itoa64(v int64) string { return strconv.FormatInt(v, 10) }
 
-// The random endpoint is the one /v1 response that is not a function of the
-// build, and it is served through `writeVolatileJSON` for exactly that reason.
-// Sent through the ordinary path it would carry the build's ETag and a
-// one-year `immutable`, so the second press of the command would be answered
-// from the browser cache with the first press's answer — an endpoint that
-// looked like it worked and never picked twice.
-func TestRandomIsNeverCached(t *testing.T) {
+// The pool is a function of the build like everything else on /v1, and this is
+// the test that used to say the opposite.
+//
+// There was a `TestRandomIsNeverCached` here asserting `no-store` and no ETag
+// on `/v1/random`, which was correct for as long as the server made the draw.
+// Moving the draw to the client removed the exception rather than relaxing it,
+// so what has to be pinned now is that this response is cacheable *by the
+// ordinary rule* — no special case, no path anyone has to remember.
+func TestThePoolIsCachedLikeEverythingElse(t *testing.T) {
+	ts, st := serve(t)
+	resp := getJSON(t, ts, "/v1/random-pool/"+st.BuildID, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("got %d, want 200", resp.StatusCode)
+	}
+	if cc := resp.Header.Get("Cache-Control"); !strings.Contains(cc, "s-maxage=31536000") {
+		t.Errorf("Cache-Control = %q, want the edge held for a year", cc)
+	}
+	if resp.Header.Get("ETag") == "" {
+		t.Error("no ETag; the pool is immutable within a build and must be revalidatable")
+	}
+}
+
+// A pool is only meaningful for the build whose indices it holds. Serving the
+// current one under a stale build's URL would let the edge store it there for a
+// year and hand it to every reader still on that build — who would then draw a
+// valid-looking index naming a different animal, with nothing on screen to say
+// so. Refusing is the only answer that cannot be silently wrong.
+func TestThePoolRefusesAnotherBuild(t *testing.T) {
 	ts, _ := serve(t)
-	resp := getJSON(t, ts, "/v1/random?kind=species", nil)
+	resp := getJSON(t, ts, "/v1/random-pool/not-the-build-id", nil)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("got %d, want 404", resp.StatusCode)
+	}
+	// And the refusal itself must not be cached, or it outlives the deploy that
+	// caused it. A 404 is heuristically cacheable without this.
 	if cc := resp.Header.Get("Cache-Control"); cc != "no-store" {
-		t.Errorf("Cache-Control = %q, want no-store", cc)
-	}
-	if tag := resp.Header.Get("ETag"); tag != "" {
-		t.Errorf("ETag = %q; a random answer must not be revalidatable", tag)
+		t.Errorf("Cache-Control = %q on the refusal, want no-store", cc)
 	}
 }
 
-func TestRandomSpecies(t *testing.T) {
-	ts, _ := serve(t)
+func TestThePoolCarriesBothCorpora(t *testing.T) {
+	ts, st := serve(t)
 	var body struct {
-		Kind      string               `json:"kind"`
-		Results   []store.SearchResult `json:"results"`
-		Fossils   []store.Fossil       `json:"fossils"`
-		Available bool                 `json:"available"`
+		BuildID string  `json:"build_id"`
+		Nodes   []int32 `json:"nodes"`
+		Fossils []int64 `json:"fossils"`
 	}
-	getJSON(t, ts, "/v1/random?kind=species&limit=5", &body)
-	if body.Kind != "species" {
-		t.Fatalf("kind = %q", body.Kind)
+	getJSON(t, ts, "/v1/random-pool/"+st.BuildID, &body)
+	if body.BuildID != st.BuildID {
+		t.Errorf("build_id = %q, want %q", body.BuildID, st.BuildID)
 	}
-	if !body.Available {
-		t.Skip("this build cannot tell an own drawing from a borrowed one")
+	if st.Schema.NodeImage != nil && st.Schema.NodeImage.Climb != "" {
+		if len(body.Nodes) < 1000 {
+			t.Errorf("node pool is %d deep, want thousands", len(body.Nodes))
+		}
+		// Every index must be addressable as `idx:N`, which is what the client
+		// turns a draw into. An index outside the arrays would resolve to
+		// nothing, or — worse — to a neighbour.
+		for _, idx := range body.Nodes[:min(50, len(body.Nodes))] {
+			if !st.Arrays.Valid(int(idx)) {
+				t.Fatalf("pooled index %d is not a node", idx)
+			}
+		}
 	}
-	if len(body.Results) != 5 {
-		t.Fatalf("got %d picks, want 5", len(body.Results))
-	}
-	if len(body.Fossils) != 0 {
-		t.Error("a species draw must not carry fossils; the two corpora stay apart")
-	}
-	for _, r := range body.Results {
-		// Everything the palette row and the add path need. A pick missing any
-		// of these is a row the reader cannot act on.
-		if r.Idx == nil || r.Key == "" || r.Name == nil || r.PhylopicID == nil {
-			t.Errorf("incomplete pick: %+v", r)
+	f := st.Schema.Fossil
+	if f != nil && f.ImageTable != "" && f.Brackets {
+		if len(body.Fossils) == 0 {
+			t.Error("fossil pool is empty; ~1,935 taxa pass the five filters")
 		}
 	}
 }
 
-func TestRandomFossil(t *testing.T) {
-	ts, _ := serve(t)
-	var body struct {
-		Kind      string               `json:"kind"`
-		Results   []store.SearchResult `json:"results"`
-		Fossils   []store.Fossil       `json:"fossils"`
-		Available bool                 `json:"available"`
+// The two lists stay apart in the response for the same reason /v1/search keeps
+// them apart: a node and a PBDB taxon are different things with different
+// actions, and an index is not a taxon number.
+func TestThePoolDoesNotMixTheCorpora(t *testing.T) {
+	ts, st := serve(t)
+	pool, err := st.RandomPool(t.Context())
+	if err != nil {
+		t.Fatal(err)
 	}
-	getJSON(t, ts, "/v1/random?kind=fossil&limit=5", &body)
-	if body.Kind != "fossil" {
-		t.Fatalf("kind = %q", body.Kind)
-	}
-	if !body.Available {
-		t.Skip("no fossil table with drawings in this build")
-	}
-	if len(body.Fossils) != 5 {
-		t.Fatalf("got %d picks, want 5", len(body.Fossils))
-	}
-	if len(body.Results) != 0 {
-		t.Error("a fossil draw must not carry nodes")
-	}
-	for _, f := range body.Fossils {
-		if f.TaxonNo <= 0 || f.LLA == nil || f.PhylopicID == nil {
-			t.Errorf("a pick the canvas would refuse to graft: %+v", f)
+	_ = ts
+	for _, no := range pool.Fossils[:min(25, len(pool.Fossils))] {
+		fo, err := st.FossilByTaxonNo(t.Context(), no)
+		if err != nil {
+			t.Fatal(err)
 		}
-	}
-}
-
-// `kind` is a closed set. A typo must be an error rather than a silent default,
-// because the two corpora are not interchangeable and quietly answering about
-// species when a caller asked for fossils is the kind of wrong answer that
-// takes an hour to see.
-func TestRandomRejectsAnUnknownKind(t *testing.T) {
-	ts, _ := serve(t)
-	resp := getJSON(t, ts, "/v1/random?kind=rock", nil)
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Errorf("got %d, want 400", resp.StatusCode)
-	}
-	resp = getJSON(t, ts, "/v1/random?kind=species&limit=0", nil)
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Errorf("limit=0 got %d, want 400", resp.StatusCode)
+		if fo == nil {
+			t.Errorf("pooled fossil %d does not resolve", no)
+		}
 	}
 }

@@ -252,8 +252,9 @@ Run that before writing any of this by hand.
   RFC 9111 without anyone deciding it should be. That matters because
   `docs/deployment.md` §5 lays down that nothing in `worker/index.ts` may grow
   into a list of paths the cache treats specially — a list somebody eventually
-  forgets to add the next `/v1/random` to. This adds a path the caching design
-  does not have to know exists.
+  forgets to add the next exception to. That list is empty now that `/v1/random`
+  is gone, which makes the rule easier to keep and no less worth keeping. This
+  adds a path the caching design does not have to know exists.
 - **It is under `/v1/`** because that is what `run_worker_first` routes to the
   Worker. A second glob would be a second thing to keep in step. The container
   never sees it: the handler runs before both the `API_ORIGIN` branch and the

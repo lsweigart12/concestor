@@ -119,6 +119,42 @@ export function randomKind(roll: number): RandomKind {
 }
 
 /**
+ * Draw one identifier from a pool, never one the canvas already holds.
+ *
+ * Here rather than in the callback for the same reason {@link randomKind} is:
+ * this is the app's other piece of logic whose correctness cannot be checked by
+ * looking at the screen. A draw that quietly returned something already drawn
+ * would show a toast saying "Added X" over an unchanged canvas, which is a
+ * false statement about the one thing the reader was watching for — and it
+ * would look exactly like a working command until somebody counted.
+ *
+ * **Excluding before choosing is the whole point of holding the pool.** The
+ * server drew blind and could only over-ask a dozen candidates and hope; which
+ * taxa are on this canvas is a fact no request ever carried. Filtering
+ * thousands of numbers per press costs nothing measurable and removes a
+ * constant somebody would otherwise have had to guess.
+ *
+ * `null` means the pool is exhausted, which is a different thing from empty and
+ * both callers say so differently: an empty pool is a build with no silhouette
+ * resolution, an exhausted one is a canvas holding all 13,918.
+ *
+ * `roll` is injected so the draw is testable. `Math.random` is the caller's.
+ */
+export function pickFrom(
+  pool: readonly number[],
+  taken: (n: number) => boolean,
+  roll: number,
+): number | null {
+  const free = pool.filter((n) => !taken(n));
+  if (free.length === 0) return null;
+  // Clamped rather than trusted. `Math.random()` never returns 1, but this
+  // takes a number, and an index one past the end would return `undefined`
+  // through a signature that promises it cannot.
+  const i = Math.min(free.length - 1, Math.max(0, Math.floor(roll * free.length)));
+  return free[i] ?? null;
+}
+
+/**
  * The badge a fossil row wears, and the sentence behind it.
  *
  * It carries the whole of the difference now that the section heading is gone,

@@ -142,6 +142,14 @@ not new machinery — see §7 for the honest list of what is thin.
 > aborts superseded requests instead of paying for answers it discards.
 > [fossil-grafts.md §7](fossil-grafts.md) is the account.
 >
+> **The same trap then took a second endpoint.** `/v1/random` measured 167 ms on
+> the pipeline machine and **1.19–1.51 s in production**, two full scans behind
+> `ORDER BY random()` per press, which made it the most expensive thing in the
+> app by 10–30×. It is deleted: `/v1/random-pool/{build_id}` serves the two
+> pools once per container process, the client draws, and the API's only
+> uncacheable response went with it. §3 is the account. Where a figure in these
+> docs was taken locally on a CPU-bound path, assume it is a lower bound.
+>
 > **Rebuilding it is `uv run concestor-build search` then `concestor-build
 > package`, and it takes about a minute** — but do not run it against
 > `build/concestor.db` while anything is serving from it. Every worktree
@@ -779,12 +787,13 @@ rather than as approximate.
 
 §2 gains a row if this is ever built. It deliberately has none.
 
-### Random picks: the pool is "has its own drawing", in both corpora
+### Random picks: the pool is "has its own drawing", and the draw is the client's
 
-`R` adds a random species and comes from `/v1/random`. **One key and one
-command**, with a 20% chance of drawing from the fossil pool instead — `⇧R` and
-the second palette row are gone, and `fossil-grafts.md` §9 is why. The command
-exists because the empty canvas is a command list and
+`R` adds a random species, drawn client-side from the pools that
+`/v1/random-pool/{build_id}` serves. **One key and one command**, with a 20%
+chance of drawing from the fossil pool instead — `⇧R` and the second palette row
+are gone, and `fossil-grafts.md` §9 is why. The command exists because the empty
+canvas is a command list and
 every other command on it assumes the reader has already thought of a species —
 which, for an audience of curious people rather than systematists, is the hard
 part.
@@ -797,14 +806,18 @@ both pools require the taxon to carry **a silhouette of its own** — which is n
 a decoration filter but the strongest notability signal either corpus has,
 somebody having chosen to illustrate the thing.
 
-Measured on the current build:
+Measured on build `03473db1bfce56ca`:
 
 | pool | filter | rows |
 |---|---|---:|
 | species | `node_image.climb = 0`, named | **13,918** |
-| fossils | `is_primary`, `is_extant = 0`, `lla > 0.0117`, `attach_walk <> 0`, joined to `fossil_image` | **1,946** |
+| fossils | `is_primary`, `is_extant = 0`, `lla > 0.0117`, `attach_walk <> 0`, joined to `fossil_image` | **1,935** |
 
-Five things not to redo:
+Both are **readings, not constants** — the same treatment `deployment.md` gives
+the artifact sizes. A code comment saying 1,946 fossils survived a rebuild that
+made it 1,935, and nothing was wrong with either number.
+
+Four things not to redo about the filters:
 
 - **`attach_walk <> 0`.** A pick that lands on *Tyrannosaurus rex* has found a
   taxon the tree already holds, and drawing it as a graft hands the reader the
@@ -822,24 +835,84 @@ Five things not to redo:
   clothes.
 - **Written as a subquery, not a join.** As a join SQLite drives from
   `node_name` and probes `node_image` per row, 745 ms; as `IN (SELECT … WHERE
-  climb = 0)` it scans `node_image` once and probes `node` by rowid, 83 ms.
-- **`/v1/random` is the one endpoint that is not a function of the build**, so
-  it goes through `writeVolatileJSON` and `no-store`, and the client fetches it
-  outside `api.ts`'s URL cache. Through the ordinary path it would carry the
-  build ETag and a long lifetime, and the second press would be answered from
-  cache with the first press's pick — for as long as that lasts, and looking
-  like it worked.
+  climb = 0)` it scans `node_image` once and probes `node` by rowid, 83 ms —
+  88 ms for the 13,918 rows when it was re-measured for the pool.
 
-The client over-asks (12 candidates) and takes the first not already on the
-canvas. Adding something already there is a no-op, and "Added Pallas's cat" over
-an unchanged canvas is a false statement about the one thing the reader was
-watching. A fossil pick also adds the clade it hangs below when that clade is
-missing — reusing `drawFossil`'s existing path — because a fossil the tree does
-not contain almost always attaches to a branch nobody has drawn, and without it
-the usual outcome would be a refusal notice for something nobody chose by name.
-A fossil roll that comes back empty **falls through to a species silently**: the
-reader pressed *surprise me*, and "the pool you did not pick was empty" answers
-a question they never asked.
+**The endpoint used to make the pick and now serves the pool**, and seven more
+things not to redo come out of that:
+
+- **The draw is the client's, and it is not mainly about speed.** There was a
+  `/v1/random` that ran both scans behind `ORDER BY random()` per press and
+  returned decorated rows. Which taxa are already on the reader's canvas is a
+  fact **no request ever carried**, so that endpoint had to over-ask — twelve
+  candidates, `RANDOM_CANDIDATES`, ten or eleven of them thrown away — and hope
+  one was unused. With the pool in hand the exclusion happens *before* the
+  choice, so a pick is always usable, always exactly one lookup, and there is no
+  constant to guess. The failure mode "every pick this round is already on the
+  canvas — try again" is now structurally impossible; the message that survives
+  is reachable only with all 13,918 species on screen.
+- **It was also the most expensive endpoint in the app, by 10–30×**, and
+  nothing local said so: 1.19–1.51 s for `kind=species` and up to 2.45 s for
+  `kind=fossil` against production on a warm container, where the same machine
+  answered a search in 49 ms and a path in 39 ms. `deployment.md` §1 recorded it
+  at 167 ms, measured on the machine the pipeline runs on. **That is the second
+  time this exact trap has cost this project an endpoint** — the first was the
+  unindexed `fossil` scan inside `/v1/search` — and both times the tell was the
+  same: a CPU-bound full scan, cheap on a laptop, several times worse on half a
+  vCPU.
+- **The pool ships the resolved list and never the policy.** The two node
+  filters and the five fossil ones stay in `store/random.go`; a client that
+  recomputed them would be a second copy to keep in step with a set of rules
+  that each have an argument behind them. It is the same line `store.Interleave`
+  draws when it stamps `order` on a row so the client reads a rank rather than
+  computing one, and the same principle as `web/` not re-sorting `/v1/search`.
+  Bare identifiers are also what makes it cheap: the whole response is 114,193
+  bytes of JSON, **39.8 KB gzipped and 21.3 KB brotli** — measured on the
+  response — where the same rows carrying names, ranks and ages would be several
+  hundred KB to spend one of them. It compresses that far because both lists are
+  ascending runs of integers, so the `ORDER BY` pays for itself twice: once as
+  the determinism the ETag needs and once as 5.4× off the wire. Delta-encoding
+  was refused for buying less than the sort already had. The decoration is
+  fetched for the one taxon drawn, from `/v1/node/idx:N` or `/v1/fossil/{id}`,
+  both immutable and both free on a repeat.
+- **The build id is in the path, and it is load-bearing.** A node index is only
+  meaningful within the build that assigned it. This response is held an hour by
+  the browser and a year at the edge, so a reader who kept a pool across a
+  deploy and drew from it would be handed a different, entirely plausible
+  animal, with nothing on screen to say so. Same reasoning as the container
+  image tag being `<build_id>-<commit>` and as `cross_version_cache` being off.
+- **A mismatched build id is refused `404` + `no-store`**, not answered from the
+  current pool. Answering would let the edge file build B's list under build A's
+  URL and serve it to everyone still on A — the mismatched pair the versioned
+  path exists to prevent, arriving through the fix for it. The `no-store` on the
+  refusal is the half that is easy to drop: a 404 is heuristically cacheable,
+  and one pinned at the edge outlives the deploy that caused it.
+- **The pools are built lazily, once per process**, mutex-guarded in
+  `Store.RandomPool` rather than in `Store.Open`. A container starts far more
+  often than a build changes — `sleepAfter` is 1h — so paying two full scans in
+  every open would lengthen a measured 0.78 s cold start for a feature most
+  readers never reach. 303 ms cold through the serving binary, 1 ms warm. A
+  failure is **not** memoised, because a transient error that disables the
+  surface for the process's lifetime is worse than repeating a slow query.
+- **The client fetches it lazily too**, on the first press and not at boot, and
+  `api.ts`'s `get` cache memoises it: verified in the browser at 1 pool request
+  across 4 presses. The old endpoint had to be fetched *outside* that cache
+  through a `getFresh` helper, or the second press would have been answered from
+  cache with the first press's pick — looking like it worked. `getFresh` and
+  `writeVolatileJSON` are both deleted; each had exactly one caller.
+
+The draw itself is `pickFrom` in `web/src/corpora.ts`, beside `randomKind` and
+for the same stated reason: it is logic whose correctness cannot be checked by
+looking at the screen, so it is a pure function with unit tests rather than a
+few lines inside a callback. Adding something already on the canvas is a no-op,
+and "Added Pallas's cat" over an unchanged canvas is a false statement about the
+one thing the reader was watching. A fossil pick also adds the clade it hangs
+below when that clade is missing — reusing `drawFossil`'s existing path —
+because a fossil the tree does not contain almost always attaches to a branch
+nobody has drawn, and without it the usual outcome would be a refusal notice for
+something nobody chose by name. A fossil roll that comes back empty **falls
+through to a species silently**: the reader pressed *surprise me*, and "the pool
+you did not pick was empty" answers a question they never asked.
 
 ### A taxon's names are ordered by use, and Wikipedia is what measures it
 
@@ -1772,7 +1845,7 @@ validator against an unchanged URL under a one-year `immutable` — v0.23.0 ship
 `layout_spread` to nobody with a warm cache. It is now `"<build_id>-<code_id>"`,
 the container tag's shape for the container tag's reason, with `code_id` falling
 back to a fingerprint of the executable where no commit was compiled in.
-`docs/deployment.md` §5 is the account. Four things not to redo:
+`docs/deployment.md` §5 is the account. Seven things not to redo:
 
 - **`computeBuildID` stays dataset-only.** Folding the commit in was the first
   instinct and it is wrong: `/v1/about` publishes that number as the *dataset*'s
@@ -1792,7 +1865,11 @@ back to a fingerprint of the executable where no commit was compiled in.
   `-public-cache`.
 - **URL versioning was the other candidate and is refused** — deployment.md §5
   has both, and versioning loses because the client learns the id *from*
-  `/v1/about` and would queue the whole boot path behind it.
+  `/v1/about` and would queue the whole boot path behind it. **One endpoint
+  takes it anyway**: `/v1/random-pool/{build_id}` is off the boot path and its
+  body is a list of node indices, which are meaningless outside the build that
+  assigned them, so there the objection does not apply and the alternative is a
+  stale pool answering with a plausible wrong animal.
 - **Nothing un-sticks a copy cached before this shipped.** Same URL, and the
   stored response says not to ask. Those last a year. It cost nothing only
   because the app had no readers yet.
@@ -1812,6 +1889,22 @@ back to a fingerprint of the executable where no commit was compiled in.
   endpoint that answers "what is running", so it must be askable again; but it
   is fetched on every page load, and `no-store` would take request collapsing
   off the boot path on half a vCPU.
+- **That same minute makes it the warm-up, and now the boot probe.** A
+  `must-revalidate` at 60 s is what makes this request reach the container on
+  every boot, where an immutable one would not — so it is what wakes a sleeping
+  container, and the frontend asks it **first** rather than second to start that
+  wake a round trip earlier. It replaced a `ping()` that fetched `/healthz`,
+  **which could not fail**: that route is on the Go mux and nothing routes a
+  non-`/v1/*` path to the container — `run_worker_first` covers `/v1/*` and
+  `not_found_handling: single-page-application` answers the rest with
+  `index.html`, and vite's fallback does the same under `scripts/dev.sh`.
+  `curl -sI https://concestor.com/healthz` returns `200 text/html`, the app's
+  own shell. So the probe reported the API healthy whether or not it was
+  running, the boot-error screen was **unreachable in production for its entire
+  life**, and its copy had drifted to telling readers to run `go run ./server`.
+  It only ever worked in the mode it was written in — the Go binary serving both
+  halves off one origin. A probe that cannot see what it probes is the same
+  defect as the deploy guard two bullets up.
 
 ### The front door was selling a weaker product than the one behind it
 
@@ -3334,3 +3427,24 @@ that has not been tested with anyone.
 **The artifact set is 2,004 MB** against architecture §11's 700 MB estimate
 (§4). Nothing is wrong, but the deployment story in §11 needs re-deriving, and
 there is obvious fat: `xref` is 270 MB and `search_name` 225 MB.
+
+**Nothing measures how long the deployed app takes to answer.** Every latency
+figure in `deployment.md` §1 was taken on the machine the pipeline runs on, and
+production is half a vCPU. That gap has now hidden two expensive endpoints — the
+unindexed `fossil` scan inside `/v1/search`, and `/v1/random` at 167 ms locally
+against 1.19–1.51 s over the wire — and **both were found by somebody running
+`curl` by hand on a hunch**, not by an instrument. Workers Logs holds the
+timings and §9 of `analytics.md` says how to read it; nothing reads it for
+latency, no p95 is tracked across deploys, and there is no threshold anybody is
+alerted on. The cheap version is a handful of `curl`s against `concestor.com`
+after a deploy, recorded in this doc — which is what the last two investigations
+amounted to, done twice, by accident.
+
+**And the random pool is a payload that grows with the corpus.** 114 KB of
+JSON today, 34 KB gzipped, fetched whole on the first press of `R` and cached
+for a year at the edge — comfortable, and nothing watches it. It scales with
+the number of taxa carrying their own drawing, which is the number
+`phase5c-decision.md` would multiply if it were ever built. There is no paging,
+no partition and no need for either yet; the thing to notice is that the
+argument for shipping the list rather than the pick is a *ratio* argument, and
+nobody is checking the ratio.

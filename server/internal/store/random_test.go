@@ -1,42 +1,88 @@
 package store
 
 import (
+	"slices"
 	"testing"
 )
 
-// The two random pools exist to keep one promise — *whatever comes back can be
-// drawn* — so what these tests pin is the promise, not the shuffle. A pick that
+// The two pools exist to keep one promise — *whatever the client draws can be
+// drawn* — so what these tests pin is the promise, not the draw. A pick that
 // arrives nameless, undrawn, or without a date on the axis is the failure, and
 // none of them would make the endpoint error.
+//
+// **The contract inverted when the draw moved to the client**, and these tests
+// inverted with it. There used to be one here called `TestRandomPicksDiffer`,
+// guarding the `ORDER BY random()` that a well-meaning "add an index" refactor
+// would have removed. The pool must now do the exact opposite: it is served
+// under an ETag and a year-long `Cache-Control`, so two reads of the same build
+// have to be byte-identical, and `TestThePoolIsDeterministic` is that test
+// wearing the other sign. If both had been left in place they would contradict
+// each other, which is worth noticing — the shuffle did not move, it was
+// deleted, and the thing it used to protect is now a thing to forbid.
 
+// How many pool entries the property tests resolve in full. The pools are
+// thousands deep and each check is a row lookup, so this samples rather than
+// sweeps; the sample is taken from both ends and the middle, because a filter
+// that composes wrongly usually fails at one end of the keyspace.
 const randomSample = 25
 
-func TestRandomNodesAlwaysHaveANameAndTheirOwnDrawing(t *testing.T) {
+// sampleOf takes up to n entries spread across a pool rather than the first n.
+// The first n of an ascending list is the lowest-numbered corner of the corpus,
+// which is exactly where the oldest and least representative rows live.
+func sampleOf[T any](pool []T, n int) []T {
+	if len(pool) <= n {
+		return pool
+	}
+	out := make([]T, 0, n)
+	step := len(pool) / n
+	for i := 0; i < len(pool) && len(out) < n; i += step {
+		out = append(out, pool[i])
+	}
+	return out
+}
+
+func TestPooledNodesAlwaysHaveANameAndTheirOwnDrawing(t *testing.T) {
 	st := open(t)
 	if st.Schema.NodeImage == nil || st.Schema.NodeImage.Climb == "" {
 		t.Skip("this build has no node_image.climb to distinguish an own drawing from a borrow")
 	}
 
-	got, err := st.RandomNodes(t.Context(), randomSample)
+	pool, err := st.RandomPool(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != randomSample {
-		t.Fatalf("asked for %d picks, got %d — the pool should be thousands deep",
-			randomSample, len(got))
+	if len(pool.Nodes) < 1000 {
+		t.Fatalf("the node pool is %d deep; it should be thousands — measured at "+
+			"13,918 on the build this was written against", len(pool.Nodes))
 	}
-	for _, r := range got {
+
+	idxs := make([]int, 0, randomSample)
+	for _, idx := range sampleOf(pool.Nodes, randomSample) {
+		idxs = append(idxs, int(idx))
+	}
+	ptrs, err := st.resultsForIdxs(t.Context(), idxs, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ptrs) != len(idxs) {
+		t.Fatalf("resolved %d of %d pooled indices — a pool entry that is not a "+
+			"node cannot be added to the canvas", len(ptrs), len(idxs))
+	}
+	results := make([]SearchResult, 0, len(ptrs))
+	for _, r := range ptrs {
+		results = append(results, *r)
+	}
+	if err := st.decorate(t.Context(), results, ""); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range results {
 		switch {
 		case r.Idx == nil:
 			t.Errorf("%+v: a pick with no idx cannot be added to the canvas", r)
 		case r.Name == nil || *r.Name == "":
-			t.Errorf("idx %d: picked a node with no name", *r.Idx)
+			t.Errorf("idx %d: pooled a node with no name", *r.Idx)
 		case r.PhylopicID == nil || *r.PhylopicID == "":
-			t.Errorf("%s: picked a node with no drawing", *r.Name)
-		case r.MatchedOn != matchedOnRandom:
-			// Nothing matched. Reporting "name" here would caption the row with
-			// a match the reader never made.
-			t.Errorf("%s: matched_on = %q, want %q", *r.Name, r.MatchedOn, matchedOnRandom)
+			t.Errorf("%s: pooled a node with no drawing", *r.Name)
 		}
 	}
 }
@@ -46,16 +92,31 @@ func TestRandomNodesAlwaysHaveANameAndTheirOwnDrawing(t *testing.T) {
 // an image" is true of the whole corpus; `climb = 0` is what makes it a claim.
 // A borrow from a clade larger than the node is the failure mode, and it shows
 // up as a `silhouette_clade_tips` bigger than the node's own tip count.
-func TestARandomNodesDrawingNeverSpeaksForMoreThanTheNode(t *testing.T) {
+func TestAPooledNodesDrawingNeverSpeaksForMoreThanTheNode(t *testing.T) {
 	st := open(t)
 	if st.Schema.NodeImage == nil || st.Schema.NodeImage.Climb == "" {
 		t.Skip("no node_image.climb in this build")
 	}
-	got, err := st.RandomNodes(t.Context(), randomSample)
+	pool, err := st.RandomPool(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, r := range got {
+	idxs := make([]int, 0, randomSample)
+	for _, idx := range sampleOf(pool.Nodes, randomSample) {
+		idxs = append(idxs, int(idx))
+	}
+	ptrs, err := st.resultsForIdxs(t.Context(), idxs, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	results := make([]SearchResult, 0, len(ptrs))
+	for _, r := range ptrs {
+		results = append(results, *r)
+	}
+	if err := st.decorate(t.Context(), results, ""); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range results {
 		if r.SilhouetteCladeTips == nil || r.TipCount == nil {
 			continue
 		}
@@ -70,21 +131,30 @@ func TestARandomNodesDrawingNeverSpeaksForMoreThanTheNode(t *testing.T) {
 // of these ever fails, the command draws a fossil the canvas will then decline
 // to place, and the reader gets a refusal toast for something they did not
 // choose.
-func TestRandomFossilsAreAlwaysGraftable(t *testing.T) {
+func TestPooledFossilsAreAlwaysGraftable(t *testing.T) {
 	st := open(t)
 	f := st.Schema.Fossil
 	if f == nil || f.ImageTable == "" || !f.Brackets {
 		t.Skip("this build has no fossil table with brackets and images")
 	}
 
-	got, err := st.RandomFossils(t.Context(), randomSample)
+	pool, err := st.RandomPool(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != randomSample {
-		t.Fatalf("asked for %d picks, got %d", randomSample, len(got))
+	if len(pool.Fossils) == 0 {
+		t.Fatal("the pool is ~1,935 taxa deep; an empty one means the filters " +
+			"stopped composing")
 	}
-	for _, fo := range got {
+	for _, no := range sampleOf(pool.Fossils, randomSample) {
+		fo, err := st.FossilByTaxonNo(t.Context(), no)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if fo == nil {
+			t.Errorf("taxon %d is in the pool and not in the table", no)
+			continue
+		}
 		switch {
 		case fo.TaxonNo <= 0:
 			// `no-identity`: a graft is keyed on this and could not survive a URL.
@@ -105,19 +175,26 @@ func TestRandomFossilsAreAlwaysGraftable(t *testing.T) {
 // wearing a fossil's clothes, and a "random fossil" that lands on one draws it
 // at the right-hand edge of deep time. The pool refuses anything that has not
 // demonstrably ended.
-func TestRandomFossilsHaveEndedBeforeTheHolocene(t *testing.T) {
+func TestPooledFossilsHaveEndedBeforeTheHolocene(t *testing.T) {
 	st := open(t)
 	f := st.Schema.Fossil
 	if f == nil || f.ImageTable == "" || !f.Brackets {
 		t.Skip("no fossil table with brackets and images")
 	}
-	got, err := st.RandomFossils(t.Context(), randomSample)
+	pool, err := st.RandomPool(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, fo := range got {
+	for _, no := range sampleOf(pool.Fossils, randomSample) {
+		fo, err := st.FossilByTaxonNo(t.Context(), no)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if fo == nil {
+			continue
+		}
 		if fo.IsExtant != nil && *fo.IsExtant {
-			t.Errorf("%s: picked a taxon PBDB calls extant", fo.Name)
+			t.Errorf("%s: pooled a taxon PBDB calls extant", fo.Name)
 		}
 		if fo.LLA != nil && *fo.LLA <= 0.0117 {
 			t.Errorf("%s: last appearance %v Ma is at or after the Holocene base",
@@ -126,53 +203,64 @@ func TestRandomFossilsHaveEndedBeforeTheHolocene(t *testing.T) {
 	}
 }
 
-// A limit of one is the ordinary case and must not be a special one, and the
-// cap has to hold or a caller can ask for the whole pool in one response.
-func TestRandomLimitsAreClamped(t *testing.T) {
+// The response carries an ETag and a year of `Cache-Control`, and both are
+// claims about these bytes. SQLite's scan order is not a promise, so the query
+// says `ORDER BY` and this says why: without it the same build could serve two
+// different orderings, the second of which is a cache entry contradicting a
+// validator that still matches.
+func TestThePoolIsDeterministic(t *testing.T) {
 	st := open(t)
 	if st.Schema.NodeImage == nil || st.Schema.NodeImage.Climb == "" {
 		t.Skip("no node_image.climb in this build")
 	}
-	for _, c := range []struct{ ask, want int }{
-		{0, defaultRandomLimit},
-		{-4, defaultRandomLimit},
-		{1, 1},
-		{1000, maxRandomLimit},
-	} {
-		got, err := st.RandomNodes(t.Context(), c.ask)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(got) != c.want {
-			t.Errorf("RandomNodes(limit=%d) returned %d, want %d", c.ask, len(got), c.want)
-		}
+	// Around the cache, not through it — the second call would otherwise be
+	// testing that a pointer equals itself.
+	a, err := st.randomNodePool(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := st.randomNodePool(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(a, b) {
+		t.Fatal("two reads of the same build returned different pools; the ETag on " +
+			"this response is a lie the moment that is true")
+	}
+	if !slices.IsSorted(a) {
+		t.Error("the pool is not ascending, so the bytes depend on scan order")
+	}
+
+	fa, err := st.randomFossilPool(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	fb, err := st.randomFossilPool(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(fa, fb) {
+		t.Fatal("two reads returned different fossil pools")
+	}
+	if !slices.IsSorted(fa) {
+		t.Error("the fossil pool is not ascending")
 	}
 }
 
-// It has to actually shuffle. Two draws of 20 from a 13,918-deep pool that come
-// back identical mean the query lost its `random()` — which is exactly what a
-// well-meaning "add an index and an ORDER BY" refactor would do, and it would
-// pass every other test in this file.
-func TestRandomPicksDiffer(t *testing.T) {
+// The pool is built once and reused. Not a performance note: the queries are
+// two full scans measured at 1.2 s through the deployed container, which is
+// what made the old per-press endpoint the most expensive thing in the app.
+func TestThePoolIsBuiltOnce(t *testing.T) {
 	st := open(t)
-	if st.Schema.NodeImage == nil || st.Schema.NodeImage.Climb == "" {
-		t.Skip("no node_image.climb in this build")
-	}
-	a, err := st.RandomNodes(t.Context(), 20)
+	a, err := st.RandomPool(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := st.RandomNodes(t.Context(), 20)
+	b, err := st.RandomPool(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	same := 0
-	for i := range a {
-		if i < len(b) && a[i].Key == b[i].Key {
-			same++
-		}
-	}
-	if same == len(a) {
-		t.Fatalf("two draws of %d from a pool of thousands were identical", len(a))
+	if a != b {
+		t.Error("a second call rebuilt the pool; the scan is meant to run once per process")
 	}
 }

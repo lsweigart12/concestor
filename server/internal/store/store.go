@@ -18,6 +18,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/lsweigart12/concestor/server/internal/topo"
@@ -72,6 +73,15 @@ type Store struct {
 	// not, keyed by idx. Loaded once because the join is on a name and `fossil`
 	// has no index on one. See rank.go.
 	pbdbRank map[int]string
+
+	// The two random pools, built on first request rather than at open. Both
+	// queries are full scans and the result is a pure function of the build, so
+	// this is the difference between two scans per process and two per press —
+	// which, measured against production, was 1.2 s of a half vCPU every time
+	// somebody asked to be surprised. See random.go.
+	poolMu     sync.Mutex
+	poolLoaded bool
+	pool       *Pool
 }
 
 // BrokenTaxon is a non-monophyletic taxon rejected from synthesis. It is not a

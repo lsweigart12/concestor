@@ -711,7 +711,7 @@ which is `attach_walk = 0`, and *Tyrannosaurus*, *T. rex* and *Stegosaurus* are
 all in that set — so "Tyrannosaurus" used to return the same animal twice with
 two different futures while *Triceratops*, which the tree has never heard of,
 sat under nine orchids and beetles named after it. `store.notInTree` now refuses
-`attach_walk = 0` from **both** `SearchFossils` and `RandomFossils`, on the
+`attach_walk = 0` from **both** `SearchFossils` and the fossil pool, on the
 merits rather than a preference: phase 4 already wrote the taxon's PBDB bracket
 onto the node as its `occurrence` row, so the node carries the dates *and* an
 ancestry *and* an MRCA. That costs 8.9% of the accepted corpus, all of it
@@ -723,7 +723,50 @@ server-side (band, then position in the row's own corpus, then node-before-
 fossil as the *last* tiebreak) and stamps every pickable row with `order`; the
 client sorts on that integer, which is reading a rank rather than computing one.
 `⇧R` is gone and unbound — `R` rolls a die, 20% fossil, falling through to a
-species in silence. A graft selects like a node:
+species in silence.
+
+**The draw is the client's, and `/v1/random` is gone with it.** `R` used to ask
+the server, which meant it could not know what was already on the canvas — so it
+over-asked twelve candidates and threw eleven away — and its answer could not be
+cached, which made it the **only** `no-store` response on `/v1` and the reason
+`writeVolatileJSON` and `getFresh` existed. Measured against production it was
+also the most expensive endpoint in the app by an order of magnitude: **1.19–1.51 s**
+for a species and up to **2.45 s** for a fossil, against 49 ms for a search and
+39 ms for a path, because both draws are full scans and both ran per press. The
+167 ms in `deployment.md` §1 was taken on the pipeline machine, and `standard-1`
+is half a vCPU — **the same trap that hid the unindexed `fossil` scan inside
+`/v1/search`, and the second time it has cost this project an endpoint.** Now
+`GET /v1/random-pool/{build_id}` serves both pools as bare id lists — 13,918
+node indices and 1,935 fossil taxon numbers, 114 KB of JSON, 21 KB brotli — the
+scans run once per process behind a mutex, and the client picks with
+`corpora.pickFrom` and then fetches the one taxon it drew from an immutable URL.
+Five things not to redo, all in `docs/handoff.md` §3: the **build id is in the
+path** because an index means nothing across builds and this response is held a
+year at the edge, so a stale one is refused **404 with `no-store`** rather than
+answered with the current pool — answering would file build B's list under build
+A's URL for everyone still on A, and a bare 404 is heuristically cacheable and
+would outlive the deploy that caused it; the pool ships **the resolved list and
+never the rule**, the same line `Interleave` draws by stamping `order`; the
+scans are **lazy rather than at `Store.Open`**, because a container starts far
+more often than a build changes; and the exclusion now happens **before** the
+choice, which is why there is no `RANDOM_CANDIDATES` to get wrong and why
+"every pick is already on the canvas" stopped being reachable.
+
+**The boot probe was answering about the wrong server.** `ping()` fetched
+`/healthz`, which exists on the Go mux and nowhere else — `run_worker_first`
+covers `/v1/*` and `not_found_handling: single-page-application` answers
+everything else with `index.html`, and vite's fallback does the same — so it
+read `res.ok` off the app's own HTML shell and reported the API healthy whether
+or not it was running. Verified against production: `200`, `content-type:
+text/html`. It worked only in the mode it was written in, the Go binary serving
+both halves on one origin, and the consequence is that the boot-error screen was
+**unreachable in production for its entire life**, which is why its copy told a
+reader on the web to run `go run ./server`. `/v1/about` is the probe now, and it
+is also the **warm-up**: it is `max-age=60, must-revalidate` rather than
+immutable precisely so it reaches the container on every boot, so it is what
+wakes a sleeping one — asking it first rather than second starts that a round
+trip earlier. Shortening that lifetime, or making it immutable, silently removes
+the warm-up along with the freshness. A graft selects like a node:
 same click, same `sel=`, and `pbdb108454` cannot collide with an OTT id. Its
 card is not the node card with fields blanked — it has no age, no tip count and
 no ancestry, and it is where the PhyloPic credit finally lives. That credit was
