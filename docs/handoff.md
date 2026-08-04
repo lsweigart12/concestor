@@ -1728,6 +1728,28 @@ still told none of it, and `analytics.md` §2 can already answer whether that
 matters: the `sequence` / `sequence-cut` / `open` causes are instrumented, the
 conversion query is written down, and nobody has run it.
 
+**The about page stopped asking the reader to think of a species first.** It
+had one door — *Draw a tree* — which lands somebody who has just read four
+paragraphs on an empty canvas and asks them for a name, the exact cold start
+the openings were built to remove. It now has two, and the second hands the
+canvas *Are you a fish?* and lets `state/sequence.ts` build the answer through
+the ordinary code path. **Do not replace that with a recording.** A video of
+this app is a claim about a build that has shipped since, and the sequence
+module is already the thing the carousel drives, so the demonstration cannot
+drift from the product. Two things not to redo: the handoff is `sessionStorage`
+because `main.tsx` unmounts the app to show the page and there is no store on
+that side, and `takeOpening` **clears as it answers** — `leaveAbout` is usually
+`history.back()`, so a request that outlived being answered would rebuild the
+demonstration over whatever the reader assembled next, for the life of the tab.
+
+**The known gap, and it is the educator's:** there is still no image export.
+`share` copies a URL, and for the audience the hero names in as many words — *a
+slide, a video* — "worth showing someone" currently cashes out as a link they
+must open live. It is not a copy problem and it was left alone deliberately
+rather than missed: compositing the WebGL water under React Flow's SVG at an
+export resolution, with the fonts and the axis, is a real piece of work and it
+lands squarely on the renderer. It is the next thing worth building.
+
 ---
 
 ## 4. Corrections to the design docs
