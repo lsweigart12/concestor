@@ -224,6 +224,14 @@ always be there.
 ### Tree shape (computed directly — these statistics are published nowhere)
 
 - **2,725,682 nodes total**: 2,385,875 tips + 339,807 internal.
+- **2,295,972 of them are `rank='species'`**, and **2,599,664 carry a name at all** —
+  which is the searchable set, because neither `search.py`'s index nor
+  `server/internal/store/search.go` filters on tip-ness or on rank. Three
+  different numbers, and copy that quotes any of them has to know which
+  question it is answering. **A tip is not a species**: 171,623 nodes are
+  genera, 8,841 families, and the tip set includes subspecies, varieties,
+  cultivars and 1,615 group-rank terminals. `web/src/corpora.ts` owns the one
+  figure a reader is shown and `corpora.test.ts` reads it from this line.
 - **Root-to-tip depth**: min 2, **mean 41.3**, **max 111**.
 - **Branching factor**: mean 8.02, **max 12,964**. A single node with ~13,000 children
   will break any UI assuming small fanout.

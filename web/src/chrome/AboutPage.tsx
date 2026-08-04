@@ -38,6 +38,8 @@ import { Silhouette } from "../canvas/Silhouette";
 import { SPECIES_PHRASE } from "../corpora";
 import { OPENINGS } from "../openings";
 import { leaveAbout } from "../route";
+import { saveBiolum } from "../state/store";
+import { kbd } from "./bindings";
 
 /**
  * A named source, linked to the page a curious reader would want.
@@ -165,12 +167,22 @@ function Features() {
         </p>
       </li>
       <li className="feature">
-        <h3 className="feature-h">A fossil that was alive at each split</h3>
+        {/*
+          **"Nearest", not "alive at"**, which is what this said and which the
+          app disclaims to the reader's face: `Detail.tsx` prints *"Its range
+          does not reach this split — it stops N short. Read the picture as the
+          nearest available, not a contemporary"* on 695 of the 885 witnesses.
+          The body already hedged with "where one exists"; the heading, which is
+          the part anyone actually reads, promised a contemporary four times out
+          of five. It keeps the two examples because both are genuinely close —
+          the claim being softened is the general one, not those.
+        */}
+        <h3 className="feature-h">The nearest fossil to each split</h3>
         <p className="feature-p">
           Where one exists — <em>Pakicetus</em> where whales leave the hippos,{" "}
           <em>Acanthostega</em> where our own lineage leaves the fish. Nothing
           about those animals is written into the app. They are what the dates
-          pick out.
+          pick out, and the card says how near it actually got.
         </p>
       </li>
       <li className="feature">
@@ -269,6 +281,71 @@ export function AboutPage() {
         <section className="page-section">
           <h2 className="page-h">What it draws</h2>
           <Features />
+        </section>
+
+        {/*
+          The one flourish, and the only place on this page allowed to sell.
+
+          It sits after the features rather than among them because it is not
+          one: every claim above is about what the canvas *knows*, and this is
+          about what it looks like. Folding it into that grid would have made
+          the light a seventh fact about the data, which is the exact confusion
+          the copy here exists to refuse — `BiolumToggle`'s own rule is that
+          the mode is the only control allowed to glow *because* glowing is all
+          it does.
+
+          The button writes the setting and leaves, which is not a shortcut:
+          `main.tsx` unmounts the app to show this page, so there is no store
+          here to toggle, and the canvas reads `sessionStorage` on mount. See
+          {@link saveBiolum}. It is offered whatever the hardware reports,
+          because `BiolumRenderer.supported()` is asked in the canvas and a
+          reader on a machine without WebGL2 simply arrives at a plain tree —
+          the alternative is a page that quietly withholds a paragraph, and the
+          words are true either way.
+        */}
+        <section className="page-section">
+          <h2 className="page-h">The same tree, after dark</h2>
+          <p className="feature-p">
+            Bioluminescence changes the atmosphere and nothing else. The
+            branches become rivers of travelling light, each mark blooms at its
+            own divergence, and marine snow drifts through the water catching
+            whatever is lit near it. Not one branch, date or fossil moves —
+            every dash and every tier is identical in both states. It is the
+            view worth putting on a screen in front of a room.
+          </p>
+          <div className="hero-actions">
+            <button
+              type="button"
+              className="btn"
+              onClick={() => {
+                saveBiolum(true);
+                leaveAbout();
+              }}
+            >
+              Try bioluminescence <span className="kbd">{kbd("biolum")}</span>
+            </button>
+          </div>
+        </section>
+
+        {/*
+          Written in the first person, and it is the only thing on this page
+          that is. Everything else here answers *what does it do* and *who says
+          so*; a reader deciding whether to spend an afternoon on a stranger's
+          tool is also asking why it exists at all, and there is no honest way
+          to answer that in the passive voice.
+        */}
+        <section className="page-section">
+          <h2 className="page-h">Why this exists</h2>
+          <p className="feature-p">
+            I wanted to name the organisms in a lesson, an argument or a passing
+            question and immediately see the tree I needed: accurate enough to
+            trust, clear enough to show someone, and interactive enough to keep
+            exploring. I could not find that tool, so I built it.
+          </p>
+          <p className="feature-p">
+            Concestor is free and open source because the tree of life should be
+            easy for anyone to explore.
+          </p>
         </section>
 
         <section className="page-section">

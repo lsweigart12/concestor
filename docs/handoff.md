@@ -1677,24 +1677,32 @@ of them reachable by any gate. The pattern is worth more than the three fixes:
 introduced by editing a sentence survives every check, and all three of these
 were introduced exactly that way.
 
-- **The species count is the *tip* count.** Five surfaces said 2.7 million,
-  which is the node total — 2,385,875 tips plus 339,807 internal. The internal
-  ones are groups, and calling a group a species is the one error the sentence
-  inviting somebody to search cannot make, because telling a clade from a
-  species is most of what the canvas is for. It arrived by deletion, not by
-  invention: the palette's waiting line read "2.4 million species and 523,112
-  fossil taxa", the second corpus was dropped as plumbing the reader has no use
-  for, and the survivor was rounded up to the wrong figure on the way through.
-  `corpora.ts` now owns `SPECIES_PHRASE`, every surface reads it, and
-  `corpora.test.ts` takes the exact figure out of `data-sources.md` and fails on
-  the old string anywhere in `web/`. **The fossil corpus is deliberately not
-  added into it** — the two catalogues overlap by name, 32,386 accepted PBDB
-  taxa being nodes, so any sum double-counts; where both matter the copy names
-  the second corpus in words.
-- **A pair is the weaker product, and the card was selling it.** The `<title>`,
-  both descriptions, the README and the boot lede all opened "pick any two
-  species", directly above a carousel of fifteen questions none of which is a
-  pair. `openings.ts` had already written down why: *a pair draws one number.
+- **The species count has been wrong twice, and the second time was while
+  fixing the first.** Five surfaces said 2.7 million, which is the *node* total;
+  339,807 of those are groups, and calling a group a species is the one error
+  the sentence inviting somebody to search cannot make. It arrived by deletion
+  rather than invention — the palette's waiting line named the species count and
+  the fossil count together, the second was dropped as plumbing, and the
+  survivor was rounded up on the way through. The correction then reached for
+  the **tip** total, which is a third wrong number: tips include subspecies,
+  varieties, cultivars and 1,615 group-rank terminals, while 21,977 species are
+  internal nodes with subspecies beneath them, so tips and species disagree by
+  about ninety thousand in each direction at once. The figure is
+  `rank='species'` — 2,295,972 — and `data-sources.md` now states all three
+  counts and which question each answers. The lesson is the one the guard was
+  rewritten around: **ban the shape, not the string.** `corpora.test.ts` refuses
+  any hardcoded "N million species" outside `corpora.ts`, across `web/src`, the
+  stylesheet, `index.html`, the Worker and the README — a guard on the two
+  strings already known to be wrong caught neither the tip count when it was
+  written nor the four comments still carrying their own copy of it. **The
+  fossil corpus is deliberately not added in** — the catalogues overlap by name,
+  32,386 accepted PBDB taxa being nodes, so any sum double-counts.
+- **A pair is the weaker product, and the card was selling it.** Both
+  descriptions, the README and the boot lede all opened "pick any two species",
+  directly above a carousel of fifteen questions none of which is a pair. (The
+  `<title>` never did, and an earlier draft of this bullet said it had — in a
+  paragraph whose thesis is that unvalidated prose is where this repo goes
+  wrong.) `openings.ts` had already written down why: *a pair draws one number.
   Three or more draw an argument — the nesting itself is the proof.* So the
   most-repeated sentence about this product contradicted the file that decides
   what the product opens with. `meta.test.ts` now asserts the absence — the

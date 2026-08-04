@@ -170,7 +170,16 @@ export function loadBiolum(): boolean {
   return readMode(BIOLUM_KEY, (raw) => raw === "1", BIOLUM_DEFAULT);
 }
 
-function saveBiolum(on: boolean): void {
+/**
+ * Exported for one caller that is not the canvas: the about page's offer.
+ *
+ * `/about` is a route and `main.tsx` unmounts the app to show it, so there is
+ * no store there to toggle — but the light is `sessionStorage` and the canvas
+ * reads it on mount, so writing it and then leaving is the whole of "try it".
+ * That is the same path a reader who set the mode, followed a link and came
+ * back already takes, which is why the offer needs no new plumbing.
+ */
+export function saveBiolum(on: boolean): void {
   writeMode(BIOLUM_KEY, on ? "1" : null);
 }
 

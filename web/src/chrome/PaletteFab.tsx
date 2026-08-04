@@ -6,9 +6,9 @@
  * because of something that was already true: **the palette can do everything
  * they can.** Every button on the bar and every switch on the panel has a
  * command — that is design-reference.md's rule, not a convenience — and the
- * palette's own input searches 2.4 million species as well as the command list,
- * so one press reaches the search, the random pick, clear, share, the axis, the
- * labels, the ages and the light. Nothing on a phone is behind two taps that
+ * palette's own input searches every species in the tree as well as the command
+ * list, so one press reaches the search, the random pick, clear, share, the axis,
+ * the labels, the ages and the light. Nothing on a phone is behind two taps that
  * was behind one on a desktop.
  *
  * What the swap actually buys is the canvas. Nine controls and three switches

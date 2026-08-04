@@ -1,9 +1,9 @@
 # Concestor
 
-An interactive visualiser for the tree of life. Name a few species and Concestor
-draws the smallest tree that connects them — every common ancestor on the way and
-nothing else — laid out against deep time, beside the fossils that were alive when
-those lineages parted.
+Everything alive is related. Name a few species and Concestor draws the smallest
+tree that connects them — every common ancestor on the way and nothing else — laid
+out against real geological time, and puts beside each split the closest fossil the
+rock record has to it.
 
 *Concestor* is Dawkins' term for a common ancestor — the node where two lineages meet
 looking backward.

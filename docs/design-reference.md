@@ -121,7 +121,7 @@ filter tween on the same element.
   The empty canvas is an **openings carousel** — one question at a time, its
   taxa previewed as silhouettes, arrows and dots to move, auto-advancing until
   the reader hovers or takes control. Every other way in assumes you already
-  have a name in mind, and nobody browses 2.4 million of them. `R` adds a
+  have a name in mind, and nobody browses millions of them. `R` adds a
   random species, for a reader who wants the corpus rather than a curated
   question. It draws only from taxa that carry **a silhouette of their own**,
   which is the whole of the design — a uniform draw returns an unnamed
@@ -179,7 +179,7 @@ filter tween on the same element.
   wearing the app's mark sits bottom right, above the timeline and under a
   thumb, opening the palette. It is a swap and not a removal, and what makes it
   one is a rule this app already kept: every control has a command, and the
-  palette's own field searches 2.4 million species as well as the command list,
+  palette's own field searches every species in the tree as well as the command list,
   so nothing is behind two taps that was behind one. What it buys is the
   canvas — at 375px the bar is two wrapped rows and the panel is a stack in the
   corner, over a tree with about 500px of height to draw itself in, and every
@@ -642,22 +642,29 @@ it is chrome flashing over facts the app already holds.
 
 - **A sentence, never a spinner.** `.pending` is the whole vocabulary — a dim
   line of text, breathing on a 1.8 s cycle, saying *what* is being waited for.
-  Named corpora over generic verbs: "Searching 2.4 million species" tells a
+  Named corpora over generic verbs: naming the corpus and its size tells a
   reader whether to keep waiting; "Loading…" does not. **One number, not two.**
   It read "2.4 million species and 523,112 fossil taxa", which named the
   plumbing — both catalogues are searched on every query and the reader has no
   use for the seam. The one exception this file's "no ambient animation" rule
   makes, because it is data arriving.
-- **The number is `SPECIES_PHRASE` and it is the *tip* count.** Dropping the
-  second corpus from the line above is what lost the first figure: the survivor
-  was rewritten to 2.7 million, which is the node count — 2,385,875 tips plus
-  339,807 internal ones — and the wrong number then spread to the species key's
-  hint, the boot panel, both palette prompts and the about page. Calling a
-  group a species is the one error the sentence inviting somebody to search
-  cannot make, since telling a clade from a species is most of what the canvas
-  is for. Every surface reads `corpora.ts` now; `corpora.test.ts` checks the
-  phrase still rounds from `data-sources.md`'s figure and fails on the old
-  string anywhere in `web/`.
+- **The number is `SPECIES_PHRASE`, and it is the count of `rank='species'`.**
+  Dropping the second corpus from the line above is what lost the first figure:
+  the survivor was rewritten to the **node** total, a third of a million of
+  which are groups, and the wrong number spread to the species key's hint, the
+  boot panel, both palette prompts and the about page. Calling a group a species
+  is the one error the sentence inviting somebody to search cannot make, since
+  telling a clade from a species is most of what the canvas is for.
+  **The first correction then reached for the *tip* count**, which is a third
+  wrong number — tips include subspecies, varieties, cultivars and 1,615
+  group-rank terminals, while 21,977 species are internal nodes with subspecies
+  beneath them. Three figures live within 20% of each other and only one of them
+  is a species count; `data-sources.md` now states all three and says which
+  question each answers. Every surface reads `corpora.ts`, and `corpora.test.ts`
+  refuses **any** hardcoded "N million species" outside that file — across
+  `web/src`, the stylesheet, `index.html`, the Worker and the README — because
+  a guard on the strings that have already been wrong cannot catch the next
+  surface writing its own.
 - **No skeletons.** A grey bar predicts a shape — an image or not, five ranks or
   twenty — and a wrong prediction reads as the layout settling. It is also a
   promise that something is definitely coming, which for much of this corpus is

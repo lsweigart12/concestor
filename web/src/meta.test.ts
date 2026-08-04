@@ -101,10 +101,14 @@ describe("the document describes itself", () => {
    * nobody re-reads.
    *
    * Asserted as an absence rather than a phrasing, because the copy should be
-   * free to change and the count should not.
+   * free to change and the count should not — so it bans the **quantity** and
+   * not the sentence that carried it. The first version of this test forbade
+   * the literal "two species", which "any pair of species", "2 species" and
+   * "two taxa" all walk straight past; a guard that only catches the wording
+   * somebody already used is not a guard.
    */
-  it("invites more than two species, the way every opening does", () => {
-    expect(meta("description")).not.toMatch(/\btwo species\b/);
+  it("invites more than a pair, the way every opening does", () => {
+    expect(meta("description")).not.toMatch(/\b(two|2|pair|both|either)\b/i);
   });
 
   it("paints the browser's own chrome in the canvas's void", () => {
