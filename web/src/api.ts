@@ -978,6 +978,30 @@ export const api = {
       corrected?: string | null;
     }>(`/v1/search?q=${encodeURIComponent(q)}&limit=${limit}`, signal),
 
+  /**
+   * Palette rows for taxa chosen ahead of time rather than matched.
+   *
+   * What the species palette shows before anything is typed. The keys are
+   * curated in `palette/starters.ts`; everything that makes them a *row* —
+   * name, rank, tip count, resolved silhouette — is a fact about the deployed
+   * build and comes from here, which is the split `hits.go` exists to keep.
+   *
+   * Goes through the memoising `get`, and the memo is the point rather than an
+   * incidental: the key list is fixed, so the URL is fixed, so a session pays
+   * for this once however many times the palette is opened. Upstream of that,
+   * the response carries the ordinary long-lived `Cache-Control`, so the edge
+   * answers it and the half-vCPU container sees roughly one request per Worker
+   * version. Prefetched on boot in `App.tsx` — by the time anyone presses `S`
+   * it is a cache hit and the list draws on the first frame.
+   *
+   * Unknown keys come back missing rather than erroring the response, so the
+   * caller must not assume it gets as many rows as it asked for.
+   */
+  hits: (keys: string[]) =>
+    get<{ results: SearchHit[] }>(
+      `/v1/hits?keys=${keys.map(encodeURIComponent).join(",")}`,
+    ),
+
   path: (key: string) => get<Resolved>(`/v1/path/${encodeURIComponent(key)}`),
 
   paths: (keys: string[]) =>

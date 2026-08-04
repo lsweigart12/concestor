@@ -68,6 +68,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/about", s.handleAbout)
 	mux.HandleFunc("GET /v1/search", s.handleSearch)
 	mux.HandleFunc("GET /v1/random-pool/{build}", s.handlePool)
+	mux.HandleFunc("GET /v1/hits", s.handleHits)
 	mux.HandleFunc("GET /v1/path/{key}", s.handlePath)
 	mux.HandleFunc("GET /v1/paths", s.handlePaths)
 	mux.HandleFunc("GET /v1/node/{key}", s.handleNode)
@@ -848,6 +849,63 @@ func (s *Server) searchBoth(r *http.Request, q string, limit int) (searchBody, e
 	return body, nil
 }
 
+// --- /v1/hits ------------------------------------------------------------
+
+// hitsBody is a set of search rows for taxa named by key rather than matched.
+//
+// `results` and not a bare array, matching /v1/search: a JSON array as a
+// top-level response is the one shape that cannot grow a field later without
+// breaking every client at once.
+type hitsBody struct {
+	Results []store.SearchResult `json:"results"`
+}
+
+// handleHits dresses a caller's chosen taxa as palette rows.
+//
+// The endpoint exists for the species palette's empty state, and the reason it
+// is a *general* key lookup rather than a `/v1/starters` with the list baked in
+// is that the list is editorial. Which animals a curious reader recognises is a
+// product judgement that changes with the copy around it; it belongs in `web/`
+// beside that copy, and an endpoint encoding it here would mean a wording
+// change needed a container rebuild and a new image tag. See
+// {@link store.HitsForKeys} for the other half of that split.
+//
+// **Cached long-lived, and that is the whole performance story.** The response
+// is a pure function of the key set and the build, so it carries the ordinary
+// ETag and `s-maxage=31536000`: one fixed URL, one edge entry, and the
+// container answers it about once per Worker version however many readers
+// arrive. That matters more here than on most endpoints — this is fetched on
+// boot by every session, and `standard-1` is half a vCPU with
+// `max_instances: 1`, so an uncacheable version of this would spend the CPU the
+// reader's first keystroke needs. It also keeps the rule /v1/random-pool just
+// bought: there is no `no-store` JSON on /v1 at all, and a new endpoint is
+// exactly where that would come back.
+//
+// **The build id is not in the path, and the contrast with /v1/random-pool is
+// the point.** The pool answers with bare `idx` values, which mean nothing
+// outside the build that assigned them, so a client holding that list across a
+// deploy would be reading the wrong animals — hence the path segment and the
+// 404 on a stale one. Here the *request* is OTT keys, which survive a rebuild,
+// and the *response* is consumed immediately rather than held. What is held is
+// `palette/recent.ts`'s stored rows, and those carry the build id for precisely
+// the pool's reason.
+//
+// Unknown keys are skipped rather than 404ing the response; the contract and
+// its reasoning are on HitsForKeys.
+func (s *Server) handleHits(w http.ResponseWriter, r *http.Request) {
+	keys, ok := s.batchKeys(w, r)
+	if !ok {
+		return
+	}
+	res, err := s.St.HitsForKeys(r.Context(), keys)
+	if err != nil {
+		s.Log.Error("hits", "keys", len(keys), "err", err)
+		s.fail(w, r, http.StatusInternalServerError, "lookup failed")
+		return
+	}
+	s.writeJSON(w, r, http.StatusOK, hitsBody{Results: res})
+}
+
 // --- /v1/random-pool -----------------------------------------------------
 
 // poolBody is the two lists a client draws from, plus the build they describe.
@@ -987,11 +1045,15 @@ type pathsError struct {
 	Error string `json:"error"`
 }
 
-func (s *Server) handlePaths(w http.ResponseWriter, r *http.Request) {
+// batchKeys reads a `?keys=a,b,c` parameter, or writes the failure and returns
+// false. Shared by /v1/paths and /v1/hits so the cap cannot drift apart between
+// the two endpoints that take a key list — they are the only two, and a cap
+// enforced on one of them is a cap on neither.
+func (s *Server) batchKeys(w http.ResponseWriter, r *http.Request) ([]string, bool) {
 	raw := r.URL.Query().Get("keys")
 	if strings.TrimSpace(raw) == "" {
 		s.fail(w, r, http.StatusBadRequest, "keys is required, e.g. ?keys=ott770315,ott417950")
-		return
+		return nil, false
 	}
 	var keys []string
 	seen := map[string]bool{}
@@ -1006,6 +1068,14 @@ func (s *Server) handlePaths(w http.ResponseWriter, r *http.Request) {
 	if len(keys) > maxBatchKeys {
 		s.fail(w, r, http.StatusBadRequest,
 			"too many keys: "+strconv.Itoa(len(keys))+" > "+strconv.Itoa(maxBatchKeys))
+		return nil, false
+	}
+	return keys, true
+}
+
+func (s *Server) handlePaths(w http.ResponseWriter, r *http.Request) {
+	keys, ok := s.batchKeys(w, r)
+	if !ok {
 		return
 	}
 

@@ -855,6 +855,50 @@ equidistant from `betula` and `betel` and the shorter string wins. The
 correction is **shown, never performed** — the same rule as `age_tier`, on a
 different surface.
 
+**The species palette opens on a list now, and the list is species rather than
+openings.** `S` used to open on one grey line — *Type to search 110,794
+species* — which names the size of the corpus and nothing a reader can act on;
+a blank field already asks for the right word and the confidence it will work,
+and a count is the number of ways to be wrong. It opens on **Recent** over
+**Start here** — ten curated taxa, each an ordinary `RowView` one press from the
+canvas, so arrow keys, `↵ add` and the *on canvas* accessory all work by
+construction. **An opening may not go here** and `openings.ts`'s refusal still
+holds: an opening *replaces* the canvas where every palette row *adds*, so a row
+that silently destroys the reader's tree would be indistinguishable from its
+neighbours. **The client says which and the server says what they are** —
+`palette/starters.ts` holds keys and nothing else, because name, rank, tip count
+and silhouette are facts about the deployed build and a baked `idx` resolves
+cleanly against a rebuild and describes a different animal. `/v1/hits?keys=`
+dresses them, **skipping unknown keys** so one silently-forwarded OTT id costs
+one row rather than the whole empty state, and sharing `batchKeys` and its
+200-key cap with `/v1/paths`. It is a pure function of the key set and the
+build, so it takes the ordinary long-lived `Cache-Control` and ETag — one fixed
+URL, one edge entry, the container answering about once per Worker version —
+and it is **prefetched on boot** beside `/v1/about`, 3.4 KB, under 1 ms at the
+origin, with nothing added to `worker/index.ts`. Recents are `localStorage`
+where the canvas *modes* are `sessionStorage`, and the precedent is
+**`fuzzy.ts`, which has stored a recency-and-frequency table there since the
+palette got its ranking** — this is the visible half of a thing the app already
+did, not an exception to be argued. It stores *whole rows* so the band draws
+with no request, which is why the blob carries the build id and is dropped whole
+on a mismatch. **Both stores are cleared by one command**, and that is a
+correctness point rather than a courtesy: "Reset search ranking / Forget
+recency and frequency history" predates this band and would have cleared the
+invisible half while a list captioned **Recent** sat on screen — the store the
+reader can see is the one that must not survive a command that says it forgets.
+It is now *Clear search history*, `resetUsage` and `forgetRecent` together, with
+the command id unchanged because `sessionBoost` is keyed on it. **The curated
+list is gated in Go against
+the real database**: `hits_test.go` reads the TypeScript and requires a name, a
+rank-1 English common name and `node_image.climb = 0`, which is the only place
+those can be checked — phase 5 gives every node an image by climbing and
+`hitSilhouette` ships with suppression at infinity, so a borrowed drawing
+renders happily and belongs to something else. That rejected three taxa
+`openings.ts` uses successfully (**cremini**, **horse ant**, and a cockroach
+with no common name), because a carousel tile captions its own drawing and a
+palette row does not. `docs/handoff.md` §3 has the rest, including why breadth
+beat recognisability and why the lion was cut.
+
 **Four things measure readership and they disagree by design, so a single
 number is always wrong.** Same three days, same site: the zone log says 237
 unique IPs, Workers Logs says 52 reached the Worker and 22 drew a tree, Web
