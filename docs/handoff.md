@@ -887,15 +887,35 @@ things not to redo come out of that:
   path exists to prevent, arriving through the fix for it. The `no-store` on the
   refusal is the half that is easy to drop: a 404 is heuristically cacheable,
   and one pinned at the edge outlives the deploy that caused it.
-- **The pools are built lazily, once per process**, mutex-guarded in
-  `Store.RandomPool` rather than in `Store.Open`. A container starts far more
-  often than a build changes — `sleepAfter` is 1h — so paying two full scans in
-  every open would lengthen a measured 0.78 s cold start for a feature most
-  readers never reach. 303 ms cold through the serving binary, 1 ms warm. A
-  failure is **not** memoised, because a transient error that disables the
-  surface for the process's lifetime is worse than repeating a slow query.
-- **The client fetches it lazily too**, on the first press and not at boot, and
-  `api.ts`'s `get` cache memoises it: verified in the browser at 1 pool request
+- **The pools are warmed in the background at startup, and the two obvious
+  answers are both wrong.** This is the entry most likely to be "simplified"
+  back into one of them, so the order matters. Building on **first request** put
+  the two scans on the press a reader is waiting on: measured against
+  production, the first pool request on a freshly provisioned container took
+  **29.9 s** — most of it the container's own cold start against an empty page
+  cache and a 1.9 GB mmap, but the reader was holding all of it. Building inside
+  **`Store.Open`** fixes that by moving the cost in front of every request the
+  container has not answered yet, including the reader's first *search* — which
+  taxes the primary flow to speed up a secondary one, on one instance and half a
+  vCPU. So `server/main.go` starts a goroutine after the store opens, and
+  `Store.RandomPool` stays mutex-guarded so a press arriving mid-scan waits on
+  the build already running instead of starting a second. Measured locally: the
+  listener is up at 861 ms unaffected, the warm-up logs `took=309ms` behind it,
+  and the first pool request is **0.75 ms** against 307 ms unwarmed. A failure
+  is **not** memoised — doubly load-bearing now, because a warm-up that runs
+  once and failed would otherwise leave the surface broken until the container
+  next slept.
+- **The warm-up logs its own duration, and that is the point.** `random pool
+  warmed nodes=… fossils=… took=…` is currently the only figure this project
+  has for what anything costs on `standard-1`, and it exists because §7 records
+  that nothing measures the deployed API. Read it out of Workers Logs rather
+  than estimating it from a laptop again — estimating it from a laptop is what
+  this whole entry is about.
+- **The client still fetches it lazily**, on the first press and not at boot —
+  the server-side warm-up is what makes that cheap, and moving the client to a
+  boot fetch would put 40 KB on every page load for a command most readers never
+  press. It is memoised by
+  `api.ts`'s `get` cache: verified in the browser at 1 pool request
   across 4 presses. The old endpoint had to be fetched *outside* that cache
   through a `getFresh` helper, or the second press would have been answered from
   cache with the first press's pick — looking like it worked. `getFresh` and
@@ -3439,6 +3459,14 @@ latency, no p95 is tracked across deploys, and there is no threshold anybody is
 alerted on. The cheap version is a handful of `curl`s against `concestor.com`
 after a deploy, recorded in this doc — which is what the last two investigations
 amounted to, done twice, by accident.
+
+  **One instrument exists now and it is worth knowing about, because it is not
+  a general one.** `server/main.go`'s pool warm-up logs `random pool warmed …
+  took=…` on every container start, so the cost of those two scans on
+  `standard-1` is a number anybody can read out of Workers Logs instead of
+  estimating from a laptop. That is one query, measured because it was the one
+  that burned us; every other endpoint is still unmeasured in production, and a
+  single instrumented line is not a latency budget.
 
 **And the random pool is a payload that grows with the corpus.** 114 KB of
 JSON today, 34 KB gzipped, fetched whole on the first press of `R` and cached

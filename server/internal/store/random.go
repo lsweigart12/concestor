@@ -86,16 +86,32 @@ type Pool struct {
 
 // RandomPool returns both pools, building them at most once per process.
 //
-// Lazily rather than at startup, and the cadence is why. A container starts far
-// more often than a build changes — `sleepAfter` is an hour — so paying two
-// full scans in every `Store.Open` would lengthen a measured 0.78 s cold start
-// for a feature most readers never reach. Built here, the scans run once per
-// process and only if somebody asks; behind the edge's year-long cache on this
-// response, that is usually once per deploy per data centre and often never.
+// **Who calls this first is the serving binary's decision, not this file's**,
+// and `server/main.go` warms it in a goroutine at startup. That is the third
+// answer to a question whose first two were both wrong, and the reasoning is
+// worth keeping because it is not about speed:
+//
+//   - Building on first request put two full scans on the press a reader is
+//     waiting on. Measured against production, the first pool request on a
+//     freshly provisioned container took **29.9 s** — most of it the container's
+//     own cold start against an empty page cache and a 1.9 GB mmap, but the
+//     scans were in there and the reader was holding the whole of it.
+//   - Building inside `Open` fixes that by moving the cost in front of *every*
+//     request the container has not answered yet — including the reader's first
+//     search, which is the primary flow. On one instance and half a vCPU that
+//     is a worse trade than the one it replaces.
+//
+// Warmed in the background it blocks nothing, and a request arriving mid-build
+// waits on this mutex for the build already running rather than starting a
+// second. Callers therefore need no warm/cold distinction: this is always
+// correct, and by the time a human has pressed anything it is nearly always
+// already in memory.
 //
 // A failure is not memoised. `loaded` stays false so the next caller tries
 // again, because a transient error that permanently disables the surface for
-// the process's lifetime is a worse outcome than repeating a slow query.
+// the process's lifetime is a worse outcome than repeating a slow query — and
+// with a warm-up that runs once at startup, a failure nobody retried would mean
+// the surface stays broken until the container next sleeps.
 func (s *Store) RandomPool(ctx context.Context) (*Pool, error) {
 	s.poolMu.Lock()
 	defer s.poolMu.Unlock()

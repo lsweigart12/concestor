@@ -747,8 +747,11 @@ answered with the current pool — answering would file build B's list under bui
 A's URL for everyone still on A, and a bare 404 is heuristically cacheable and
 would outlive the deploy that caused it; the pool ships **the resolved list and
 never the rule**, the same line `Interleave` draws by stamping `order`; the
-scans are **lazy rather than at `Store.Open`**, because a container starts far
-more often than a build changes; and the exclusion now happens **before** the
+scans are **warmed in a background goroutine at startup**, which is neither of
+the two obvious answers — on the request they land on the press a reader is
+waiting on (29.9 s on a freshly provisioned container), and inside `Store.Open`
+they land in front of every request the container has not answered yet,
+including the first *search*; and the exclusion now happens **before** the
 choice, which is why there is no `RANDOM_CANDIDATES` to get wrong and why
 "every pick is already on the canvas" stopped being reachable.
 

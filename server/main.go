@@ -108,6 +108,47 @@ func run() error {
 		log.Warn("table present but not wired up", "table", t, "reason", why)
 	}
 
+	// Warm the random pools in the background, and **in the background rather
+	// than inside Open** — which is the whole of the decision, because the
+	// obvious two answers are both worse.
+	//
+	// Building them on first request put two full scans on the press the reader
+	// is waiting on. Building them inside `store.Open` would put those scans in
+	// front of *every* request the container has not answered yet: the boot
+	// probe, the timescale, and — the one that matters — the reader's first
+	// search or opening. That taxes the primary flow to speed up a secondary
+	// one, on the single instance and half vCPU this runs on.
+	//
+	// Here it blocks nothing. The listener comes up immediately, the scans
+	// overlap with the seconds a reader spends before their first query, and a
+	// press arriving mid-scan waits on the same build through `RandomPool`'s
+	// mutex rather than starting a second one. By the time anybody presses `R`
+	// the answer is usually already in memory, and behind the edge's year on
+	// that response it is usually already in the cache too.
+	//
+	// **It is logged because nothing else times this.** `docs/ci.md` records
+	// that no check measures the deployed API, and both expensive endpoints
+	// this project has found were found by hand — so the one number that says
+	// what these scans cost on `standard-1` has to come from the container
+	// itself. Read it out of Workers Logs rather than estimating it again.
+	go func() {
+		t := time.Now()
+		pool, err := st.RandomPool(ctx)
+		if err != nil {
+			// Warn rather than fatal, and the process keeps serving. Nothing
+			// else depends on this, `RandomPool` does not memoise a failure,
+			// and the next press retries. A cancelled context here is a
+			// shutdown during startup, which is not worth a louder line.
+			log.Warn("random pool warm-up failed", "err", err)
+			return
+		}
+		log.Info("random pool warmed",
+			"nodes", len(pool.Nodes),
+			"fossils", len(pool.Fossils),
+			"took", time.Since(t).Round(time.Millisecond),
+		)
+	}()
+
 	srv := &api.Server{
 		St: st, Log: log, WebDist: dist, PublicCache: *publicCache,
 		Release: version, Commit: commit,
