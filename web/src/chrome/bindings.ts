@@ -44,6 +44,8 @@
  * keyboard activation off every button in the app.
  */
 
+import { SPECIES_PHRASE } from "../corpora";
+
 export type ActionId =
   | "open-opening"
   | "palette"
@@ -143,7 +145,7 @@ export const BINDINGS: readonly Binding[] = [
     kbd: "S",
     label: "Species",
     hint:
-      "Search 2.7 million species, in the tree and in the fossil record. " +
+      `Search ${SPECIES_PHRASE}, in the tree and in the fossil record. ` +
       "Also reachable from the palette by typing s then space",
   },
   {

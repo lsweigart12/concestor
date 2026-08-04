@@ -1669,6 +1669,57 @@ back to a fingerprint of the executable where no commit was compiled in.
   is fetched on every page load, and `no-store` would take request collapsing
   off the boot path on half a vCPU.
 
+### The front door was selling a weaker product than the one behind it
+
+Three claims a first-time reader met before anything was drawn, all wrong, none
+of them reachable by any gate. The pattern is worth more than the three fixes:
+**prose is the only output in this repo that nothing validates**, so an error
+introduced by editing a sentence survives every check, and all three of these
+were introduced exactly that way.
+
+- **The species count is the *tip* count.** Five surfaces said 2.7 million,
+  which is the node total — 2,385,875 tips plus 339,807 internal. The internal
+  ones are groups, and calling a group a species is the one error the sentence
+  inviting somebody to search cannot make, because telling a clade from a
+  species is most of what the canvas is for. It arrived by deletion, not by
+  invention: the palette's waiting line read "2.4 million species and 523,112
+  fossil taxa", the second corpus was dropped as plumbing the reader has no use
+  for, and the survivor was rounded up to the wrong figure on the way through.
+  `corpora.ts` now owns `SPECIES_PHRASE`, every surface reads it, and
+  `corpora.test.ts` takes the exact figure out of `data-sources.md` and fails on
+  the old string anywhere in `web/`. **The fossil corpus is deliberately not
+  added into it** — the two catalogues overlap by name, 32,386 accepted PBDB
+  taxa being nodes, so any sum double-counts; where both matter the copy names
+  the second corpus in words.
+- **A pair is the weaker product, and the card was selling it.** The `<title>`,
+  both descriptions, the README and the boot lede all opened "pick any two
+  species", directly above a carousel of fifteen questions none of which is a
+  pair. `openings.ts` had already written down why: *a pair draws one number.
+  Three or more draw an argument — the nesting itself is the proof.* So the
+  most-repeated sentence about this product contradicted the file that decides
+  what the product opens with. `meta.test.ts` now asserts the absence — the
+  count, not the phrasing, so the copy stays free to change.
+- **A link carries the tree, not the view.** The share command said "all view
+  state lives in the URL" while the bioluminescence command four rows above it
+  said *a tree you share arrives unlit, however you are reading it*. Both were
+  in the same list. `store.ts` is right and the share row was wrong: the tree,
+  the axis, the selection, the isolate and the drill are in the link, and the
+  labels, ages and light are in `sessionStorage` because a setting that is a
+  claim about the **reader** may not ride in one. The about page's feature is
+  "Every **tree** is a link" now, and the one-word change is the whole claim.
+
+The fourth thing found is not fixed and is not a copy bug: **the best-positioned
+artifact in the product is the one nobody opens.** `/about` leads with what this
+is for, names the educator use case in its subhead, and carries the divergence
+witness — *"a fossil that was alive at each split"*, the one thing here nothing
+else does — and it is reached from a link held below the canvas's own contrast
+in the corner of the axis footer. The witness now appears in the description
+every shared link unfurls into and in the README's first sentence, which is the
+cheap half. The expensive half is that a reader who never opens `/about` is
+still told none of it, and `analytics.md` §2 can already answer whether that
+matters: the `sequence` / `sequence-cut` / `open` causes are instrumented, the
+conversion query is written down, and nobody has run it.
+
 ---
 
 ## 4. Corrections to the design docs

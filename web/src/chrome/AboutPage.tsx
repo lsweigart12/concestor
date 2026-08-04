@@ -35,6 +35,7 @@
 import { useEffect, useState } from "react";
 import { api, type About as AboutPayload } from "../api";
 import { Silhouette } from "../canvas/Silhouette";
+import { SPECIES_PHRASE } from "../corpora";
 import { OPENINGS } from "../openings";
 import { leaveAbout } from "../route";
 
@@ -143,7 +144,7 @@ function Features() {
   return (
     <ul className="feature-grid">
       <li className="feature">
-        <h3 className="feature-h">Any of 2.7 million species</h3>
+        <h3 className="feature-h">Any of {SPECIES_PHRASE}</h3>
         <p className="feature-p">
           Searched by the name you actually call it — <em>dog</em>,{" "}
           <em>T. rex</em>, <em>oak</em> — not just the binomial.
@@ -173,10 +174,20 @@ function Features() {
         </p>
       </li>
       <li className="feature">
-        <h3 className="feature-h">Every view is a link</h3>
+        {/*
+          "Every **tree** is a link", not "every view", and the one-word
+          change is the whole claim. A view includes how you are reading it,
+          and that half deliberately does not travel: labels, ages and the
+          light live in `sessionStorage` because a setting that is a claim
+          about the *reader* may not ride in a link. Saying "view" here
+          promised the bioluminescent canvas somebody had just turned on, and
+          the person who opened the link got daylight.
+        */}
+        <h3 className="feature-h">Every tree is a link</h3>
         <p className="feature-p">
           Whatever you build is in the address bar, so you can send it,
-          bookmark it, or come back to it.
+          bookmark it, or come back to it. How you are <em>reading</em> it —
+          the labels, the ages, the light — stays with you instead.
         </p>
       </li>
       <li className="feature">
@@ -271,8 +282,8 @@ export function AboutPage() {
             <li>
               <strong>The tree</strong> — the{" "}
               <Src href="https://tree.opentreeoflife.org/">Open Tree of Life</Src>{" "}
-              synthesis (v16.1), one topology over 2.7 million species,
-              assembled from published studies.
+              synthesis (v16.1), one topology over {SPECIES_PHRASE} and the
+              groups that contain them, assembled from published studies.
             </li>
             <li>
               <strong>The dates</strong> —{" "}

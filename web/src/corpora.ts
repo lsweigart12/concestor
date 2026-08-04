@@ -43,6 +43,41 @@
 import type { RandomKind } from "./api";
 
 /**
+ * How many species there are to search, as a reader is told it.
+ *
+ * **2.7 million is the node count, not the species count**, and the app
+ * printed the node total as a species count in five places. The synthesis tree
+ * is 2,725,682 nodes: 2,385,875 tips and 339,807 internal ones. The internal
+ * ones are *groups* — Carnivora, Mammalia, the unnamed forks between them —
+ * and calling a group a species is the one error this product cannot afford to
+ * make in the sentence that invites somebody to search, because telling a
+ * clade from a species is most of what the canvas is for.
+ *
+ * It is quoted to two significant figures, which is what a headline number is
+ * for: 2,385,875 is a number a reader checks rather than reads, and it moves
+ * whenever the snapshot is repinned. `corpora.test.ts` reads the exact figure
+ * out of `docs/data-sources.md` and checks this rounds from it, so the prose
+ * and the dataset cannot drift apart without a failure — and it forbids the
+ * old string outright, because the wrong version is grammatical, plausible and
+ * silent.
+ *
+ * **The phrase is a phrase and not a number** so that no caller has to decide
+ * how to say it. Five surfaces print this — the species key's hint, the boot
+ * panel, two palette empty states, its searching line and the about page — and
+ * a bare `2.4` would have each of them writing "million species" again.
+ *
+ * The fossil corpus is deliberately *not* folded into it. 523,112 PBDB taxa
+ * are searchable too, but the two catalogues overlap by name — 32,386 accepted
+ * PBDB taxa are themselves nodes — so any sum is a number with double counting
+ * in it. Where both matter the copy names the second corpus in words instead,
+ * which is what the species key's hint does.
+ */
+export const TREE_SPECIES = 2_385_875;
+
+/** {@link TREE_SPECIES}, as it prints. */
+export const SPECIES_PHRASE = "2.4 million species";
+
+/**
  * How often the one random pick draws from the fossil corpus.
  *
  * There used to be two commands and two keys, and that split asked the reader a

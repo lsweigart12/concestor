@@ -90,6 +90,23 @@ describe("the document describes itself", () => {
     expect(meta("og:description")).toBe(description);
   });
 
+  /**
+   * **It does not invite a pair.**
+   *
+   * This card read "Pick any two species…" while `openings.ts` refused to ship
+   * a two-taxon opening and said why: *a pair draws one number. Three or more
+   * draw an argument — the nesting itself is the proof.* So the most-repeated
+   * sentence about this product sold the version the product had already
+   * decided was the weaker one, and it is the sentence nothing renders and
+   * nobody re-reads.
+   *
+   * Asserted as an absence rather than a phrasing, because the copy should be
+   * free to change and the count should not.
+   */
+  it("invites more than two species, the way every opening does", () => {
+    expect(meta("description")).not.toMatch(/\btwo species\b/);
+  });
+
   it("paints the browser's own chrome in the canvas's void", () => {
     const void_ = /--void:\s*([^;]+);/.exec(CSS)?.[1]?.trim();
     expect(void_).toBeTruthy();
