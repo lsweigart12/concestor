@@ -4253,6 +4253,97 @@ body {
   margin-left: auto;
 }
 
+/* ------------------------------------------------------- the way in -- */
+
+/*
+ * **The command button glows, and it is the one piece of chrome that does.**
+ *
+ * The standing rule is that the graph is the only light source, and every
+ * control on this canvas obeys it: `ModeChip` states its position and stops,
+ * the panel gave up its accent for exactly this reason, and the note over
+ * `.biolum-mode.is-lit` records that bioluminescence is the single exception
+ * *because glowing is what it does*.
+ *
+ * This is the second exception and it is a different argument. The palette is
+ * the way in — `P` is the root of the command surface, the empty canvas is a
+ * command list, and on a phone this button is the entire chrome. A reader who
+ * does not find it has no way to reach the search, a random pick, share, clear
+ * or the light itself. Everything else in the bar acts on
+ * something already drawn and can afford to wait to be looked for; this one
+ * cannot. It is lit at rest and brighter under the pointer.
+ *
+ * Both elements, because they are the same control at two widths: the bar's
+ * button above 620px and `PaletteFab`'s circle below it. `Controls.tsx` marks
+ * the first with `is-command`, which the lead slot's own class cannot do — that
+ * slot is three buttons.
+ *
+ * **Steady, not breathing.** `.btn-glow` on the about page animates, and this
+ * deliberately does not: that one is a preview of the mode and its motion is
+ * the preview, while this sits in the corner of a canvas a reader is trying to
+ * read. A pulsing light at the edge of the eye is the one thing a dark
+ * instrument may not do.
+ */
+.control.is-command {
+  border-color: hsl(var(--accent-h) 40% 42% / 0.5);
+  box-shadow:
+    0 0 10px hsl(var(--accent-h) 90% 60% / 0.13),
+    inset 0 0 8px hsl(var(--accent-h) 90% 60% / 0.05);
+}
+
+.control.is-command:hover:not(:disabled),
+.control.is-command:focus-visible {
+  border-color: hsl(var(--accent-h) 55% 55% / 0.75);
+  box-shadow:
+    0 0 16px hsl(var(--accent-h) 90% 60% / 0.24),
+    inset 0 0 10px hsl(var(--accent-h) 90% 60% / 0.08);
+}
+
+/*
+ * The circle's own glow lives with the circle, further down, and not here.
+ * `Controls.test.ts` reads the **first** `.palette-fab {` in this file and
+ * asserts the narrow-window geometry on it — `display: none`, and a bottom off
+ * `--axis-h` — so a second base rule declared up here silently becomes the one
+ * that test measures, and it measures a rule with no geometry in it at all.
+ */
+
+/*
+ * In the mode, the same control is lit by the water instead.
+ *
+ * `canvas/bootLight.ts` measures both of these and hands the renderer a real
+ * `ScreenLight`, so the halo a reader sees here is drawn *into the same HDR
+ * buffer as the rivers* — the vicinity field picks it up, the marine snow
+ * drifting past it catches it and takes its hue, and the bloom and tone map
+ * treat it exactly as they treat a branch. That is the whole difference
+ * between this and the CSS above, and it is why the CSS below does less rather
+ * than more: it only has to keep the border reading as an edge against light
+ * that is now coming from behind the element.
+ *
+ * 186 rather than `--accent-h`, because in this mode every light on the canvas
+ * is the mode's cyan and a control lit in the app's hue would be the one thing
+ * on screen disagreeing with the water underneath it.
+ */
+.palette-fab:hover,
+.palette-fab:focus-visible {
+  border-color: hsl(var(--accent-h) 55% 56% / 0.8);
+  box-shadow:
+    0 0 20px hsl(var(--accent-h) 90% 60% / 0.28),
+    inset 0 0 12px hsl(var(--accent-h) 90% 60% / 0.09);
+}
+
+body.biolum .control.is-command,
+body.biolum .palette-fab {
+  border-color: hsl(186 70% 58% / 0.42);
+  box-shadow: inset 0 0 10px hsl(186 100% 62% / 0.07);
+}
+
+body.biolum .control.is-command:hover:not(:disabled),
+body.biolum .control.is-command:focus-visible,
+body.biolum .palette-fab:hover,
+body.biolum .palette-fab:focus-visible {
+  border-color: hsl(186 80% 64% / 0.7);
+  box-shadow: inset 0 0 12px hsl(186 100% 62% / 0.12);
+}
+
 /* ----------------------------------------------------- bioluminescence -- */
 
 /*
@@ -4870,9 +4961,15 @@ body.biolum .carousel-card:focus-visible {
   width: 54px;
   height: 54px;
   padding: 0;
-  border: 1px solid var(--hairline-strong);
+  /* Lit at rest, on the reasoning over `.control.is-command`: below 620px this
+     circle is the whole of the chrome, so the way in cannot afford to wait to
+     be looked for. */
+  border: 1px solid hsl(var(--accent-h) 40% 44% / 0.55);
   border-radius: 50%;
   background: rgba(14, 14, 17, 0.94);
+  box-shadow:
+    0 0 14px hsl(var(--accent-h) 90% 60% / 0.16),
+    inset 0 0 10px hsl(var(--accent-h) 90% 60% / 0.05);
   color: var(--ink);
   cursor: pointer;
   pointer-events: auto;

@@ -23,10 +23,29 @@
  * Three sources, and each is something the reader is being invited *into*:
  *
  *   wordmark   the app's name — one soft wide light, the app's own cyan
- *   card       the opening on show — broad, and the dimmest of the three,
- *              because it is the water the other two are standing in
- *   art        each silhouette on that card — the bright ones, each in a lane
- *              hue, because these are *animals* and animals are what glow here
+ *   card       the opening on show — broad, and the dimmest, because it is the
+ *              water the wordmark is standing in
+ *
+ * **The silhouettes on the card no longer emit**, and they were the brightest
+ * thing here. Each carried its own light in its own lane hue, on the argument
+ * that these are animals and animals are what glow — which is true on the
+ * canvas, where a mark's light is a fact about the taxon. On the card it is not
+ * a fact about anything: the row is a *preview*, it rotates every seven and a
+ * half seconds, and lighting each drawing separately turned an invitation into
+ * a row of lamps competing with the one word the reader is meant to read. The
+ * card's pool stays, so the water around them still has something in it.
+ *
+ * **And one piece of chrome does emit**, which is a boundary this file used to
+ * draw absolutely — not the bar, not the panel, not the axis, not the palette.
+ * That still holds for all of them except the control that *opens* the palette,
+ * on the bar at a wide window and as `PaletteFab`'s circle at a narrow one. The
+ * exception earns itself: everything else in the chrome acts on something that
+ * is already there, so on an empty canvas it is furniture, while this is the
+ * way **in** — the one control whose whole job is that nothing has happened
+ * yet. It is also the only chrome light that stays lit once a tree exists, and
+ * that is the deliberate part: a reader who has drawn something still needs the
+ * door, and the door being the one lit thing off the tree is a smaller claim
+ * than it looks next to a tree that is lit along every branch.
  *
  * **The DOM is the contract, and it is read rather than declared.** These are
  * measured out of the live panel by selector: the panel is `App.tsx`'s and the
@@ -45,10 +64,10 @@
 import { useEffect, useRef, useState } from "react";
 import { hashKey } from "./biolum";
 import type { ScreenLight } from "./gl/renderer";
-import { LANE_HUES, laneHue } from "../tree/layout";
+import { LANE_HUES } from "../tree/layout";
 
 /** Which of the three a measured element is. Decides its geometry and its power. */
-export type LitKind = "wordmark" | "card" | "art";
+export type LitKind = "wordmark" | "card" | "command";
 
 /** One element that may emit, as measured. Client rect, CSS px. */
 export interface LitBox {
@@ -75,10 +94,29 @@ export interface LitBox {
  * renders an unreachable-API message with its own heading, and that one is an
  * apology rather than an invitation.
  */
-export const SOURCES: readonly { kind: LitKind; sel: string; first: boolean }[] = [
-  { kind: "wordmark", sel: ".boot-inner > h1", first: true },
-  { kind: "card", sel: ".carousel-card", first: true },
-  { kind: "art", sel: ".carousel-art .silhouette", first: false },
+export const SOURCES: readonly {
+  kind: LitKind;
+  sel: string;
+  first: boolean;
+  /**
+   * Where the selector is run from. `boot` is inside the empty canvas's panel
+   * and so is present only while nothing is drawn — which is the whole of what
+   * used to be `Graph.tsx`'s `biolum && empty`, now expressed here instead.
+   * `page` is the document, for the one source that outlives the panel.
+   */
+  scope: "boot" | "page";
+}[] = [
+  { kind: "wordmark", sel: ".boot-inner > h1", first: true, scope: "boot" },
+  { kind: "card", sel: ".carousel-card", first: true, scope: "boot" },
+  /*
+    Two selectors and one kind, because the same control is two elements: the
+    bar's button above 620px and the circle below it, never both. `first` on
+    each is therefore not a narrowing — there is only ever one of either — and
+    a single selector matching both would have to be an `:is()` naming the two
+    anyway, in a file that has to be greppable from the components' side.
+  */
+  { kind: "command", sel: ".control.is-command", first: true, scope: "page" },
+  { kind: "command", sel: ".palette-fab", first: true, scope: "page" },
 ];
 
 /**
@@ -90,12 +128,16 @@ export const SOURCES: readonly { kind: LitKind; sel: string; first: boolean }[] 
  */
 export function measureBoot(root: ParentNode): LitBox[] {
   const boot = root.querySelector(".boot");
-  if (!boot) return [];
   const out: LitBox[] = [];
   for (const src of SOURCES) {
+    // No panel is not "no lights" any more — it is no *panel* lights. The
+    // early return this replaced is what tied every light in the file to the
+    // empty canvas, and the command button is not.
+    const within = src.scope === "boot" ? boot : root;
+    if (!within) continue;
     const found = src.first
-      ? [boot.querySelector(src.sel)].filter((e): e is Element => e !== null)
-      : [...boot.querySelectorAll(src.sel)];
+      ? [within.querySelector(src.sel)].filter((e): e is Element => e !== null)
+      : [...within.querySelectorAll(src.sel)];
     found.forEach((el, i) => {
       const r = el.getBoundingClientRect();
       if (!(r.width > 0) || !(r.height > 0)) return;
@@ -156,15 +198,22 @@ const REACH: Record<LitKind, readonly [number, number]> = {
     of the viewport, where it reads as depth rather than as a lamp.
   */
   card: [200, 130],
-  art: [30, 30],
+  /*
+    Tight, and the two elements it covers differ by a factor of two in size —
+    a bar button is about 90×26 and the circle 54×54 — so a constant reach is
+    doing exactly what it is here for: the halo reads the same off both.
+  */
+  command: [26, 22],
 };
 
 /**
  * What each is worth, before the breathing and the kindle.
  *
- * The ordering is the argument and the numbers only implement it: **the animals
- * are the brightest thing on the panel**, the wordmark is the second, and the
- * card is nearly nothing. The card's light is not there to be seen as a light
+ * The ordering is the argument and the numbers only implement it: **the way in
+ * is the brightest thing on screen**, the wordmark is the second, and the card
+ * is nearly nothing. That order is new — the silhouettes used to hold the top
+ * of it — and it says something truer: the brightest thing on an empty canvas
+ * should be the thing you press. The card's light is not there to be seen as a light
  * — it is there so the water immediately around the invitation has enough in it
  * for the marine snow to be visible, which is the effect this whole mode is
  * built to produce and which needs *some* irradiance to produce it against.
@@ -177,20 +226,18 @@ const REACH: Record<LitKind, readonly [number, number]> = {
 const POWER: Record<LitKind, number> = {
   wordmark: 0.23,
   card: 0.055,
-  art: 0.5,
+  command: 0.34,
 };
 
 /**
- * The app's own colour, for the two sources that are not an animal.
+ * The app's own colour, and now the only one here.
  *
  * `LANE_HUES[0]` rather than a literal 186: this is the same palette the tree
  * draws in, and a second spelling of one of its members is a number that drifts
- * the day somebody retunes the set. The silhouettes take {@link laneHue} of
- * their own name — the same tight cool set, keyed on the one identity the card
- * publishes. It is deliberately *not* the hue that taxon would carry on the
- * canvas: that one is keyed on `idx`, which is an OTT node index, and a card
- * holding a PhyloPic id and a label has never heard of it. Same palette, its
- * own draw.
+ * the day somebody retunes the set. It was one of two — the silhouettes drew
+ * `laneHue` of their own name — and with those gone every light in this file is
+ * a piece of the *app* rather than a stand-in for a taxon, which is the right
+ * reason for them all to share one hue.
  */
 const BASE_HUE = LANE_HUES[0]!;
 
@@ -213,7 +260,7 @@ export function lightsFrom(
       y: b.y,
       rx: b.w / 2 + reach[0],
       ry: b.h / 2 + reach[1],
-      hue: b.kind === "art" ? laneHue(hashKey(b.key)) : BASE_HUE,
+      hue: BASE_HUE,
       power: POWER[b.kind],
       // A fraction, and stable across measurements for the same thing: a seed
       // redrawn on every pass would reset that light's breathing every time

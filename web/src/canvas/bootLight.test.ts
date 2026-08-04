@@ -34,16 +34,23 @@ const CAROUSEL = import.meta.glob<string>("../chrome/OpeningCarousel.tsx", {
   eager: true,
 })["../chrome/OpeningCarousel.tsx"]!;
 /**
- * Three files, not two: `.silhouette` is written by the component the card
- * renders rather than by the card. That is exactly the seam this check is for
- * — the selector spans two authors and neither of them can see the other's
- * half.
+ * Four files, because the selectors span four authors and none of them can see
+ * this one. The panel and the card were always two; the command control is two
+ * more, and it is the seam most worth checking — `is-command` is written by
+ * `Controls.tsx` for one button out of a dozen it draws with the same
+ * component, so it is a class that could plausibly be tidied away by somebody
+ * who greps for it and finds only a stylesheet rule.
  */
-const SILHOUETTE = import.meta.glob<string>("./Silhouette.tsx", {
+const CONTROLS = import.meta.glob<string>("../chrome/Controls.tsx", {
   query: "?raw",
   import: "default",
   eager: true,
-})["./Silhouette.tsx"]!;
+})["../chrome/Controls.tsx"]!;
+const FAB = import.meta.glob<string>("../chrome/PaletteFab.tsx", {
+  query: "?raw",
+  import: "default",
+  eager: true,
+})["../chrome/PaletteFab.tsx"]!;
 const CSS = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 
 const box = (kind: LitBox["kind"], over: Partial<LitBox> = {}): LitBox => ({
@@ -57,13 +64,14 @@ const box = (kind: LitBox["kind"], over: Partial<LitBox> = {}): LitBox => ({
 });
 
 describe("the DOM contract", () => {
-  it("is reading all three files at all", () => {
+  it("is reading all four files at all", () => {
     // Every check below is a search for a substring, so all of them pass for
     // free on an empty string — a moved file or a changed glob option would
     // leave this whole describe measuring nothing.
     expect(APP.length).toBeGreaterThan(1000);
     expect(CAROUSEL.length).toBeGreaterThan(1000);
-    expect(SILHOUETTE.length).toBeGreaterThan(1000);
+    expect(CONTROLS.length).toBeGreaterThan(1000);
+    expect(FAB.length).toBeGreaterThan(1000);
   });
 
   /**
@@ -77,9 +85,15 @@ describe("the DOM contract", () => {
    */
   it("names only classes those files still apply", () => {
     const applied = new Set<string>();
-    for (const src of [APP, CAROUSEL, SILHOUETTE]) {
+    for (const src of [APP, CAROUSEL, CONTROLS, FAB]) {
       for (const m of src.matchAll(/className=(?:"([^"]*)"|\{`([^`]*)`\})/g)) {
-        for (const tok of (m[1] ?? m[2] ?? "").split(/[\s${}]+/)) {
+        // Quotes are separators too, and leaving them out is what this check
+        // could not see: a class applied conditionally *inside* a template —
+        // `${cond ? " is-command" : ""}` — tokenises as `is-command"` with the
+        // closing quote still on it, which fails the shape test below and is
+        // therefore invisible. Every conditional class in this repo is written
+        // that way, so the check was silently blind to all of them.
+        for (const tok of (m[1] ?? m[2] ?? "").split(/[\s${}"']+/)) {
           if (/^[a-z][\w-]*$/.test(tok)) applied.add(tok);
         }
       }
@@ -96,25 +110,34 @@ describe("the DOM contract", () => {
   });
 
   /**
-   * The two things the selectors reach for that are not classes.
+   * The one thing a selector reaches for that is not a class.
    *
    * `.boot-inner > h1` is the wordmark and the child combinator is deliberate —
    * the same panel renders an unreachable-API heading, which is an apology
-   * rather than an invitation and must not glow. `.carousel-art .silhouette` is
-   * every animal on the card, and `Silhouette` is what puts that class on.
+   * rather than an invitation and must not glow.
    */
-  it("reaches a wordmark and a row of silhouettes", () => {
+  it("reaches a wordmark", () => {
     expect(APP).toMatch(/<h1>/);
-    expect(CAROUSEL).toContain("<Silhouette");
-    expect(CAROUSEL).toContain('className="carousel-art"');
   });
 
   /**
-   * A silhouette carries the taxon's label, which is the identity everything
-   * downstream keys on: the kindle, and the hue.
+   * **`is-command` goes on one button and not on the lead slot.**
+   *
+   * `Controls.tsx` draws every control through one function, so the obvious
+   * selector — `.controls-lead .control` — reaches three buttons, `P`, `S` and
+   * `R`, and would light the whole group. The class is conditional on the
+   * action's own id, which is the only thing that distinguishes them, and this
+   * asserts the condition rather than the class: a refactor that applied it
+   * unconditionally would leave every string in this file intact.
    */
-  it("gives each silhouette a title to be identified by", () => {
-    expect(CAROUSEL).toMatch(/<Silhouette[^>]*title=\{/);
+  it("marks the command button alone, by its action id", () => {
+    expect(CONTROLS).toMatch(/is-command/);
+    expect(CONTROLS).toMatch(/a\.id === "palette"[^;]*is-command/s);
+  });
+
+  /** The narrow window's stand-in for it, which is a different element. */
+  it("reaches the circle that replaces it below 620px", () => {
+    expect(FAB).toContain('className={`palette-fab');
   });
 
   /**
@@ -140,21 +163,24 @@ describe("the DOM contract", () => {
 
 describe("boxes become lights", () => {
   it("puts the light on the thing it belongs to", () => {
-    const [l] = lightsFrom([box("art", { x: 120, y: 80 })]);
+    const [l] = lightsFrom([box("command", { x: 120, y: 80 })]);
     expect(l!.x).toBe(120);
     expect(l!.y).toBe(80);
   });
 
   /**
    * Reach is added, not multiplied, and that is the whole reason it is a
-   * constant per kind. The card is an order of magnitude wider than a
-   * silhouette; a multiplier gives one of them a light the width of the window
-   * and the other nothing.
+   * constant per kind. The card is an order of magnitude wider than the command
+   * button; a multiplier gives one of them a light the width of the window and
+   * the other nothing. It matters twice over for `command`, whose two elements
+   * — a bar button and a 54px circle — differ from each other by a factor of
+   * two and must wear the same halo.
    */
   it("gives a wide thing and a small one comparable haloes", () => {
-    const [art] = lightsFrom([box("art", { w: 30, h: 30 })]);
+    const bar = lightsFrom([box("command", { w: 90, h: 26 })])[0]!;
+    const fab = lightsFrom([box("command", { w: 54, h: 54 })])[0]!;
     const [word] = lightsFrom([box("wordmark", { w: 110, h: 18 })]);
-    expect(art!.rx - 15).toBe(art!.ry - 15);
+    expect(bar.rx - 45).toBe(fab.rx - 27);
     // The wordmark's own reach is wide and low: light off the word, not a
     // circular cloud with the word somewhere in it.
     expect(word!.rx - 55).toBeGreaterThan(word!.ry - 9);
@@ -167,11 +193,13 @@ describe("boxes become lights", () => {
    */
   it("spreads the card far past the card and keeps it the faintest", () => {
     const [card] = lightsFrom([box("card", { w: 400, h: 184 })]);
-    const [art] = lightsFrom([box("art")]);
+    const [cmd] = lightsFrom([box("command")]);
     const [word] = lightsFrom([box("wordmark")]);
     expect(card!.rx).toBeGreaterThan(300);
     expect(card!.power).toBeLessThan(word!.power);
-    expect(word!.power).toBeLessThan(art!.power);
+    // The way in is the brightest thing on the panel. It is the ordering the
+    // silhouettes used to hold, and moving it here is the point of the change.
+    expect(word!.power).toBeLessThan(cmd!.power);
   });
 
   /**
@@ -184,22 +212,22 @@ describe("boxes become lights", () => {
    * emitter's power looks like everywhere else in this directory.
    */
   it("keeps every power below a drawn species'", () => {
-    const all = lightsFrom([box("wordmark"), box("card"), box("art")]);
+    const all = lightsFrom([box("wordmark"), box("card"), box("command")]);
     for (const l of all) expect(l.power).toBeLessThan(0.6);
   });
 
   /**
-   * The app's own colour for the two that are not an animal, and the *palette*
-   * — not a hue guessed twice — for the ones that are.
+   * **One colour, and it is the palette's own first member.**
+   *
+   * There were two: the silhouettes drew `laneHue` of their own name, on the
+   * argument that an animal deserves an animal's hue. With those gone every
+   * light here belongs to the *app* rather than standing in for a taxon, and a
+   * second hue would now be a colour with nothing to mean. `LANE_HUES[0]` and
+   * not a literal 186, so retuning the set moves this with it.
    */
-  it("lights the chrome in the app's colour and the animals in lane hues", () => {
-    const [word] = lightsFrom([box("wordmark")]);
-    const [card] = lightsFrom([box("card")]);
-    expect(word!.hue).toBe(LANE_HUES[0]);
-    expect(card!.hue).toBe(LANE_HUES[0]);
-    for (const name of ["Human", "Blue whale", "Hippopotamus", "Ginkgo", "Bat"]) {
-      const [art] = lightsFrom([box("art", { key: `art:${name}` })]);
-      expect(LANE_HUES, `${name} drew a hue outside the palette`).toContain(art!.hue);
+  it("lights everything in the app's own colour", () => {
+    for (const kind of ["wordmark", "card", "command"] as const) {
+      expect(lightsFrom([box(kind)])[0]!.hue, kind).toBe(LANE_HUES[0]);
     }
   });
 
@@ -210,20 +238,24 @@ describe("boxes become lights", () => {
    * would make the row flicker whenever a silhouette finished loading.
    */
   it("derives the same hue and phase from the same name every time", () => {
-    const a = lightsFrom([box("art", { key: "art:Hippopotamus" })])[0]!;
-    const b = lightsFrom([box("art", { key: "art:Hippopotamus" })])[0]!;
+    const a = lightsFrom([box("card", { key: "card:Are you a fish?" })])[0]!;
+    const b = lightsFrom([box("card", { key: "card:Are you a fish?" })])[0]!;
     expect(a.hue).toBe(b.hue);
     expect(a.seed).toBe(b.seed);
     expect(a.seed).toBeGreaterThanOrEqual(0);
     expect(a.seed).toBeLessThan(1);
   });
 
-  /** Different animals breathe on different clocks, or the row is a pulse. */
-  it("gives neighbouring animals different phases", () => {
-    const row = ["Bat", "Moose", "Mouse", "Hyena"].map(
-      (n) => lightsFrom([box("art", { key: `art:${n}` })])[0]!.seed,
+  /**
+   * Different things breathe on different clocks, or the panel is one pulse.
+   * Fewer lights make this *more* load-bearing rather than less: with three on
+   * screen a shared phase is not a shimmer, it is a heartbeat.
+   */
+  it("gives neighbouring lights different phases", () => {
+    const set = ["wordmark:Concestor", "card:Are you a fish?", "command:Commands"].map(
+      (k) => lightsFrom([box("card", { key: k })])[0]!.seed,
     );
-    expect(new Set(row).size).toBe(row.length);
+    expect(new Set(set).size).toBe(set.length);
   });
 
   /**
@@ -231,14 +263,14 @@ describe("boxes become lights", () => {
    * is a fact about the sequence of measurements and `lightsFrom` sees one.
    */
   it("takes each light's birth from the caller, and none by default", () => {
-    const born = new Map([["art:Bat", 1234]]);
-    const [bat, moose] = lightsFrom(
-      [box("art", { key: "art:Bat" }), box("art", { key: "art:Moose" })],
+    const born = new Map([["command:Commands", 1234]]);
+    const [cmd, word] = lightsFrom(
+      [box("command", { key: "command:Commands" }), box("wordmark", { key: "wordmark:x" })],
       (k) => born.get(k),
     );
-    expect(bat!.bornAt).toBe(1234);
-    expect(moose!.bornAt).toBeUndefined();
-    expect(lightsFrom([box("art")])[0]!.bornAt).toBeUndefined();
+    expect(cmd!.bornAt).toBe(1234);
+    expect(word!.bornAt).toBeUndefined();
+    expect(lightsFrom([box("command")])[0]!.bornAt).toBeUndefined();
   });
 });
 
@@ -248,7 +280,7 @@ describe("boxes become lights", () => {
  * measuring itself sixty times a second.
  */
 describe("two measurements are the same picture", () => {
-  const one = () => lightsFrom([box("art", { key: "art:Bat" })], () => 7);
+  const one = () => lightsFrom([box("command", { key: "command:Commands" })], () => 7);
 
   it("says so when nothing moved", () => {
     expect(sameLights(one(), one())).toBe(true);
@@ -256,13 +288,18 @@ describe("two measurements are the same picture", () => {
 
   it("says otherwise when anything at all did", () => {
     expect(sameLights(one(), [])).toBe(false);
-    expect(sameLights(one(), lightsFrom([box("art", { key: "art:Bat" })]))).toBe(false);
     expect(
-      sameLights(one(), lightsFrom([box("art", { key: "art:Bat", x: 401 })], () => 7)),
+      sameLights(one(), lightsFrom([box("command", { key: "command:Commands" })])),
     ).toBe(false);
-    expect(sameLights(one(), lightsFrom([box("card", { key: "art:Bat" })], () => 7))).toBe(
-      false,
-    );
+    expect(
+      sameLights(
+        one(),
+        lightsFrom([box("command", { key: "command:Commands", x: 401 })], () => 7),
+      ),
+    ).toBe(false);
+    expect(
+      sameLights(one(), lightsFrom([box("card", { key: "command:Commands" })], () => 7)),
+    ).toBe(false);
   });
 });
 

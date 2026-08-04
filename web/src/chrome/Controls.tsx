@@ -152,7 +152,12 @@ export function Controls({
         // a button nothing reads. What guarantees share has words is the type,
         // which is where it always belonged. `Controls.test.ts` asserts both
         // halves of that, because a stylesheet is where this comes back.
-        className={`control${a.active ? " on" : ""}`}
+        // `is-command` on the palette button alone, and unlike the keyless
+        // marker above it this one has readers: `styles.css` glows its border,
+        // and `canvas/bootLight.ts` measures it as a light source in
+        // bioluminescent mode. `.controls-lead .control` cannot stand in for
+        // it — the lead slot is three buttons, `P`, `S` and `R`.
+        className={`control${a.active ? " on" : ""}${a.id === "palette" ? " is-command" : ""}`}
         disabled={off}
         title={off ? a.disabledBecause : (a.hint ?? b?.hint)}
         onClick={a.run}

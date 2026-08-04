@@ -482,13 +482,20 @@ function Inner(props: GraphProps) {
    * The condition is deliberately `biolum && empty` and not `biolum` alone:
    * these two lists are **never both non-empty**, so at no point does the
    * canvas carry a light that is not the tree while a tree is on it. The moment
-   * a species is drawn the invitation unmounts, this measures nothing, and the
-   * water goes back to holding exactly what the branches and the marks put in
-   * it. `bootLight.ts` carries the argument for why the empty canvas is allowed
-   * a light source at all when the labels and ages switches below are still not
-   * allowed a panel.
+   * a species is drawn the invitation unmounts and the panel's own lights go
+   * with it, so the water goes back to holding what the branches and the marks
+   * put in it — plus the one control that opens the palette, which stays lit
+   * because it is the way in rather than a comment on what is drawn.
+   *
+   * **The `empty` half of this condition is gone and that is not a widening.**
+   * It read `biolum && empty`, which tied every light in `bootLight.ts` to the
+   * panel; the panel's own sources are scoped to `.boot` inside that file now,
+   * so they still go out on the first species without anything here saying so,
+   * and the one source that outlives the panel is the only one that changed.
+   * `bootLight.ts` carries the argument for both the empty canvas earning a
+   * light source and that single piece of chrome earning one.
    */
-  const bootLights = useBootLights(biolum && empty, reduced);
+  const bootLights = useBootLights(biolum, reduced);
 
   /**
    * Counter-scale for silhouettes as the canvas shrinks.
