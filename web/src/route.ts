@@ -41,6 +41,47 @@ export const ABOUT_PATH = "/about";
  */
 const CAME_FROM_APP = "concestor:about-from-app";
 
+/**
+ * An opening the about page has asked the canvas to draw on arrival.
+ *
+ * The about page cannot call `openOpening` — `main.tsx` unmounts the app to
+ * show it, so there is no store on that side of the swap — and the two are not
+ * worth coupling for one button. So the request is left where the canvas will
+ * find it, on the same reasoning as {@link CAME_FROM_APP} above and the same
+ * reasoning that lets the after-dark button write the light: this pair already
+ * communicates through per-tab storage, and a third message needs no new
+ * channel.
+ *
+ * **Taken rather than read.** `takeOpening` clears the key as it answers, so a
+ * request is spent exactly once: without that, a reader who watched the tree
+ * build, then pressed back and forward, would have it built again underneath
+ * them — and a reader who assembled their own tree afterwards would find it
+ * replaced on the next navigation. A one-shot is the honest lifetime for
+ * "somebody just pressed a button".
+ */
+const OPENING_REQUEST = "concestor:open-opening";
+
+/** Ask the canvas to draw an opening as soon as it mounts. */
+export function requestOpening(id: string): void {
+  try {
+    window.sessionStorage.setItem(OPENING_REQUEST, id);
+  } catch {
+    // Private mode. The button still returns to the tree; it simply arrives
+    // without the demonstration, which is the same place "Draw a tree" lands.
+  }
+}
+
+/** The requested opening's id, if there is one, clearing it on the way out. */
+export function takeOpening(): string | null {
+  try {
+    const id = window.sessionStorage.getItem(OPENING_REQUEST);
+    window.sessionStorage.removeItem(OPENING_REQUEST);
+    return id;
+  } catch {
+    return null;
+  }
+}
+
 export function routeOf(pathname: string): Route {
   // Trailing slash tolerated because a link somebody types or a server that
   // canonicalises may add one, and `/about/` is not a different page.

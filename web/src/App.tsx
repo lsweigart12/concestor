@@ -46,13 +46,13 @@ import {
   type Scope,
 } from "./palette/Palette";
 import { OpeningCarousel } from "./chrome/OpeningCarousel";
-import { keysOf, nextOpening, type Opening } from "./openings";
+import { keysOf, nextOpening, OPENINGS, type Opening } from "./openings";
 import { Confirm } from "./chrome/Confirm";
 import { Controls, type ControlGroup, type ControlId } from "./chrome/Controls";
 import { PendingLine, usePending } from "./chrome/Pending";
 import { kbd, matchKey } from "./chrome/bindings";
 import { prefersReduced } from "./chrome/motion";
-import { goAbout } from "./route";
+import { goAbout, takeOpening } from "./route";
 import { NextOpening } from "./chrome/NextOpening";
 import { resetUsage } from "./palette/fuzzy";
 import { toApiKey, useTree } from "./state/store";
@@ -613,6 +613,35 @@ export default function App() {
     },
     [tree, toast],
   );
+
+  /**
+   * The about page asked for a demonstration, so give it one.
+   *
+   * `takeOpening` is one-shot and clears as it answers — see `route.ts` — so
+   * this fires on the arrival that was asked for and on no later one. The
+   * effect runs once on mount rather than watching anything, because the
+   * request is made *before* the navigation and the canvas that reads it is
+   * the one being mounted by it.
+   *
+   * **It defers to a link.** A reader can reach `/about` from a shared `?n=…`
+   * tree, press this, and land back on that tree; drawing over it would throw
+   * away the thing they were sent, which is the failure the boot panel's own
+   * `linkPending` branch exists to avoid. `view.keys` is empty exactly when
+   * there is nothing to lose.
+   */
+  const askedFor = useRef(false);
+  useEffect(() => {
+    if (askedFor.current) return;
+    askedFor.current = true;
+    const id = takeOpening();
+    if (id === null || tree.view.keys.length > 0) return;
+    const o = OPENINGS.find((x) => x.id === id);
+    if (o) openOpening(o);
+    // `openOpening` is stable enough for a once-only effect and re-running this
+    // is precisely what the one-shot above forbids, so the deps are empty on
+    // purpose rather than by omission.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /**
    * The sequence has ended: pay the answer.

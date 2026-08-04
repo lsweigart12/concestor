@@ -37,7 +37,7 @@ import { api, type About as AboutPayload } from "../api";
 import { Silhouette } from "../canvas/Silhouette";
 import { SPECIES_PHRASE } from "../corpora";
 import { OPENINGS } from "../openings";
-import { leaveAbout } from "../route";
+import { leaveAbout, requestOpening } from "../route";
 import { saveBiolum } from "../state/store";
 import { kbd } from "./bindings";
 
@@ -271,9 +271,42 @@ export function AboutPage() {
             video, or the question you just thought of.
           </p>
           <SilhouetteStream />
+          {/*
+            Two doors, and the second is the one a stranger takes.
+
+            "Draw a tree" asks somebody who has read four paragraphs about a
+            tool to now think of a species, which is the same thing the empty
+            canvas used to ask and the reason the openings exist at all. This
+            one asks for nothing: it hands the canvas a question and the canvas
+            builds the answer a taxon at a time, through the ordinary code path
+            — `state/sequence.ts`, no recording, no scripted fake.
+
+            It is the *first* opening rather than a menu of them, because a
+            choice here is another thing to do before anything happens, and
+            `openings.ts` has already ranked these by pull on a first-time
+            visitor and put *Are you a fish?* at the top and kept it there.
+
+            Second in the DOM and visually secondary, because a reader who
+            already knows what they want should not have to step over a demo to
+            get to the canvas.
+          */}
           <div className="hero-actions">
             <button type="button" className="btn btn-hero" onClick={leaveAbout}>
               Draw a tree
+            </button>
+            <button
+              type="button"
+              className="btn"
+              onClick={() => {
+                const first = OPENINGS[0];
+                if (first) requestOpening(first.id);
+                leaveAbout();
+              }}
+            >
+              Watch it build one
+              <span className="carousel-go-arrow" aria-hidden="true">
+                →
+              </span>
             </button>
           </div>
         </section>

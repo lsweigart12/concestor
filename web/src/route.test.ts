@@ -13,8 +13,9 @@
  * silent: `/about-the-data` would render this page, and so would any future
  * route beginning with those six characters.
  */
-import { describe, expect, it } from "vitest";
-import { ABOUT_PATH, routeOf } from "./route";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ABOUT_PATH, requestOpening, routeOf, takeOpening } from "./route";
+import { OPENINGS } from "./openings";
 
 describe("routeOf", () => {
   it("routes the about path, with or without a trailing slash", () => {
@@ -42,5 +43,61 @@ describe("routeOf", () => {
     // safe answer — the reader sees a working app rather than a page whose URL
     // they cannot reproduce.
     expect(routeOf("/About")).toBe("app");
+  });
+});
+
+/**
+ * The about page's request that the canvas draw something.
+ *
+ * One shot, and the clearing is the whole of it. The failure it prevents is
+ * not hypothetical: `leaveAbout` is usually `history.back()`, so the reader
+ * who watches a tree build is one gesture away from re-mounting the canvas —
+ * and a request that survived being answered would rebuild the demonstration
+ * on top of whatever they had assembled since, forever, in that tab.
+ */
+describe("the opening handoff", () => {
+  // `route.ts` reads `window.sessionStorage` where `store.ts` reads the bare
+  // global, so this stubs the window rather than the storage — the same
+  // `vi.stubGlobal` idiom `store.test.ts` uses, one level out.
+  beforeEach(() => {
+    const held = new Map<string, string>();
+    vi.stubGlobal("window", {
+      sessionStorage: {
+        getItem: (k: string) => held.get(k) ?? null,
+        setItem: (k: string, v: string) => void held.set(k, v),
+        removeItem: (k: string) => void held.delete(k),
+      },
+    });
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("answers once and then has nothing to say", () => {
+    requestOpening("fish");
+    expect(takeOpening()).toBe("fish");
+    expect(takeOpening()).toBeNull();
+  });
+
+  it("is null when nobody asked", () => {
+    expect(takeOpening()).toBeNull();
+  });
+
+  it("keeps only the latest request", () => {
+    // Two presses on the about page before the navigation lands is one
+    // intention, not a queue.
+    requestOpening("fish");
+    requestOpening("hyena");
+    expect(takeOpening()).toBe("hyena");
+    expect(takeOpening()).toBeNull();
+  });
+
+  it("names an opening that exists", () => {
+    // The id is a string crossing a storage boundary, so nothing types it.
+    // `App.tsx` looks it up and does nothing when the lookup fails, which is
+    // the correct behaviour for a stale key left by an older build — but the
+    // id this ships with had better resolve today.
+    const first = OPENINGS[0];
+    expect(first).toBeTruthy();
+    requestOpening(first!.id);
+    expect(OPENINGS.find((o) => o.id === takeOpening())).toBe(first);
   });
 });
