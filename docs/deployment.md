@@ -123,6 +123,23 @@ names the trap it hid it with.** Measured against
 | `/v1/search?q=whale` | 49–166 ms |
 | `/v1/path/ott770315` | 39–114 ms |
 
+**And what replaced it**, measured the same way once the pool endpoint was
+live, on a warm container. The cache-busted rows force `cf-cache-status: MISS`
+so the figure is the container's and not the edge's:
+
+| Endpoint, in production on `standard-1` | observed |
+|---|---:|
+| `/v1/random-pool/{build_id}`, from the container | **114–166 ms** |
+| `/v1/random-pool/{build_id}`, from the edge | 46–54 ms |
+| `/v1/search?q=whale`, same conditions | 97–252 ms |
+
+So the endpoint that was 10–30× everything else is now the same order as a
+search, and the 114 KB it returns is the reason it is not faster still. **Do
+not read the first request after a deploy as either figure**: that one was
+11.5 s, and it is the container's own cold start landing on whichever request
+arrives first — a real reader never pays it here, because `/v1/about` fires on
+page load and absorbs it before anybody presses `R`.
+
 So the most expensive endpoint in the app **by 10–30×** was written down here
 at 167 ms, for exactly the reason the unindexed `fossil` scan was: the figure
 came off the machine the pipeline runs on, the work is CPU-bound — two full

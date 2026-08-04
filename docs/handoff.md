@@ -908,9 +908,19 @@ things not to redo come out of that:
 - **The warm-up logs its own duration, and that is the point.** `random pool
   warmed nodes=… fossils=… took=…` is currently the only figure this project
   has for what anything costs on `standard-1`, and it exists because §7 records
-  that nothing measures the deployed API. Read it out of Workers Logs rather
-  than estimating it from a laptop again — estimating it from a laptop is what
+  that nothing measures the deployed API. Estimating it from a laptop is what
   this whole entry is about.
+- **It is on the Containers dashboard and *not* in Workers Logs**, and that
+  sentence was written the wrong way round in three files before anybody
+  checked it. The two are different streams: the container writes to stdout,
+  Workers Logs holds the Worker's own invocation logs. The check that settles
+  it is cheap and worth repeating before trusting any claim of this shape —
+  query `dataset loaded`, a line the binary emits on every single start, across
+  the whole account for the window around a deploy. It returns **zero**. The
+  container's output is under Workers & Pages → Containers → Logs, which since
+  2026-04-21 shows the correlated Worker and Durable Object lines beside it.
+  Nor can it be forwarded: the container starts on its own, with no Worker
+  invocation to log from.
 - **The client still fetches it lazily**, on the first press and not at boot —
   the server-side warm-up is what makes that cheap, and moving the client to a
   boot fetch would put 40 KB on every page load for a command most readers never
@@ -3463,10 +3473,16 @@ amounted to, done twice, by accident.
   **One instrument exists now and it is worth knowing about, because it is not
   a general one.** `server/main.go`'s pool warm-up logs `random pool warmed …
   took=…` on every container start, so the cost of those two scans on
-  `standard-1` is a number anybody can read out of Workers Logs instead of
-  estimating from a laptop. That is one query, measured because it was the one
-  that burned us; every other endpoint is still unmeasured in production, and a
-  single instrumented line is not a latency budget.
+  `standard-1` is a number somebody can read rather than estimate. That is one
+  query, instrumented because it was the one that burned us; every other
+  endpoint is still unmeasured in production, and a single line is not a
+  latency budget.
+
+  Read it under **Workers & Pages → Containers → Logs**. It is *not* in Workers
+  Logs, which holds the Worker's invocation logs and not the container's
+  stdout — this doc said otherwise for one commit, on an assumption nobody had
+  tested, which is a small instance of exactly the failure this section is
+  about.
 
 **And the random pool is a payload that grows with the corpus.** 114 KB of
 JSON today, 34 KB gzipped, fetched whole on the first press of `R` and cached

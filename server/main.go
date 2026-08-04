@@ -130,7 +130,18 @@ func run() error {
 	// that no check measures the deployed API, and both expensive endpoints
 	// this project has found were found by hand — so the one number that says
 	// what these scans cost on `standard-1` has to come from the container
-	// itself. Read it out of Workers Logs rather than estimating it again.
+	// itself.
+	//
+	// **Read it on the Containers dashboard, not in Workers Logs**, and the
+	// distinction cost a wrong sentence in three files before it was checked.
+	// This process writes to stdout; Workers Logs holds the *Worker's*
+	// invocation logs, which is a different stream. Queried over the whole
+	// account for the 45 minutes around a deploy, `dataset loaded` — a line
+	// this binary certainly emits on every start — returns **zero** rows there.
+	// Container stdout surfaces under Workers & Pages → Containers → Logs,
+	// which since 2026-04-21 also correlates the Worker and Durable Object
+	// lines beside it. Nothing here can push it into Workers Logs either: the
+	// container starts on its own, with no Worker invocation to log from.
 	go func() {
 		t := time.Now()
 		pool, err := st.RandomPool(ctx)
