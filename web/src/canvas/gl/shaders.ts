@@ -11,6 +11,8 @@
  *              full-resolution HDR light buffer. Position is a pure function of
  *              (index, time) — no state, nothing read back, which is the whole
  *              reason a branch can carry thousands of them
+ *   screen     the same buffer, for the one state that has no branches: the
+ *              empty canvas's own invitation, lighting the water it sits in
  *   down/blur  that buffer halved three times and blurred: the **vicinity
  *              field**. "How much light is near here, and what colour" becomes
  *              one texture fetch, which is what makes the snow affordable
@@ -236,6 +238,55 @@ void main(){
   float core = pow(max(0.0, 1.0 - d), 4.0);
   float halo = pow(max(0.0, 1.0 - d), 1.6) * 0.14;
   o = vec4((vTint * halo + mix(vTint, vec3(1.0), 0.45) * core) * vA, 1.0);
+}`,
+};
+
+/**
+ * The empty state's lights: the same buffer again, in screen space.
+ *
+ * A mark is at a place in the tree, so it takes `uView` and pans with it. These
+ * are at a place on the *glass* — the wordmark, the opening card, the row of
+ * silhouettes on it — so they take a position and a radius in device pixels and
+ * nothing else. `tuning.ts`'s `SCREEN_*` block is why they are allowed to emit
+ * at all, and `bootLight.ts` is what decides where they are and what they are
+ * worth.
+ *
+ * Elliptical, because the things they sit behind are: a wordmark is wide and
+ * one line tall and a disc large enough to reach its ends is a disc four times
+ * taller than the word. One `vec2` radius, and `length(vUV)` then measures
+ * distance in the ellipse's own units, so the falloff is unchanged.
+ */
+export const screen = {
+  vs: COMMON + /* glsl */ `
+layout(location=0) in vec2 corner;
+layout(location=1) in vec4 geom;   // x, y, rx, ry — device px, canvas-local
+layout(location=2) in vec4 lit;    // hue, power, seed, spare
+uniform vec2 uRes; uniform float uT;
+out vec2 vUV; out vec3 vTint; out float vA;
+void main(){
+  // Each on its own clock. One rate across the set is a pulse, and a pulse is
+  // something a reader starts counting.
+  float rate = ${f(T.SCREEN_RATE_MIN)} + lit.z * ${f(T.SCREEN_RATE_SPAN)};
+  float breathe = 1.0 - ${f(T.SCREEN_BREATHE)} * (0.5 - 0.5 * cos(6.28318 * (uT * rate + lit.z)));
+  vTint = laneRGB(lit.x, ${f(T.SCREEN_SAT)});
+  vA = lit.y * breathe;
+  vUV = corner;
+  vec2 c = (geom.xy + corner * geom.zw) / uRes * 2.0 - 1.0;
+  gl_Position = vec4(c.x, -c.y, 0.0, 1.0);
+}`,
+  fs: /* glsl */ `
+in vec2 vUV; in vec3 vTint; in float vA; out vec4 o;
+void main(){
+  float d = length(vUV);
+  if (d > 1.0) discard;
+  float k = 1.0 - d;
+  // A mark's profile at a mark's proportions would be a hard dot in a wide
+  // wash. Softened at both ends: the core is broad enough to be a *lit region*
+  // rather than a point, and the halo reaches the rim so the light has no edge
+  // for the eye to find.
+  float core = pow(k, ${f(T.SCREEN_CORE)});
+  float halo = pow(k, ${f(T.SCREEN_HALO)}) * ${f(T.SCREEN_HALO_GAIN)};
+  o = vec4((vTint * halo + mix(vTint, vec3(1.0), ${f(T.SCREEN_CORE_WHITE)}) * core) * vA, 1.0);
 }`,
 };
 

@@ -4306,6 +4306,41 @@ body.biolum .palette-fab {
 }
 
 /*
+ * The opening card, in the deep sea, is glass.
+ *
+ * This is the one rule the empty canvas's light needs from the stylesheet, and
+ * without it the whole feature is invisible. `canvas/bootLight.ts` puts a light
+ * behind each silhouette on this card, in the same buffer the branches use — so
+ * the marine snow drifting past picks them up and takes their hue — and the
+ * card was `background: var(--void-2)`, fully opaque, sitting on top of the
+ * water canvas. Every one of those lights was drawn, blurred into the vicinity
+ * field, lighting snow *outside* the card's footprint, and hidden behind an
+ * opaque rectangle for the whole of its own extent.
+ *
+ * Translucent rather than removed, because the card still has to be an object
+ * at rest — `.carousel-card` above is the note about why it stopped being
+ * transparent, and a reader who takes the front door for a caption is the
+ * failure that fixed. What changes here is the material and not the shape: the
+ * step and the hairline are both still there, and what comes through them is
+ * the light of the animals printed on it. Which is the same reading the
+ * branches already have in this mode, where the tube is glass and what a reader
+ * sees along it is the stream inside.
+ *
+ * The silhouettes themselves stay dark and are *not* given a glow of their own.
+ * A shape in front of its own light is a silhouette, which is what these are;
+ * a shape that emits is a lamp in the shape of an animal.
+ */
+body.biolum .carousel-card {
+  background: hsl(200 50% 7% / 0.42);
+  border-color: hsl(188 60% 55% / 0.2);
+}
+body.biolum .carousel-card:hover,
+body.biolum .carousel-card:focus-visible {
+  background: hsl(200 50% 9% / 0.5);
+  border-color: hsl(188 60% 55% / 0.42);
+}
+
+/*
  * The canvas-mode chips, bottom left, above the axis.
  *
  * Three of them — labels, ages, bioluminescence — in one column, because they
@@ -4771,14 +4806,47 @@ body.biolum .palette-fab {
   .palette-fab-tip {
     display: block;
   }
-  /* The empty canvas loses a column rather than folding into two rows.
+}
 
-     Stacked, the badges were the first thing under the carousel on a device
-     with no keyboard to press them with — the same offer this width already
-     takes off the canvas when it hides the control bar, made twice. What is
-     left is the one way out of this screen that a thumb can take, and with
-     nothing beside it there is no rule to draw and no reason to sit off the
-     centre line. */
+/*
+ * The empty canvas loses a column rather than folding into two rows.
+ *
+ * Below 620px, because the badges were the first thing under the carousel on a
+ * device with no keyboard to press them with — the same offer that width
+ * already takes off the canvas when it hides the control bar, made twice. What
+ * is left is the one way out of this screen that a thumb can take, and with
+ * nothing beside it there is no rule to draw and no reason to sit off the
+ * centre line.
+ *
+ * And in one small band above it, for a different reason that lands on the same
+ * answer: **this is where the empty canvas's own switch would be drawn through
+ * the keys column.** `.canvas-modes.is-lone` is one chip pinned above the axis
+ * at the left, so its box is fixed at about 128px wide and 52px tall ending
+ * some 110px off the bottom, while the block is centred in the whole viewport
+ * and its last row is the keys. Measured, they meet when the block's own bottom
+ * passes the chip's top and the keys column's left edge passes the chip's right
+ * — `vh` under about 694 and `vw` under about 678 — and at 628×600 the caption
+ * ran under the `R` badge and the switch under the `P`.
+ *
+ * The bounds below carry about forty pixels of slack over both measurements,
+ * and the slack is the point rather than timidity: the keys column's left edge
+ * is `vw/2` minus half the width of a row of copy this file does not own, so a
+ * longer phrase in `App.tsx` walks it leftward into the switch. Forty pixels is
+ * roughly eighty characters' worth of growth. What the slack costs is the
+ * column being dropped on a window where it would have cleared by an inch,
+ * which is a window that is *both* under 740 wide and under 740 tall.
+ *
+ * The keys column is what gives way rather than the switch, and it costs
+ * nothing here: at any width in this band the **control bar is drawn**, and it
+ * is already offering `P commands`, `S search` and `R random` as buttons at the
+ * top of the same screen. Below 620px it is not, which is why that width takes
+ * the column away for the opposite reason. `Graph.tsx` has the rest of the
+ * argument, including why reserving a shelf in `.boot`'s padding was refused
+ * again: at 628×600 the bar, the block, the shelf and the axis fit the window
+ * exactly and only a top-aligned block finds that layout, which would move the
+ * invitation on every window to rescue one.
+ */
+@media (max-width: 620px), (max-width: 740px) and (max-height: 740px) {
   .boot-keys {
     display: none;
   }

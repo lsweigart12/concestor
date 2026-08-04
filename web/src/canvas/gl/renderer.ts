@@ -14,7 +14,8 @@
  *
  * Six passes, and the second is the one that matters:
  *
- *   1. every emitter into a full-resolution HDR light buffer, additively
+ *   1. every emitter into a full-resolution HDR light buffer, additively —
+ *      the rivers, the marks, and on an empty canvas the invitation itself
  *   2. that buffer halved three times and blurred — the **vicinity field**
  *   3. snow, reading the field at its own position for brightness and hue
  *   4. the light itself, plus the field as bloom
@@ -68,6 +69,32 @@ export interface MarkLight {
   flareAt?: number | undefined;
 }
 
+/**
+ * A light fixed to the glass rather than to the tree, with a radius of its own.
+ *
+ * The counterpart to {@link MarkLight}, and the difference is the whole of what
+ * it is for: a mark is at a place in the tree and pans with it, and this is at
+ * a place on the screen. It exists because the empty canvas has no tree and is
+ * not therefore blank — `tuning.ts`'s `SCREEN_*` block carries the argument and
+ * `bootLight.ts` decides where these are and what they are worth.
+ *
+ * Positions and radii are **canvas-local CSS pixels**; the renderer scales them
+ * by its own dpr, exactly as it does the viewport transform.
+ */
+export interface ScreenLight {
+  x: number;
+  y: number;
+  /** Half-extents. Elliptical, because a wordmark is not a disc. */
+  rx: number;
+  ry: number;
+  hue: number;
+  power: number;
+  /** 0..1, and the only thing separating two lights' breathing. */
+  seed: number;
+  /** When this light first appeared, or undefined for one that was always on. */
+  bornAt?: number | undefined;
+}
+
 export interface View {
   tx: number;
   ty: number;
@@ -92,8 +119,10 @@ export class BiolumRenderer {
   private quad!: WebGLBuffer;
   private vaQuad!: WebGLVertexArrayObject;
   private vaMarks!: WebGLVertexArrayObject;
+  private vaScreen!: WebGLVertexArrayObject;
   private vaGlass!: WebGLVertexArrayObject;
   private bMarks!: WebGLBuffer;
+  private bScreen!: WebGLBuffer;
   private bGlass!: WebGLBuffer;
   private bGlassN!: WebGLBuffer;
   private bGlassB!: WebGLBuffer;
@@ -114,6 +143,7 @@ export class BiolumRenderer {
   private pathBuf = new Float32Array(0);
   private metaBuf = new Float32Array(0);
   private markBuf = new Float32Array(0);
+  private screenBuf = new Float32Array(0);
   private glassCount = 0;
   /** Whether the last uploaded centreline carried a strum displacement. */
   private bent = false;
@@ -195,7 +225,7 @@ export class BiolumRenderer {
       `deleteShader` on an attached shader is a *flag*: the object lives until
       the last program holding it is deleted, and then goes with it. Doing it
       now is what makes `deleteProgram` sufficient later — left undone, the
-      eight programs' sixteen shaders are merely detached at teardown and stay
+      programs' two shaders each are merely detached at teardown and stay
       alive in a context that is deliberately never lost, so every toggle of the
       mode adds sixteen more.
     */
@@ -221,6 +251,7 @@ export class BiolumRenderer {
       marks: this.program(S.marks.vs, S.marks.fs),
       down: this.program(S.down.vs, S.down.fs),
       blur: this.program(S.blur.vs, S.blur.fs),
+      screen: this.program(S.screen.vs, S.screen.fs),
       snow: this.program(S.snow.vs, S.snow.fs),
       glass: this.program(S.glass.vs, S.glass.fs),
       compose: this.program(S.compose.vs, S.compose.fs),
@@ -247,6 +278,23 @@ export class BiolumRenderer {
     gl.enableVertexAttribArray(1);
     gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 0, 0);
     gl.vertexAttribDivisor(1, 1);
+
+    // Eight floats an instance, in two vec4s: (x, y, rx, ry) and
+    // (hue, power, seed, spare). A radius per light is the reason this cannot
+    // simply be another row in the mark buffer.
+    this.bScreen = gl.createBuffer()!;
+    this.vaScreen = gl.createVertexArray()!;
+    gl.bindVertexArray(this.vaScreen);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.quad);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.bScreen);
+    gl.enableVertexAttribArray(1);
+    gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 32, 0);
+    gl.vertexAttribDivisor(1, 1);
+    gl.enableVertexAttribArray(2);
+    gl.vertexAttribPointer(2, 4, gl.FLOAT, false, 32, 16);
+    gl.vertexAttribDivisor(2, 1);
 
     this.bGlass = gl.createBuffer()!;
     this.bGlassN = gl.createBuffer()!;
@@ -467,6 +515,37 @@ export class BiolumRenderer {
     return marks.length;
   }
 
+  /**
+   * The empty state's lights, in device pixels.
+   *
+   * The kindle is applied here rather than in the shader for the reason
+   * `tuning.ts` gives: it is keyed to *when a particular thing appeared*, and a
+   * vertex shader has no identity to hang that on. A light with no `bornAt` is
+   * simply at full, which is what the still frame relies on.
+   */
+  private uploadScreen(lights: readonly ScreenLight[], now: number): number {
+    const gl = this.gl;
+    if (lights.length === 0) return 0;
+    if (this.screenBuf.length < lights.length * 8) {
+      this.screenBuf = new Float32Array(Math.max(16, lights.length * 2) * 8);
+    }
+    for (let i = 0; i < lights.length; i++) {
+      const l = lights[i]!;
+      const o = i * 8;
+      this.screenBuf[o] = l.x * this.dpr;
+      this.screenBuf[o + 1] = l.y * this.dpr;
+      this.screenBuf[o + 2] = l.rx * this.dpr;
+      this.screenBuf[o + 3] = l.ry * this.dpr;
+      this.screenBuf[o + 4] = l.hue;
+      this.screenBuf[o + 5] = l.power * T.kindle(l.bornAt, now);
+      this.screenBuf[o + 6] = l.seed;
+      this.screenBuf[o + 7] = 0;
+    }
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.bScreen);
+    gl.bufferData(gl.ARRAY_BUFFER, this.screenBuf.subarray(0, lights.length * 8), gl.DYNAMIC_DRAW);
+    return lights.length;
+  }
+
   private bind(t: Target | null): void {
     const gl = this.gl;
     gl.bindFramebuffer(gl.FRAMEBUFFER, t ? t.fbo : null);
@@ -487,7 +566,13 @@ export class BiolumRenderer {
   }
 
   /** One frame. `t` is seconds since the mode came on; `now` is `performance.now()`. */
-  frame(t: number, now: number, view: View, marks: readonly MarkLight[]): void {
+  frame(
+    t: number,
+    now: number,
+    view: View,
+    marks: readonly MarkLight[],
+    screen: readonly ScreenLight[] = [],
+  ): void {
     if (this.lost || this.w === 0) return;
     const gl = this.gl;
     const n = this.sources.length;
@@ -508,6 +593,7 @@ export class BiolumRenderer {
       this.uploadMeta(now);
     }
     const nMarks = this.uploadMarks(marks, now);
+    const nScreen = this.uploadScreen(screen, now);
 
     gl.disable(gl.DEPTH_TEST);
     gl.enable(gl.BLEND);
@@ -536,6 +622,21 @@ export class BiolumRenderer {
       gl.uniform2f(m.u("uRes"), this.w, this.h);
       gl.uniform3f(m.u("uView"), view.tx * this.dpr, view.ty * this.dpr, view.zoom * this.dpr);
       gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, nMarks);
+    }
+    /*
+      Into the same buffer, and that is the entire integration.
+
+      Nothing downstream is told these exist: the snow reads the vicinity field
+      and twinkles beside them, the compose pass blooms them, the tone map rolls
+      them off. It is the same property that makes a plucked branch brighten the
+      water without the snow being informed of the pluck.
+    */
+    if (nScreen > 0) {
+      const s = this.use("screen");
+      gl.bindVertexArray(this.vaScreen);
+      gl.uniform2f(s.u("uRes"), this.w, this.h);
+      gl.uniform1f(s.u("uT"), t);
+      gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, nScreen);
     }
 
     /* 2. the vicinity field: box down, then blur */
@@ -628,11 +729,13 @@ export class BiolumRenderer {
     gl.deleteTexture(this.metaTex);
     gl.deleteBuffer(this.quad);
     gl.deleteBuffer(this.bMarks);
+    gl.deleteBuffer(this.bScreen);
     gl.deleteBuffer(this.bGlass);
     gl.deleteBuffer(this.bGlassN);
     gl.deleteBuffer(this.bGlassB);
     gl.deleteVertexArray(this.vaQuad);
     gl.deleteVertexArray(this.vaMarks);
+    gl.deleteVertexArray(this.vaScreen);
     gl.deleteVertexArray(this.vaGlass);
     for (const name of Object.keys(this.passes)) gl.deleteProgram(this.passes[name]!.p);
     /*

@@ -168,6 +168,64 @@ cleanup has cancelled its timers — press `B` mid-draw with the toggle in the
 array and `onDeltaPlayed` never fires, leaving the delta open and the flare
 stuck on the canvas.
 
+## 6b. The empty canvas
+
+**The mode is on before there is a tree, and the invitation is what lights it.**
+
+The rule this mode is built on was written down as *the graph is the only light
+source*, and for one state that was a claim about the graph being read as a
+claim about the canvas. The empty canvas is not blank: it carries the wordmark,
+an opening card and a row of silhouettes, and those are the thing on the canvas
+in the one state where there is no graph. So the rule is stated in its general
+form now — **the thing on the canvas is the light source** — and the empty state
+emits under it. Draw one species and the invitation unmounts, the light list
+goes empty, and the tree is the only light again. **The two lists are never both
+non-empty**; that is what keeps this from being a second source.
+
+The boundary is that **chrome does not emit**: not the control bar, not the mode
+panel holding the switch, not the axis, not the palette, not the keys column or
+the about link at the foot of the panel. Three sources, each something the
+reader is being invited *into* — the wordmark (soft, wide, the app's own cyan),
+each silhouette on the card (the bright ones, each in a lane hue, because these
+are animals and animals are what glow here), and the card itself (the faintest
+by a factor of nine, reaching two hundred pixels past its own edge, because its
+job is not to be seen as a light but to give the marine snow somewhere to be
+visible over).
+
+They go into the **same HDR buffer** as the rivers, so nothing downstream was
+told they exist: the snow twinkles beside them and takes their hue, the compose
+pass blooms them, the tone map rolls them off. One extra pass in `shaders.ts`,
+screen-space, elliptical, with a radius per light — a mark is at a place in the
+tree and pans with it; a wordmark is at a place on the glass.
+
+Four things not to redo:
+
+- **The DOM is the contract.** The lights are measured out of the live panel by
+  CSS selector, because `App.tsx` and `OpeningCarousel.tsx` own that markup and
+  neither knows this exists. What it costs is a failure that is silent — a
+  renamed class yields no boxes and the canvas is exactly as dark as it was
+  before — so `bootLight.test.ts` reads all three source files and proves every
+  class named is a class somebody still applies.
+- **The opening card had to become glass**, and without that rule none of this
+  is visible. It was `var(--void-2)`, fully opaque, sitting on top of the water
+  canvas: every light behind a silhouette was computed, blurred into the
+  vicinity field, lighting snow *outside* the card, and hidden for the whole of
+  its own extent. Same reading the branches already have here, where the tube is
+  glass and what you see along it is the stream inside.
+- **Power is two orders of magnitude below a mark's, and has to be.** A mark is
+  fourteen pixels across and these are sixty to six hundred, so a leaf's 0.8
+  here is a white panel with a straight edge where the ellipse ends. Saturation
+  went the other way, to the river's 0.82, because four overlapping area lights
+  sum past white long before any one of them is bright — at a sensible-looking
+  0.66 the whole panel came out grey.
+- **The panel is one chip, not three.** `labels` and `ages` annotate marks and
+  still have no business here; only the light does. That is a *shorter* panel,
+  and its collision with the invitation was re-measured rather than assumed: it
+  meets the keys column below about 678px wide and 694 tall, where the keys
+  column gives way — the control bar above is already offering the same three
+  presses as buttons at that width. Below 620px nothing changes: no panel, no
+  switch, and the palette behind the one round button still carries `B`.
+
 ## 7. What did not change
 
 The dash pattern, the tier desaturation, the draw-on animation, the 16px hit
@@ -192,6 +250,7 @@ web/src/canvas/gl/shaders.ts   GLSL, assembled from those constants
 web/src/canvas/gl/renderer.ts  the six passes
 web/src/canvas/Water.tsx       the mount and the loop
 web/src/canvas/flow.ts         the branch registry and tierBrightness
+web/src/canvas/bootLight.ts    what the empty canvas emits, and why it may
 ```
 
 **Shaders may not contain a number that is not imported from `tuning.ts`.** GLSL
@@ -207,4 +266,5 @@ field sized for a laptop is a quarter as dense on a large display, which is
 where a slow rain stops reading as weather and starts reading as dust on the
 screen. Below 620px the mode panel is not drawn, so the switch does not exist on
 a phone; without WebGL2 it is not offered either, because a switch that turns
-the canvas black is worse than no switch.
+the canvas black is worse than no switch. Both of those hold on the empty
+canvas too — §6b changes which chips are drawn there, never the terms.

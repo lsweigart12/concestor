@@ -3,9 +3,19 @@
  *
  * Behind React Flow rather than over it, so the tree's names are always in
  * front and a flake never sits on top of a word. It paints no background of its
- * own beyond the deep water itself — with nothing on the canvas there is
- * nothing lit, because the only things that emit here are the branches and the
- * marks.
+ * own beyond the deep water itself: everything visible on it came from
+ * something that is *on the canvas*, and nothing in the background emits.
+ *
+ * This header used to end that sentence differently — *with nothing on the
+ * canvas there is nothing lit, because the only things that emit here are the
+ * branches and the marks* — and that was a claim about the graph being read as
+ * a claim about the canvas. The empty canvas is not blank. It carries the
+ * wordmark, an opening and a row of silhouettes, and those are what is on the
+ * canvas in the one state where there is no graph, so they emit too. The rule
+ * is unchanged and is now stated in its general form: **the thing on the canvas
+ * is the light source.** `bootLight.ts` is the list, and the reason the labels
+ * and ages switches still have no business on an empty canvas while this one
+ * does.
  *
  * **The snow emits nothing at all.** That is the change this mode is built
  * around and it is worth being exact about: the old field's particles left a
@@ -31,7 +41,7 @@
 import { useEffect, useRef } from "react";
 import type { Emitter } from "./biolum";
 import { flowGeneration, flowSources, surgeOf } from "./flow";
-import { BiolumRenderer, type MarkLight } from "./gl/renderer";
+import { BiolumRenderer, type MarkLight, type ScreenLight } from "./gl/renderer";
 
 export interface WaterProps {
   /** Live viewport transform: the tree's light lives in layout space. */
@@ -40,11 +50,20 @@ export interface WaterProps {
   zoom: number;
   /** The marks currently leaking light. Rebuilt by the layout pass. */
   emitters: readonly Emitter[];
+  /**
+   * The empty state's lights, in **viewport** CSS px — see `bootLight.ts`.
+   *
+   * Empty whenever a tree is drawn, which is what keeps the tree the only light
+   * source in every state that has one. They are measured against the window,
+   * so this component subtracts its own canvas origin below rather than asking
+   * the measurement to know where the canvas is.
+   */
+  lights: readonly ScreenLight[];
   active: boolean;
   reduced: boolean;
 }
 
-export function Water({ tx, ty, zoom, emitters, active, reduced }: WaterProps) {
+export function Water({ tx, ty, zoom, emitters, lights, active, reduced }: WaterProps) {
   const ref = useRef<HTMLCanvasElement>(null);
   /*
     The transform and the emitter list are read from refs inside the loop rather
@@ -57,6 +76,8 @@ export function Water({ tx, ty, zoom, emitters, active, reduced }: WaterProps) {
   view.current = { tx, ty, zoom };
   const emit = useRef(emitters);
   emit.current = emitters;
+  const lit = useRef(lights);
+  lit.current = lights;
 
   useEffect(() => {
     const cv = ref.current;
@@ -82,8 +103,22 @@ export function Water({ tx, ty, zoom, emitters, active, reduced }: WaterProps) {
     let clock = 0;
     let last = performance.now();
 
+    /*
+      Where this canvas sits in the window.
+
+      Zero today — `.canvas` is `position: fixed; inset: 0` — and read anyway,
+      because the empty state's lights are measured with
+      `getBoundingClientRect`, which is viewport-relative, and a renderer that
+      assumed the two origins coincide would be wrong silently and only on the
+      day somebody insets the canvas.
+    */
+    let originX = 0;
+    let originY = 0;
+
     const resize = () => {
       const r = cv.getBoundingClientRect();
+      originX = r.left;
+      originY = r.top;
       renderer.resize(Math.max(1, r.width), Math.max(1, r.height));
     };
     resize();
@@ -94,6 +129,12 @@ export function Water({ tx, ty, zoom, emitters, active, reduced }: WaterProps) {
       for (const e of emit.current) {
         marks.push({ x: e.x, y: e.y, hue: e.hue, power: e.power, flareAt: e.flareAt?.() });
       }
+    };
+
+    const screen: ScreenLight[] = [];
+    const syncScreen = () => {
+      screen.length = 0;
+      for (const l of lit.current) screen.push({ ...l, x: l.x - originX, y: l.y - originY });
     };
 
     const draw = () => {
@@ -108,7 +149,8 @@ export function Water({ tx, ty, zoom, emitters, active, reduced }: WaterProps) {
         );
       }
       syncMarks();
-      renderer.frame(clock, performance.now(), view.current, marks);
+      syncScreen();
+      renderer.frame(clock, performance.now(), view.current, marks, screen);
     };
 
     const tick = (now: number) => {
@@ -161,26 +203,41 @@ export function Water({ tx, ty, zoom, emitters, active, reduced }: WaterProps) {
         its branch unlit; removing one left a river hanging in the water. Only
         resizing the window recovered it.
 
-        So the poll never stops. It compares the two things that can change what
-        should be drawn — which branches are registered, and which marks are
-        emitting — and redraws on a change and on nothing else. The clock never
-        advances, so the picture is identical each time: still, and current.
+        So the poll never stops. It compares the three things that can change
+        what should be drawn — which branches are registered, which marks are
+        emitting, and what the empty state has put in the water — and redraws on
+        a change and on nothing else. The clock never advances, so the picture is
+        identical each time: still, and current.
+
+        The third of those is why `bootLight.ts` publishes a *stable identity*
+        when nothing has moved: a fresh array every measurement would make this
+        comparison always false and turn the still frame back into an animation
+        driven by a carousel.
 
         It also has to be a *retry* rather than a single draw, because on a cold
         load carrying the mode on the paths are still in flight when this effect
         runs and there is nothing registered yet. The clock is held at a figure
         that puts the rivers mid-branch rather than at zero, where every branch
-        would be empty at its descendant end.
+        would be empty at its descendant end — and which also settles the
+        empty state's breathing somewhere other than the bottom of its stroke.
       */
       clock = 7.3;
       let lastGen = -1;
       let lastMarks: readonly Emitter[] | null = null;
+      let lastLights: readonly ScreenLight[] | null = null;
       const settle = () => {
         const gen = flowGeneration();
-        if (gen === lastGen && emit.current === lastMarks) return;
-        if (flowSources().length === 0 && emit.current.length === 0) return;
+        if (gen === lastGen && emit.current === lastMarks && lit.current === lastLights) return;
+        if (
+          flowSources().length === 0 &&
+          emit.current.length === 0 &&
+          lit.current.length === 0
+        ) {
+          return;
+        }
         lastGen = gen;
         lastMarks = emit.current;
+        lastLights = lit.current;
         draw();
       };
       const poll = window.setInterval(settle, 250);
