@@ -37,7 +37,7 @@ import { api, type About as AboutPayload } from "../api";
 import { Silhouette } from "../canvas/Silhouette";
 import { SPECIES_PHRASE } from "../corpora";
 import { OPENINGS } from "../openings";
-import { leaveAbout, requestOpening } from "../route";
+import { leaveAbout } from "../route";
 import { saveBiolum } from "../state/store";
 import { kbd } from "./bindings";
 
@@ -148,8 +148,7 @@ function Features() {
       <li className="feature">
         <h3 className="feature-h">Any of {SPECIES_PHRASE}</h3>
         <p className="feature-p">
-          Searched by the name you actually call it — <em>dog</em>,{" "}
-          <em>T. rex</em>, <em>oak</em> — not just the binomial.
+          Searched by the name you actually call it.  No struggling to spell <em>tyrannosaurus</em>.
         </p>
       </li>
       <li className="feature">
@@ -290,66 +289,39 @@ export function AboutPage() {
             already knows what they want should not have to step over a demo to
             get to the canvas.
           */}
-          <div className="hero-actions">
-            <button type="button" className="btn btn-hero" onClick={leaveAbout}>
-              Draw a tree
-            </button>
+          {/*
+            The hero's one action, and it is the light.
+
+            It replaced two — *Draw a tree* and *Watch it build one* — which
+            were the same offer written twice: both returned to the canvas, the
+            page bar above already says "Back to the tree", and the footer says
+            it a third time. A reader counting doors on a page about a tree of
+            life should be counting one.
+
+            The one that stayed is the one that is not just a door. Every other
+            claim on this page is about what the canvas *knows*; this is the
+            only thing here about what it *looks* like, and it is the reason the
+            product gets shown to somebody rather than described to them. It
+            still lands on the canvas, so nothing was lost by dropping the
+            plainer button — it lands there lit.
+
+            The words are three and stop: `openings.ts` records that the empty
+            canvas failed while it explained itself, and a paragraph about
+            travelling light in front of a button that would simply show you is
+            the same failure with better prose. `.btn-glow` does the explaining.
+
+            The setting is written and then the page leaves, which is not a
+            shortcut: `main.tsx` unmounts the app to show this page, so there is
+            no store here to toggle, and the canvas reads `sessionStorage` on
+            mount — see {@link saveBiolum}. Offered whatever the hardware
+            reports, because `BiolumRenderer.supported()` is asked in the canvas
+            and a reader without WebGL2 simply arrives at a plain tree.
+          */}
+          <div className="hero-dark">
+            <h2 className="hero-dark-h">The same tree, after dark</h2>
             <button
               type="button"
-              className="btn"
-              onClick={() => {
-                const first = OPENINGS[0];
-                if (first) requestOpening(first.id);
-                leaveAbout();
-              }}
-            >
-              Watch it build one
-              <span className="carousel-go-arrow" aria-hidden="true">
-                →
-              </span>
-            </button>
-          </div>
-        </section>
-
-        <section className="page-section">
-          <h2 className="page-h">What it draws</h2>
-          <Features />
-        </section>
-
-        {/*
-          The one flourish, and the only place on this page allowed to sell.
-
-          It sits after the features rather than among them because it is not
-          one: every claim above is about what the canvas *knows*, and this is
-          about what it looks like. Folding it into that grid would have made
-          the light a seventh fact about the data, which is the exact confusion
-          the copy here exists to refuse — `BiolumToggle`'s own rule is that
-          the mode is the only control allowed to glow *because* glowing is all
-          it does.
-
-          The button writes the setting and leaves, which is not a shortcut:
-          `main.tsx` unmounts the app to show this page, so there is no store
-          here to toggle, and the canvas reads `sessionStorage` on mount. See
-          {@link saveBiolum}. It is offered whatever the hardware reports,
-          because `BiolumRenderer.supported()` is asked in the canvas and a
-          reader on a machine without WebGL2 simply arrives at a plain tree —
-          the alternative is a page that quietly withholds a paragraph, and the
-          words are true either way.
-        */}
-        <section className="page-section">
-          <h2 className="page-h">The same tree, after dark</h2>
-          <p className="feature-p">
-            Bioluminescence changes the atmosphere and nothing else. The
-            branches become rivers of travelling light, each mark blooms at its
-            own divergence, and marine snow drifts through the water catching
-            whatever is lit near it. Not one branch, date or fossil moves —
-            every dash and every tier is identical in both states. It is the
-            view worth putting on a screen in front of a room.
-          </p>
-          <div className="hero-actions">
-            <button
-              type="button"
-              className="btn"
+              className="btn btn-glow"
               onClick={() => {
                 saveBiolum(true);
                 leaveAbout();
@@ -357,7 +329,13 @@ export function AboutPage() {
             >
               Try bioluminescence <span className="kbd">{kbd("biolum")}</span>
             </button>
+            <p className="hero-dark-p">Deep sea glow against marine snow</p>
           </div>
+        </section>
+
+        <section className="page-section">
+          <h2 className="page-h">What it draws</h2>
+          <Features />
         </section>
 
         {/*

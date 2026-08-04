@@ -3849,24 +3849,156 @@ body {
 }
 
 /*
- * The primary action, and the only button in the app that is bigger than a
- * control-bar button.
+ * The hero's one action: a title, the button, and four words under it.
  *
- * It carries the accent as a *border and text* rather than as a fill. A solid
- * accent block is the brightest possible object and this page sits one press
- * away from a canvas whose whole argument is that the graph is the only light
- * source; arriving there from a glowing button makes the tree look dim.
+ * Caption *below* the button rather than above, which is the reverse of every
+ * captioned group in the control bar and is right here for the same reason
+ * those are right there. A `ModeChip`'s caption names a control the reader is
+ * looking for; this one describes something they have already been told the
+ * name of, so it reads as the answer to "what will that look like" rather than
+ * as a label they must get through first. Title, press, promise.
+ *
+ * **Centred, and it is the one centred thing on this page.** Everything above
+ * is a left-aligned text column and this block was set to it, which put three
+ * short lines — 181, 191 and 209px — hard against the left edge of a 960px
+ * container, directly beneath a silhouette strip that is full-bleed and
+ * therefore reads as centred. Three ragged fragments under a wide band look
+ * like something that failed to lay out rather than something placed.
+ *
+ * The strip is what licenses it: the hero's left margin is already broken by
+ * the time the reader reaches this, so the block belongs to the band above it
+ * rather than to the paragraph above that — and the three lines now share one
+ * axis, which is what makes a title, a control and a promise read as one
+ * object. A centred stack also lets the caption be exactly as wide as it wants
+ * without opening a ragged gap beside the button.
  */
-.btn-hero {
+.hero-dark {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--s2);
+  /*
+   * Its own beat, and the asymmetry is deliberate: more air above than below,
+   * because above is the seam with the strip — which is moving — and below is
+   * the section rule, which is not.
+   */
+  margin-top: var(--s3);
+}
+
+.hero-dark-h {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--ink-2);
+}
+
+.hero-dark-p {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+
+/*
+ * **The one button in this app allowed to glow**, and it replaced the one that
+ * was forbidden to.
+ *
+ * `.btn-hero` stood here and carried the accent as a border and text rather
+ * than a fill, on an argument worth keeping: a solid accent block is the
+ * brightest possible object, and this page sits one press away from a canvas
+ * whose whole claim is that the graph is the only light source, so arriving
+ * from a glowing button makes the tree look dim.
+ *
+ * Every clause of that survives except the conclusion, because this button is
+ * bioluminescence's own control and the mode is the standing exception the
+ * canvas already grants — `.biolum-mode.is-lit` glows for the reason written
+ * over it: *glowing is literally what it does*, and a switch that turns the
+ * canvas into a lit instrument while looking like the switch beside it is
+ * withholding the only preview available. Same argument, same hue, one page
+ * further out. And the tree it lands on cannot be made to look dim by this,
+ * because the tree it lands on is lit.
+ *
+ * **186 is the mode's cyan and not `--accent`**, which is the rule the chip
+ * states and the same hue `LANE_HUES[0]` gives the empty canvas's own light:
+ * this previews a specific light, and previewing it in the wrong colour is a
+ * worse lie than not previewing it.
+ *
+ * Two clocks, deliberately coprime-ish and neither of them a pulse. `breathe`
+ * is the glow rising and falling over 5.2s, which is the mode's marks; `drift`
+ * is a wide, very faint sheen crossing the face every 11s, which is the snow.
+ * One clock reads as a notification badge demanding a press. Two read as
+ * something alive, which is the whole hint being made.
+ */
+.btn-glow {
+  position: relative;
+  overflow: hidden;
   padding: 10px 18px;
   font-size: 13.5px;
-  border-color: var(--accent-dim);
-  color: var(--ink);
+  border-color: hsl(186 75% 58% / 0.32);
+  background: hsl(186 70% 46% / 0.07);
+  color: hsl(186 70% 80%);
+  animation: glow-breathe 5.2s ease-in-out infinite;
 }
-.btn-hero:hover,
-.btn-hero:focus-visible {
-  border-color: var(--accent);
-  color: var(--ink);
+
+/*
+ * The sheen. `::before` and not a background on the button itself, because it
+ * has to travel past both edges and the button's own background is carrying
+ * the tint the glow sits on.
+ */
+.btn-glow::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    120px 40px at 0% 50%,
+    hsl(186 100% 72% / 0.16),
+    transparent 70%
+  );
+  animation: glow-drift 11s linear infinite;
+  pointer-events: none;
+}
+
+/* Above the sheen, so the words are never inside it. */
+.btn-glow > * {
+  position: relative;
+}
+
+.btn-glow .kbd {
+  border-color: hsl(186 60% 50% / 0.4);
+  background: hsl(186 40% 12%);
+  color: hsl(186 60% 76%);
+}
+
+.btn-glow:hover,
+.btn-glow:focus-visible {
+  border-color: hsl(186 80% 62% / 0.6);
+  color: hsl(186 85% 88%);
+}
+
+@keyframes glow-breathe {
+  0%,
+  100% {
+    box-shadow:
+      0 0 10px hsl(186 100% 60% / 0.06),
+      inset 0 0 14px hsl(186 100% 60% / 0.03);
+    text-shadow: 0 0 8px hsl(186 100% 60% / 0.2);
+  }
+  50% {
+    box-shadow:
+      0 0 24px hsl(186 100% 60% / 0.24),
+      inset 0 0 20px hsl(186 100% 60% / 0.1);
+    text-shadow: 0 0 14px hsl(186 100% 60% / 0.5);
+  }
+}
+
+@keyframes glow-drift {
+  from {
+    transform: translateX(-60%);
+  }
+  to {
+    transform: translateX(160%);
+  }
 }
 
 /* -------------------------------------------------------------- features -- */
@@ -4882,5 +5014,29 @@ body.biolum .carousel-card:focus-visible {
     animation-duration: 1ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 1ms !important;
+  }
+
+  /*
+   * The one animation whose closing frame is the wrong still.
+   *
+   * The rule above snaps everything to its last keyframe, which is right for a
+   * flare — the beat ends lit. `glow-breathe` is a cycle, so its last frame is
+   * `100%`, which is the *dim* end, and the button that previews the light
+   * would sit there dark. That is the failure `Water.tsx` names for the mode
+   * itself: reduced motion "gets a still frame, not an empty one. The light is
+   * the setting; removing it removes the setting rather than removing motion
+   * from it."
+   *
+   * So the glow is pinned at its `50%`, which is the frame the animation exists
+   * to reach. The sheen is simply gone — it is the half that is only motion.
+   */
+  .btn-glow {
+    box-shadow:
+      0 0 24px hsl(186 100% 60% / 0.24),
+      inset 0 0 20px hsl(186 100% 60% / 0.1) !important;
+    text-shadow: 0 0 14px hsl(186 100% 60% / 0.5) !important;
+  }
+  .btn-glow::before {
+    display: none;
   }
 }
