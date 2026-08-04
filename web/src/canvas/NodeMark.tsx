@@ -53,6 +53,7 @@ import {
   type LabelMode,
 } from "../tree/naming";
 import { Silhouette } from "./Silhouette";
+import { useTip } from "../chrome/Tooltip";
 import { fossilSpan, type Graft } from "../tree/graft";
 import { flareMark } from "./biolum";
 
@@ -522,6 +523,12 @@ export const NodeMark = memo(function NodeMark({ data }: NodeProps) {
   */
   const markStyle = { color, "--hue": d.hue } as React.CSSProperties;
 
+  // The two hover explanations the label itself carries. Computed here because
+  // hooks run unconditionally; both are `undefined` on most marks, which
+  // `useTip` answers with an empty props object.
+  const nameTip = useTip(div ? derivedTitle(div) : undefined);
+  const ageTip = useTip(showAge && age ? age.title : undefined);
+
   /*
     Pointing at a mark disturbs it, and it lets go of some light.
 
@@ -665,14 +672,14 @@ export const NodeMark = memo(function NodeMark({ data }: NodeProps) {
           {witness ? (
             <Silhouette
               phylopicId={witness.phylopicId}
-              title={witnessTitle(witness, n.age_ma, n.tier)}
+              tip={witnessTitle(witness, n.age_ma, n.tier)}
             />
           ) : (
             withSilhouette &&
             n.phylopic_id && (
               <Silhouette
                 phylopicId={n.phylopic_id}
-                title={
+                tip={
                   d.graft
                     ? graftTitle(d.graft)
                     : borrowedTitle(name, d.silhouetteClade)
@@ -695,10 +702,7 @@ export const NodeMark = memo(function NodeMark({ data }: NodeProps) {
           {showText && (
             <span className="mark-text" style={{ maxWidth: box?.textMaxWidth }}>
               {meta && <span className="mark-meta">{meta}</span>}
-              <span
-                className="mark-name"
-                title={div ? derivedTitle(div) : undefined}
-              >
+              <span className="mark-name" {...nameTip}>
                 {div ? (
                   <DerivedName divergence={div} />
                 ) : (
@@ -719,7 +723,7 @@ export const NodeMark = memo(function NodeMark({ data }: NodeProps) {
                 )}
               </span>
               {showAge && age && (
-                <span className="mark-age num" title={age.title || undefined}>
+                <span className="mark-age num" {...ageTip}>
                   {age.glyph && <AgeGlyph kind={age.glyph} />}
                   {age.text}
                 </span>

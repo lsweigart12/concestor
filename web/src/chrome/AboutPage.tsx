@@ -132,7 +132,7 @@ function SilhouetteStream() {
               key={`${copy}-${a.id}`}
               phylopicId={a.id}
               size={54}
-              title={a.label}
+              tip={a.label}
             />
           )),
         )}

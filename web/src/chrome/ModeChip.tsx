@@ -39,12 +39,29 @@
  * accent, and three lit controls at once is what made the panel shout.
  */
 
+import { useTip } from "./Tooltip";
+
 export interface ModeSegment<T> {
   value: T;
   /** What the segment prints. Also what the key badge would have to match. */
   label: string;
-  /** The hover explanation. Every segment gets one; none of them is obvious. */
-  title: string;
+  /**
+   * The hover explanation. Every segment gets one; none of them is obvious.
+   *
+   * **A sentence, and the length is the rule rather than a preference.** These
+   * were `title` attributes, which cost nothing to fill and so filled with the
+   * reasoning that belongs in the header comments above — one of them reached
+   * 372 characters, three sentences of naming policy, delivered by an OS
+   * tooltip that a reader could not select, scroll or dismiss. The rewrite kept
+   * what a reader standing at the switch needs and moved the rest nowhere,
+   * because it was already written down here and in `docs/name-ranking.md`.
+   *
+   * What survives is the answer to one question — *what will pressing this
+   * do* — plus, where there is one, the caveat that would otherwise cost
+   * somebody their trust in the canvas. "Nothing about the data changes" is the
+   * whole of why the bioluminescence copy is two sentences and not one.
+   */
+  tip: string;
 }
 
 export function ModeChip<T extends string | boolean>({
@@ -116,18 +133,43 @@ export function ModeChip<T extends string | boolean>({
       <span className="mode-key">{kbd}</span>
       <span className="mode-track">
         {segments.map((s) => (
-          <button
+          <Seg
             key={String(s.value)}
-            type="button"
-            className={`mode-seg${value === s.value ? " is-on" : ""}`}
-            aria-pressed={value === s.value}
-            onClick={() => onChange(s.value)}
-            title={s.title}
-          >
-            {s.label}
-          </button>
+            seg={s}
+            on={value === s.value}
+            onChange={onChange}
+          />
         ))}
       </span>
     </div>
+  );
+}
+
+/**
+ * One segment, extracted for one reason: `useTip` is a hook and the segments
+ * are a `map`. The button it renders is the button that was written inline
+ * here, attribute for attribute — `useTip` returns handlers and an
+ * `aria-describedby`, so nothing about the track's layout can have moved.
+ */
+function Seg<T extends string | boolean>({
+  seg,
+  on,
+  onChange,
+}: {
+  seg: ModeSegment<T>;
+  on: boolean;
+  onChange: (v: T) => void;
+}) {
+  const tip = useTip(seg.tip);
+  return (
+    <button
+      type="button"
+      className={`mode-seg${on ? " is-on" : ""}`}
+      aria-pressed={on}
+      onClick={() => onChange(seg.value)}
+      {...tip}
+    >
+      {seg.label}
+    </button>
   );
 }

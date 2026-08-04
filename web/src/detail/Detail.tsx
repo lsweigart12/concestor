@@ -30,6 +30,7 @@ import {
 } from "../canvas/Bracket";
 import { Silhouette } from "../canvas/Silhouette";
 import { kbd } from "../chrome/bindings";
+import { useTip } from "../chrome/Tooltip";
 import { mayDrawExemplar, witnessOn } from "../canvas/witness";
 import { ageLabel, DerivedName, isScientificItalic } from "../canvas/NodeMark";
 import { branchProse, UNNAMED, type Divergence } from "../tree/naming";
@@ -177,6 +178,12 @@ export function Detail({
   // nothing; only a clade the reader chose draws its group's exemplar. The
   // ordinary silhouette is therefore not shown *or credited* on a fork, since
   // it is not on screen and crediting an image nobody can see is noise.
+  // Hooks run unconditionally, so the words are computed here even on the
+  // cards that draw no fossil row. `useTip(undefined)` is the resting state and
+  // returns nothing to spread.
+  const fossilTip = useTip(
+    occurrence ? bracketTitle(detail.name ?? "This taxon", occurrence) : undefined,
+  );
   const place = { node: detail, isLeaf };
   const witness = witnessOn(place);
   const witnessCredit = witness ? (detail.divergence_silhouette ?? null) : null;
@@ -241,7 +248,7 @@ export function Detail({
                     : null
                 }
                 onSelect={onSelect}
-                title={`What this drawing is of. Not ${detail.name ?? "this node"} itself — a fossil taxon from somewhere below it, dated to about this split.`}
+                tip={`What this drawing is of. Not ${detail.name ?? "this node"} itself — a fossil taxon from somewhere below it, dated to about this split.`}
               >
                 {witness.name}
               </TaxonLink>
@@ -260,7 +267,7 @@ export function Detail({
               <TaxonLink
                 target={watermarkIdx}
                 onSelect={onSelect}
-                title={`What this drawing is of. Not ${detail.name ?? "this node"} itself.`}
+                tip={`What this drawing is of. Not ${detail.name ?? "this node"} itself.`}
               >
                 {watermark}
               </TaxonLink>
@@ -377,10 +384,7 @@ export function Detail({
           // not to say.
           <>
             <dt>fossils</dt>
-            <dd
-              className="num"
-              title={bracketTitle(detail.name ?? "This taxon", occurrence)}
-            >
+            <dd className="num" {...fossilTip}>
               {occurrence.kind === "range"
                 ? endedSpanLabel(occurrence.oldest, occurrence.youngest)
                 : "no range recorded"}

@@ -35,6 +35,7 @@ import { AgeGlyph } from "../canvas/AgeGlyph";
 import { endedSpanLabel } from "../canvas/Bracket";
 import { Silhouette } from "../canvas/Silhouette";
 import { PendingLine, usePending } from "../chrome/Pending";
+import { useTip } from "../chrome/Tooltip";
 import { fuzzy, highlight, litRanges, recordUse, sessionBoost } from "./fuzzy";
 
 export interface Command {
@@ -724,6 +725,12 @@ function RowView({
   onHover: () => void;
   onClick: () => void;
 }) {
+  // The hint alone, where the row has one. It used to fall back to the
+  // subtitle, which this row already *prints* two lines below the pointer — a
+  // tooltip repeating text that is on screen is noise wearing the costume of
+  // help, and it fired on every row in the list.
+  const hover = useTip(row.kind === "cmd" ? row.cmd.hint : undefined);
+
   if (row.kind === "fossil") {
     return (
       <FossilRow
@@ -742,9 +749,9 @@ function RowView({
     return (
       <div
         className={`row${active ? " active" : ""}`}
-        title={c.hint ?? c.subtitle}
         onMouseMove={onHover}
         onClick={onClick}
+        {...hover}
       >
         <span className="row-icon">{c.icon}</span>
         <span className="row-body">
@@ -854,6 +861,7 @@ function FossilRow({
     ? endedSpanLabel(Math.max(...bounds), Math.min(...bounds))
     : null;
   const italic = fossil.rank === "species" || fossil.rank === "genus";
+  const badge = useTip(FOSSIL_BADGE_HINT);
   return (
     <div
       className={`row${active ? " active" : ""}`}
@@ -883,7 +891,7 @@ function FossilRow({
           <span className={italic ? "sci-italic" : undefined}>
             {parts(fossil.name, ranges)}
           </span>
-          <span className="row-badge" title={FOSSIL_BADGE_HINT}>
+          <span className="row-badge" {...badge}>
             {FOSSIL_BADGE}
           </span>
         </span>

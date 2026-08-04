@@ -48,6 +48,7 @@
  */
 
 import { useId } from "react";
+import { useTip } from "../chrome/Tooltip";
 
 /** The four PBDB appearance bounds, uncollapsed. Null where none is recorded. */
 export interface Appearance {
@@ -249,7 +250,12 @@ interface Props {
   height: number;
   /** Fraction of `height` the solid core takes. */
   coreRatio?: number;
-  title?: string;
+  /**
+   * The hover explanation. Was an SVG `<title>` child, which is the platform
+   * tooltip by another name — see `chrome/tooltip.ts` for why none of those
+   * survive.
+   */
+  tip?: string;
   className?: string;
 }
 
@@ -262,13 +268,14 @@ interface Props {
  * a capped band with nothing inside reads as a complete, deliberate mark,
  * where a bare fade reads as something that failed to render.
  */
-export function Bracket({ geom, y, height, coreRatio = 0.52, title, className }: Props) {
+export function Bracket({ geom, y, height, coreRatio = 0.52, tip, className }: Props) {
   // A partial record's open end fades out rather than terminating at a
   // definite time, which is the vocabulary `.trace-unbounded` already uses on
   // the canvas for a position with no bound below it. Scoped per instance
   // rather than to a shared <defs>, so a second caller cannot inherit a
   // gradient that is not on its page.
   const gid = useId();
+  const hover = useTip(tip);
   if (geom.kind === "absent") return null;
 
   const coreH = Math.max(2, Math.round(height * coreRatio));
@@ -276,8 +283,7 @@ export function Bracket({ geom, y, height, coreRatio = 0.52, title, className }:
   const e = geom.envelope;
 
   return (
-    <g className={["bracket", className].filter(Boolean).join(" ")}>
-      {title && <title>{title}</title>}
+    <g className={["bracket", className].filter(Boolean).join(" ")} {...hover}>
       {geom.openYoung && (
         <defs>
           <linearGradient id={gid}>

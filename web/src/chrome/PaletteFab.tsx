@@ -60,6 +60,7 @@
 
 import { binding } from "./bindings";
 import { BrandMark } from "./BrandMark";
+import { useTip } from "./Tooltip";
 
 export function PaletteFab({
   onOpen,
@@ -73,6 +74,10 @@ export function PaletteFab({
   tip?: string;
 }) {
   const b = binding("palette");
+  // `hover` rather than `tip`, which this component already spends on the
+  // invitation's own words — two different sentences about the same button,
+  // and the prop is the one that pulses.
+  const hover = useTip(b.hint);
   return (
     <>
       {/*
@@ -87,7 +92,7 @@ export function PaletteFab({
         className={`palette-fab${tip !== undefined ? " is-tip" : ""}`}
         onClick={onOpen}
         aria-label={`${b.label} — ${b.hint}`}
-        title={b.hint}
+        {...hover}
       >
         <BrandMark size={24} />
       </button>

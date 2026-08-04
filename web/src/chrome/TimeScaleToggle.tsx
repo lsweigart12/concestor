@@ -64,17 +64,19 @@ export function TimeScaleToggle({
         labelled on the axis at the place it actually happens.
       */
       segments={[
+        // "Ticks are millions of years before present" came off both. It is a
+        // fact about the axis rather than about either setting, so it was the
+        // same clause twice in a control that switches between them — and the
+        // axis already prints `Ma` under its own numbers.
         {
           value: "linear",
           label: "linear",
-          title:
-            "Linear, the default: true proportions, so a divergence twice as old is drawn twice as far out. Recent splits crowd the present. Ticks are millions of years before present.",
+          tip: "True proportions: twice as old is drawn twice as far out. Recent splits crowd together.",
         },
         {
           value: "log",
           label: "log",
-          title:
-            "Logarithmic, and linear below 1 Ma: room for recent splits when the same tree also reaches deep time. The scale bends at 1 Ma, and the axis says where. Ticks are millions of years before present.",
+          tip: "Room for recent splits alongside deep time. The scale bends at 1 Ma, where the axis says.",
         },
       ]}
     />
