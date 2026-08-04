@@ -19,6 +19,14 @@
  * sits in the classification. The one piece of prose that stayed on the face of
  * the card is a divergence's derived name — for an `mrcaott…` node that
  * sentence is not provenance, it is the only identity the node has.
+ *
+ * That exemption covers the sentence and not the paragraph around it. The
+ * clauses that used to trail it and the nested-selection note explained what
+ * those notes were doing rather than saying anything about the taxon, and the
+ * add button's hint explained why a press keeps a fork the reader had not yet
+ * wondered about — all of it read before the name, all of it gone. The
+ * provenance paragraphs in the disclosure are the ones that may not be cut:
+ * each stops a specific wrong reading, and none of these did.
  */
 
 import { TIER_OCCURRENCE, TIER_STRUCTURAL, type NodeDetail } from "../api";
@@ -326,11 +334,6 @@ export function Detail({
         addLabel={isDrawn ? "Pin to the canvas" : "Add to the canvas"}
         removeLabel="Remove from the canvas"
         removeKeys={kbd("remove")}
-        {...(isDrawn
-          ? {
-              hint: "It is drawn now only because of what sits below it. Pinning keeps it.",
-            }
-          : {})}
       />
 
       {divergence && (
@@ -339,8 +342,7 @@ export function Detail({
         <p className="note">
           The Open Tree taxonomy has no name for this node, so it is described
           by what it separates: it is the last common ancestor of{" "}
-          {branchProse(divergence.branches)}. That is a statement about the
-          tree, not a name anyone has given it.
+          {branchProse(divergence.branches)}.
         </p>
       )}
       {nested.length > 0 && (
@@ -350,12 +352,7 @@ export function Detail({
           {branchProse(nested)}{" "}
           {nested.length === 1 ? "is classified" : "are classified"} inside this
           taxon rather than beside it, so the branch to{" "}
-          {nested.length === 1 ? "it" : "them"} leaves from here. This node is
-          {/* "a species you chose" until a card could add a clade to the
-              canvas, at which point the sentence started appearing over
-              *Carnivora*, an order. Adding an ancestor of something already
-              drawn is an ordinary move now rather than a rarity. */}
-          both a taxon you chose and the divergence you are looking for.
+          {nested.length === 1 ? "it" : "them"} leaves from here.
         </p>
       )}
 

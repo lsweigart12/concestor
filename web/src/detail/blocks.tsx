@@ -108,8 +108,6 @@ export function CardActions({
    * is a badge that lies about a surface the reader is looking straight at.
    */
   removeKeys,
-  /** Shown under the button. Set where the press changes less than it sounds. */
-  hint,
   /** Why adding would do nothing visible. Renders instead of the button. */
   refusal,
 }: {
@@ -119,7 +117,6 @@ export function CardActions({
   addLabel: string;
   removeLabel: string;
   removeKeys?: string | undefined;
-  hint?: string | undefined;
   refusal?: string | undefined;
 }) {
   if (!present && refusal) {
@@ -136,7 +133,6 @@ export function CardActions({
         {present ? removeLabel : addLabel}
         {present && removeKeys && <span className="kbd">{removeKeys}</span>}
       </button>
-      {!present && hint && <p className="card-action-hint">{hint}</p>}
     </div>
   );
 }
