@@ -14,16 +14,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   api,
-  ping,
+  ApiError,
   type About,
   type FossilTaxon,
   type FossilDetail,
   type NodeDetail,
   type PathNode,
+  type RandomPool,
   type SearchHit,
   type TimescaleInterval,
 } from "./api";
-import { randomKind, SPECIES_PHRASE } from "./corpora";
+import { pickFrom, randomKind, SPECIES_PHRASE } from "./corpora";
 import { Graph } from "./canvas/Graph";
 import { isScientificItalic } from "./canvas/NodeMark";
 import { Detail } from "./detail/Detail";
@@ -112,15 +113,21 @@ const REFUSAL_SETTLE_MS = 700;
 const REFUSAL_REASONS: GraftRefusal[] = ["off-tree", "no-range", "no-identity"];
 
 /**
- * How many candidates a random pick asks for.
+ * There is no `RANDOM_CANDIDATES` any more, and what it was for is now free.
  *
- * One would do almost always. The extras cost a few hundred bytes and buy the
- * one thing a single pick cannot have: the certainty that the confirmation is
- * true. Adding a species already on the canvas changes nothing, and a toast
- * reading "Added Pallas's cat" over an unchanged canvas is worse than no
- * command at all.
+ * A random pick used to ask the server for twelve and use one. The extras
+ * bought the one thing a single server-side pick could not have — the certainty
+ * that the confirmation is true, because adding a species already on the canvas
+ * changes nothing and a toast reading "Added Pallas's cat" over an unchanged
+ * canvas is worse than no command at all — and they bought it by guessing that
+ * twelve would be enough.
+ *
+ * The guess is gone rather than widened. The pool is here now, so the filter
+ * runs over all 13,918 before anything is chosen: a pick is drawn from what is
+ * *not* on the canvas, so it cannot be a no-op, and there is no number to get
+ * wrong. That is the whole reason the draw belongs on this side — which taxa
+ * are already drawn is a fact about this canvas that no request ever carried.
  */
-const RANDOM_CANDIDATES = 12;
 
 /**
  * Which controls are pointed at once an opening has finished drawing, and what
@@ -235,11 +242,16 @@ export default function App() {
   /**
    * A random pick is out.
    *
-   * The one request in the app that can never be cached — `/v1/random` is
-   * fetched `no-store` on purpose, or every press would return the first press's
-   * answer — so it is also the one where a keystroke reliably buys a wait with
-   * nothing on screen to show for it. Everything else here is memoised and
-   * usually instant.
+   * This used to be the app's one guaranteed wait: `/v1/random` was fetched
+   * `no-store` — or every press would have returned the first press's answer —
+   * so it was the single request that could never be memoised, and measured
+   * against production it cost **1.2 s**. Both halves of that are gone. The
+   * pool is fetched once and cached like everything else, and the lookup after
+   * a draw is an immutable URL the edge can answer.
+   *
+   * The state stays, because the first press of a session still pays for the
+   * pool and a fossil roll still pays for `drawFossil`. A press that is usually
+   * instant and occasionally not is exactly the case a pending flag is for.
    */
   const [picking, setPicking] = useState(false);
   const [idle, setIdle] = useState(false);
@@ -253,20 +265,33 @@ export default function App() {
 
   // Boot. The API is a hard dependency for search; say so plainly rather than
   // rendering an empty canvas that looks like it worked.
+  //
+  // **`/v1/about` is the probe, and there is no separate one.** A `/healthz`
+  // fetch stood here and could not fail: that path exists on the Go mux only,
+  // and neither surface the app is served from routes it there — production
+  // answers it with `index.html` and so does vite. `api.ts` has the full
+  // account. The consequence worth stating here is that the branch below was
+  // unreachable in production for as long as this was two requests.
+  //
+  // It is also the warm-up, and that is not a side effect to be tidied away
+  // later. `/v1/about` is `max-age=60, must-revalidate` rather than immutable
+  // precisely so that it reaches the container on every boot — so this is what
+  // wakes a sleeping one, before anybody has typed anything.
   useEffect(() => {
-    (async () => {
-      const ok = await ping();
-      setReachable(ok);
-      if (!ok) return;
-      api.about().then(setAbout).catch(() => {});
-      api
-        .timescale()
-        .then((t) => setTimescale(t.intervals))
-        .catch(() => {
-          // The geologic band is a reference scale, not the subject. Its
-          // absence costs legibility, not correctness.
-        });
-    })();
+    api.about().then(
+      (a) => {
+        setAbout(a);
+        setReachable(true);
+      },
+      () => setReachable(false),
+    );
+    // Alongside the probe rather than behind it. The geologic band is a
+    // reference scale and not the subject: its absence costs legibility, not
+    // correctness, so it neither gates the boot nor waits on it.
+    api
+      .timescale()
+      .then((t) => setTimescale(t.intervals))
+      .catch(() => {});
   }, []);
 
   /**
@@ -795,11 +820,18 @@ export default function App() {
    * move is the hard one — so there has to be an action that answers "show me
    * *something*".
    *
-   * The pick comes from `/v1/random`, which draws only from taxa that carry
-   * their own drawing. That filter is the whole design: a uniform draw over the
-   * corpus returns an unnamed `mrcaott…` clade or an undescribed mite, and a
-   * surprise that is mostly nothing to look at is one a reader stops pressing.
-   * The server-side note on `RandomNodes` has the pools and the counts.
+   * The pool holds only taxa that carry their own drawing. That filter is the
+   * whole design: a uniform draw over the corpus returns an unnamed `mrcaott…`
+   * clade or an undescribed mite, and a surprise that is mostly nothing to look
+   * at is one a reader stops pressing. `store/random.go` has the two node
+   * filters, the five fossil ones, and the counts.
+   *
+   * **The draw is here and not on the server**, and the reason is `present`.
+   * Which taxa are on this canvas is a fact no request ever carried, so a
+   * server-side pick had to over-ask twelve candidates and hope one was unused.
+   * With the pool in hand the exclusion happens before the choice, so a pick is
+   * always usable and always exactly one lookup. It also deleted the API's only
+   * uncacheable response — `store/random.go` is the account.
    *
    * **One command, two corpora**, weighted by {@link RANDOM_FOSSIL_CHANCE}.
    * There is no second key and no second row in the palette, because the thing
@@ -809,49 +841,69 @@ export default function App() {
    * species rather than reporting a failure: the reader pressed *surprise me*,
    * and "the pool you did not pick was empty" is an answer to a question they
    * never asked.
-   *
-   * Over-asking and filtering here is what keeps the confirmation honest.
-   * Adding something already on the canvas is a no-op, and a toast saying
-   * "Added X" over a canvas that did not change is a false statement about the
-   * one thing the reader was watching for.
    */
   const randomPick = useCallback(async () => {
     setPaletteOpen(false);
     settle();
     setPicking(true);
     try {
+      // `about` has landed by the time a human can press this, but not by
+      // construction — and `api.about()` is memoised, so the fallback joins the
+      // boot request already in flight rather than making a second one.
+      //
+      // The retry is for the one case that cannot be recovered from by asking
+      // the same question twice: a deploy landing mid-session. `build_id` was
+      // read once at boot and remembered, the pool for that build is no longer
+      // served, and the 404 says so — so the id is re-read past the memo before
+      // asking again, and a reader who left a tab open across a release gets a
+      // pick rather than an error they can only clear by reloading.
+      let build = about ?? (await api.about());
+      let pool: RandomPool;
+      try {
+        pool = await api.randomPool(build.build_id);
+      } catch (e) {
+        if (!(e instanceof ApiError) || e.status !== 404) throw e;
+        build = await api.about(true);
+        setAbout(build);
+        pool = await api.randomPool(build.build_id);
+      }
+
       if (randomKind(Math.random()) === "fossil") {
-        const r = await api.random("fossil", RANDOM_CANDIDATES);
-        const f = r.available
-          ? r.fossils.find((x) => !presentFossils.has(x.pbdb_taxon_no ?? -1))
-          : undefined;
-        if (f) {
-          // `drawFossil` does the rest, including adding the clade the fossil
-          // hangs below when it is not on the canvas. That is not an extra, it
-          // is the whole of the pick: a fossil the tree does not contain almost
-          // always attaches to a branch nobody has drawn yet, so without it the
-          // usual outcome would be a refusal for something never chosen by name.
-          await drawFossil(f);
+        const no = pickFrom(pool.fossils, (n) => presentFossils.has(n), Math.random());
+        if (no !== null) {
+          // `/v1/fossil` returns a `FossilDetail`, which *is* a `FossilTaxon`
+          // with the card's extras on top — so this is the graft's own input
+          // and needs no conversion. `drawFossil` does the rest, including
+          // adding the clade the fossil hangs below when it is not on the
+          // canvas. That is not an extra, it is the whole of the pick: a fossil
+          // the tree does not contain almost always attaches to a branch nobody
+          // has drawn yet, so without it the usual outcome would be a refusal
+          // for something never chosen by name.
+          await drawFossil(await api.fossil(no));
           return;
         }
         // Fall through to a species. Nothing is said about the roll — the
         // reader asked for something to look at, not for a report on a corpus.
       }
-      const r = await api.random("species", RANDOM_CANDIDATES);
-      if (!r.available) {
+
+      if (pool.nodes.length === 0) {
         toast(
           "This build has no silhouette resolution, so there is no pool of drawn species to pick from.",
           true,
         );
         return;
       }
-      const hit = r.results.find((h) => !present.has(h.idx));
-      if (!hit) {
-        // Only reachable with the whole draw already on screen, which needs a
-        // canvas of thousands. Saying so beats a confirmation that lies.
-        toast("Every pick this round is already on the canvas — try again.", true);
+      const idx = pickFrom(pool.nodes, (n) => present.has(n), Math.random());
+      if (idx === null) {
+        // Only reachable with the entire pool already on screen, which needs a
+        // canvas of 13,918 species. Saying so beats a confirmation that lies.
+        toast("Every species in the pool is already on the canvas.", true);
         return;
       }
+      // `idx:N` is a real key the API answers, and the response carries the
+      // canonical one — so the canvas is keyed the way a link or a search would
+      // have keyed it, rather than by an index that means nothing across builds.
+      const hit = await api.node(`idx:${idx}`);
       tree.add(hit.key);
       toast(
         <>
@@ -867,7 +919,7 @@ export default function App() {
     } finally {
       setPicking(false);
     }
-  }, [tree, toast, present, presentFossils, drawFossil, settle]);
+  }, [tree, toast, about, present, presentFossils, drawFossil, settle]);
 
   /**
    * Nothing is drawn, which is the condition the empty canvas answers.
@@ -1845,9 +1897,23 @@ export default function App() {
             topology arrays, the age tiers and the search index — and the app
             cannot resolve a species without it.
           </p>
+          {/*
+            Two audiences, and until the probe was fixed this screen only ever
+            had one. It could not be shown in production — `/healthz` answered
+            `200` off the static host whether or not the API was up — so the
+            copy was written for whoever was running the server themselves, and
+            a reader on the web would have been handed a Go command. The
+            reader's line goes first because there are more of them and because
+            the only useful thing they can do is wait.
+          */}
           <p>
-            Start it with <code>go run ./server -build ./build</code> from the
-            repository root, then reload.
+            Nothing is wrong with your browser and there is nothing to fix at
+            your end — try again in a few minutes.
+          </p>
+          <p>
+            Running this locally? Start the server with{" "}
+            <code>go run ./server -build ./build</code> from the repository
+            root, then reload.
           </p>
         </div>
       </div>

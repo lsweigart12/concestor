@@ -57,19 +57,26 @@ func TestRandomFossilsAreNeverTaxaTheTreeAlreadyHas(t *testing.T) {
 	if f.AttachWalk == "" {
 		t.Skip("this build's fossil table predates attach_walk")
 	}
-	got, err := st.RandomFossils(t.Context(), randomSample)
+	pool, err := st.RandomPool(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) == 0 {
-		t.Fatal("the pool is ~1,946 taxa deep; an empty draw means the filters " +
+	if len(pool.Fossils) == 0 {
+		t.Fatal("the pool is ~1,935 taxa deep; an empty one means the filters " +
 			"stopped composing")
 	}
-	for _, fo := range got {
+	for _, no := range sampleOf(pool.Fossils, randomSample) {
+		fo, err := st.FossilByTaxonNo(t.Context(), no)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if fo == nil {
+			continue
+		}
 		if fo.AttachWalk == nil {
 			t.Errorf("%s: no attach_walk, so nothing proved it is not a node", fo.Name)
 		} else if *fo.AttachWalk == 0 {
-			t.Errorf("%s: picked a taxon that is itself a node", fo.Name)
+			t.Errorf("%s: pooled a taxon that is itself a node", fo.Name)
 		}
 	}
 }

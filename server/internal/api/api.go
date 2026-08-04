@@ -67,7 +67,7 @@ func (s *Server) Handler() http.Handler {
 
 	mux.HandleFunc("GET /v1/about", s.handleAbout)
 	mux.HandleFunc("GET /v1/search", s.handleSearch)
-	mux.HandleFunc("GET /v1/random", s.handleRandom)
+	mux.HandleFunc("GET /v1/random-pool/{build}", s.handlePool)
 	mux.HandleFunc("GET /v1/path/{key}", s.handlePath)
 	mux.HandleFunc("GET /v1/paths", s.handlePaths)
 	mux.HandleFunc("GET /v1/node/{key}", s.handleNode)
@@ -303,13 +303,23 @@ func (s *Server) writeJSON(w http.ResponseWriter, r *http.Request, code int, v a
 // on reporting it to a warm browser indefinitely. Fixing the ETag does not fix
 // that on its own, because the endpoint's whole job is to be asked again.
 //
-// Not `no-store`, which is what /v1/random needs. The store counts about's age
-// statistics at startup precisely because it is fetched on every page load —
-// this is the boot path for every reader — and `no-store` also turns off the
-// edge's request collapsing, on a container with half a vCPU
+// Not `no-store` either, and there is now nothing on /v1 that is. The store
+// counts about's age statistics at startup precisely because it is fetched on
+// every page load — this is the boot path for every reader — and `no-store`
+// also turns off the edge's request collapsing, on a container with half a vCPU
 // (deployment.md §2) where a cold burst is the one thing worth protecting. A
 // minute of freshness keeps the collapsing and bounds the staleness to a
 // minute, which is shorter than any deploy.
+//
+// **It is also the request that wakes a sleeping container**, and that is worth
+// stating where the lifetime is chosen rather than leaving it to be inferred.
+// `sleepAfter` is 1h, the frontend asks this first on boot, and a minute of
+// edge freshness means the first reader back after an idle period reaches the
+// container rather than a cache. There was a `/healthz` probe that looked like
+// it did this job and could not: nothing routes a path outside `/v1/*` to this
+// mux, so in production it was answered by the static host with the app's own
+// HTML and a 200. Shortening this lifetime, or making this response immutable,
+// silently removes the warm-up along with the freshness.
 func (s *Server) writeShortLivedJSON(w http.ResponseWriter, r *http.Request, v any) {
 	h := w.Header()
 	h.Set("Content-Type", "application/json; charset=utf-8")
@@ -321,21 +331,20 @@ func (s *Server) writeShortLivedJSON(w http.ResponseWriter, r *http.Request, v a
 	s.encode(w, r, v)
 }
 
-// writeVolatileJSON emits a response that must **not** be cached or ETag'd.
+// There is no writeVolatileJSON any more, and its absence is the point.
 //
-// The package note says everything is immutable within a build, and everything
-// is — except the one thing that is deliberately not a function of the build:
-// a random pick. Sending it through writeJSON would stamp it with the build's
-// ETag and a one-year `immutable`, so the second press of the command would be
-// answered from the browser cache with the first press's answer, forever. The
-// endpoint would appear to work and would never pick twice.
-func (s *Server) writeVolatileJSON(w http.ResponseWriter, r *http.Request, code int, v any) {
-	h := w.Header()
-	h.Set("Content-Type", "application/json; charset=utf-8")
-	h.Set("Cache-Control", "no-store")
-	w.WriteHeader(code)
-	s.encode(w, r, v)
-}
+// It existed for `/v1/random`, the one response in this API that was not a
+// function of the build: sending a draw through writeJSON would have stamped it
+// with the build's ETag and a year's `Cache-Control`, so the second press of
+// the command would have been answered from cache with the first press's
+// answer, forever — an endpoint that appears to work and never picks twice.
+//
+// The draw now happens on the client, from a pool that *is* a function of the
+// build (`handlePool`), so every response this server sends is cacheable by the
+// same rule and there is no exception for a reader of this file — or of
+// `worker/index.ts`, or `wrangler.jsonc` — to keep in mind. The rule those
+// files state, that nothing may grow into a list of paths the cache should
+// treat specially, is now true with an empty list rather than a list of one.
 
 func (s *Server) encode(w http.ResponseWriter, r *http.Request, v any) {
 	if err := json.NewEncoder(w).Encode(v); err != nil {
@@ -839,71 +848,62 @@ func (s *Server) searchBoth(r *http.Request, q string, limit int) (searchBody, e
 	return body, nil
 }
 
-// --- /v1/random ----------------------------------------------------------
+// --- /v1/random-pool -----------------------------------------------------
 
-// randomBody is one draw from one of the two corpora.
+// poolBody is the two lists a client draws from, plus the build they describe.
 //
-// Two lists rather than one field of a union type, and for the same reason
-// /v1/search has two: a node and a PBDB taxon are different things with
-// different actions, and a client that had to unpack a tagged union would be
-// doing that work in order to arrive back at the two lists it wanted. Only one
-// is ever non-empty, and `kind` says which was asked for.
-type randomBody struct {
-	Kind    string               `json:"kind"`
-	Results []store.SearchResult `json:"results"`
-	Fossils []store.Fossil       `json:"fossils"`
-	// False when the corpus this draw needs has not been built — no
-	// `node_image.climb`, or no fossil/`fossil_image` tables. An empty list
-	// with no flag reads as "the dice came up empty", which cannot happen.
-	Available bool `json:"available"`
+// `build_id` is repeated in the body although it is already in the path, and
+// that is not redundancy: the path segment is what makes the URL unique per
+// build so a year-long lifetime is safe to put on it, and the body is what a
+// client checks the lists against once it holds them.
+type poolBody struct {
+	BuildID string  `json:"build_id"`
+	Nodes   []int32 `json:"nodes"`
+	Fossils []int64 `json:"fossils"`
 }
 
-// handleRandom draws from a pool of taxa that carry their own drawing.
+// handlePool serves the pools a random pick is drawn from.
 //
-// `limit` exists so a caller can skip picks already on its canvas without a
-// second round trip. Adding a species that is already there is a no-op, and the
-// confirmation that follows it would be a false statement — the cheapest fix is
-// to hand the client a few candidates and let it take the first unused one.
-func (s *Server) handleRandom(w http.ResponseWriter, r *http.Request) {
-	kind := r.URL.Query().Get("kind")
-	if kind == "" {
-		kind = "species"
-	}
-	if kind != "species" && kind != "fossil" {
-		s.fail(w, r, http.StatusBadRequest, `kind must be "species" or "fossil"`)
+// This replaced `/v1/random`, which drew server-side and was the one
+// uncacheable response in the API. `store/random.go` is the full account; the
+// two things that belong here are why the draw moved and why the build id is
+// in the path.
+//
+// **The draw moved because the filter could not.** Which taxa are already on
+// the canvas is a fact about the reader's canvas, and no request carries it —
+// which is why the old endpoint over-asked twelve candidates so the client
+// could throw eleven away. With the pool in hand the client filters the whole
+// of it before choosing, so a pick is always usable and always one request.
+//
+// **The build id is in the path because an index is only meaningful within a
+// build.** This response is `ccLongLived`, so a browser holds it an hour and
+// the edge a year; a reader who kept build A's pool across a deploy and drew
+// from it would be handed a different, entirely plausible animal, with nothing
+// on screen to say so. A mismatched id is refused rather than answered with the
+// current pool, because answering would let the edge store build B's list under
+// build A's URL and hand it to everyone still on A. The client re-reads
+// `/v1/about` — 60 s stale at worst, by design — and asks again.
+func (s *Server) handlePool(w http.ResponseWriter, r *http.Request) {
+	want := r.PathValue("build")
+	if want != s.St.BuildID {
+		// `no-store` explicitly. A 404 is heuristically cacheable, and one
+		// pinned at the edge would outlive the deploy that caused it.
+		w.Header().Set("Cache-Control", "no-store")
+		s.fail(w, r, http.StatusNotFound,
+			"that build is no longer being served; re-read /v1/about for the current build_id")
 		return
 	}
-	limit := 1
-	if v := r.URL.Query().Get("limit"); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n <= 0 {
-			s.fail(w, r, http.StatusBadRequest, "limit must be a positive integer")
-			return
-		}
-		limit = n
+	pool, err := s.St.RandomPool(r.Context())
+	if err != nil {
+		s.Log.Error("random pool", "err", err)
+		s.fail(w, r, http.StatusInternalServerError, "building the random pool failed")
+		return
 	}
-
-	body := randomBody{Kind: kind, Results: []store.SearchResult{}, Fossils: []store.Fossil{}}
-	if kind == "fossil" {
-		fos, err := s.St.RandomFossils(r.Context(), limit)
-		if err != nil {
-			s.Log.Error("random fossil", "err", err)
-			s.fail(w, r, http.StatusInternalServerError, "random pick failed")
-			return
-		}
-		body.Fossils = fos
-		body.Available = s.St.Schema.Fossil != nil && s.St.Schema.Fossil.ImageTable != ""
-	} else {
-		res, err := s.St.RandomNodes(r.Context(), limit)
-		if err != nil {
-			s.Log.Error("random species", "err", err)
-			s.fail(w, r, http.StatusInternalServerError, "random pick failed")
-			return
-		}
-		body.Results = res
-		body.Available = s.St.Schema.NodeImage != nil && s.St.Schema.NodeImage.Climb != ""
-	}
-	s.writeVolatileJSON(w, r, http.StatusOK, body)
+	s.writeJSON(w, r, http.StatusOK, poolBody{
+		BuildID: s.St.BuildID,
+		Nodes:   pool.Nodes,
+		Fossils: pool.Fossils,
+	})
 }
 
 // --- /v1/path ------------------------------------------------------------

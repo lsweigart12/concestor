@@ -46,9 +46,9 @@
 
   // Workers Cache, in front of this Worker.
   //
-  // Every `/v1` response except `/v1/random` is `public, max-age=31536000,
-  // immutable`, and until this block existed the only thing acting on that
-  // header was the reader's own browser. A response returned from a container
+  // Every `/v1` response is cacheable and keyed by build id, and until this
+  // block existed the only thing acting on that header was the reader's own
+  // browser. A response returned from a container
   // binding is not stored by the zone cache — a Worker runs *before* that
   // cache and nothing puts its output back — so two readers asking for the
   // same clade were two container requests. `docs/architecture.md` §4 costs
@@ -57,9 +57,14 @@
   //
   // It decides from the response's own `Cache-Control`, per RFC 9111. That is
   // exactly the rule `docs/deployment.md` §5 demands, and it is why this is
-  // the right mechanism rather than the Cache API: `/v1/random` is `no-store`
-  // and is refused without this file knowing that path exists. There is no
-  // allowlist for anyone to forget to add its successor to.
+  // the right mechanism rather than the Cache API: a path that must not be
+  // cached is refused without this file knowing the path exists. There is no
+  // allowlist for anyone to forget to add the next one to.
+  //
+  // There was exactly one such path, `/v1/random`, and it is gone — the draw
+  // happens on the client now, from a pool that is a function of the build and
+  // so is served like everything else. The mechanism is unchanged and still
+  // right; what changed is that it now has nothing to refuse.
   //
   // `cross_version_cache` stays off, and that is a decision rather than the
   // default going unread. These URLs are not content-addressed — `/v1/node/

@@ -134,12 +134,14 @@ Docker and no credentials.
 with `index.html` and the Worker never runs — `/v1/search` would return the
 HTML shell with a 200 and the client would try to parse it as JSON.
 
-**The Worker returns the upstream response unmodified.** `/v1` is
-`Cache-Control: immutable` keyed by build id because the data cannot change
-within a build, and `/v1/random` is the one deliberate exception, `no-store`
-with no ETag. Caching that at the edge would hand every visitor the same
-"random" species forever — an endpoint that appears to work and never picks
-twice.
+**The Worker returns the upstream response unmodified.** `/v1` is long-lived and
+ETag'd by build id because the data cannot change within a build, and **there is
+no exception left**. `/v1/random` was one — `no-store`, no ETag, because caching
+a server-side draw at the edge hands every visitor the same "random" species
+forever — and it has been replaced by `/v1/random-pool/{build_id}`, which serves
+the pools rather than a pick and is cacheable by the ordinary rule. The only
+`no-store` the Worker now passes through is that endpoint's 404 for a stale
+build id, which must not be cached or it outlives the deploy that caused it.
 
 ### Turning the deploy on
 

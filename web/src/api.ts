@@ -882,53 +882,76 @@ async function get<T>(url: string, signal?: AbortSignal): Promise<T> {
 }
 
 /**
- * A request whose answer is *not* a function of the build, so it must never be
- * remembered — not by this cache, and not by the browser's.
+ * There is no `getFresh` any more, and its absence is the point.
  *
  * `get` memoises on the URL forever, which is exactly right for an immutable
- * API and exactly wrong for one endpoint: `/v1/random` would answer every press
- * of the command with the first press's pick, for the lifetime of the tab. The
- * server sends `no-store` for the same reason one layer down; this is the other
- * half of it.
+ * API and was exactly wrong for one endpoint: `/v1/random` would have answered
+ * every press of the command with the first press's pick for the lifetime of
+ * the tab, so it was fetched `no-store` here and served `no-store` one layer
+ * down. That exception is gone with the endpoint — the draw happens here now,
+ * from a pool that *is* a function of the build, so every request this module
+ * makes goes through the cache above by the same rule.
  */
-async function getFresh<T>(url: string): Promise<T> {
-  const res = await fetch(url, {
-    headers: { accept: "application/json" },
-    cache: "no-store",
-  });
-  if (!res.ok) {
-    throw new ApiError(
-      res.status,
-      `${res.status} ${res.statusText} for ${url}`,
-    );
-  }
-  return normalise(url, await res.json()) as T;
-}
 
-/** Which corpus a random pick is drawn from. Never both — see `/v1/random`. */
+/** Which corpus a random pick is drawn from. Never both. */
 export type RandomKind = "species" | "fossil";
 
-export interface RandomResponse {
-  kind: RandomKind;
-  results: SearchHit[];
-  fossils: FossilTaxon[];
-  /** False when this build cannot make the pick at all, rather than "no luck". */
-  available: boolean;
+/**
+ * The taxa a random pick may draw from, as bare identifiers.
+ *
+ * Two lists rather than decorated rows, and the ratio is the argument: 13,918
+ * node indices are 34 KB over the wire where the same rows carrying names,
+ * ranks and ages would be several hundred, to spend one of them. A draw is
+ * followed by a lookup for the one taxon chosen — `/v1/node/idx:N` or
+ * `/v1/fossil/{id}`, both immutable and both memoised above — so the
+ * decoration is fetched exactly where it is used, and a taxon drawn twice
+ * costs one request.
+ *
+ * An empty `nodes` is not "no luck": it means this build cannot tell an own
+ * drawing from a borrowed one, so there is no pool at all. The caller says so
+ * rather than picking something worse.
+ */
+export interface RandomPool {
+  build_id: string;
+  nodes: number[];
+  fossils: number[];
 }
 
 export const api = {
-  about: () => get<About>("/v1/about"),
+  /**
+   * What is running: the release, the commit and the dataset's build id.
+   *
+   * `refresh` drops the memoised answer first, and it exists for exactly one
+   * caller. `/v1/about` is `max-age=60, must-revalidate` rather than immutable
+   * because it is the endpoint whose whole job is to be asked again — but the
+   * memo above is forever, so within one tab it is asked precisely once. That
+   * is right for the boot probe and wrong after a deploy lands mid-session,
+   * which is the only moment `randomPool` can 404: the pool it is asking for
+   * belongs to a build that is no longer served, and asking again with the same
+   * remembered id would fail identically until the reader reloaded.
+   */
+  about: (refresh = false) => {
+    if (refresh) cache.delete("/v1/about");
+    return get<About>("/v1/about");
+  },
 
   /**
-   * Draw taxa that carry their own drawing, from one corpus or the other.
+   * The pools a random pick is drawn from, for one build.
    *
-   * `limit` is over-asked on purpose. A pick already on the canvas is a no-op
-   * that would still be confirmed by a toast, so the caller takes the first
-   * candidate it is not already showing rather than making a second request to
-   * find one.
+   * **The build id is in the path and that is not decoration.** A node index is
+   * only meaningful within the build that assigned it, and this response is
+   * held for a year at the edge — a reader who kept one pool across a deploy
+   * and drew from it would be handed a different, entirely plausible animal
+   * with nothing on screen to say so. The server refuses a stale id rather than
+   * answering with the current pool, so a mismatch is a 404 and the caller
+   * re-reads `/v1/about`.
+   *
+   * Memoised by `get` like everything else, which is the whole reason the
+   * caller needs no cache of its own: the second press of the command reuses
+   * this promise, and so does the twentieth.
    */
-  random: (kind: RandomKind, limit = 1) =>
-    getFresh<RandomResponse>(`/v1/random?kind=${kind}&limit=${limit}`),
+  randomPool: (buildId: string) =>
+    get<RandomPool>(`/v1/random-pool/${encodeURIComponent(buildId)}`),
 
   search: (q: string, limit = 20, signal?: AbortSignal) =>
     get<{
@@ -981,12 +1004,23 @@ export const api = {
   silhouetteUrl: (phylopicId: string) => `/v1/silhouette/${phylopicId}.svg`,
 };
 
-/** Reachability probe used by the boot sequence to give an honest error. */
-export async function ping(): Promise<boolean> {
-  try {
-    const res = await fetch("/healthz");
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
+/**
+ * There is no reachability probe here, and `/v1/about` is why.
+ *
+ * There used to be a `ping()` that fetched `/healthz` and read `res.ok`. That
+ * path is registered on the Go mux alone, and nothing routes it to the Go mux
+ * anywhere the app actually runs: in production `run_worker_first` covers
+ * `/v1/*` and `not_found_handling: single-page-application` answers every
+ * other unmatched path with `index.html`, and under `scripts/dev.sh` vite's
+ * fallback does the same. So the probe fetched the app's own HTML shell,
+ * `res.ok` was true, and it reported the API healthy whether or not the API
+ * was running — measured against production, which answered `/healthz` with
+ * `200` and `content-type: text/html`. It worked only in the mode it was
+ * written in, the Go binary serving both halves on one origin.
+ *
+ * `about()` is the honest probe and the boot sequence was already fetching it.
+ * It is on `/v1`, so it reaches the container by the same route as every real
+ * query, and it is deliberately not immutable — see `writeShortLivedJSON` —
+ * which makes it the request that wakes a sleeping container. A probe that is
+ * also the warm-up and also the build report is one request rather than two.
+ */

@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import {
   FOSSIL_BADGE,
   FOSSIL_BADGE_HINT,
+  pickFrom,
   RANDOM_FOSSIL_CHANCE,
   randomKind,
   rowScore,
@@ -206,5 +207,53 @@ describe("the species count a reader is told", () => {
       ([f, t]) => !OWNS_THE_FIGURE(f) && /\d\.\d million species/.test(t),
     ).map(([f]) => f);
     expect(offenders).toEqual([]);
+  });
+});
+
+describe("pickFrom", () => {
+  const pool = [10, 20, 30, 40, 50];
+  const none = () => false;
+
+  it("draws from the pool", () => {
+    expect(pool).toContain(pickFrom(pool, none, 0.5));
+  });
+
+  it("spans the pool across the range, ends included", () => {
+    // The first and last entries have to be reachable. An off-by-one in the
+    // index arithmetic that made either unreachable would still return valid
+    // picks forever, which is the failure this exists to catch.
+    expect(pickFrom(pool, none, 0)).toBe(10);
+    expect(pickFrom(pool, none, 0.999999)).toBe(50);
+    const drawn = new Set(
+      Array.from({ length: 200 }, (_, i) => pickFrom(pool, none, i / 200)),
+    );
+    expect([...drawn].sort((a, b) => Number(a) - Number(b))).toEqual(pool);
+  });
+
+  it("never draws something the canvas already holds", () => {
+    // The one invariant a reader could not check by looking: a pick that came
+    // back already-present would toast "Added X" over an unchanged canvas.
+    const taken = new Set([10, 20, 30, 40]);
+    for (let i = 0; i < 100; i++) {
+      expect(pickFrom(pool, (n) => taken.has(n), i / 100)).toBe(50);
+    }
+  });
+
+  it("reports exhaustion rather than repeating a pick", () => {
+    expect(pickFrom(pool, () => true, 0.5)).toBeNull();
+  });
+
+  it("reports an empty pool the same way", () => {
+    // Empty and exhausted are different conditions with different causes — a
+    // build with no silhouette resolution against a canvas holding everything —
+    // and `randomPick` says each of them differently. Both arrive here as null,
+    // which is why the caller distinguishes them before asking.
+    expect(pickFrom([], none, 0.5)).toBeNull();
+  });
+
+  it("clamps a roll of exactly 1 instead of running off the end", () => {
+    // `Math.random()` cannot return 1, but this takes a number rather than a
+    // promise, and the signature says it returns a member of the pool or null.
+    expect(pickFrom(pool, none, 1)).toBe(50);
   });
 });

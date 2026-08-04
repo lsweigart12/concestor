@@ -83,12 +83,19 @@ export class ReadApi extends Container<Env> {
 /**
  * How many container instances `/v1` is spread over.
  *
- * One, deliberately. Every `/v1` response except `/v1/random` is
- * `Cache-Control: immutable` keyed by build id and Workers Cache is enabled in
- * wrangler.jsonc, so the edge absorbs the repeats — including a burst on a
- * cold key, which request collapsing turns into one invocation per data centre
- * rather than one per reader — and one instance is enough at this project's
- * traffic. Cloudflare has
+ * One, deliberately. **Every** `/v1` response is cacheable and keyed by build
+ * id, and Workers Cache is enabled in wrangler.jsonc, so the edge absorbs the
+ * repeats — including a burst on a cold key, which request collapsing turns
+ * into one invocation per data centre rather than one per reader — and one
+ * instance is enough at this project's traffic.
+ *
+ * That sentence used to read "every response except `/v1/random`", and losing
+ * the exception is what makes this number defensible rather than merely
+ * survivable. `/v1/random` was `no-store`, so it was the one path the edge
+ * could not absorb *and* the one that could not be request-collapsed — and
+ * measured against production it cost **1.2 s** of the half vCPU per press.
+ * The draw now happens on the client from a pool served like everything else.
+ * Cloudflare has
  * no built-in autoscaling yet — the documented pattern is exactly this, a
  * fixed count with random routing — so raising this number is the scaling
  * knob, and it is a decision someone takes rather than something the platform
@@ -278,17 +285,21 @@ export default {
     // Returned as-is, like the proxy below. The API's own cache headers are
     // load-bearing and must not be second-guessed here: `/v1` responses are
     // `Cache-Control: immutable` keyed by build id because the data cannot
-    // change within a build, and `/v1/random` is the one deliberate
-    // exception, served `no-store` with no ETag. Caching that would give
-    // every visitor the same "random" species forever — an endpoint that
-    // appears to work and never picks twice.
+    // change within a build — and there is no longer any exception to that.
+    // There was one: `/v1/random` drew server-side and was served `no-store`
+    // with no ETag, because caching it would have given every visitor the same
+    // "random" species forever, an endpoint that appears to work and never
+    // picks twice. The draw moved to the client, which fetches a pool from
+    // `/v1/random-pool/{build_id}` — cacheable by the ordinary rule, because a
+    // pool *is* a function of the build even though a draw is not.
     //
-    // Edge caching now sits in front of this — wrangler.jsonc's `cache`
-    // block — and it obeys that rule by construction: Workers Cache reads the
-    // response's own Cache-Control per RFC 9111, so `/v1/random` is refused
-    // without anything here naming the path. Nothing in this file may grow
-    // into a list of cacheable paths, which is a list somebody eventually
-    // forgets to add the next `/v1/random` to.
+    // Edge caching sits in front of this — wrangler.jsonc's `cache` block —
+    // and it obeys that rule by construction: Workers Cache reads the
+    // response's own Cache-Control per RFC 9111, so nothing here names a path.
+    // Nothing in this file may grow into a list of cacheable paths, which is a
+    // list somebody eventually forgets to add the next exception to. That rule
+    // is now true with an empty list rather than a list of one, which is the
+    // strongest form it can take.
     const instance = await getRandom(env.READ_API, API_INSTANCES);
     return instance.fetch(request);
   },
