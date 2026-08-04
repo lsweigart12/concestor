@@ -319,7 +319,7 @@ deploys on a release cadence rather than per-commit.
 | `GET /v1/segment/{upper}/{lower}` | intermediates + ranked fossils with brackets | one index scan |
 | `GET /v1/node/{key}` | detail panel: synonyms, sources, xref provenance, attribution | a few indexed lookups |
 | `GET /v1/timescale` | ICS intervals, ~40 KB, `immutable` | static |
-| `GET /v1/random-pool/{build_id}` | the two pools a random pick is drawn from — bare identifier lists, 13,918 nodes and 1,935 fossils, 114 KB of JSON | two full scans, 303 ms, run at most **once per process** |
+| `GET /v1/random-pool/{build_id}` | the two pools a random pick is drawn from — bare identifier lists, 13,918 nodes and 1,935 fossils, 114 KB of JSON | two full scans, 303 ms, run at most **once per process** — warmed in the background at startup, never on the request |
 
 All responses are long-lived and ETag'd by build id, because the data cannot change
 within a build. A CDN in front absorbs essentially all traffic — on Cloudflare that is
