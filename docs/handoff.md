@@ -1621,7 +1621,7 @@ Seven things not to redo:
   carry it is not on screen and the reader who has just been shown a tree they
   did not build is exactly the one who needs telling where their own species go.
 
-### Fullscreen is on `E`, and the label moved because the key could not
+### Fullscreen is on `E`, and the button says the word rather than the letter
 
 A tree is wide and the browser's own chrome — tab strip, URL bar, bookmarks — is
 the easiest few centimetres of it to buy back. The toggle is the first control in
@@ -1631,7 +1631,7 @@ selected in it. `chrome/fullscreen.ts` is the whole implementation and
 `chrome/fullscreen.test.ts` pins the two failures that are invisible from the
 outside.
 
-Five things not to redo:
+Six things not to redo:
 
 - **`F` was asked for and is refused.** `f` is fit and `⇧F` is fit-selection.
   The precedent that looks like it licenses a move is the axis giving `l` up to
@@ -1641,10 +1641,23 @@ Five things not to redo:
   and cost a reader the most-pressed key on this canvas. Printing `F` on the
   button anyway is the option refused hardest — the entire reason the bar reads
   its badges out of `bindings.ts` is that a key cannot print one thing and do
-  another. So the **label** moved: the button says **Expand**, `e` names it, and
-  the word "fullscreen" is carried by the hint and by the palette row, which is
-  where anybody hunting for it will type it. `bindings.test.ts` holds both
-  halves.
+  another. `e` is the nearest free mnemonic: expand, enlarge, enter.
+- **The button then says "Fullscreen", not "Expand", and the letter is left to
+  disagree with the word.** This is not a new exception: `P` has printed
+  **Commands** since the bar was built, because `p` names the palette and the
+  word names what opening one is *for*. **Expand** was tried first for the
+  symmetry with every other row, and it is wrong twice over — it names the
+  gesture rather than the result, and this canvas already has things you expand,
+  since a drill lane opens and isolate narrows, so a reader scanning for more
+  room can fairly read it as being about a clade. A badge teaches the key and a
+  label teaches the action; where they cannot be the same word the label wins,
+  because a reader who cannot find the control never gets as far as learning its
+  letter. `bindings.test.ts` pins the word *and* pins that these two rows are the
+  only ones allowed to disagree — the tidy-minded fix is to rename the odd one
+  out back to something starting with E, which is exactly how "Expand" arrived.
+  The palette's row is the one place that still varies its wording, saying **Go
+  fullscreen** or **Leave fullscreen**: a row is read once, in a list, with no
+  lit state beside it to say which way the press goes.
 - **The state is read off `fullscreenchange`, never remembered.** A reader leaves
   with Escape or F11 as often as with this button, and the browser takes Escape
   *before* the page sees it — so `App.tsx`'s `escape` case never learns, and a

@@ -1008,11 +1008,11 @@ export default function App() {
         ? [
             {
               id: "fullscreen",
-              // The word the reader came looking for is in the title in both
-              // states, which is what makes this row findable at all: the
-              // button says **Expand** because `e` has to name it — see
-              // `bindings.ts` — and nobody searches a palette for "expand"
-              // when what they want is fullscreen.
+              // Says which way the press goes, where the button only lights.
+              // The bar has a state to show and one word to show it with, so it
+              // says **Fullscreen** and goes bright; a palette row is read once,
+              // in a list, with nothing beside it to compare against, and
+              // "Fullscreen" there would not say whether it takes you in or out.
               title: fullscreen.on ? "Leave fullscreen" : "Go fullscreen",
               subtitle: fullscreen.on
                 ? "Give the browser its chrome back"
@@ -1701,9 +1701,9 @@ export default function App() {
       // Two of the three are also one-way — the kind of thing you reach for
       // when you have stopped building, one to send it and one to start over —
       // and they stay adjacent at the far right so that reading remains
-      // available. Expand leads instead of joining them: it is the reversible
-      // one, and a reader whose pointer lands on the near edge of this group
-      // should not find `clear` there.
+      // available. Fullscreen leads instead of joining them: it is the
+      // reversible one, and a reader whose pointer lands on the near edge of
+      // this group should not find `clear` there.
       {
         name: "Canvas",
         slot: "trail",

@@ -160,11 +160,14 @@ filter tween on the same element.
   the product. **Add species** holds `S` and `R` as **search** and **random** —
   the caption is the action and the two buttons are the two ways to take it,
   where they used to read "Species" and "Random", which spent both words on the
-  noun and neither on the difference. **Canvas** is expand, clear and share,
+  noun and neither on the difference. **Canvas** is fullscreen, clear and share,
   opposite corner, paired on acting on the whole of it rather than on anything
   selected in it — the two one-way members stay adjacent at the far right, and
-  `E` **expand** leads because it is the reversible one and a pointer landing on
-  the near edge of that group should not find `clear` there. **Navigate** takes the second
+  `E` **fullscreen** leads because it is the reversible one and a pointer landing
+  on the near edge of that group should not find `clear` there. It is the second
+  button whose word is not the word its letter came from, after `P` **commands**:
+  a badge teaches the key, a label teaches the action, and *expand* named the
+  gesture on a canvas where expanding already means something about a clade. **Navigate** takes the second
   row: fit, isolate, step are how you look at what you built, which is what you
   reach for after there is something to look at.
 - **A control keeps its word at every width the bar is drawn at.** There was a

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BINDINGS, kbd, matchKey, type KeyLike } from "./bindings";
+import { binding, BINDINGS, kbd, matchKey, type KeyLike } from "./bindings";
 
 function press(key: string, mods: Partial<KeyLike> = {}): KeyLike {
   return {
@@ -28,14 +28,41 @@ describe("matchKey", () => {
   it("leaves `f` on the fit, with fullscreen beside it on `e`", () => {
     // The collision that would be easiest to make and hardest to see. `f` is
     // the obvious letter for fullscreen and it is spent — on an action `f`
-    // names just as exactly — so the *label* moved and the key did not: the
-    // button says "Expand". What must never come back is `F` printed on a
+    // names just as exactly. What must never come back is `F` printed on a
     // button that does something else, which is the failure the whole table
     // exists to make impossible.
     expect(matchKey(press("f"))).toBe("fit");
     expect(matchKey(press("F", { shiftKey: true }))).toBe("fit-selection");
+    expect(matchKey(press("e"))).toBe("fullscreen");
     expect(kbd("fullscreen")).toBe("E");
     expect(kbd("fullscreen")).not.toBe(kbd("fit"));
+  });
+
+  it("keeps the word on the fullscreen button, though the letter cannot match it", () => {
+    // A label says what the press *gets you*, and it is allowed to be a
+    // different word from the one the letter came from. `P` has printed
+    // **Commands** since the bar was built — `p` names the palette, the word
+    // names what opening it is for — so this is a second instance of a rule
+    // the table already had rather than an exception to one.
+    //
+    // It has to be asserted because the tidy-minded fix is so easy to reach
+    // for: rename the odd one out to something starting with E. That is how
+    // **Expand** arrived and why it was wrong — it names the gesture rather
+    // than the result, and on a canvas that already opens drill lanes and
+    // isolates lineages, a reader can fairly read it as being about a clade.
+    // A badge teaches the key and a label teaches the action; where they
+    // cannot be the same word the label wins, because a reader who cannot find
+    // the control never gets as far as learning its letter.
+    expect(binding("fullscreen").label).toBe("Fullscreen");
+    expect(binding("fullscreen").label).not.toMatch(/^E/i);
+    // And these are the only two, so a third arriving is a drift somebody
+    // should have to argue for here. Letters only: `/` and `⌫` are keys with
+    // no word in them at all and were never in this question.
+    const named = BINDINGS.filter((b) => /^[A-Z]$/.test(b.kbd));
+    expect(named.length).toBeGreaterThan(8);
+    expect(
+      named.filter((b) => !b.label.toUpperCase().startsWith(b.kbd)).map((b) => b.id),
+    ).toEqual(["palette", "fullscreen"]);
   });
 
   it("gives the four canvas modes the bottom edge and four letters", () => {

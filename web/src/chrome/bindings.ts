@@ -257,31 +257,36 @@ export const BINDINGS: readonly Binding[] = [
     hint: "Show or hide the age on every mark. The axis still says when",
   },
   {
-    // **`e` for expand, and the letter that would have been obvious is spent.**
+    // **`E` over the word Fullscreen**, which is the second row here whose
+    // label is not the word its letter came from — `P` has printed
+    // **Commands** since this bar was built, because `p` names the palette and
+    // the word names what opening one is *for*.
     //
-    // `f` is fit and `⇧F` is fit-selection, and neither may move for this. The
-    // precedent is the axis giving `l` up to the labels, and it does not reach
-    // here: that trade was allowed because `l` names *labels* better than it
-    // names a logarithmic scale, so the letter went to the thing it described.
-    // `f` names *fit* exactly, so there is no such argument to make — taking it
-    // would be swapping one word starting with the letter for another and
-    // costing a reader the most-pressed key on the canvas.
+    // The letter is forced. `f` is spent on fit, with `⇧F` on fit-selection,
+    // and neither may move: the precedent that looks like it licenses a swap
+    // is the axis giving `l` up to the labels, and it does not reach here,
+    // because that trade went to the word the letter described and `f` names
+    // *fit* exactly. Taking it would swap one word starting with the letter
+    // for another and cost a reader the most-pressed key on this canvas.
+    // Printing `F` here anyway is refused hardest of all — the whole reason the
+    // bar reads its badges out of this table is that a key cannot print one
+    // thing and do another. So `e` is the nearest free mnemonic: expand,
+    // enlarge, enter.
     //
-    // Printing `F` on this button anyway was the one option refused outright.
-    // The whole reason the bar reads its badges out of this table is that a key
-    // cannot print one thing and do another, and a button captioned with the
-    // key that frames the tree is that failure in the one place a reader can
-    // see both.
-    //
-    // So the *label* moved instead of the key: the button says **Expand**, `e`
-    // names it, and the hint carries the word "fullscreen" for whoever came
-    // looking for it. The palette's row does the same — searching "fullscreen"
-    // finds this — which is what the rule "every control has a command" is for.
+    // The word is not forced, and **Expand** was tried first for the symmetry.
+    // It is the wrong word twice over: it names the gesture rather than the
+    // result, and this canvas already *has* things you expand — a drill lane
+    // opens, isolate narrows — so a reader scanning the bar for more room can
+    // fairly read it as being about a clade. A badge teaches the key; a label
+    // teaches the action. Where the two cannot be the same word the label
+    // wins, because a reader who cannot find the control never gets as far as
+    // learning its letter. `bindings.test.ts` pins the pair, and pins that
+    // these two rows are the only ones allowed to disagree.
     id: "fullscreen",
     key: "e",
     shift: false,
     kbd: "E",
-    label: "Expand",
+    label: "Fullscreen",
     hint: "Fill the screen with the canvas — a wide tree gets the browser's chrome back as time axis. Press again to leave, or Escape",
   },
   {

@@ -288,12 +288,16 @@ selection), `/` isolate, `Tab` step, `T` time scale, `L` labels, `A` ages, `B`
 bioluminescence, `R` random species, `E` expand to fullscreen, `C` clear. **The four canvas modes hold the
 letters that name them**, which is why the time scale is on `T`: `l` names the
 labels, where it only ever named one of the two scales it switched between.
-**Fullscreen is on `E` and the button therefore says "Expand"** — the label moved
-because the key could not. `f` is fit and names it exactly, so the trade that let
-the axis give `l` up to the labels has no counterpart here, and printing `F` on a
-button that does something else is the one failure this whole table exists to
-make impossible. The word "fullscreen" lives in the hint and in the palette row,
-which is where somebody looking for it will type it.
+**Fullscreen is on `E` and the button says "Fullscreen"** — the second row here
+whose label is not the word its letter came from, after `P` **Commands**. The
+letter is forced: `f` is fit and names it exactly, so the trade that let the axis
+give `l` up to the labels has no counterpart here, and printing `F` on a button
+that does something else is the one failure this whole table exists to make
+impossible. The *word* is not forced, and **Expand** — tried first, for the
+symmetry — is wrong twice over: it names the gesture rather than the result, and
+a canvas that already opens drill lanes and isolates lineages gives "expand" a
+competing meaning. A badge teaches the key, a label teaches the action, and where
+they cannot be the same word the label wins.
 `matchKey` refuses any press holding ctrl, meta or
 alt — that refusal is the feature, because the old `⌘`-based surface was a
 losing negotiation with the browser (`⌘L` is the URL bar and cannot be
@@ -314,9 +318,10 @@ group is a `ModeChip`'s anatomy — small-caps mono caption over a recessed trac
 — because a reader has to see where the pressable thing starts before reading
 any of the words in it, which is the argument the canvas-mode panel already
 settled. Four: **Concestor** (the app's mark, the palette under it), **Add
-species** (`S` and `R` as *search* and *random*), **Canvas** (expand, clear and
-share — everything that acts on the canvas as a whole, with the two one-way ones
-kept adjacent at the far right), **Navigate** (fit, isolate, step, second row).
+species** (`S` and `R` as *search* and *random*), **Canvas** (fullscreen, clear
+and share — everything that acts on the canvas as a whole, with the two one-way
+ones kept adjacent at the far right), **Navigate** (fit, isolate, step, second
+row).
 **Fullscreen is absent rather than disabled where the browser has none**, which
 is deliberately the opposite of the bar's own rule: a greyed `fit` says "add a
 species and this works" and a greyed fullscreen would say "your browser will
