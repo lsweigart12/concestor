@@ -2198,6 +2198,141 @@ uses the wrangler OAuth token is `scripts/analytics-report.sh`, per
 to *Apis mellifera*, because that join needs the 1.9 GB local database and no
 hosted surface can do it.
 
+### The species palette opens on a list, and it is species rather than openings
+
+`S` used to open on one grey line — *Type to search 110,794 species* — which
+names the size of the corpus and nothing a reader can act on. It is the worst
+line the app had: a blank field already asks for the two things an exploring
+reader lacks, the right word and the confidence it will work, and a count is
+just the number of ways to be wrong. It now opens on **Recent** over **Start
+here**, ten curated taxa, each an ordinary palette row one press from the
+canvas.
+
+Thirteen things not to redo.
+
+**An opening may not go here, and the refusal in `openings.ts` still holds.**
+An opening *replaces* the canvas — it clears the selection and plays several
+taxa in a scripted order — where every row in this palette *adds*. A row that
+silently destroys the tree the reader has been building is the failure, and it
+would be indistinguishable from the rows above and below it. The carousel on
+the empty canvas is where an opening belongs and it is already there, with its
+question written out. That is also why the two files do not share a list: these
+are single species, chosen on different criteria, for a different press.
+
+**The rows are `RowView`, unchanged.** Same anatomy, same silhouette, same `↵
+add`, same *on canvas* accessory when the taxon is already drawn — so arrow
+keys, Enter and the present-set all work by construction rather than by a
+second implementation. Giving suggestions a shape of their own was the obvious
+first move and is what Raycast's grammar rule already forbids elsewhere in this
+component.
+
+**The bands are pinned, not scored.** Every suggestion row ties — there is no
+query, so `litRanges` lights nothing and every fuzzy score is identical — so
+left to float they would order on whichever band was built first. `sectionRank`
+replaces `tailRank` and returns negative for a head section; a title cannot be
+listed in both lists and get a different answer depending on which was asked
+first.
+
+**A head section always prints its heading, even alone.** The existing rule
+suppresses a heading when there is only one section, correctly, because
+"Species" over the only rows on screen labels the obvious. On a first visit
+"Start here" *is* the only section, and without the heading it is ten species
+sitting in a field nobody searched — which reads as leftovers rather than as an
+offer.
+
+**Suggestions stop at `MIN_QUERY`, read from the same constant the search
+uses.** A band still standing beside real results competes with them. This is
+the same class of bug the four `emptyState` values exist to separate, and it
+shares their floor deliberately.
+
+**Only under the species filter.** `P` already opens on the full command list,
+which is a good empty state and the one this surface was modelled on; ten
+species above it would bury the commands to fix a problem the root palette does
+not have.
+
+**The client says *which* and the server says *what they are*.** `starters.ts`
+holds keys and nothing else. Name, rank, tip count and resolved silhouette are
+facts about the deployed build, and a client that baked them would ship one
+build's answers to readers on another — a stale `idx` resolves cleanly and
+describes a different animal, which is the `node_fts.rowid` trap arriving
+somewhere new. `/v1/hits?keys=` dresses them at read time and **skips unknown
+keys rather than erroring**, because OTT forwarding is silent and one retired
+id must cost one row rather than the whole empty state. It shares `batchKeys`
+and its 200-key cap with `/v1/paths`, since a cap enforced on one of the two
+key-list endpoints is a cap on neither.
+
+**Cacheability is the whole performance story and it is declarative.** The
+response is a pure function of the key set and the build, so it carries the
+ordinary long-lived `Cache-Control` and ETag: one fixed URL, one edge entry,
+and the container answers it roughly once per Worker version. It is prefetched
+on boot beside `/v1/about`, so pressing `S` hits a settled memo and the list
+draws on the first frame — 3.4 KB, measured under 1 ms at the origin, and
+nothing was added to `worker/index.ts`, per `deployment.md`'s prohibition on a
+path allowlist there.
+
+**The build id is deliberately not in the path, and the contrast with
+`/v1/random-pool/{build_id}` is the thing to understand before copying either
+one.** The pool answers with bare `idx` values, which mean nothing outside the
+build that assigned them, and the client *holds* that list — so a stale id
+there is a plausible wrong animal, which is what buys the path segment and the
+404. Neither half applies here: the request is OTT keys, which survive a
+rebuild, and the response is consumed immediately rather than kept. Versioning
+this URL would also cost what §"URL versioning is refused" already priced —
+the id is learned *from* `/v1/about`, so the prefetch would queue behind it
+instead of going out beside it. What *is* held across builds is
+`palette/recent.ts`'s stored rows, and those carry the build id for exactly the
+pool's reason.
+
+**Recents are `localStorage` where the canvas modes are `sessionStorage`, and
+the precedent was already there.** The mode rule is about *settings* — a claim
+about the reader that must not ride in a shared link — and neither property
+holds here: a pick changes nothing about how a canvas is drawn, and history that
+dies with the tab has never once been useful. But this is **not** the app's
+first `localStorage` value and should not be written up as an exception:
+`fuzzy.ts` has persisted a recency-and-frequency table under
+`concestor.usage.v1` since the palette got its ranking, on the same distinction.
+This band is the visible half of something the app already did. Whole rows are
+stored rather than keys so it draws with no request, which is why the blob
+carries the **build id** and is dropped whole on a mismatch — losing six rows to
+a deploy is cheap, showing the wrong six is the failure.
+
+**One command clears both stores, and that was a bug before it was a feature.**
+The palette has had *"Reset search ranking / Forget recency and frequency
+history"* since long before this band. Adding a visible **Recent** list without
+touching it would have produced the worst possible split — the store nobody can
+see gets forgotten, and the one the reader is actually looking at appears to
+ignore them. It is now *Clear search history*, running `resetUsage` and
+`forgetRecent` together. Two stores rather than one because a usage count and a
+whole search row are different shapes with different staleness rules and only
+one of them carries a build stamp; one *command* because to a reader they are a
+single thing. **The command id stayed `reset-ranking`** — `sessionBoost` is
+keyed on it, so renaming it would silently discard whatever ranking that row had
+accumulated. The general lesson is worth more than the fix: a new store is also
+a new promise, and the promises already written down are the first place to look
+for what it just broke.
+
+**The curated list is gated in Go, against the real database.** `hits_test.go`
+reads `web/src/palette/starters.ts` and checks every key resolves, has a name,
+has a **rank-1 English common name**, and has `node_image.climb = 0`. Nothing
+else in the stack catches the last two: phase 5 gives all 2.7M nodes an image
+by climbing to a relative, and `hitSilhouette` ships with suppression at
+infinity, so a borrowed drawing renders perfectly happily and belongs to
+something else. Those two constraints rejected *Agaricus bisporus* (climb 2,
+and headlined **cremini**), *Formica rufa* (**horse ant**) and *Blaberus
+giganteus* (no common name at all) — all three of which `openings.ts` uses
+successfully, because a carousel tile captions its own drawing and a palette
+row does not. *Felis* is kept out by the third constraint, species-not-clade: it
+is `climb` 0 and headlined **cat**, and a genus drawn at its crown age reads as
+a living group that stopped. The gate was verified to bite by adding the
+mushroom back and watching it fail.
+
+**Breadth beat recognisability in the curation, deliberately.** Ten mammals
+would be more instantly nameable and would teach the reader this is a mammal
+app. The ten cover primate, carnivoran, whale, fish, reptile, bird, mollusc,
+insect, plant and fungus, because the list is the only place "all of life" is
+ever *shown* rather than asserted. The lion was the closest cut — it is a
+perfectly good row, and the dog already holds the familiar-carnivoran slot.
+
 ---
 
 ## 4. Corrections to the design docs

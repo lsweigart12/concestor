@@ -102,6 +102,17 @@ interface Props {
   present: Set<number>;
   /** PBDB taxon numbers already drawn, for the same reason. */
   presentFossils: Set<number>;
+  /**
+   * What to offer before anything is typed, or null while the prefetch is out.
+   *
+   * Owned by `App` rather than fetched here, and that is what makes it instant:
+   * the request goes out on boot beside `/v1/about`, so it is a settled memo
+   * long before `S` is pressed. Fetching it on open would put a round trip
+   * between the keypress and the first useful thing on screen, which is the one
+   * thing an empty state cannot afford — it is the state a reader looks at
+   * while deciding whether this app is worth their time.
+   */
+  suggestions: Suggestions | null;
 }
 
 type Row =
@@ -161,13 +172,39 @@ const SPECIES_SECTION = "Species";
 export const ABOUT_SECTION = "About";
 
 /**
- * Sections whose position is fixed, in the order they appear at the tail.
- * Everything not listed floats on its best row's score.
+ * The two bands of an empty species list, in the order they are shown.
+ *
+ * Recents first because on every visit after the first they are the likeliest
+ * thing wanted, and starters below because on the first visit they are the only
+ * thing there is. Neither is a search result and neither may be scored against
+ * one: they exist precisely when there is nothing to score.
  */
+const RECENT_SECTION = "Recent";
+const STARTERS_SECTION = "Start here";
+
+/**
+ * Sections whose position is fixed, head and tail, with everything unlisted
+ * floating in between on its best row's score.
+ *
+ * The suggestion bands have to be pinned rather than scored because every row
+ * in them ties — there is no query, so `litRanges` lights nothing and every
+ * fuzzy score is the same number. Left to float they would order on whichever
+ * band happened to be built first, which is a real bug of the quiet kind: the
+ * list would look deliberate and be arbitrary.
+ */
+const HEAD_SECTIONS: readonly string[] = [RECENT_SECTION, STARTERS_SECTION];
 const TAIL_SECTIONS: readonly string[] = [ABOUT_SECTION];
-const tailRank = (title: string): number => {
-  const i = TAIL_SECTIONS.indexOf(title);
-  return i < 0 ? 0 : i + 1;
+
+/**
+ * Where a section sits: negative is pinned to the head, positive to the tail,
+ * zero floats. One function rather than two so a title cannot be listed in both
+ * and get a different answer depending on which was asked first.
+ */
+const sectionRank = (title: string): number => {
+  const h = HEAD_SECTIONS.indexOf(title);
+  if (h >= 0) return h - HEAD_SECTIONS.length;
+  const t = TAIL_SECTIONS.indexOf(title);
+  return t < 0 ? 0 : t + 1;
 };
 
 const DEBOUNCE_MS = 110;
@@ -216,6 +253,60 @@ export function emptyState(s: {
   return s.slow ? "searching" : "silent";
 }
 
+/** What the palette holds before anything is typed. See {@link suggestionBands}. */
+export interface Suggestions {
+  /** This browser's own picks, newest first. Empty on a first visit. */
+  recent: SearchHit[];
+  /** The curated list, dressed by `/v1/hits`. Empty until the prefetch lands. */
+  starters: SearchHit[];
+}
+
+/**
+ * The titled bands an empty species list shows, or none.
+ *
+ * Pure, and separated from the component because the interesting part is
+ * entirely a matter of *when* rather than of rendering — and every one of the
+ * conditions below is a rule that would be invisible if it were an `&&` inside
+ * some JSX.
+ *
+ * Three refusals, in the order they bite:
+ *
+ * 1. **Only under the species filter.** The root palette already opens on the
+ *    full command list, which is a useful empty state and the one this surface
+ *    was modelled on; ten species pushed above it would bury the commands to
+ *    fix a problem the root palette does not have. `S` is the surface that
+ *    opened on one grey line, and it is also the only one where every row being
+ *    an animal is already the promise.
+ *
+ * 2. **Only below {@link MIN_QUERY}.** The same floor the search itself uses,
+ *    read from the same constant. A suggestion is what fills the space where an
+ *    answer is not; the moment a search can run, the answer owns the list, and
+ *    a band left standing beside real results would be competing with them.
+ *
+ * 3. **Never both lists holding the same taxon.** A starter the reader has
+ *    already picked is in both, and drawn twice it is two rows that do the same
+ *    thing with different headings — which reads as a bug in a list whose whole
+ *    job is to look considered. Recents win, because a row the reader chose
+ *    outranks a row somebody curated for them, and because dropping the *later*
+ *    band is what keeps the curated order intact in the one that survives.
+ */
+export function suggestionBands(s: {
+  filter: PaletteFilter | null;
+  /** Already trimmed. */
+  query: string;
+  suggestions: Suggestions | null;
+}): [string, SearchHit[]][] {
+  if (s.filter !== "species" || !s.suggestions) return [];
+  if (s.query.length >= MIN_QUERY) return [];
+  const { recent, starters } = s.suggestions;
+  const taken = new Set(recent.map((h) => h.key));
+  const bands: [string, SearchHit[]][] = [];
+  if (recent.length > 0) bands.push([RECENT_SECTION, recent]);
+  const fresh = starters.filter((h) => !taken.has(h.key));
+  if (fresh.length > 0) bands.push([STARTERS_SECTION, fresh]);
+  return bands;
+}
+
 /**
  * The synonym that got this row onto the page, or null.
  *
@@ -253,6 +344,7 @@ export function Palette({
   onPickFossil,
   present,
   presentFossils,
+  suggestions,
 }: Props) {
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<AnyHit[]>([]);
@@ -436,6 +528,38 @@ export function Palette({
   }, [q, commands, hits, fossils]);
 
   /**
+   * The empty state's bands, as rows the list can already draw.
+   *
+   * They go through the same {@link RowView} as a search result and carry no
+   * highlight ranges, because nothing was typed for anything to be highlighted
+   * against — which is also what makes them look like results rather than like
+   * an advertisement for results.
+   *
+   * The score counts *down* from the band's length so the curated order
+   * survives the `b.score - a.score` sort every section gets. Ranking these on
+   * `sessionBoost`, as a real hit row does, was tried and is wrong twice: it
+   * would reorder a considered list by which row the reader last pressed, and
+   * it would do it *between* openings of the palette, so the list would look
+   * different every time for reasons nobody could see.
+   */
+  const suggestionRows = useMemo(
+    () =>
+      suggestionBands({ filter, query: needle, suggestions }).map(
+        ([title, band]): [string, Row[]] => [
+          title,
+          band.map((hit, i) => ({
+            kind: "hit" as const,
+            hit,
+            score: band.length - i,
+            ranges: [],
+            vernRanges: [],
+          })),
+        ],
+      ),
+    [filter, needle, suggestions],
+  );
+
+  /**
    * Rows grouped into titled sections, Raycast-style.
    *
    * Sections float on their best row's score so the thing that best matches
@@ -451,6 +575,12 @@ export function Palette({
       if (list) list.push(row);
       else byTitle.set(title, [row]);
     };
+    // The empty state, and it is the whole list when it is there at all — a
+    // suggestion and a result can never be on screen together, because a
+    // suggestion exists only while there is nothing to search for.
+    for (const [title, list] of suggestionRows) {
+      for (const r of list) push(title, r);
+    }
     // One section for every taxon, whichever catalogue found it. The rows sort
     // on `score` below, which is the server's merged `order`, so a fossil sits
     // exactly where the ranking put it rather than under a heading of its own.
@@ -471,12 +601,12 @@ export function Palette({
       out.push({ title, rows: list });
     }
     return out.sort((a, b) => {
-      const ra = tailRank(a.title);
-      const rb = tailRank(b.title);
+      const ra = sectionRank(a.title);
+      const rb = sectionRank(b.title);
       if (ra !== rb) return ra - rb;
       return (b.rows[0]?.score ?? 0) - (a.rows[0]?.score ?? 0);
     });
-  }, [rows, filter]);
+  }, [rows, filter, suggestionRows]);
 
   /** The sections flattened, which is what the arrow keys actually walk. */
   const flat: Row[] = useMemo(() => sections.flatMap((s) => s.rows), [sections]);
@@ -676,12 +806,19 @@ export function Palette({
             Sections carry a header only when there is more than one of them.
             A single-section list is not a grouping, and titling it "Species"
             above the only rows on screen is a label on the obvious.
+
+            A pinned head section is the exception and always carries its title,
+            even when it is the only thing on screen — which on a first visit is
+            exactly what "Start here" is. The heading is not a grouping there,
+            it is the offer: without it the band is ten species sitting in a
+            search field that was never searched, which reads as a list left
+            over from something rather than as somewhere to begin.
           */}
           {(() => {
             let n = -1;
             return sections.map((sec) => (
               <div className="palette-group" key={`s${sec.title}`}>
-                {sections.length > 1 && (
+                {(sections.length > 1 || sectionRank(sec.title) < 0) && (
                   <div className="palette-section" role="presentation">
                     {sec.title}
                   </div>

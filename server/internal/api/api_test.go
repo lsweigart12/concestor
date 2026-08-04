@@ -243,7 +243,10 @@ func TestEveryCacheableResponseCarriesTheSameETag(t *testing.T) {
 	var about map[string]any
 	getJSON(t, ts, "/v1/about", &about)
 
-	for _, path := range []string{"/v1/timescale", "/v1/node/ott770315", "/v1/about"} {
+	for _, path := range []string{
+		"/v1/timescale", "/v1/node/ott770315", "/v1/about",
+		"/v1/hits?keys=ott770315",
+	} {
 		resp := getJSON(t, ts, path, nil)
 		if resp.StatusCode != http.StatusOK {
 			t.Errorf("GET %s: %d", path, resp.StatusCode)
@@ -275,7 +278,7 @@ func TestNoResponseTellsABrowserNotToAsk(t *testing.T) {
 	ts, _ := serve(t)
 	for _, path := range []string{
 		"/v1/path/ott770315", "/v1/node/ott770315", "/v1/timescale",
-		"/v1/search?q=dog", "/v1/about",
+		"/v1/search?q=dog", "/v1/about", "/v1/hits?keys=ott770315",
 	} {
 		cc := getJSON(t, ts, path, nil).Header.Get("Cache-Control")
 		if strings.Contains(cc, "immutable") {
@@ -698,6 +701,79 @@ func TestPathsBatchReportsUnknownKeysWithoutLosingTheRest(t *testing.T) {
 
 	if r := getJSON(t, ts, "/v1/paths", nil); r.StatusCode != 400 {
 		t.Errorf("missing keys = %d, want 400", r.StatusCode)
+	}
+}
+
+// /v1/hits dresses taxa the client names rather than ones it searched for. It
+// backs the species palette's empty state, so the two things worth pinning at
+// this level are that it answers in the shape the palette already renders, and
+// that a bad key in the list does not take the good ones down with it.
+func TestHitsDressesKeysAsPaletteRows(t *testing.T) {
+	ts, _ := serve(t)
+	var body struct {
+		Results []store.SearchResult `json:"results"`
+	}
+	resp := getJSON(t, ts, "/v1/hits?keys=ott770315,ott247333", &body)
+	if resp.StatusCode != 200 {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+	if len(body.Results) != 2 {
+		t.Fatalf("got %d rows, want 2", len(body.Results))
+	}
+	// The caller's order, not the tree's preorder. See
+	// TestStartersKeepTheirCuratedOrder for why that is the failure to watch.
+	if body.Results[0].Key != "ott770315" || body.Results[1].Key != "ott247333" {
+		t.Errorf("order = %s, %s", body.Results[0].Key, body.Results[1].Key)
+	}
+	for _, r := range body.Results {
+		if r.Idx == nil || r.Name == nil || *r.Name == "" {
+			t.Errorf("%s: not a row the palette can draw and add", r.Key)
+		}
+	}
+}
+
+func TestHitsSurvivesAKeyThatHasGoneAway(t *testing.T) {
+	ts, _ := serve(t)
+	var body struct {
+		Results []store.SearchResult `json:"results"`
+	}
+	// A curated list is written against one build and served against another,
+	// and OTT ids are retired silently. Losing the whole empty state to one
+	// moved taxon is the failure; losing that one row is the cost.
+	resp := getJSON(t, ts, "/v1/hits?keys=ott999999999,ott770315", &body)
+	if resp.StatusCode != 200 {
+		t.Fatalf("status %d, want the rest of the list", resp.StatusCode)
+	}
+	if len(body.Results) != 1 || body.Results[0].Key != "ott770315" {
+		t.Fatalf("got %d rows, want just ott770315", len(body.Results))
+	}
+
+	if r := getJSON(t, ts, "/v1/hits", nil); r.StatusCode != 400 {
+		t.Errorf("missing keys = %d, want 400", r.StatusCode)
+	}
+}
+
+// The cap is shared with /v1/paths through `batchKeys`, and this is the test
+// that would notice if the two ever stopped reading the same constant.
+func TestHitsRefusesAnUnboundedKeyList(t *testing.T) {
+	ts, _ := serve(t)
+	keys := make([]string, maxBatchKeys+1)
+	for i := range keys {
+		keys[i] = "ott770315"
+	}
+	r := getJSON(t, ts, "/v1/hits?keys="+strings.Join(keys, ","), nil)
+	if r.StatusCode != 400 {
+		// De-duplication happens inside batchKeys, so a list of one repeated
+		// key is under the cap by the time it is counted. What must not happen
+		// is a 500 or a 200 that scanned two hundred and one lookups.
+		t.Logf("status %d for %d repeated keys", r.StatusCode, len(keys))
+	}
+	distinct := make([]string, maxBatchKeys+1)
+	for i := range distinct {
+		distinct[i] = "ott" + strconv.Itoa(1000000+i)
+	}
+	if r := getJSON(t, ts, "/v1/hits?keys="+strings.Join(distinct, ","), nil); r.StatusCode != 400 {
+		t.Errorf("status %d for %d distinct keys, want 400", r.StatusCode, len(distinct))
 	}
 }
 

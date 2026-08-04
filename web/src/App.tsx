@@ -45,7 +45,10 @@ import {
   type Command,
   type PaletteFilter,
   type Scope,
+  type Suggestions,
 } from "./palette/Palette";
+import { STARTERS } from "./palette/starters";
+import { forgetRecent, loadRecent, rememberRecent } from "./palette/recent";
 import { OpeningCarousel } from "./chrome/OpeningCarousel";
 import { keysOf, nextOpening, type Opening } from "./openings";
 import { Confirm } from "./chrome/Confirm";
@@ -213,6 +216,15 @@ export default function App() {
   const [confirmClear, setConfirmClear] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [about, setAbout] = useState<About | null>(null);
+  /**
+   * The curated species the empty palette offers, dressed by `/v1/hits`.
+   *
+   * Fetched once on boot and held here rather than in the palette, because the
+   * palette is unmounted between openings and would re-ask every time — the
+   * memo in `api.ts` would answer instantly, but the state would still start
+   * empty and the list would flash in on every open.
+   */
+  const [starters, setStarters] = useState<SearchHit[]>([]);
   const [timescale, setTimescale] = useState<TimescaleInterval[] | null>(null);
   const [detail, setDetail] = useState<NodeDetail | null>(null);
   const [fossilDetail, setFossilDetail] = useState<FossilDetail | null>(null);
@@ -292,6 +304,23 @@ export default function App() {
       .timescale()
       .then((t) => setTimescale(t.intervals))
       .catch(() => {});
+    // The species palette's empty state, fetched now so it is already there
+    // when `S` is first pressed — waiting until the palette opens would put a
+    // round trip in front of the one screen a reader judges the app on.
+    //
+    // Alongside for the same reason as the timescale, and it is the cheaper of
+    // the two: one fixed URL, a pure function of the build, so the edge answers
+    // it and the container sees roughly one per Worker version. It must not
+    // gate `reachable` — `/v1/about` is the probe, and a second endpoint
+    // reporting on reachability is a second answer that can disagree with it.
+    api
+      .hits([...STARTERS])
+      .then((r) => setStarters(r.results))
+      .catch(() => {
+        // The palette falls back to its prompt line, which is what it said
+        // before this existed. A suggestion list is an invitation, and an
+        // invitation that failed to load is not an error worth reporting.
+      });
   }, []);
 
   /**
@@ -510,6 +539,13 @@ export default function App() {
   const addHit = useCallback(
     (hit: SearchHit) => {
       tree.add(hit.key);
+      // Remembered here rather than inside the palette, because this is the one
+      // place every add arrives — a search row, a starter row and a recent row
+      // all land on this callback, and a reader who picks the same species
+      // twice should see it move to the top rather than be recorded once.
+      // Stamped with the build so a rebuilt dataset drops the list instead of
+      // resurrecting six rows whose `idx` now names something else.
+      rememberRecent(hit, about?.build_id ?? null);
       setPaletteOpen(false);
       toast(
         <>
@@ -520,7 +556,26 @@ export default function App() {
         </>,
       );
     },
-    [tree, toast],
+    [tree, toast, about?.build_id],
+  );
+
+  /**
+   * What an empty species palette offers.
+   *
+   * Recomputed when the palette *opens* rather than held in state, because the
+   * recents change underneath it: a reader adds a species, closes the palette
+   * and reopens it, and the row they just picked has to be at the top. Reading
+   * `localStorage` is cheap enough to do on a keypress and is the only way to
+   * be right without a second copy of the list living in React state.
+   *
+   * Null while closed so nothing is computed for a panel nobody is looking at.
+   */
+  const suggestions = useMemo<Suggestions | null>(
+    () =>
+      paletteOpen
+        ? { recent: loadRecent(about?.build_id ?? null), starters }
+        : null,
+    [paletteOpen, about?.build_id, starters],
   );
 
   /**
@@ -1176,15 +1231,35 @@ export default function App() {
         },
       },
       {
+        /*
+          One command over two stores, and the title changed when the second
+          one arrived.
+
+          It said "Reset search ranking / Forget recency and frequency history",
+          which was true of `fuzzy.ts` alone and became a half-truth the moment
+          the species palette grew a band captioned **Recent**. Clearing the
+          invisible half while a list of the reader's own picks stayed on screen
+          would be the worst possible split: the store nobody can see gets
+          forgotten, and the one they are looking at appears to ignore them.
+
+          The id is unchanged on purpose — `sessionBoost` is keyed on it, so
+          renaming it would silently discard the ranking anyone had built up for
+          this row.
+        */
         id: "reset-ranking",
-        title: "Reset search ranking",
-        subtitle: "Forget recency and frequency history",
+        title: "Clear search history",
+        subtitle: "Forgets your recent species and the ranking they feed",
+        hint:
+          "This browser remembers which species you have added, to list them " +
+          "first and to rank what you search for. Both are stored here and " +
+          "sent nowhere. This clears them together.",
         icon: "↺",
         section: ABOUT_SECTION,
         run: () => {
           resetUsage();
+          forgetRecent();
           setPaletteOpen(false);
-          toast("Search ranking reset to corpus signals only");
+          toast("Search history cleared");
         },
       },
     ];
@@ -2218,6 +2293,7 @@ export default function App() {
         onPickFossil={drawFossil}
         present={present}
         presentFossils={presentFossils}
+        suggestions={suggestions}
       />
 
       {confirmClear && (

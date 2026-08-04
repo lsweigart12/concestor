@@ -45,7 +45,19 @@
  * The command palette does not carry them at all: an opening *replaces* the
  * canvas where every command there adds to it, and the carousel is already
  * showing these same questions, larger and with their silhouettes, on the one
- * surface where the palette could safely have offered them. It is ranked
+ * surface where the palette could safely have offered them.
+ *
+ * That refusal is unchanged and is worth re-reading now that the species
+ * palette *does* open on a list. What it offers is **single species**, in
+ * `palette/starters.ts`, chosen on different criteria for a different press —
+ * adding one taxon to whatever is already drawn. Several of the taxa below were
+ * rejected there for reasons that do not apply here, because a carousel tile
+ * captions its own drawing and a palette row does not: the mushroom's picture
+ * is borrowed from two hops up, and the corpus files *Agaricus bisporus* under
+ * "cremini" and *Formica rufa* under "horse ant". A future edit to this file
+ * should not try to reconcile the two lists — they disagree on purpose.
+ *
+ * It is ranked
  * by **pull on a first-time visitor**, which is emphatically not the same axis
  * as how cleanly one verifies or draws: the woodlouse and the pangolin are two
  * of the best-drawn openings here and sit near the bottom, because both ask the
