@@ -70,6 +70,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from . import spelling
 from .gates import GateSet
 from .paths import BUILD
 from .topology import DB, SYNONYMS
@@ -785,6 +786,12 @@ def run() -> int:
     print("\n--- fossil names ---", flush=True)
     n_fossil_fts = build_fossil_index(con, log=print)
 
+    # Last, because it reads both catalogues and so needs `fossil_fts`'s source
+    # table to have been decided on. See `spelling.py` — it is the fallback for
+    # a query that returned nothing, and touches no path that returned anything.
+    print("\n--- spelling ---", flush=True)
+    spell_counts = spelling.build(con, log=print)
+
     # ---- gates ----------------------------------------------------------
     print("\n--- gates ---", flush=True)
     n_names = con.execute("SELECT count(*) FROM search_name").fetchone()[0]
@@ -953,6 +960,57 @@ def run() -> int:
             "bandNone and Interleave ranks behind every node",
         )
         g.observe("fossil rows dropped vs the LIKE scan", f"{dropped:,}")
+
+    # ---- spelling -------------------------------------------------------
+    # Recall and refusal are gated separately and both are `require`. A
+    # corrector is only half-tested by what it fixes: the failure this feature
+    # is most likely to arrive at is the one the issue names — somebody loosens
+    # a threshold until `hard maple` "works" and every other query gets worse.
+    # REFUSALS is what makes that loosening fail the build.
+    g.require(
+        "every indexed word has a non-empty key",
+        con.execute(
+            "SELECT count(*) FROM spelling WHERE key IS NULL OR trim(key) = ''"
+        ).fetchone()[0],
+        0,
+    )
+    g.require(
+        "no word shorter than the index floor",
+        con.execute(
+            f"SELECT count(*) FROM spelling WHERE length(word) < {spelling.MIN_INDEXED}"
+        ).fetchone()[0],
+        0,
+    )
+    fixed = {q: spelling.correct(con, q) for q, _ in spelling.CORRECTIONS}
+    wrong = {q: fixed[q] for q, want in spelling.CORRECTIONS if fixed[q] != want}
+    g.require(
+        "a misspelling reaches the name it meant",
+        f"{len(spelling.CORRECTIONS) - len(wrong)}/{len(spelling.CORRECTIONS)}",
+        f"{len(spelling.CORRECTIONS)}/{len(spelling.CORRECTIONS)}",
+        ok=not wrong,
+        note="" if not wrong else f"wrong: {wrong}",
+    )
+    corrected = {q: spelling.correct(con, q) for q in spelling.REFUSALS}
+    meddled = {q: c for q, c in corrected.items() if c is not None}
+    g.require(
+        "a name the corpus does not have is left alone",
+        meddled,
+        {},
+        ok=not meddled,
+        note="`hard maple` is a real name for Acer saccharum that phase 6 "
+        "does not carry; no distance threshold may reach it, and the whole "
+        "point of this gate is that raising one fails the build",
+    )
+    g.observe(
+        "spelling index",
+        {
+            "words": f"{len(spell_counts):,}",
+            "keys": f"{con.execute('SELECT count(DISTINCT key) FROM spelling').fetchone()[0]:,}",
+            "max bucket": con.execute(
+                "SELECT max(c) FROM (SELECT count(*) c FROM spelling GROUP BY key)"
+            ).fetchone()[0],
+        },
+    )
 
     size_after = DB.stat().st_size
     g.observe(

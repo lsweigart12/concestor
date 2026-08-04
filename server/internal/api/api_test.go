@@ -745,6 +745,60 @@ func TestSearchEndpoint(t *testing.T) {
 	}
 }
 
+// A misspelled query is answered, and the answer says it was misspelled.
+//
+// Three things are asserted together because they are one promise: `query`
+// still holds what the reader typed, `corrected` holds what was searched
+// instead, and the results are real. Drop the first and the palette cannot show
+// the substitution; drop the second and it is performed silently, which is the
+// failure `age_tier` exists to prevent, arriving through the search box.
+func TestSearchCorrectsAMisspelling(t *testing.T) {
+	ts, st := serve(t)
+	if st.Schema.Spelling == nil {
+		t.Skip("no spelling table; run `concestor-build search`")
+	}
+	var body struct {
+		Query     string               `json:"query"`
+		Corrected string               `json:"corrected"`
+		Results   []store.SearchResult `json:"results"`
+	}
+	getJSON(t, ts, "/v1/search?q=ardvark&limit=10", &body)
+	if body.Query != "ardvark" {
+		t.Errorf("query = %q, want the string the reader typed", body.Query)
+	}
+	if body.Corrected != "aardvark" {
+		t.Errorf("corrected = %q, want %q", body.Corrected, "aardvark")
+	}
+	if len(body.Results) == 0 {
+		t.Fatal("a reported correction with no results is not a correction")
+	}
+
+	// And the query the issue exists to protect: `hard maple` is a real common
+	// name for *Acer saccharum* that phase 6 does not carry. It is a coverage
+	// gap, not a typo, and no correction may be offered for it.
+	var gap struct {
+		Corrected string               `json:"corrected"`
+		Results   []store.SearchResult `json:"results"`
+	}
+	getJSON(t, ts, "/v1/search?q=hard+maple&limit=10", &gap)
+	if gap.Corrected != "" {
+		t.Errorf("hard maple was corrected to %q; it is a missing name, not a "+
+			"misspelled one", gap.Corrected)
+	}
+	if len(gap.Results) != 0 {
+		t.Errorf("hard maple returned %d results", len(gap.Results))
+	}
+
+	// A query that works must not pay for any of this.
+	var fine struct {
+		Corrected string `json:"corrected"`
+	}
+	getJSON(t, ts, "/v1/search?q=dog&limit=10", &fine)
+	if fine.Corrected != "" {
+		t.Errorf("dog was corrected to %q", fine.Corrected)
+	}
+}
+
 func TestSearchReturnsBrokenKind(t *testing.T) {
 	ts, _ := serve(t)
 	var body struct {

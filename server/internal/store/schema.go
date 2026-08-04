@@ -30,6 +30,7 @@ type Schema struct {
 	Ranking    *RankingSchema    `json:"search_ranking,omitempty"`
 	Fossil     *FossilSchema     `json:"fossil,omitempty"`
 	Occurrence *OccurrenceSchema `json:"occurrence,omitempty"`
+	Spelling   *SpellingSchema   `json:"spelling,omitempty"`
 
 	// Skipped records tables that exist but could not be wired up, with why.
 	Skipped map[string]string `json:"skipped,omitempty"`
@@ -195,6 +196,7 @@ func detectSchema(ctx context.Context, db *sql.DB) (*Schema, error) {
 	s.resolveSynonym()
 	s.resolveRanking()
 	s.resolveFossil()
+	s.resolveSpelling()
 	// Last, and with the database in hand: this is the one resolution that
 	// cannot be settled from column names alone. See verifyFossilFTS.
 	s.verifyFossilFTS(ctx, db)

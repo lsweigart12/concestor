@@ -1894,6 +1894,96 @@ rather than missed: compositing the WebGL water under React Flow's SVG at an
 export resolution, with the fonts and the axis, is a real piece of work and it
 lands squarely on the renderer. It is the next thing worth building.
 
+### Search forgives a typo, and refuses to forgive a missing name
+
+Eighteen real queries were pulled from Workers Logs for 2026-07-29→08-04 and
+replayed against the built dataset. Forty-seven settled strings, **eight**
+returning nothing, and they were not one problem. `ardvark` and `betual` are
+typos — one edit and one transposition from a string the corpus holds. `hard
+maple` and `hard oak` are correctly spelled English names the corpus **does not
+have**; `hard maple` is a real name for *Acer saccharum* and its distance to the
+nearest name in the corpus is 3–4 on a ten-character string. `zzzqqq` is this
+project's own benchmark string. `about` is a *command*, answered client-side and
+never a search failure at all. Only the first two are this work's business, and
+keeping them apart is the whole design: ship fuzzy matching, watch `hard maple`
+still return nothing, and the next person loosens the threshold until search is
+useless.
+
+Settled as: **correct the query, never relax the matcher.** `/v1/search`
+answers exactly as before; only when both corpora come back empty does
+`store.Suggest` run, and then the *unchanged* search runs again on the corrected
+string. Bands, `Interleave`, `notInTree` and the client are untouched, and every
+query that worked pays nothing — which is the point on a `standard-1` container
+with half a vCPU. `pipeline/src/concestor_build/spelling.py` is the account and
+`server/internal/store/spelling.go` the serving half. Seven things not to redo:
+
+- **`hard maple` is refused by the *key*, not by the threshold.** Its key is
+  `hrd mpl` and `sugar maple`'s is `sgr mpl`, so it yields **no candidates at
+  all** and the distance code is never reached. That is why the phonetic key
+  comes first: a design where the cap is the only guard is one where raising the
+  cap reaches a wrong answer. `spelling.REFUSALS` gates it in the pipeline and
+  `TestRefuses` in Go, so loosening this fails the build in two places.
+- **Double Metaphone was refused on the cost of *two implementations*.** The
+  pipeline computes the key for 1.2M corpus words and the server computes it for
+  the query; when they disagree the lookup returns an empty bucket, which is
+  indistinguishable from a word nobody misspelled. Several hundred lines of
+  order-dependent rules, twice, is two chances at an invisible failure. The key
+  is fifteen lines instead — drop vowels, `ph`→`f`, drop silent `h`, collapse
+  runs — and measured over twenty misspellings that scores **19/20** against
+  plain vowel-dropping's 16/20. `TestKeyAgreesWithTheBuiltIndex` samples the
+  built table and recomputes it, which is the contract; a test over invented
+  pairs would only prove the two agree about pairs somebody thought of.
+- **Every further English sound rule was tried and cost more than it bought.**
+  Folding `c`/`k`, `z`/`s`, `v`/`f` and `x`/`ks` gained one case and put
+  `zzzqqq` in a bucket with **69** candidates, where under the shipped key it
+  has one. Do not re-derive Metaphone a rule at a time.
+- **The unit is the word, and whole names were built first.** Whole-name
+  matching is 7× the index — **362 MB against 50.6 MB**, because it stores
+  6.16M complete names against 1.25M distinct words — and it cannot correct
+  `betual pendula` at all, since the misspelling is in the leading token. That
+  matters more than it looks: with typeahead a *trailing* typo still has the
+  prefix's results on screen, so the misspelling that actually kills a query is
+  always the first one.
+- **The length floor is where all the precision is.** Words are denser than
+  names, and every false correction measured came from a short one — `suag`→
+  `sag`, `about`→`abut`, `abot`→`abt`, each a single legal edit on four or five
+  characters. Refusing to correct anything under six characters takes the
+  false-correction rate on random junk from **25.3% to 0.5%** and costs nothing:
+  every misspelling in the measured corpus is six characters or longer.
+- **Damerau, not Levenshtein, and `betual` is why.** Under plain Levenshtein it
+  is two edits from `betula` *and* two from `betel` — a different plant — and
+  the shorter string wins the tie, so the reader who typed a birch got a
+  spice. Counting a transposition once makes the right answer the only answer
+  inside the cap.
+- **The corpus is both catalogues.** *Triceratops* is not in `search_name` at
+  all — it is a PBDB taxon — so a corrector reading only the node corpus
+  corrects toward the wrong catalogue. Two further refusals, both cheap and both
+  load-bearing: a word the corpus already holds is never a typo (`racoon`,
+  `squirel` and `tyranosaurus` are all real registered names, so the search
+  answers them and this never runs), and **a correction that yields nothing is
+  not a correction** — the server re-runs the search and reports the fix only if
+  it produced results.
+
+And the surfacing rule, which is the same one `age_tier` states: the correction
+is **shown, never performed silently**. `SpellingNote` leads the list — a
+caption on the rows below, unlike `BrokenNote` and `UndatedNote`, which footnote
+rows that are *not* there — and names both strings, because the reader needs to
+see what was misread to judge whether the answer is theirs. The literal is not
+offered as a link: it is reachable and it is empty, and a link promising results
+that do not exist would be a second wrong answer.
+
+**Non-ASCII words are not indexed and never corrected** — 3,424 of 1,250,845
+distinct words, 0.27%. That buys the whole Unicode question: without it Go needs
+`golang.org/x/text` to agree with Python's `NFKD`, which is a dependency and a
+second thing to keep in step for a quarter of one percent of a corpus nobody
+misspells.
+
+**`hard maple` is still unfixed and that is deliberate.** It is a phase 6
+coverage gap and it needs its own work — measure how many well-known English
+names are absent from `vernacular` before building anything, and note that the
+Wikidata crawl cannot be assumed to fix it, for the same reason it cannot fix
+`oak`. §7 has the bound.
+
 ### Readership: four sources that fail differently, and no single number
 
 `docs/analytics.md` is the account and §9.6–§9.7 are the part written last.

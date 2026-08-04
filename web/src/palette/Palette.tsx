@@ -257,6 +257,14 @@ export function Palette({
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<AnyHit[]>([]);
   const [fossils, setFossils] = useState<FossilTaxon[]>([]);
+  /**
+   * The spelling the rows below are actually for, when it is not what was typed.
+   *
+   * Held in state beside the rows rather than derived, because it is a property
+   * of *this* answer: leaving it up while the next query is in flight would
+   * caption one search's rows with another search's correction.
+   */
+  const [corrected, setCorrected] = useState<string | null>(null);
   const [searching, setSearching] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
   const [active, setActive] = useState(0);
@@ -305,6 +313,7 @@ export function Palette({
     if (!open || q.trim().length < MIN_QUERY) {
       setHits([]);
       setFossils([]);
+      setCorrected(null);
       setSearching(false);
       return;
     }
@@ -327,12 +336,14 @@ export function Palette({
         if (!cancelled) {
           setHits(r.results);
           setFossils(r.fossils ?? []);
+          setCorrected(r.corrected ?? null);
           setFailed(null);
         }
       } catch (e) {
         if (!cancelled) {
           setHits([]);
           setFossils([]);
+          setCorrected(null);
           setFailed(e instanceof Error ? e.message : String(e));
         }
       } finally {
@@ -619,6 +630,8 @@ export function Palette({
             </div>
           )}
 
+          {!failed && corrected && <SpellingNote typed={needle} used={corrected} />}
+
           {!failed &&
             flat.length === 0 &&
             notes.length === 0 &&
@@ -904,6 +917,46 @@ function FossilRow({
       <span className="row-accessory">
         {drawn && <span className="kbd">on canvas</span>}
         {active && !drawn && <span className="kbd">↵ draw</span>}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * The rows below this are for a different spelling than the one typed.
+ *
+ * Shown rather than performed, which is the whole of what this component is
+ * for. The server only corrects a query that returned **nothing** and only when
+ * the corrected one returns something, so the alternative here was never "the
+ * right answer without a caption" — it was an empty list. But a search that
+ * quietly answers a different question than the one asked is the same mistake
+ * as putting a confident number on an undated node, and this app does not make
+ * that one: `age_tier` exists so that a taxon nobody has dated renders without a
+ * figure rather than with a plausible guess.
+ *
+ * So both strings are on screen and neither is hidden. The typed one is named
+ * explicitly — not implied by its absence — because the reader needs to see
+ * *what* was misread in order to judge whether the answer below is theirs. That
+ * is also why it says "nothing matched" for the literal rather than offering it
+ * as a link: the literal is reachable, it is simply empty, and a link promising
+ * results that do not exist would be a second wrong answer.
+ *
+ * It leads the list rather than following it, unlike {@link BrokenNote} and
+ * {@link UndatedNote}. Those two are footnotes about rows that are *not* there;
+ * this one qualifies every row that is.
+ */
+function SpellingNote({ typed, used }: { typed: string; used: string }) {
+  return (
+    <div className="palette-note is-lead" role="status">
+      <span className="row-icon">↳</span>
+      <span className="row-body">
+        <span className="row-title">
+          Showing results for <strong>{used}</strong>
+        </span>
+        <span className="row-sub">
+          Nothing matched <strong>{typed}</strong>, and that looks like a
+          misspelling of a name the tree does have.
+        </span>
       </span>
     </div>
   );
