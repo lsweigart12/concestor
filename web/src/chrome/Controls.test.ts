@@ -359,6 +359,50 @@ describe("the empty canvas draws one chip under its invitation", () => {
   });
 });
 
+/**
+ * Fullscreen, which is offered on the browser's terms rather than on ours.
+ *
+ * The bar's own rule is "unavailable actions are disabled rather than hidden",
+ * and this is the exception: a greyed button saying the browser will never do
+ * it tells a reader nothing they can act on. `BIOLUM_AVAILABLE` made the same
+ * call, and the failure mode here is the one that follows from making it
+ * *twice* — the button gated on one expression and the palette row on another,
+ * so an iPhone gets a command for a thing that cannot happen, or a desktop
+ * loses one that can. Text against text, because there is no DOM to ask.
+ */
+describe("fullscreen is offered on both surfaces or on neither", () => {
+  it("gates the button and the command on the same imported flag", () => {
+    expect(APP).toContain("FULLSCREEN_AVAILABLE");
+    // Twice, and both times as the bare flag: the bar's group and the palette's
+    // row. A third reader, or one of them re-deriving the answer from
+    // `document.fullscreenEnabled`, is what this counts against.
+    expect([...APP.matchAll(/\.\.\.\(FULLSCREEN_AVAILABLE\s*$/gm)]).toHaveLength(2);
+    expect(APP).not.toContain("fullscreenEnabled");
+  });
+
+  /**
+   * And the state is asked of the browser, never remembered. Escape and F11
+   * both leave fullscreen without passing through this app, so a boolean
+   * flipped on each press says "on" over a window that is not.
+   */
+  it("reads the state from the event rather than from a press", () => {
+    const FS = read("./fullscreen.ts");
+    expect(FS).toContain('addEventListener("fullscreenchange"');
+    expect(FS).toContain("document.fullscreenElement !== null");
+    expect(FS).not.toContain("setOn(!on)");
+  });
+
+  /**
+   * The stylesheet paints the element that goes fullscreen. `body` carries the
+   * void and the root has never carried anything, so without this the browser
+   * frames a dark instrument in its own default — which is a thing you only
+   * ever find out about from a screenshot somebody else took.
+   */
+  it("paints the root the window hands to the compositor", () => {
+    expect(rule(":root:fullscreen")).toContain("var(--void)");
+  });
+});
+
 describe("share is the one control with no key", () => {
   /**
    * `bindings.ts` is every key this app claims, and share claims none on

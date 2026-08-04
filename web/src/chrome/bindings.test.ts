@@ -22,6 +22,20 @@ describe("matchKey", () => {
     expect(matchKey(press("r"))).toBe("random-species");
     expect(matchKey(press("c"))).toBe("clear");
     expect(matchKey(press("b"))).toBe("biolum");
+    expect(matchKey(press("e"))).toBe("fullscreen");
+  });
+
+  it("leaves `f` on the fit, with fullscreen beside it on `e`", () => {
+    // The collision that would be easiest to make and hardest to see. `f` is
+    // the obvious letter for fullscreen and it is spent — on an action `f`
+    // names just as exactly — so the *label* moved and the key did not: the
+    // button says "Expand". What must never come back is `F` printed on a
+    // button that does something else, which is the failure the whole table
+    // exists to make impossible.
+    expect(matchKey(press("f"))).toBe("fit");
+    expect(matchKey(press("F", { shiftKey: true }))).toBe("fit-selection");
+    expect(kbd("fullscreen")).toBe("E");
+    expect(kbd("fullscreen")).not.toBe(kbd("fit"));
   });
 
   it("gives the four canvas modes the bottom edge and four letters", () => {
@@ -103,7 +117,7 @@ describe("matchKey", () => {
     // The other direction, and it is not symmetric by construction — a
     // surface-scoped listener runs on `window` alongside the app's own, so a
     // letter leaking into it would fire twice.
-    for (const key of ["p", "s", "f", "r", "c", "l", "b", "/", "Tab", "Escape"]) {
+    for (const key of ["p", "s", "f", "r", "c", "l", "b", "e", "/", "Tab", "Escape"]) {
       expect(matchKey(press(key), "surface")).toBeNull();
     }
   });

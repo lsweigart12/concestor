@@ -60,6 +60,7 @@ export type ActionId =
   | "ages"
   | "random-species"
   | "biolum"
+  | "fullscreen"
   | "clear"
   | "remove"
   | "escape";
@@ -254,6 +255,34 @@ export const BINDINGS: readonly Binding[] = [
     kbd: "A",
     label: "Ages",
     hint: "Show or hide the age on every mark. The axis still says when",
+  },
+  {
+    // **`e` for expand, and the letter that would have been obvious is spent.**
+    //
+    // `f` is fit and `⇧F` is fit-selection, and neither may move for this. The
+    // precedent is the axis giving `l` up to the labels, and it does not reach
+    // here: that trade was allowed because `l` names *labels* better than it
+    // names a logarithmic scale, so the letter went to the thing it described.
+    // `f` names *fit* exactly, so there is no such argument to make — taking it
+    // would be swapping one word starting with the letter for another and
+    // costing a reader the most-pressed key on the canvas.
+    //
+    // Printing `F` on this button anyway was the one option refused outright.
+    // The whole reason the bar reads its badges out of this table is that a key
+    // cannot print one thing and do another, and a button captioned with the
+    // key that frames the tree is that failure in the one place a reader can
+    // see both.
+    //
+    // So the *label* moved instead of the key: the button says **Expand**, `e`
+    // names it, and the hint carries the word "fullscreen" for whoever came
+    // looking for it. The palette's row does the same — searching "fullscreen"
+    // finds this — which is what the rule "every control has a command" is for.
+    id: "fullscreen",
+    key: "e",
+    shift: false,
+    kbd: "E",
+    label: "Expand",
+    hint: "Fill the screen with the canvas — a wide tree gets the browser's chrome back as time axis. Press again to leave, or Escape",
   },
   {
     // On the bar beside share rather than among the rest, because both are
