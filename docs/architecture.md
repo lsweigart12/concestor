@@ -350,27 +350,32 @@ merging them would change what the first one means to every consumer.
 **One endpoint is an exception now, and it used to be two.**
 
 This paragraph used to say that `/v1/random` is not cacheable **at all** and
-that it must stay true. It was right about the endpoint and wrong about the
-endpoint's existing: a server-side draw is not a function of the build, so
-`no-store` with no ETag was the only honest header for it, and through the
-long-lived path a browser would have answered every later press from cache with
-the first pick — an endpoint that appears to work and never picks twice.
+that this must stay true. It was right about the endpoint and wrong about the
+endpoint: a server-side draw is not a function of the build, so `no-store` with
+no ETag was the only honest header for it, and through the long-lived path a
+browser would have answered every later press from cache with the first pick —
+an endpoint that appears to work and never picks twice. The header was never the
+problem. **Drawing on the server was.**
 
-**So the draw moved to the client and the exception went with it.**
-`/v1/random-pool/{build_id}` serves the two *pools* instead, which are a pure
-function of the build, and it is `public, max-age=3600, s-maxage=31536000` with
-the ordinary ETag. There is no `no-store` JSON on `/v1` any more. Two things
-that came free and one that did not: the endpoint was **the most expensive in
-the app by 10–30×** in production and is now two scans per container process
-(`deployment.md` §1 has the figures and why they were not visible locally);
-"every pick this round was already on the canvas" became structurally
-impossible, because the reader's canvas is a fact no request ever carried and
-the exclusion now happens before the choice; and the build id has to be **in the
-path**, because a node index means nothing outside the build that assigned it
-and a year at the edge is long enough for a reader to draw a plausible wrong
-animal out of a stale list. A mismatched id is refused `404` + `no-store` rather
-than answered from the current pool. `handoff.md` §3 has the pools, the filters
-and the five things not to redo.
+`/v1/random-pool/{build_id}` serves the two *pools* instead — bare identifier
+lists, which are a pure function of the build — and the client draws. It is
+`public, max-age=3600, s-maxage=31536000` with the ordinary ETag, and there is no
+`no-store` JSON on `/v1` any more. Three things follow:
+
+- The endpoint was **the most expensive in the app by 10–30×** in production and
+  is now two scans per container process. `deployment.md` §1 has the figures and
+  why they were invisible locally.
+- "Every pick this round is already on the canvas" became **structurally
+  impossible**. Which taxa are already drawn is a fact no request ever carried,
+  so the server had to over-ask candidates and hope; with the pool in hand the
+  exclusion happens before the choice.
+- The build id has to be **in the path**. A node index means nothing outside the
+  build that assigned it, and a year at the edge is long enough for a reader to
+  draw a plausible wrong animal out of a stale list. A mismatched id is refused
+  `404` + `no-store` rather than answered from the current pool, because
+  answering files build B's list under build A's URL.
+
+`handoff.md` §3 has the pools, the filters and the eleven things not to redo.
 
 `/v1/about` is cacheable but **short-lived**: `max-age=60, must-revalidate`, with
 the same ETag as everything else. It is a function of the build, so the validator
@@ -382,8 +387,9 @@ worth collapsing. It is also the frontend's **boot probe and warm-up**: a minute
 with `must-revalidate` is what makes it reach the container on every boot, so
 asking it first is what wakes a sleeping one. The `/healthz` fetch that used to
 do that job is deleted — it is a route on the Go mux, nothing routes a
-non-`/v1/*` path to the container, and in production it was answered `200
-text/html` by the app's own shell. `deployment.md` §5 has the account.
+non-`/v1/*` path to the container, and in production it was answered
+`200 text/html` by the app's own shell, so it could not fail.
+`deployment.md` §5 has the account.
 
 ### Search ranking
 

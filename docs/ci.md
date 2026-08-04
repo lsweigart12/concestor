@@ -134,6 +134,15 @@ Docker and no credentials.
 with `index.html` and the Worker never runs — `/v1/search` would return the
 HTML shell with a 200 and the client would try to parse it as JSON.
 
+**That failure was live on `/healthz`, which is outside the glob.** The route
+exists on the Go mux, nothing routes a non-`/v1/*` path to the container, and
+`curl -sI https://concestor.com/healthz` returns `200 text/html` — the shell.
+The frontend's boot probe fetched it and read `res.ok`, so it reported the API
+healthy whether or not it was running, and the boot-error screen was unreachable
+in production for its whole life. `/v1/about` is the probe now. Nothing in CI
+could have caught it: the glob is validated, and a path outside the glob
+behaving exactly as configured is not a misconfiguration.
+
 **The Worker returns the upstream response unmodified.** `/v1` is long-lived and
 ETag'd by build id because the data cannot change within a build, and **there is
 no exception left**. `/v1/random` was one — `no-store`, no ETag, because caching
@@ -404,3 +413,9 @@ manually with `dry_run` left on.
   belongs with `scripts/check.sh` and a real build, not in CI. `docs/handoff.md`
   §7 already records that no accessibility or performance pass exists; this is
   the same gap and should be filled there rather than papered over here.
+- **Nothing times the deployed API.** Every latency figure this project holds
+  was taken on a developer machine, and production is half a vCPU. That gap has
+  now hidden two expensive endpoints — the unindexed `fossil` scan behind
+  `/v1/search`, and `/v1/random` at 167 ms locally against 1.19–1.51 s over the
+  wire — and both were found by hand with `curl`, not by a check. This is a real
+  hole rather than a deliberate omission; `handoff.md` §7 carries it.
