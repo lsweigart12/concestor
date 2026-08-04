@@ -3858,38 +3858,53 @@ body {
  * name of, so it reads as the answer to "what will that look like" rather than
  * as a label they must get through first. Title, press, promise.
  *
- * **Centred, and it is the one centred thing on this page.** Everything above
- * is a left-aligned text column and this block was set to it, which put three
- * short lines — 181, 191 and 209px — hard against the left edge of a 960px
- * container, directly beneath a silhouette strip that is full-bleed and
- * therefore reads as centred. Three ragged fragments under a wide band look
- * like something that failed to lay out rather than something placed.
+ * **Two shapes, one DOM order, and the wide one is the real one.**
  *
- * The strip is what licenses it: the hero's left margin is already broken by
- * the time the reader reaches this, so the block belongs to the band above it
- * rather than to the paragraph above that — and the three lines now share one
- * axis, which is what makes a title, a control and a promise read as one
- * object. A centred stack also lets the caption be exactly as wide as it wants
- * without opening a ragged gap beside the button.
+ * Narrow, it follows the strip and is centred. Left-aligned there it was three
+ * short lines — 181, 191 and 209px — hard against the edge of a wide container
+ * under a full-bleed band, which read as a layout that had failed rather than a
+ * placement; centring gives the title, the control and the promise one axis and
+ * makes them one object.
+ *
+ * Wide, it lifts out from under the strip and sits **to the right of the claim**,
+ * which is the shape the hero was always the wrong half of: `.hero-claim` caps
+ * at 28ch and `.hero-sub` at 54ch, so a 62rem column has a column's worth of
+ * nothing down its right side, and the action was being stacked underneath
+ * instead of put in it. Beside the claim it cannot read as the start of a new
+ * section — the thing above it is not a full-bleed band, it is the top of the
+ * page — and the strip goes back to closing the hero rather than splitting it.
+ *
+ * It is a **grid placement and not a reorder**: the source keeps the narrow
+ * order, so nothing about the reading order or the focus order depends on the
+ * viewport. `.stream` spans both columns and stays full-bleed, which it does by
+ * its own negative margin and not by anything here.
+ *
+ * The breakpoint is 1024px because `--page-w` is 62rem and the body carries
+ * `--s4` each side: below that the column is narrower than its own maximum, and
+ * a second column comes out of the claim's measure rather than out of the empty
+ * space beside it.
  */
 .hero-dark {
   display: flex;
   flex-direction: column;
   align-items: center;
   text-align: center;
-  gap: var(--s2);
-  /*
-   * Its own beat, and the asymmetry is deliberate: more air above than below,
-   * because above is the seam with the strip — which is moving — and below is
-   * the section rule, which is not.
-   */
+  gap: 10px;
   margin-top: var(--s3);
 }
 
+/*
+ * Both of these reset their own margin, and the reason is not tidiness.
+ *
+ * They are an `h2` and a `p`, so without this they take the browser's defaults
+ * — `0.83em` and `1em` — *on top of* the flex `gap`, which is how a stack built
+ * to sit 10px apart came to sit 27 and 24 apart with the title rendering half
+ * again too large. A flex gap does not replace a margin; it adds to it.
+ */
 .hero-dark-h {
   margin: 0;
   font-size: 15px;
-  font-weight: 500;
+  font-weight: var(--w-med);
   letter-spacing: 0.01em;
   color: var(--ink-2);
 }
@@ -3898,6 +3913,40 @@ body {
   margin: 0;
   font-size: 12.5px;
   color: var(--ink-3);
+}
+
+@media (min-width: 1024px) {
+  .hero {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: var(--s6);
+    align-items: start;
+  }
+  .hero-eyebrow {
+    grid-area: 1 / 1;
+  }
+  .hero-claim {
+    grid-area: 2 / 1;
+  }
+  .hero-sub {
+    grid-area: 3 / 1;
+  }
+  /*
+   * Beside the claim and the subhead both, and centred against the pair rather
+   * than pinned to either — the claim is two or three lines depending on the
+   * measure, so aligning to its top leaves the block high and orphaned on the
+   * short version.
+   */
+  .hero-dark {
+    grid-area: 2 / 2 / 4 / 3;
+    align-self: center;
+    align-items: flex-start;
+    text-align: left;
+    margin-top: 0;
+  }
+  .stream {
+    grid-area: 4 / 1 / 5 / -1;
+  }
 }
 
 /*
@@ -3933,8 +3982,15 @@ body {
 .btn-glow {
   position: relative;
   overflow: hidden;
-  padding: 10px 18px;
-  font-size: 13.5px;
+  /*
+   * Smaller than the `.btn-hero` it replaced, which was sized to be the page's
+   * single primary action standing alone under the text. This one sits beside
+   * the claim on a wide window and under the strip on a narrow one, and in both
+   * it is captioned above and below — so its own size is doing less work and a
+   * larger button just shouts over the sentence it belongs to.
+   */
+  padding: 8px 14px;
+  font-size: 12.5px;
   border-color: hsl(186 75% 58% / 0.32);
   background: hsl(186 70% 46% / 0.07);
   color: hsl(186 70% 80%);

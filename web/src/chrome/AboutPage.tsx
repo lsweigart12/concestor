@@ -271,25 +271,6 @@ export function AboutPage() {
           </p>
           <SilhouetteStream />
           {/*
-            Two doors, and the second is the one a stranger takes.
-
-            "Draw a tree" asks somebody who has read four paragraphs about a
-            tool to now think of a species, which is the same thing the empty
-            canvas used to ask and the reason the openings exist at all. This
-            one asks for nothing: it hands the canvas a question and the canvas
-            builds the answer a taxon at a time, through the ordinary code path
-            — `state/sequence.ts`, no recording, no scripted fake.
-
-            It is the *first* opening rather than a menu of them, because a
-            choice here is another thing to do before anything happens, and
-            `openings.ts` has already ranked these by pull on a first-time
-            visitor and put *Are you a fish?* at the top and kept it there.
-
-            Second in the DOM and visually secondary, because a reader who
-            already knows what they want should not have to step over a demo to
-            get to the canvas.
-          */}
-          {/*
             The hero's one action, and it is the light.
 
             It replaced two — *Draw a tree* and *Watch it build one* — which
@@ -309,6 +290,11 @@ export function AboutPage() {
             canvas failed while it explained itself, and a paragraph about
             travelling light in front of a button that would simply show you is
             the same failure with better prose. `.btn-glow` does the explaining.
+
+            **Its position is a media query and the DOM order is the narrow
+            one**, which is `styles.css`'s to explain — the short version is
+            that it follows the strip until there is room to sit beside the
+            claim, and then it moves without moving in the source.
 
             The setting is written and then the page leaves, which is not a
             shortcut: `main.tsx` unmounts the app to show this page, so there is
