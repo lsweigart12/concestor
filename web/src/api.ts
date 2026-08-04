@@ -932,11 +932,27 @@ export const api = {
 
   search: (q: string, limit = 20, signal?: AbortSignal) =>
     get<{
+      /** Always the string that was asked for, corrected or not. */
       query: string;
       results: AnyHit[];
       /** PBDB taxa matching the same query. Ranked separately, never merged. */
       fossils?: FossilTaxon[];
       fossils_available?: boolean;
+      /**
+       * The spelling these results are actually for.
+       *
+       * Present only when the typed string returned nothing *and* a corrected
+       * one returned something — so it is both a fact about the answer and the
+       * only signal that the answer is to a different question. The palette
+       * must render it. A search that silently answers something other than
+       * what was typed is the same mistake as a confident date on an undated
+       * node, which is the one thing this project does not do.
+       *
+       * Absent for every query that worked, and absent for `hard maple`, which
+       * is a real common name for *Acer saccharum* the corpus does not carry —
+       * a coverage gap, deliberately not papered over with a guess.
+       */
+      corrected?: string | null;
     }>(`/v1/search?q=${encodeURIComponent(q)}&limit=${limit}`, signal),
 
   path: (key: string) => get<Resolved>(`/v1/path/${encodeURIComponent(key)}`),

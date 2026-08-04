@@ -754,6 +754,16 @@ type searchBody struct {
 	// False when the fossil table has not been built, so an empty list can be
 	// told apart from "nothing matched".
 	FossilsAvailable bool `json:"fossils_available"`
+	// The spelling these results are actually for, when the typed query
+	// returned nothing and a corrected one returned something.
+	//
+	// `Query` stays what the reader typed, always. The two fields together are
+	// the whole of the promise: the client shows the substitution rather than
+	// performing it silently, because a search that quietly answers a different
+	// question than the one asked is the same mistake as a confident number on
+	// an undated node. Absent whenever nothing was corrected, which is every
+	// query that worked.
+	Corrected string `json:"corrected,omitempty"`
 }
 
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
@@ -767,11 +777,47 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = min(n, 50)
 	}
-	res, err := s.St.Search(r.Context(), q, limit)
+	body, err := s.searchBoth(r, q, limit)
 	if err != nil {
 		s.Log.Error("search", "q", q, "err", err)
 		s.fail(w, r, http.StatusInternalServerError, "search failed")
 		return
+	}
+	// Nothing matched, so — and only so — ask whether the query was misspelled.
+	//
+	// The fallback is deliberately the *last* thing tried rather than a wider
+	// net cast at the start. Both corpora answered with nothing, which means
+	// this reader was going to get an empty list; the second pass costs them a
+	// search they were not otherwise going to spend, on a container with half a
+	// vCPU where that matters. Every query that worked pays exactly zero.
+	//
+	// A correction that leads nowhere is not a correction. If the corrected
+	// string is itself empty-handed the original answer stands, uncorrected and
+	// unexplained, which is the honest report: we did not find it and we do not
+	// have a better guess. That guard is also what keeps `hard maple` — a real
+	// name for *Acer saccharum* that phase 6 simply lacks — from acquiring a
+	// plausible-looking wrong answer.
+	if len(body.Results) == 0 && len(body.Fossils) == 0 {
+		if fixed, err := s.St.Suggest(r.Context(), q); err != nil {
+			s.Log.Warn("spelling", "q", q, "err", err)
+		} else if fixed != "" {
+			alt, err := s.searchBoth(r, fixed, limit)
+			if err != nil {
+				s.Log.Warn("spelling search", "q", fixed, "err", err)
+			} else if len(alt.Results) > 0 || len(alt.Fossils) > 0 {
+				alt.Query, alt.Corrected = q, fixed
+				body = alt
+			}
+		}
+	}
+	s.writeJSON(w, r, http.StatusOK, body)
+}
+
+// searchBoth answers one string from both catalogues and puts them in one order.
+func (s *Server) searchBoth(r *http.Request, q string, limit int) (searchBody, error) {
+	res, err := s.St.Search(r.Context(), q, limit)
+	if err != nil {
+		return searchBody{}, err
 	}
 	body := searchBody{Query: q, Results: res, Fossils: []store.Fossil{}}
 	// A failure here costs the fossil section and nothing else. The species
@@ -790,7 +836,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	// statement about the pair. A fossil scan that failed leaves the nodes
 	// stamped 0..n-1, which is the same order they were already in.
 	store.Interleave(body.Results, body.Fossils, q)
-	s.writeJSON(w, r, http.StatusOK, body)
+	return body, nil
 }
 
 // --- /v1/random ----------------------------------------------------------

@@ -315,7 +315,7 @@ deploys on a release cadence rather than per-commit.
 | Route | Returns | Cost |
 |---|---|---|
 | `GET /v1/path/{key}` | ancestor chain: idx, key, name, rank, age, tier, tip_count, phylopic | 41 array reads + one batched SQLite lookup |
-| `GET /v1/search?q=` | typeahead candidates | one FTS5 query |
+| `GET /v1/search?q=` | typeahead candidates | one FTS5 query; a query that matches **nothing** costs a second one, on a corrected spelling — see below |
 | `GET /v1/segment/{upper}/{lower}` | intermediates + ranked fossils with brackets | one index scan |
 | `GET /v1/node/{key}` | detail panel: synonyms, sources, xref provenance, attribution | a few indexed lookups |
 | `GET /v1/timescale` | ICS intervals, ~40 KB, `immutable` | static |
@@ -373,6 +373,19 @@ subtree size is what makes "can" surface Canidae before *Cania*.
 "dog" do not. For an app whose premise is inviting exploration, that is a serious UX
 hole, not a rough edge. Vernaculars from GBIF or Wikidata are scheduled as ingest
 phase 5 — see [ingest.md](ingest.md).
+
+**A misspelled query is corrected, and the correction is shown.** This is the one
+place a request does more than "an FTS query and a join", and it is confined to the
+case where that query answered with nothing: `store.Suggest` looks the words up in a
+phonetic index built by the search phase, ranks the handful sharing a key by Damerau
+distance, and the *unchanged* pipeline above runs a second time on the result. So
+nothing about ranking moves and no query that worked pays anything — which is what
+makes it affordable on half a vCPU. `corrected` rides on the response beside
+`query`, because the palette must say the substitution happened rather than perform
+it silently; that is the same rule §6 states for an undated node. What it explicitly
+does **not** do is reach a name the corpus lacks — `hard maple` is a real name for
+*Acer saccharum* that phase 6 does not carry, it is refused by the key rather than
+by any threshold, and it stays a coverage gap. `handoff.md` §3 is the account.
 
 ### Rejected alternatives
 

@@ -1634,6 +1634,26 @@ body {
   line-height: 1.45;
   padding-top: 1px;
 }
+/*
+ * The spelling note leads the list instead of footnoting it, because it is a
+ * caption on the rows below rather than a remark about rows that are missing.
+ * The hairline therefore goes underneath it, and the rule above has to be
+ * cancelled: `.row + .palette-note` cannot fire here — nothing precedes it —
+ * but a second note further down the same list would inherit a top border that
+ * belongs to a boundary this one already drew.
+ */
+.palette-note.is-lead {
+  border-top: 0;
+  margin-top: 0;
+  border-bottom: 1px solid var(--hairline);
+  margin-bottom: var(--s2);
+  padding-bottom: var(--s3);
+}
+/* The name actually searched is the one thing on this note a reader has to
+   read, so it takes the brightest ink the panel uses. */
+.palette-note.is-lead .row-title strong {
+  color: var(--ink);
+}
 
 /*
  * The control bar, on the top edge.

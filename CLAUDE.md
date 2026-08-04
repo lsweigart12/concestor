@@ -757,6 +757,39 @@ or `vernacular` match is already lit by `litRanges`, and an abbreviation repeats
 the same line down all eight rows of "T. rex" without distinguishing any of
 them — so neither is captioned.
 
+**A typo is forgiven, and a missing name is not — they are two problems and
+only one of them is spelling.** Eighteen real queries pulled from Workers Logs
+and replayed gave 47 settled strings, 8 of them empty. `ardvark` and `betual`
+are typos; **`hard maple` is a correctly spelled English name for *Acer
+saccharum* that the corpus does not carry**, 3–4 edits from anything real, and
+no threshold may reach it — conflating the two is how you ship fuzzy matching,
+watch `hard maple` still fail, and loosen the cap until search is useless. So:
+**correct the query, never relax the matcher.** `/v1/search` is untouched; only
+when *both* corpora come back empty does `store.Suggest` run, and then the
+unchanged search runs again on the corrected string. `spelling.py` builds the
+recall half — a phonetic key per distinct word across both catalogues, 1.25M
+rows and 50.6 MB — and Go ranks the handful that share a key by
+Damerau distance. Eight things not to redo are in `docs/handoff.md` §3, chief
+among them that **`hard maple` is refused by the key rather than by the
+threshold** (`hrd mpl` against `sgr mpl`, so it yields no candidates at all and
+the distance code never runs — a design where the cap is the only guard is one
+where raising the cap reaches a wrong answer); that **Double Metaphone was
+refused because the key exists in two languages** and a disagreement between
+them returns an empty bucket, which is indistinguishable from a word nobody
+misspelled, so the key is fifteen lines scoring 19/20 where plain vowel-dropping
+scores 16/20, pinned by a Go test that recomputes sampled rows out of the built
+table; that **every further English sound rule was measured and refused** —
+folding `z` and `q` puts this project's own benchmark string `zzzqqq` in a
+bucket with 69 candidates; that the unit is the **word** and not the whole name,
+which is 7× the index (362 MB) and cannot fix `betual pendula` at all, since
+with typeahead the typo that kills a query is always the leading one; that the
+**six-character floor** is where all the precision lives, taking the
+false-correction rate on random junk from 25.3% to 0.5%; and that it is
+**Damerau** rather than Levenshtein, because under plain Levenshtein `betual` is
+equidistant from `betula` and `betel` and the shorter string wins. The
+correction is **shown, never performed** — the same rule as `age_tier`, on a
+different surface.
+
 **Four things measure readership and they disagree by design, so a single
 number is always wrong.** Same three days, same site: the zone log says 237
 unique IPs, Workers Logs says 52 reached the Worker and 22 drew a tree, Web
