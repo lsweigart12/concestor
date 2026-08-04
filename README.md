@@ -36,16 +36,18 @@ better way to work. [pipeline/README.md](pipeline/README.md) covers the options.
 With `build/` populated, start the app:
 
 ```bash
-scripts/serve.sh
+scripts/dev.sh
 ```
 
-One Go process serves the read API on `/v1` and the built frontend on `/`, by
-default at <http://localhost:8080>. Set `PORT` to change it. The script builds the
-frontend if `web/dist` is missing, and refuses to start if the baked artifacts are
-absent rather than serving an empty canvas that looks like a bug.
+Vite serves the frontend with hot reload, by default at <http://localhost:5173>,
+backed by a read API the script starts on a private port and proxies `/v1` to.
+Set `PORT` to change it. It refuses to start if the baked artifacts are absent
+rather than serving an empty canvas that looks like a bug.
 
-For frontend hot reload, use `scripts/dev.sh`, which starts its own API on a
-private port and proxies `/v1` to it.
+To see the bundle that actually ships, use `scripts/serve.sh`: one Go process
+serving the read API on `/v1` and the built frontend on `/`, by default at
+<http://localhost:8080>. It builds the frontend if `web/dist` is missing — but
+only then, so rebuild `web/` yourself after changing it.
 
 ---
 
@@ -75,7 +77,7 @@ docs/          specification and design documents
 pipeline/      the offline build pipeline
 server/        the read API
 web/           the frontend
-scripts/       serve.sh and dev.sh — the two launch configurations — and check.sh
+scripts/       dev.sh and serve.sh — the two launch configurations — and check.sh
 snapshot/      pinned upstream sources (gitignored except manifest.json)
 build/         derived artifacts (gitignored)
 ```

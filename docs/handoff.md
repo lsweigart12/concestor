@@ -185,15 +185,22 @@ halves of the system.
 The real UI is `web/` — Vite + React 19 + TypeScript + `@xyflow/react` v12.
 
 ```bash
-scripts/serve.sh    # API + built frontend, one process, :8080
+scripts/dev.sh      # Vite with hot reload, backed by its own API, :5173
 ```
 
 That is the `concestor` configuration in `.claude/launch.json`, so the preview
-browser and any agent start the app the same way. It verifies the artifacts
-exist first and builds `web/dist` if it is missing, rather than serving a blank
-canvas that looks identical to a broken one. `scripts/dev.sh` is the
-`concestor-web-dev` configuration: Vite on :5173 with hot reload, backed by an
-API it starts itself on a private port.
+browser and any agent start the app the same way. Vite serves the frontend from
+source and proxies `/v1` to an API the script starts itself on a private port,
+so it never depends on the other entry already running — and, being served from
+source, it cannot show a stale frontend.
+
+`scripts/serve.sh` is the `concestor-built` configuration: API and built
+frontend in one Go process on :8080. Run it before merging, and for anything
+touching asset loading or analytics, since Vite serves transformed modules
+rather than the shipped chunks and under `dev.sh` the beacon `404`s. It verifies
+the artifacts exist first and builds `web/dist` if it is missing, rather than
+serving a blank canvas that looks identical to a broken one — but *only* if it
+is missing, so a `web/` change made since the last build is not picked up.
 
 Both configurations set `autoPort`, and both scripts run unchanged inside a
 git worktree — see [worktrees.md](worktrees.md). That matters because every

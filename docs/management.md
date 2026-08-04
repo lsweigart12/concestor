@@ -157,10 +157,13 @@ Plus `npm test` and `npx tsc --noEmit` in `web/`, and `go vet ./... && go test .
 ## Running it
 
 ```bash
+scripts/dev.sh            # Vite with hot reload, backed by its own API, :5173
 scripts/serve.sh          # API + built frontend, one process, :8080
 ```
 
-That is the `concestor` configuration in `.claude/launch.json`, so the preview browser and any agent start it the same way. `concestor-web-dev` runs Vite on :5173 with hot reload for frontend iteration.
+The first is the `concestor` configuration in `.claude/launch.json`, so the preview browser and any agent start it the same way. It leads because it cannot serve a stale frontend: `serve.sh` rebuilds `web/dist` only when it is missing, so an hour-old bundle is served in silence.
+
+The second is `concestor-built`. Run it before merging, and for anything touching asset loading or analytics — Vite serves transformed modules rather than the shipped chunks, and under `dev.sh` the beacon `404`s because Vite proxies `/v1` to a Go binary that has never heard of it.
 
 **Restart the server after any pipeline run.** The arrays are mmap'd and SQLite is opened at startup, so a running server keeps serving the previous build — and because both builds are internally consistent, the only symptom is quietly stale answers. This has already caused confusion twice.
 

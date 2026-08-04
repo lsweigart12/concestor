@@ -5,20 +5,41 @@
     // worktree is one — gets a free port instead of colliding with the first.
     // Claude passes the port it picks in $PORT, which both scripts honour.
     {
-      // What ships: one Go process serving /v1 and web/dist. Start here.
+      // Hot reload, and the one to start. Vite serves the frontend from
+      // source and proxies /v1 to an API this script starts on a private
+      // port, so it does not depend on the other entry already running.
+      //
+      // First, because it cannot serve a stale frontend and the entry below
+      // can: `serve.sh` rebuilds `web/dist` only when it is *missing*, so an
+      // hour-old bundle is served without a word. That has already cost a bug
+      // report filed against code that was fixed and merely not rebuilt.
+      //
+      // It is also closer to production than "what ships" suggests, on the
+      // half that matters most often. `docs/deployment.md` records the
+      // `/healthz` probe that read `res.ok` off the SPA shell: under vite's
+      // fallback it fails the way it fails in production, and under a single
+      // Go process serving both halves off one origin it passed for the app's
+      // entire life. The mode that looked most like production was the one
+      // hiding the bug.
       "name": "concestor",
-      "runtimeExecutable": "scripts/serve.sh",
-      "runtimeArgs": [],
-      "port": 8080,
-      "autoPort": true
-    },
-    {
-      // Hot reload. Starts its own API on a private port and proxies to it,
-      // so it does not depend on the entry above already running.
-      "name": "concestor-web-dev",
       "runtimeExecutable": "scripts/dev.sh",
       "runtimeArgs": [],
       "port": 5173,
+      "autoPort": true
+    },
+    {
+      // The bundle that ships: one Go process serving /v1 and web/dist.
+      //
+      // Named for what it is for rather than what it lacks. Use it before
+      // merging, and for anything touching asset loading or analytics — vite
+      // serves transformed modules rather than the minified chunks, and under
+      // `dev.sh` the analytics beacon 404s because vite proxies /v1 to a Go
+      // binary that has never heard of it (`docs/analytics.md`). Both are
+      // expected there, and neither is visible until you run this.
+      "name": "concestor-built",
+      "runtimeExecutable": "scripts/serve.sh",
+      "runtimeArgs": [],
+      "port": 8080,
       "autoPort": true
     }
   ]
