@@ -53,20 +53,21 @@ export function LabelsToggle({
         {
           value: "off",
           label: "off",
-          title:
-            "Take the words off the canvas: no rank, no name, no figure. The marks, the traces and the silhouettes stay, which is the tree as a shape — where the forks are, how far apart, and what the animals looked like. The labels are what make that hard to see.",
+          tip: "No words on the canvas — just the shape of the tree and the silhouettes.",
         },
         {
           value: "common",
           label: "common",
-          title:
-            "The name people use, where there is one — 'Human', 'Dog', 'blue whale' — ranked first by what English Wikipedia titles and redirects say is most used. Only species, genera and subspecies get one, because a common name higher up names a group rather than a kind of animal. Everything else keeps its scientific name, in italics, so you can always tell which you are reading.",
+          // The rule about which taxa get one, and how the ranking is derived,
+          // is the header above and `docs/name-ranking.md`. What a reader at
+          // the switch needs is that the canvas will be a mixture and how to
+          // read it, which is one clause.
+          tip: "Everyday names where there is one — Human, Dog, blue whale. Anything without one keeps its scientific name, in italics.",
         },
         {
           value: "scientific",
           label: "scientific",
-          title:
-            "The name in the taxonomy, italic for a genus, species or subspecies as convention has it. It is the name that is never absent and never ambiguous: every node has one, and no two taxa share one.",
+          tip: "The formal name, in italics. Every taxon has one and no two share one.",
         },
       ]}
     />
@@ -92,14 +93,14 @@ export function AgesToggle({
         {
           value: false,
           label: "off",
-          title:
-            "Drop the figure from every label. The tree still says when — x is time and the ruler is under it — so this trades the number for a canvas of names.",
+          tip: "Hide the dates. The ruler underneath still says when.",
         },
         {
           value: true,
           label: "on",
-          title:
-            "Print each mark's age: a divergence's date, an upper bound where the estimate is one, and a fossil taxon's range beside the ammonite. A node the chronogram does not date shows nothing, in either state.",
+          // The caveat stays, shorter: a reader who sees a blank where they
+          // expected a number should know it is the data and not the switch.
+          tip: "Print each mark's date, and a fossil's range. Undated nodes stay blank either way.",
         },
       ]}
     />

@@ -19,6 +19,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { useTip } from "../chrome/Tooltip";
 
 const cache = new Map<string, Promise<string | null>>();
 
@@ -76,15 +77,23 @@ export function SilhouetteSvg({
   x,
   y,
   size,
-  title,
+  tip,
 }: {
   phylopicId: string;
   x: number;
   y: number;
   size: number;
-  title?: string;
+  /**
+   * What the drawing is of, on hover. It used to be an SVG `<title>` child,
+   * which is the platform's tooltip by another route and inherits every one of
+   * its faults — including being written into the markup this component sets
+   * with `dangerouslySetInnerHTML`, where a fossil name carrying an angle
+   * bracket would have been interpolated straight into the DOM.
+   */
+  tip?: string;
 }) {
   const [markup, setMarkup] = useState<string | null>(null);
+  const hover = useTip(tip);
 
   useEffect(() => {
     let live = true;
@@ -103,7 +112,8 @@ export function SilhouetteSvg({
       className="silhouette"
       transform={`translate(${x},${y})`}
       aria-hidden="true"
-      dangerouslySetInnerHTML={{ __html: title ? `<title>${title}</title>${sized}` : sized }}
+      {...hover}
+      dangerouslySetInnerHTML={{ __html: sized }}
     />
   );
 }
@@ -111,12 +121,13 @@ export function SilhouetteSvg({
 export function Silhouette({
   phylopicId,
   size = 34,
-  title,
+  tip,
   fallback = null,
 }: {
   phylopicId: string;
   size?: number;
-  title?: string | undefined;
+  /** What the drawing is of, on hover. See {@link SilhouetteSvg}'s note. */
+  tip?: string | undefined;
   /**
    * What to render before the markup arrives, and if it never does — the
    * mirror is populated in the background, so "known but not yet on disk" is
@@ -130,6 +141,7 @@ export function Silhouette({
   fallback?: React.ReactNode;
 }) {
   const [markup, setMarkup] = useState<string | null>(null);
+  const hover = useTip(tip);
 
   useEffect(() => {
     let live = true;
@@ -147,8 +159,8 @@ export function Silhouette({
     <span
       className="silhouette"
       style={{ width: size, height: size }}
-      title={title}
       aria-hidden="true"
+      {...hover}
       dangerouslySetInnerHTML={{ __html: markup }}
     />
   );

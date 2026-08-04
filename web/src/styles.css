@@ -1854,12 +1854,12 @@ body {
  * point: on the mode panel the raised thing is where you *are*, and here it is
  * where you would land — one language, two tenses.
  */
-.control:hover:not(:disabled) {
+.control:hover:not([aria-disabled="true"]) {
   background: var(--void-2);
   border-color: var(--hairline);
   color: var(--ink);
 }
-.control:hover:not(:disabled) .kbd {
+.control:hover:not([aria-disabled="true"]) .kbd {
   border-color: var(--hairline-strong);
   color: var(--accent);
 }
@@ -1904,7 +1904,7 @@ body {
    * the old one said *absent*. 1.4.3 exempts an inactive control from the 4.5
    * floor, which is why this is the one number here allowed to sit near it, and
    * not a licence to go back under. */
-.control:disabled {
+.control[aria-disabled="true"] {
   opacity: 0.8;
   cursor: default;
 }
@@ -4290,7 +4290,7 @@ body {
     inset 0 0 8px hsl(var(--accent-h) 90% 60% / 0.05);
 }
 
-.control.is-command:hover:not(:disabled),
+.control.is-command:hover:not([aria-disabled="true"]),
 .control.is-command:focus-visible {
   border-color: hsl(var(--accent-h) 55% 55% / 0.75);
   box-shadow:
@@ -4336,7 +4336,7 @@ body.biolum .palette-fab {
   box-shadow: inset 0 0 10px hsl(186 100% 62% / 0.07);
 }
 
-body.biolum .control.is-command:hover:not(:disabled),
+body.biolum .control.is-command:hover:not([aria-disabled="true"]),
 body.biolum .control.is-command:focus-visible,
 body.biolum .palette-fab:hover,
 body.biolum .palette-fab:focus-visible {
@@ -4572,7 +4572,7 @@ body.biolum .palette-fab:focus-visible {
 body.biolum .controls {
   background: linear-gradient(to bottom, #02060a 46%, transparent);
 }
-body.biolum .control:hover:not(:disabled),
+body.biolum .control:hover:not([aria-disabled="true"]),
 body.biolum .control.on {
   background: hsl(200 45% 9%);
   border-color: hsl(188 60% 55% / 0.22);
@@ -4933,6 +4933,93 @@ body.biolum .carousel-card:focus-visible {
  * reached the same answer from the other end and no longer drops its labels at
  * any width either — see the note above `.modal-scrim`.
  */
+
+/* ------------------------------------------------------------- tooltip -- */
+
+/*
+ * The app's one tooltip. `chrome/tooltip.ts` has the argument for it existing;
+ * this is what it looks like, and the shape is not a new invention — it is the
+ * `.control-tip-tray` flyout, which is already the answer to "a sentence beside
+ * a control" on this canvas. A second look for the same job would be a reader
+ * having to learn that these are the same kind of thing.
+ *
+ * Opaque, and it has to be: a tooltip is the one surface in this app that
+ * covers the graph rather than sitting beside it. `--void-3` is the third step
+ * of the near-black ramp, so it reads as *above* the canvas without a shadow —
+ * which the stylesheet's own header refuses, and which would in any case be
+ * invisible against a background this dark. The hairline is what draws the
+ * edge, at the 1.4.11 weight the rest of the chrome uses.
+ *
+ * `--ink-2` rather than `--ink`. It is an aside about a control, not the
+ * control and not the graph, and the ramp's second rung is where this app puts
+ * that — 9.2:1, so nothing about the restraint costs legibility.
+ */
+.tip {
+  position: fixed;
+  z-index: 60;
+  /*
+   * `MAX_W` in `chrome/tooltip.ts`, and `tooltip.test.ts` reads this rule to
+   * pin the two together. The placement arithmetic measures the rendered box,
+   * so a drift here would not error — it would quietly make every tip wider
+   * than the measure the copy was written to.
+   */
+  max-width: 260px;
+  padding: 6px 10px;
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  background: var(--void-3);
+  color: var(--ink-2);
+  font-family: var(--sans);
+  font-size: 12.5px;
+  font-weight: var(--w-reg);
+  line-height: 1.45;
+  /* Even lines rather than a last line holding one word. Costs nothing where
+     it is unsupported. */
+  text-wrap: pretty;
+  /*
+   * It takes pointer events on purpose — WCAG 1.4.13 asks that a reader be
+   * able to put the pointer on the words, which matters most to the reader who
+   * is magnifying them. `Tooltip.tsx` holds it open while they do.
+   */
+  pointer-events: auto;
+}
+
+/*
+ * A short move out of the trigger it belongs to, which is the only thing the
+ * two side classes are for: at 90ms this is not decoration, it is the one cue
+ * saying which control the sentence is about on a canvas where several sit
+ * within a few pixels of each other. The reduced-motion block at the foot of
+ * this file snaps both to their final frame.
+ */
+.tip-bottom {
+  animation: tip-in-bottom 90ms var(--spring) both;
+}
+
+.tip-top {
+  animation: tip-in-top 90ms var(--spring) both;
+}
+
+@keyframes tip-in-bottom {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes tip-in-top {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
 
 /* -------------------------------------------------------- narrow window -- */
 

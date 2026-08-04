@@ -39,14 +39,16 @@ export function BiolumToggle({
         {
           value: false,
           label: "off",
-          title:
-            "The plain instrument: luminous lines on a dark ground, and no light that did not come from the graph.",
+          tip: "A plain dark canvas. Nothing glows but the tree itself.",
         },
         {
           value: true,
           label: "on",
-          title:
-            "Light the canvas the way the deep sea is lit: additive bloom on the branches, light travelling down each lineage, a drifting field of plankton behind it. Nothing about the data changes — every dash, tier and figure is identical in both states.",
+          // Two sentences, and the second is the one that matters: a reader who
+          // suspects the pretty mode of also being the inaccurate one will
+          // leave it off. "The plain instrument" — this project's own name for
+          // the other setting — is in the header above, where it belongs.
+          tip: "Lights the branches the way the deep sea is lit, with drifting plankton behind them. Nothing about the data changes.",
         },
       ]}
     />

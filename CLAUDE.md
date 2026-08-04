@@ -69,7 +69,7 @@ our own; **no dagre, no ELK, no d3-hierarchy**, because a graph-layout engine
 assigns `x` by depth and here `x` is time.
 
 ```bash
-cd web && npm install && npm run build && npm test   # 504 tests
+cd web && npm install && npm run build && npm test   # 545 tests
 cd server && go test ./... && go run . -build ../build
 scripts/check.sh          # everything CI runs, plus the dataset tests it can't
 ```
@@ -302,6 +302,33 @@ work; and a badge is printed **only where the press would do it**, which is why
 card. `remove` fires on `induced.leaves`, which is the selection, which is
 exactly what puts that button in its remove state; a graft's index is negative,
 so the handler resolves no node and the press does nothing.
+
+**Every tooltip in this app is drawn by this app, and `title` is banned.**
+`chrome/tip.ts` is the placement and the timing, `chrome/Tooltip.tsx` is the
+store, the `useTip` hook and the one layer, and `tip.test.ts` censuses the
+`.tsx` corpus so neither `title=` nor an SVG `<title>` child can come back. The
+mechanism was the smaller half of the problem: the native tooltip is
+unstyleable, a second late, unwrappable, undismissable, absent on touch, and
+positioned against the *pointer* rather than the control — which is why the
+bioluminescence switch, bottom left, explained itself across the timeline. The
+**copy** was the leak. `title` costs nothing to fill and nothing checks it, so
+it filled with the reasoning that belongs in the header comments: 372 characters
+of naming policy on one segment of the labels switch, 243 on bioluminescence.
+Every one is a sentence now and nothing moved anywhere, because all of it was
+already written in the components and in `name-ranking.md`. Seven things not to
+redo are in `docs/handoff.md` §3, chief among them that **it is a hook and not a
+wrapper** — `useTip` returns handlers, so the DOM is unchanged attribute for
+attribute, where `<Tip>` would put an element inside `.mode-chip`'s grid and
+`.canvas-modes`'s subgrid; that **placement has no flip in it**, because "away
+from the nearer edge" and "the side with more room" are provably the same test
+(`r₋ − r₊ = 2y + h − H`) and "flip when it does not fit" would not have fixed
+the bug at all — a tip below that switch *fits*, across the timeline; that the
+anchor is **measured once**, so `pointerdown` and `keydown` are listened for on
+the **window** rather than on the trigger, which is the only way to catch a
+press on another element or a keystroke while the pointer sits still; and that
+`.control` had to become **`aria-disabled`** rather than `disabled`, because a
+disabled button fires no pointer events and the five disabled hints are the most
+useful tooltips on the bar.
 
 **The control bar is captioned groups, and on a phone it is one button.** Each
 group is a `ModeChip`'s anatomy — small-caps mono caption over a recessed track

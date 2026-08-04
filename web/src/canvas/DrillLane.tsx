@@ -54,6 +54,7 @@ import { isScientificItalic } from "./NodeMark";
 import { MONO, SANS, textWidth } from "../tree/labels";
 import { usePending } from "../chrome/Pending";
 import { SilhouetteSvg } from "./Silhouette";
+import { useTip } from "../chrome/Tooltip";
 
 export interface Drill {
   upper: number;
@@ -286,7 +287,7 @@ export function DrillLane({
                 geom={geom}
                 y={y + (ROW_H - BAR_H) / 2 - 3}
                 height={BAR_H}
-                title={bracketTitle(f.name, geom)}
+                tip={bracketTitle(f.name, geom)}
               />
               {f.phylopic_id && (
                 <SilhouetteSvg
@@ -294,7 +295,7 @@ export function DrillLane({
                   x={silX}
                   y={y + (ROW_H - ICON) / 2}
                   size={ICON}
-                  title={`${f.name}, drawn`}
+                  tip={`${f.name}, drawn`}
                 />
               )}
               <text
@@ -432,23 +433,10 @@ function Spine({
   return (
     <g className="drill-spine">
       <line x1={Math.min(x1, x2)} y1={11} x2={Math.max(x1, x2)} y2={11} />
+      {/* Every tick is a real node with a real position, whether or not the
+          crowding let it print a name, so every one of them answers on hover. */}
       {intermediates.map((n) => (
-        <rect
-          key={n.idx}
-          className={`drill-tick${named.has(n.idx) ? " is-named" : ""}`}
-          x={toScreenX(n.age_layout) - 1}
-          y={6}
-          width={2}
-          height={11}
-        >
-          {/* Every tick is a real node with a real position, whether or not
-              the crowding let it print a name. */}
-          <title>
-            {n.name ?? "unnamed divergence"}
-            {n.rank && n.rank !== "no rank" ? ` · ${n.rank}` : ""} ·{" "}
-            {n.tip_count.toLocaleString()} species below
-          </title>
-        </rect>
+        <SpineTick key={n.idx} node={n} named={named.has(n.idx)} toScreenX={toScreenX} />
       ))}
       {labels.map((l) => (
         <text
@@ -462,5 +450,39 @@ function Spine({
         </text>
       ))}
     </g>
+  );
+}
+
+/**
+ * One tick on the spine.
+ *
+ * A component because `useTip` is a hook and these are a `map`. The words it
+ * carries were an SVG `<title>` child, which draws the platform's own tooltip
+ * — see `chrome/tip.ts`. Here that was the worse version of an already thin
+ * affordance: a 2×11px target, and the only thing on the spine that says what
+ * an unnamed tick is.
+ */
+function SpineTick({
+  node,
+  named,
+  toScreenX,
+}: {
+  node: PathNode;
+  named: boolean;
+  toScreenX: (ma: number) => number;
+}) {
+  const rank = node.rank && node.rank !== "no rank" ? ` · ${node.rank}` : "";
+  const tip = useTip(
+    `${node.name ?? "unnamed divergence"}${rank} · ${node.tip_count.toLocaleString()} species below`,
+  );
+  return (
+    <rect
+      className={`drill-tick${named ? " is-named" : ""}`}
+      x={toScreenX(node.age_layout) - 1}
+      y={6}
+      width={2}
+      height={11}
+      {...tip}
+    />
   );
 }

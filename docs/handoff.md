@@ -1545,6 +1545,82 @@ canvas rather than on nothing. `L` **cycles** where every other toggle on that
 edge flips, which is legible only because the chip is beside it: the reader sees
 where the press landed and what the next one will do.
 
+### The app draws its own tooltips, and the copy was the other half
+
+Every hover explanation in this app was a `title` attribute. That is the
+browser's tooltip, and the complaint that started this was one of its faults
+rather than a bug in our code: the bioluminescence switch sits bottom left, the
+platform draws its tooltip under the cursor, and the sentence landed across the
+timeline.
+
+**The mechanism was the smaller half.** `title` cannot be styled, arrives about
+a second late, wraps where the platform chooses, never appears on a touch
+screen, cannot be dismissed, and is positioned against the pointer rather than
+against the control. `chrome/tip.ts` and `chrome/Tooltip.tsx` replace all of it
+— placement and timing in the first, the store, the hook and the one layer in
+the second.
+
+**The copy was the real leak.** `title` is a slot with no cost to filling, no
+linter objects to it and no test notices it, so it filled with the reasoning
+that belongs in the header comments: 372 characters of naming policy on one
+segment of the labels switch, 251 on another, 243 on bioluminescence. The
+rewrite cut every one to a sentence and moved nothing — all of it was already
+written in the component headers and in `name-ranking.md`. What survives is the
+answer to *what will pressing this do*, plus the one caveat whose absence would
+cost the reader their trust in the canvas: "Nothing about the data changes" is
+why the bioluminescence copy is two sentences rather than one.
+
+Seven things not to redo:
+
+**A hook, not a wrapper.** `<Tip><button/></Tip>` is the friendlier API and it
+puts an element into `.mode-chip`'s grid, into `.canvas-modes`'s subgrid, and
+into a `<g>` inside the drill lane's single SVG. `useTip` returns event
+handlers, so the DOM after the change is the DOM before it, attribute for
+attribute, minus every `title`.
+
+**Placement is one line, and the proof is why there is no flip in it.** "Below,
+flipping up when it does not fit" would not have fixed the reported bug: a 48px
+tip below that switch *fits*, straight across the timeline. The rule is that a
+tip goes towards the middle of the window — and writing out the two room
+calculations shows `r₋ ≥ r₊` is exactly `y + h/2 ≥ H/2`, so "away from the
+nearer edge" and "the side with more room" are the same test. A separate flip
+pass could then only ever fire by preferring the side with *less* room. Two
+clamps handle the rest, for both axes.
+
+**Anything that relays out the page invalidates the anchor**, which is a
+rectangle measured once at open time. This canvas re-lays out constantly —
+opening the card re-fits the tree, `L` and `A` change every label, `F`
+reframes — so `pointerdown` and `keydown` are listened for on the **window**,
+not on the trigger. On the trigger they cannot see the two cases that matter: a
+press on some other element, and a keystroke while the pointer sits still. Both
+leave the old tip hanging over a control that has moved out from under it.
+Re-placing rather than dismissing was considered and is wrong: the honest answer
+to "that control is no longer where you asked about it" is to stop answering.
+
+**A disabled button fires no pointer events**, so `.control` now carries
+`aria-disabled` and an inert `onClick` instead of `disabled`. Under a `title`
+this did not matter, because the platform draws a native tooltip for a disabled
+control anyway. Under any tooltip the page draws itself, it loses exactly the
+tooltip worth having: all five of these are the sentence saying what would make
+the button work. The stylesheet followed, in four places.
+
+**The SVG half hides.** `Bracket` and `SilhouetteSvg` used a `<title>` child,
+which is the same platform tooltip by another route and which grepping for
+`title=` never finds. `tip.test.ts` censuses both, and tells a component prop
+(`<Confirm title=…>`, fine) from a DOM attribute by walking back to the nearest
+tag and testing its case.
+
+**A tooltip that repeats what is on screen is noise.** The palette's rows passed
+`c.hint ?? c.subtitle`, and the subtitle is printed two lines under the pointer.
+The fallback is gone.
+
+**The focus path is near-dead, and not because of anything here.** `App.tsx`
+prevents the default of every key it matches and `bindings.ts` claims bare `Tab`
+for stepping the selection, so the focus ring does not move in this app at all.
+The `onFocus` handlers stay — they are correct the moment that changes — but
+keyboard reachability of the whole control surface is a bigger question than a
+tooltip and belongs to whoever picks up `bindings.ts`.
+
 ### The bar is groups now, and on a phone it is one button
 
 Two changes, and the second is the reason the first was worth making.

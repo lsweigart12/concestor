@@ -11,11 +11,24 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import { AboutPage } from "./chrome/AboutPage";
+import { TooltipLayer } from "./chrome/Tooltip";
 import { useRoute } from "./route";
 import "./styles.css";
 
+/**
+ * The tooltip layer is mounted here, outside both documents, for the reason
+ * they are mutually exclusive in the first place: it belongs to neither, it
+ * must survive the swap between them, and it is `position: fixed` — which is
+ * relative to the nearest transformed ancestor, and the canvas inside `App`
+ * transforms. Out here its only ancestors are `#root` and `body`.
+ */
 function Root() {
-  return useRoute() === "about" ? <AboutPage /> : <App />;
+  return (
+    <>
+      {useRoute() === "about" ? <AboutPage /> : <App />}
+      <TooltipLayer />
+    </>
+  );
 }
 
 const el = document.getElementById("root");

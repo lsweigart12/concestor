@@ -27,6 +27,7 @@
  */
 
 import { goAbout } from "../route";
+import { useTip } from "./Tooltip";
 
 /** The public repository. One place, so a rename cannot leave a dead link. */
 export const SOURCE_URL = "https://github.com/lsweigart12/concestor";
@@ -51,6 +52,7 @@ function GitHubMark() {
 }
 
 export function SourceLinks() {
+  const tip = useTip("Read the source on GitHub");
   return (
     <div className="axis-links">
       <button type="button" className="axis-link" onClick={goAbout}>
@@ -65,7 +67,7 @@ export function SourceLinks() {
         // The mark carries no text, so the label is the only thing a screen
         // reader gets, and "source" alone would not say it leaves the site.
         aria-label="Source code on GitHub"
-        title="Read the source on GitHub"
+        {...tip}
       >
         <GitHubMark />
         <span className="axis-link-word">source</span>

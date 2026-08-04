@@ -140,7 +140,9 @@ filter tween on the same element.
   is one line in a fixed-height row; a caveat that needs a sentence — what a
   pick is drawn from, what it will do to the selection as a side effect — goes
   in `Command.hint`, which a reader can go looking for and never has to read
-  past. It falls back to the subtitle, so every row has one.
+  past. It does **not** fall back to the subtitle, and used to: the subtitle is
+  printed two lines under the pointer, so the fallback fired on every row in the
+  list to repeat text already on screen.
 - Inline keybind hints on every row, from the same table the buttons read.
 - **The control bar is on the top edge**, under the same fade-to-void the axis
   uses, not a pill and not a panel. The two questions split by edge — the top
@@ -341,6 +343,35 @@ below is that one rule applied to the three things that overlap on the canvas.
   text off the canvas label, so a label that cannot be hovered silently deletes
   it. The name's explains a derived `Homo / Pan` divergence name, which is the
   only place on the canvas that construction is spelled out.
+
+## Tooltips
+
+- **The app draws them; `title` is banned and a test enforces it.** The native
+  tooltip cannot be styled, arrives about a second late, wraps where the
+  platform chooses, never appears on a touch screen, cannot be dismissed, and is
+  placed against the *pointer* rather than the control — which is how a switch
+  in the bottom-left corner came to explain itself across the timeline. The SVG
+  `<title>` child is the same thing by another route and is banned with it.
+  `chrome/tip.ts` and `chrome/Tooltip.tsx` are the implementation and
+  `tip.test.ts` is the census.
+- **A tooltip is a sentence.** Two where the second is a caveat whose absence
+  would cost the reader their trust in the canvas — "Nothing about the data
+  changes" on bioluminescence is the case that earns it. What needs a paragraph
+  needs the about page. The measure is capped at 260px for the ordinary reason:
+  past roughly 45 characters a line the eye loses the return sweep, and this is
+  read once, quickly, beside whatever the reader was already doing.
+- **It answers "what will pressing this do", never "why is it built this way".**
+  The second question is what the component headers and these docs are for, and
+  a slot that costs nothing to fill will otherwise fill with it.
+- **It never repeats what is already on screen.** A tooltip echoing a visible
+  subtitle is noise wearing the costume of help.
+- **It goes towards the middle of the window**, away from whichever edge its
+  trigger is pinned to — not "below, flipping up when it does not fit", which
+  fits happily on top of the timeline.
+- **An unavailable control keeps its explanation.** That means `aria-disabled`
+  rather than `disabled`, because a disabled button fires no pointer events and
+  takes no focus, and the sentence saying what would make a button work is the
+  most useful tooltip on the bar.
 
 ## Layout
 

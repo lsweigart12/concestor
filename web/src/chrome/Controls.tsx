@@ -43,6 +43,7 @@
 import { binding, type ActionId } from "./bindings";
 import { BrandMark } from "./BrandMark";
 import { PendingLine } from "./Pending";
+import { useTip } from "./Tooltip";
 
 /**
  * What a control can be pointed at, which is a key's action or `share`.
@@ -136,49 +137,17 @@ export function Controls({
    */
   tip?: React.ReactNode;
 }) {
-  const draw = (a: ControlAction) => {
-    // The one control with no row in the key table carries its own words. The
-    // type above is what guarantees it has them, so there is nothing to throw.
-    const b = a.id === "share" ? null : binding(a.id);
-    const off = a.disabledBecause !== undefined;
-    const kbd = b?.kbd;
-    return (
-      <button
-        key={a.id}
-        type="button"
-        // The keyless button carries no marker class any more. It existed for
-        // one rule — the 720px block that hid every label and then had to put
-        // share's back — and that rule is gone, so the class was a fact about
-        // a button nothing reads. What guarantees share has words is the type,
-        // which is where it always belonged. `Controls.test.ts` asserts both
-        // halves of that, because a stylesheet is where this comes back.
-        // `is-command` on the palette button alone, and unlike the keyless
-        // marker above it this one has readers: `styles.css` glows its border,
-        // and `canvas/bootLight.ts` measures it as a light source in
-        // bioluminescent mode. `.controls-lead .control` cannot stand in for
-        // it — the lead slot is three buttons, `P`, `S` and `R`.
-        className={`control${a.active ? " on" : ""}${a.id === "palette" ? " is-command" : ""}`}
-        disabled={off}
-        title={off ? a.disabledBecause : (a.hint ?? b?.hint)}
-        onClick={a.run}
-      >
-        {/* Printed only where the press would do it, which is the rule the
-            whole key surface follows — share shows none because it has none,
-            and inventing one here would be the table disagreeing with itself
-            in the one place a reader can see both. */}
-        {kbd !== undefined && <span className="kbd">{kbd}</span>}
-        <span className="control-label">{a.label ?? b?.label}</span>
-      </button>
-    );
-  };
-
   const drawGroup = (g: ControlGroup) => (
     <div className="control-group" key={g.name} role="group" aria-label={g.name}>
       <span className="control-name">
         {g.brand === true && <BrandMark />}
         {g.name}
       </span>
-      <span className="control-track">{g.actions.map(draw)}</span>
+      <span className="control-track">
+        {g.actions.map((a) => (
+          <Control key={a.id} a={a} />
+        ))}
+      </span>
     </div>
   );
 
@@ -229,5 +198,64 @@ export function Controls({
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * One button on the bar.
+ *
+ * A component rather than the local `draw` it was, because `useTip` is a hook
+ * and that was a function called from a `map`. The markup is unchanged bar one
+ * attribute, and that one is the interesting part.
+ *
+ * **`aria-disabled` rather than `disabled`, so the reason survives.** A
+ * `disabled` button fires no pointer events in any browser — that is what the
+ * attribute means — and it is not focusable either. Under a `title` attribute
+ * that did not matter, because the platform draws a native tooltip for a
+ * disabled control anyway; under any tooltip the page draws itself, the
+ * explanation is unreachable by pointer *and* by keyboard. Which loses exactly
+ * the tooltip worth having: `App.tsx` writes five of these, and every one is
+ * the sentence saying what would make the button work — "Select a node first",
+ * "Add a species and this steps through the selection".
+ *
+ * So the control stays a real, focusable button that announces itself as
+ * disabled and does nothing when pressed. That is the WAI-ARIA pattern for a
+ * control whose unavailability needs explaining, and here it is the whole
+ * reason the state exists. The stylesheet follows: `.control:disabled` is now
+ * `.control[aria-disabled="true"]`, in all four places.
+ */
+function Control({ a }: { a: ControlAction }) {
+  // The one control with no row in the key table carries its own words. The
+  // type above is what guarantees it has them, so there is nothing to throw.
+  const b = a.id === "share" ? null : binding(a.id);
+  const off = a.disabledBecause !== undefined;
+  const kbd = b?.kbd;
+  const tip = useTip(off ? a.disabledBecause : (a.hint ?? b?.hint));
+  return (
+    <button
+      type="button"
+      // The keyless button carries no marker class any more. It existed for
+      // one rule — the 720px block that hid every label and then had to put
+      // share's back — and that rule is gone, so the class was a fact about
+      // a button nothing reads. What guarantees share has words is the type,
+      // which is where it always belonged. `Controls.test.ts` asserts both
+      // halves of that, because a stylesheet is where this comes back.
+      // `is-command` on the palette button alone, and unlike the keyless
+      // marker above it this one has readers: `styles.css` glows its border,
+      // and `canvas/bootLight.ts` measures it as a light source in
+      // bioluminescent mode. `.controls-lead .control` cannot stand in for
+      // it — the lead slot is three buttons, `P`, `S` and `R`.
+      className={`control${a.active ? " on" : ""}${a.id === "palette" ? " is-command" : ""}`}
+      aria-disabled={off || undefined}
+      onClick={off ? undefined : a.run}
+      {...tip}
+    >
+      {/* Printed only where the press would do it, which is the rule the
+          whole key surface follows — share shows none because it has none,
+          and inventing one here would be the table disagreeing with itself
+          in the one place a reader can see both. */}
+      {kbd !== undefined && <span className="kbd">{kbd}</span>}
+      <span className="control-label">{a.label ?? b?.label}</span>
+    </button>
   );
 }
