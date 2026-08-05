@@ -1,10 +1,12 @@
 """Consolidate the artifact set and record exactly what it is made of.
 
-`ingest.md` ends with `concestor-build package  # → topology.bin, meta.bin,
-concestor.db, manifest`. Two of those four turned out not to need making.
+`ingest.md` used to end with `concestor-build package  # → topology.bin,
+meta.bin, concestor.db, manifest`. Two of those four turned out not to need
+making, and the docs and the `--help` string that still said otherwise were
+corrected in 2026-08.
 
 **There is no `topology.bin` or `meta.bin`, deliberately.** Architecture §3.2
-names them, and they describe the right thing — flat typed arrays, memory
+named them, and they describe the right thing — flat typed arrays, memory
 mapped, no query planner on the path lookup. But that is exactly what phase 1
 already writes: a `.npy` file is a 128-byte ASCII header followed by raw
 little-endian data, which is a self-describing version of the same bytes. The

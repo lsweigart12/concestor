@@ -26,8 +26,18 @@ Then the coverage arrives.
 |---|---:|---:|
 | PBDB taxa mapped to a backbone row | 201,744 | **38.6%** |
 | ...whose backbone row is in OTT via `gbif:` | 93,672 | **17.9%** |
-| ...allowing the accepted-key fallback (§5) | 139,740 | 26.7% |
+| ...allowing the accepted-key fallback (§5) | ~~139,740~~ **138,180** | ~~26.7%~~ **26.41%** |
 | ...landing on a node in the synthetic tree | 5,800 | 1.1% |
+
+**That one row does not reproduce, and it is the only row in §1–§4 that does not** —
+everything else here was rebuilt from the real files and matched to the row. The problem
+is that this memo gives the figure without stating the rule that produced it, and no
+rule recovers it: reading column 2 on synonym rows gives **138,180 (26.41%)**, "any
+non-`ACCEPTED` status" gives 144,884 (27.70%), and "always" gives 168,781 (32.26%). The
+build uses the first, which is the narrowest, and phase 3's gate carries 26.7% as its
+expected value with the measured 26.41% beside it — deliberately, so the discrepancy
+stays visible rather than being tuned away. If you change the fallback rule, this is the
+row to re-measure and the gate to re-state.
 
 Coverage is **inversely correlated with how much a taxon matters**:
 
@@ -295,17 +305,23 @@ record.
 
 ## 8. Corrections to existing docs
 
+**All four are now applied where they belong** — struck through in place in the target
+document rather than deleted, so a reader who half-remembers the old figure finds out
+why it changed. They are kept here because this memo is where the measurement was made.
+
 - **handoff.md §5 and `gbif_checklist.py`** say *Tyrannosaurus* reaches the
   backbone via Catalogue of Life. It is **ZooBank**; *Triceratops* likewise. The
   point stands and is stronger than stated.
 - **manifest.json and handoff.md §5** call `pbdb.zip` a Darwin Core archive with
   461,889 records. It is a **ColDP archive dated 2026-07-26 with 518,442 rows**.
   461,889 is the record count of GBIF's *ingested* checklist, which is a
-  different thing.
+  different thing. *Applied: `snapshot.py`'s manifest note and data-sources.md
+  finding 4.*
 - **data-sources.md finding 4** — the second hop is 51.9%, not 68%; end to end
-  48.2%, not ~59% (§5).
+  48.2%, not ~59% (§5). *Applied there, and in architecture.md §5, which also
+  carried the ~59%.*
 - **ingest.md phase 0** says GBIF's offset cap is why the checklist export is
-  hard. True of a bulk export, irrelevant to a point lookup (§5).
+  hard. True of a bulk export, irrelevant to a point lookup (§5). *Applied.*
 
 ## 9. The crawl budget. Settled by outcome.
 
@@ -320,6 +336,17 @@ requests against a service that has no rate limit *because nobody implemented
 one*, which is the same academic-scale infrastructure data-sources.md warns
 about for Open Tree. The tail beyond the budget buys taxa with fewer than ~10
 occurrences each.
+
+**What `--budget 25000` buys is not "the top 25,000 genera", and the two get
+confused.** ~~The top 25,000 genera hold 93.3% of genus occurrences~~ is a true
+statement about a crawl nobody runs: `n_occs` is a **subtree total**, so higher taxa
+dominate the ordering and the first 25,000 all-rank taxa contain only **7,946 genera**
+and reach **75.3%** of genus occurrences. The 25,000th *genus* sits at all-rank position
+**87,126**. The all-rank ordering is still the right one — those higher taxa are exactly
+the attachment points the parent-walk lands on, and the chain's 2,384 `xref` rows produce
+**265,468** fossil attachments — but the two figures are not interchangeable, and phase
+3's gate deliberately carries the 93.3% as its expected value with the measured 75.3%
+beside it so the difference stays legible.
 
 **Do not run the exhaustive crawl.** Raise the budget only if a coverage gate
 goes red and the shortfall is traced to crawl depth specifically — and if it

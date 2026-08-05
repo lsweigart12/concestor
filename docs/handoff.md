@@ -41,7 +41,8 @@ the wrong thing to count. Attribution
 still applies — CC-BY requires it for any redistribution and the artists deserve
 credit — and it is a two-field problem, since `attribution` (creator) and
 `_links.contributor.title` (uploader) differ **50%** of the time (measured
-across the whole corpus; the 31% in the design docs is wrong — see §4).
+across the whole corpus, 6,437 of 12,863; the 31% the design docs carried was
+sampled and is corrected in place in all three of them).
 TimeTree stays excluded; its redistribution ban is unconditional.
 
 ---
@@ -2477,212 +2478,38 @@ Six things worth not redoing:
 
 ---
 
-## 4. Corrections to the design docs
+## 4. The corrections that used to live here — applied, and gone
 
-The docs held up extremely well — every structural figure in `data-sources.md`
-reproduced exactly from the real files. These need amending, and most already
-carry an inline note.
+This section held twenty-odd corrections to `architecture.md`, `ingest.md`,
+`data-sources.md`, `management.md` and `phase3-pbdb-path.md`, accumulated as
+the build proved the specs wrong. **Every one has now been applied in the
+document it corrects** — struck through in place, with the measured figure and
+the reason beside it, per `management.md`'s convention. The list is not
+reproduced here, because a second copy is how it got stale the first time.
+`git log docs/` is the history; the docs are the answer.
 
-**architecture.md §3.3 — `node.is_broken` cannot work.** A non-monophyletic taxon
-is *rejected* from synthesis (`input_output_stats.json` calls it
-`num_taxa_rejected: 9839`), so none of the 9,839 appears as a node and the flag is
-permanently zero. They now live in a `broken_taxon` table carrying the substituted
-MRCA, its resolved `idx`, the attachment points and the intruding taxa — which is
-what the UI needs to explain rather than silently answer a different question.
+**Read this before starting anything like it again.** The section existed for
+a good reason and became a bad one. `CLAUDE.md` tells every newcomer that the
+design docs are the spec and to read them first, and for as long as §4 existed
+that instruction pointed at documents knowingly wrong in twenty-two places,
+with the errata buried two thousand lines into a different file. Nobody
+reading the spec ever found them.
 
-**ingest.md phase 2 — the accept criterion assumed an impossible thing.** See §3.
+**An errata list drifts exactly like the document it corrects**, which is the
+part that settles the argument. Re-measured against the build before being
+applied, several of these corrections were themselves out of date: the
+artifact set was recorded here as 2,004 MB and is **2,062.6 MB**; `node_fts`
+was recorded as two columns short and is **three** (`sci, abbr, syn, vern,
+broken`); the chain-yield figures had become gate *calibrations* rather than
+readings, and one of them, phase3-pbdb-path.md §1's accepted-key fallback, is
+still irreproducible and still gives **138,180 (26.41%)** against the memo's
+139,740. A correction filed away from the claim it corrects has two things
+that can rot instead of one.
 
-**data-sources.md "Tree shape" — "mean 41.3" is over tips.** Over all nodes it is
-41.67, because internal nodes sit deeper on average (44.14). The doc is right; it
-is easy to misread, and one gate did.
-
-**data-sources.md finding 4 — the chain yield is worse than recorded.** On 253
-checklist records rather than 120: first hop 92.9% (better), second hop 51.9%
-(materially worse), **48.2% end to end** rather than ~59%. Phase 3's gate scores
-the two hops separately, because a drop in each implicates a different upstream.
-
-**data-sources.md / manifest — `pbdb.zip` is a ColDP archive**, dated 2026-07-26
-with 518,442 rows, not a Darwin Core archive of 461,889. Confirmed directly:
-`NameUsage.tsv`, `NameRelation.tsv`, `TaxonProperty.tsv`, `metadata.yaml` against
-the ColDP schema. 461,889 is the record count of GBIF's *ingested* checklist,
-which is a different thing.
-
-**ingest.md phase 0 — GBIF's offset cap is a red herring** for this build. True of
-a bulk export, irrelevant to a point lookup.
-
-**A ceiling nothing had recorded:** GBIF's backbone has **11 ranks** against
-PBDB's 25, so **32,629 PBDB taxa (6.2%)** — subgenus, subfamily, superfamily,
-suborder, tribe — are *unmatchable* rather than unmatched, and they skew toward
-the notable end. Phase 4's parent-walk handles this correctly; it just walks
-further than expected.
-
-**GBIF vernaculars are not free, contrary to three documents.** `ingest.md`
-phase 6, `management.md` and `architecture.md` §4 all say they arrive via
-`ott_sourceinfo`. `topology.py` never parses `sourceinfo` into the database,
-and the snapshotted `simple.txt.gz` carries no vernacular names at all.
-Getting them means a fresh GBIF crawl. Not implemented, and lowest priority
-now that P9157 covers the notable end.
-
-**Wikidata P9157 is not a complete map of OTT, and the hole is at the top.**
-Wikidata's `animal` item (Q729) carries **no P9157 statement**, nor do Metazoa,
-Bilateria or `cellular organisms`. An id-only join therefore answers "dog" and
-returns nothing for "animal" — the opposite of the failure you would predict.
-Closed by a bounded second pass on `wdt:P225` (scientific name), exact-and-
-unique-only per architecture §5, 25 queries.
-
-**The 9,839 broken taxa were completely unsearchable and nobody had recorded
-it.** They are rejected from synthesis so they have no `node.name`, and the
-palette simply returned nothing for *Escherichia coli* or *Dinosauria* — two
-names a curious person is entirely likely to type. They are now a fifth FTS
-column flagged `kind = broken`.
-
-**WDQS rate-limits** (429 with `Retry-After`, plus 502/503 and a hard 60 s
-query timeout), and a GET with a large `VALUES` clause returns `503 VCL
-failed` — it must be POSTed. The endpoint is free and shared; pace it.
-
-**architecture.md §3.3's `node_fts(name, synonyms)` is two columns short**, and
-`ingest.md` phase 1 step 8 claims phase 1 builds the FTS index. It never did —
-the index is built by a separate `search` phase that must run *after*
-`vernaculars`. architecture.md §4 and §10 also call vernaculars "phase 5"; they
-are phase 6.
-
-**architecture.md §3.4 — `fossil.pbdb_orig_no INTEGER PRIMARY KEY` cannot
-work.** `orig_no` is not unique: 407,634 distinct values over 523,112 rows, with
-86,302 repeated (*Dinosauria* has ten rank-variant records sharing 52775).
-`taxon_no` *is* unique and is what `parent_no`, `accepted_no` and GBIF's
-`sourceId` all reference. The table is keyed on it, with `orig_no` kept as a
-column.
-
-**ingest.md phase 4 — "the missing set is exactly those with `n_occs = 0`" is
-containment, not equality.** All 111,864 zero-occurrence rows lack an interval,
-but 112,073 rows do: 209 have occurrences and no bounds. Sixteen rows carry an
-*empty* `n_occs` rather than a zero, and the 411,039 baseline counts a *first*
-appearance bound — only 410,615 carry all four.
-
-**ingest.md phase 4 — "attaching at or below Dinosauria" is untestable as
-written.** Dinosauria is ott 90215 in the taxonomy but **is not a node in the
-synthesis tree**; the lineage runs Sauria → unnamed `mrca*` nodes →
-Tyrannosauridae. The gate uses Tyrannosauridae, which is a strictly stronger
-claim.
-
-**ingest.md phase 3 — the IRMNG figure is the naive parse's.** Distinct OTT
-taxa carrying an IRMNG id is **1,480,678**, not 1,480,677. The extra one is ott
-7494610 *Ficus variegata*, whose only IRMNG id is the space-prefixed
-`" irmng:11258800"` — so the doc's own figure is evidence for the
-malformed-prefix warning the same doc gives.
-
-**ingest.md phase 3 — the 48.2% chain gate is calibrated on a *uniform*
-sample, and the settled crawl is `n_occs`-ordered.** Those are different
-populations and scoring the gate on the prioritised cohort fails for a reason
-that is not a bug (37.8% end to end, because coverage is inversely correlated
-with how much a taxon matters — the memo's own §5 says so). Phase 3 crawls a
-1,000-taxon seeded uniform control alongside the real crawl and gates on that,
-reporting the prioritised cohort separately.
-
-**management.md — "the top 25,000 genera hold 93.3% of genus occurrences" is
-not what `--budget 25000` buys.** `n_occs` is a subtree total, so higher taxa
-dominate the ordering: the first 25,000 all-rank taxa contain only 7,946
-genera and reach **75.3%** of genus occurrences, and the 25,000th *genus* sits
-at all-rank position 87,126. The all-rank ordering is still the right one —
-those higher taxa are exactly the attachment points the parent-walk lands on,
-and 2,574 chain rows produce 239,253 attachments — but the two figures are not
-interchangeable.
-
-**phase3-pbdb-path.md §1 — the accepted-key fallback does not reproduce.** The
-memo gives 139,740 (26.7%) but does not state its rule; col 2 on synonym rows
-only gives 138,180 (26.41%), "any non-ACCEPTED" gives 144,884 (27.70%),
-"always" gives 168,781 (32.26%). Everything else in §1–§4 reproduced to the row.
-
-**architecture.md §5 and ingest.md phase 3 disagree on where
-`phylopic_resolve` ranks** — 3rd at confidence 0.98 versus 5th. Moot in
-practice, since the source namespaces are disjoint. The build follows
-ingest.md's order and architecture's confidences.
-
-**architecture.md §11 — the artifact set is 2,004 MB, not "under 700 MB".** The
-estimate predates the resolution layer and the silhouette map. `dbstat` on the
-built database: `xref` 270 MB, `search_name` 225 MB, `broken_taxon` 189 MB,
-`node_image` 163 MB, `node` 160 MB, `node_image_phylopic` 124 MB, `xref_idx`
-101 MB, plus the FTS index. This does not change the architecture — everything
-is still immutable, still baked, still deployable as an image — but "fits in a
-container image and stays resident in page cache on a small instance" now needs
-a bigger small instance, and §11's cost paragraph should be re-derived before
-anyone sizes a machine from it. `concestor-build package` reports the number
-every build; **it is an `observe` gate deliberately**, because the right
-response is to decide what to trim, not to fail the build.
-
-**ingest.md — there is no `topology.bin` or `meta.bin`, on purpose.** A `.npy`
-file is a 128-byte ASCII header followed by exactly the raw little-endian array
-architecture §3.2 describes, so the phase-1 output already *is* the format. The
-Go server reads it directly. Writing a concatenated second copy would double
-the disk cost and give the most load-bearing array in the system two candidate
-sources of truth. Read those names as describing a format, not demanding a
-file; `package.py`'s docstring records the reasoning.
-
-**data-sources.md — PhyloPic's creator and uploader differ 50% of the time, not
-31%.** Measured across the whole 12,863-image corpus. Related: the doc's 47.2%
-attribution-required figure is of `primaryImage` *results*; across the corpus it
-is 5,432 images, 42.2%. Both numbers are right and the denominators differ,
-which is worth stating because they get compared.
-
-**phase 3's `xref` resolves PBDB to OTT across kingdom homonyms, and nothing
-had recorded it.** OTT carries the same genus name in unrelated kingdoms and
-`xref` matches on the name, so a Cambrian fossil lands on a living plant. Found
-while bounding the layout by the fossil record, which is the only reason it
-surfaced at all — nothing else was comparing a resolution against time.
-
-A cheap decisive test, because a taxon last seen before the Permian cannot be a
-living genus: of the **1,048 nodes** carrying an exact attachment with
-`lla > 250 Ma` and not flagged extant, **1,019 have living descendants**. Phase
-4 reports it every build, as an `observe` — that phase cannot repair it, and
-the baseline has to be on the record before phase 3 tries. Counted per *node*;
-per fossil *row* it is 1,380 of 1,416, and the two figures are the same finding
-seen at different grain.
-
-| PBDB taxon | last seen | resolved onto |
-|---|---:|---|
-| *Sadleria* | 372 Ma | *Sadleria*, a living Hawaiian fern genus |
-| *Streptosolen* | 457 Ma | *Streptosolen*, a living South American shrub |
-| *Lewinia* | 443 Ma | *Lewinia*, a living genus of rails |
-| *Ivesia* | 539 Ma | *Ivesia*, a rose-family plant |
-
-**It is not confined to the naive path.** By method: `name_exact` 991,
-`gbif_backbone_provenance` 221, `gbif_pbdb_chain` 168 — so 389 of them survived
-a route that was supposed to be evidence-based, and "only trust the backbone"
-is not the fix.
-
-*Decided, scoped, not started.* The fix belongs in phase 3 and it is a lineage
-comparison: PBDB carries its own hierarchy in `parent_no` and OTT carries the
-tree, so a resolution can be refused when the two disagree above family level.
-`images.py` already refuses an ambiguous name outright, but that machinery does
-*not* help here — these names resolve to exactly one OTT node; it is simply the
-wrong taxon. The test above is a ready-made `observe` gate: it needs no new
-data and it should go in before the fix so the baseline is on the record.
-Phase 4 currently guards itself by refusing any fossil bound on a node with a
-living descendant, which is correct for phase 4 and does nothing for the other
-`xref` consumers.
-
-**architecture.md §7 — the double bracket's "solid bar" does not exist for most
-taxa.** §7 says "faded envelope `fea→lla`, solid bar `fla→lea`", and the obvious
-reading is that the four bounds form a chain `fea ≥ fla ≥ lea ≥ lla`. **The
-middle link is false.** Measured over all 410,615 rows carrying four bounds,
-`fea ≥ fla`, `lea ≥ lla`, `fea ≥ lea` and `fla ≥ lla` each hold for 100% — and
-`fla ≥ lea` holds for **39.6%**. It is not a data defect: a taxon known from one
-stratigraphic interval has both appearances inside it, so `fla` sits at that
-interval's young end and `lea` at its old end and the two cross. So for **60.4%
-of PBDB taxa there is no certain extent at all**, and the solid bar must be left
-undrawn rather than drawn zero-width — a hairline at a single date reads as
-precision, which is the opposite of what it means.
-
-**architecture.md §6 — "keep the official hue relationships" cannot fully hold,
-and the doc should say so.** ICS separates the four Paleoproterozoic periods
-almost entirely by a *lightness* ramp, which is the exact channel §6 instructs
-us to drop; their official minimum pairwise distance is already at the edge of a
-just-noticeable difference. §6's own next sentence — wayfinding comes from
-labels and hairline dividers first, hue second — is the resolution, but the two
-claims are in tension and a reader should not have to discover that. The
-timescale phase gates the contraction as *faithful* (every pairwise distance
-scaled by exactly 0.22, hue bit-preserved) rather than gating distinguishability
-it cannot deliver.
+So: **fix the doc, in place, with the old text struck rather than deleted.** A
+reader who half-remembers the old figure is exactly who the strike is for. If
+the thing you have is a *finding* rather than a pending edit, it belongs in §3
+or §7 of this file, which is what those sections are.
 
 ---
 
@@ -3756,9 +3583,13 @@ non-colour-dependent reading of the provenance tiers have not been examined.
 The dash-pattern channel was chosen partly because it survives without colour;
 that has not been tested with anyone.
 
-**The artifact set is 2,004 MB** against architecture §11's 700 MB estimate
-(§4). Nothing is wrong, but the deployment story in §11 needs re-deriving, and
-there is obvious fat: `xref` is 270 MB and `search_name` 225 MB.
+**The artifact set is 2,062.6 MB** against architecture §11's 700 MB estimate.
+Nothing is wrong; §11's cost paragraph has now been re-derived in place and
+`deployment.md` §1 measures the deployable payload and the RSS on a real
+container. There is still obvious fat: `xref` is 258.5 MB and `search_name`
+220.5 MB. Note that the figure is a **reading** — it moved from 2,004 to 2,048.9
+to 2,062.6 across three writings of it, and `concestor-build package` reports it
+every build as an `observe`.
 
 **Nothing measures how long the deployed app takes to answer.** Every latency
 figure in `deployment.md` §1 was taken on the machine the pipeline runs on, and

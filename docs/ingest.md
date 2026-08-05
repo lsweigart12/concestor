@@ -61,7 +61,14 @@ from the live API's `synth_id`.
 ## Phase 1 — Topology
 
 **Input:** `labelled_supertree.tre` (31,386,015 B), `taxonomy.tsv`, `forwards.tsv`
-**Output:** `topology.bin`, `meta.bin` (partial — ages land in phase 2), `node` table
+**Output:** ~~`topology.bin`, `meta.bin`~~ **`build/topology/*.npy`** (partial — ages
+land in phase 2), `node` table. **There is no `topology.bin` and no `meta.bin`, on
+purpose.** A `.npy` file is a 128-byte ASCII header followed by exactly the raw
+little-endian array architecture §3.2 describes, so this phase's output already *is*
+that format and the Go server reads it directly. Writing a concatenated second copy
+would double the disk cost and give the most load-bearing array in the system two
+candidate sources of truth. Read those two names as describing a format rather than
+demanding a file; `package.py`'s docstring records the reasoning.
 
 1. Stream-parse the Newick. It is 30 MB of text with 2.7M nodes; a recursive-descent
    parser building an explicit stack, not recursion, since max depth is 111 but
@@ -131,11 +138,22 @@ chronogram's own — and the chronogram has no extinct taxa. Phase 4 revisits it
 
 | Check | Threshold |
 |---|---|
-| Topology congruence with phase 1 | ≥ 99.9% of internal nodes correspond |
+| ~~Topology congruence with phase 1~~ **Clade *compatibility* with phase 1** | ~~≥ 99.9% of internal nodes correspond~~ **≥ 99.5% of matched nodes** |
 | OTT ids joining to an `idx` | ≥ 99% |
 | Monotonicity violations | 0 in `measured` regions; < 0.1% overall |
 | Root age | 4247 Ma ± 1% |
 | Spot-check vs. literature | Mammalia crown ~180 Ma, Aves crown ~110 Ma, Metazoa ~750 Ma, all within published ranges |
+
+**The congruence criterion as first written assumed a thing no bifurcating chronogram can
+do**, and phase 2 was accepted on the criterion being restated rather than on the data
+changing. Duke et al.'s tree is strictly binary; ours has a 12,964-way polytomy in it, so
+"internal nodes correspond" cannot reach 99.9% however good the tree is. The gate now
+asks whether our clade is *contained* in theirs — Duke commits incertae sedis taxa our
+tree leaves unplaced, which grows a clade without contradicting it — and measures
+**99.6036%** (237,953 / 238,900). The 947 genuinely contradicted nodes are demoted to the
+`structural` tier and render without a number, which is the honest disposal.
+[phase2-decision.md](phase2-decision.md) is the full argument and is what to read before
+touching anything that depends on ages.
 
 ### If it fails
 
@@ -189,7 +207,11 @@ earlier ones.
    against it.
 2. **`ott_sourceinfo`** — parse OTT's `sourceinfo` column into `(source, source_id) →
    idx`. Nearly free, and covers `ncbi` (1,955,883 taxa), `gbif` (2,562,021), `irmng`
-   (1,480,677), `worms` (406,365), `if` (276,248), `silva` (74,255). **Many-to-one** —
+   (~~1,480,677~~ **1,480,678**), `worms` (406,365), `if` (276,248), `silva` (74,255).
+   The IRMNG figure is the naive parse's, and the extra one is ott 7494610 *Ficus
+   variegata*, whose only IRMNG id is the space-prefixed `" irmng:11258800"` — so this
+   document's own figure was evidence for the malformed-prefix warning it gives below.
+   **Many-to-one** —
    *Amanita muscaria* carries six NCBI ids, *Homo sapiens* two IRMNG ids — so store
    lists.
 3. **`gbif_pbdb_chain`** — the fossil path:
@@ -237,6 +259,25 @@ earlier ones.
   estimate in data-sources.md. Score the two hops separately (92.9% to a
   `nubKey`, 51.9% of those to OTT); a drop in the first means GBIF's checklist
   moved, a drop in the second means OTT's snapshot did, and the fixes differ.
+  **Score it on a uniform sample and never on the real crawl.** That baseline is
+  calibrated on a *uniform* draw and the settled crawl is `n_occs`-ordered, which is a
+  different population: on the prioritised cohort the chain reaches **37.8%** end to
+  end, and it fails there for a reason that is not a bug — coverage is inversely
+  correlated with how much a taxon matters, and phase3-pbdb-path.md §5 says so. Phase 3
+  therefore crawls a 1,000-taxon seeded uniform control alongside the real crawl, gates
+  on that, and reports the prioritised cohort beside it as an `observe`.
+- **Resolutions are withdrawn where PBDB and OTT disagree about extancy**, because
+  `xref` matches on the *name* and OTT carries the same genus name in unrelated
+  kingdoms — PBDB's *Ivesia* is an Ediacaran rangeomorph and OTT's is a rose-family
+  plant. `refuse_disagreements` drops a resolution where PBDB calls a taxon extinct, the
+  OTT taxon of that name carries no extinct flag, and the node still has a
+  chronogram-dated descendant: **16,833 rows over every method** — `name_exact` was the
+  bulk of it but 389 survived routes that were supposed to be evidence-based — plus 235
+  where a name is still claimed by two accepted PBDB taxa. Three things are load-bearing
+  and are not to be reordered: the extancy sweep runs **before** the ambiguity one, so
+  *Scopus* keeps the hamerkop instead of losing both; it needs phase 2's `age_ma` as a
+  living-lineage guard, without which 1,162 correct fossil attachments go; and `manual`
+  overrides are exempt. Phase 4's independent check went from 1,019 of 1,048 to 31 of 60.
 - `gbif_backbone_provenance` yield within 2 points of 38.6% of PBDB taxa. This
   one reads a frozen file, so **any** movement is a bug in our code, not
   upstream.
@@ -305,7 +346,13 @@ earlier ones.
 ### Gates
 
 - ≥ 78% of rows have appearance intervals (measured baseline: 411,039 / 523,112 =
-  78.6%). The missing set is exactly those with `n_occs = 0`.
+  78.6%). ~~The missing set is exactly those with `n_occs = 0`.~~ **Containment, not
+  equality**, and the difference is what a gate written on the equality would miss. All
+  111,864 zero-occurrence rows do lack an interval, but **112,073** rows lack one: 209
+  have occurrences and no bounds. Sixteen rows carry an *empty* `n_occs` rather than a
+  zero. And the 411,039 baseline counts a *first*-appearance bound only — **410,615**
+  rows carry all four, which is the population every statement below about the double
+  bracket is measured over.
 - Attachment depth distribution reported; median attachment materially shallower than
   the previous build fails.
 - Spot checks: *Tyrannosaurus* `fea=83.6, fla=72.2, lea=72.2, lla=66`, attaching at or
@@ -346,9 +393,12 @@ earlier ones.
      the index crawl sidesteps: it carries every image's licence inline, so filtering is
      local. Note that `primaryImage` **ignores license filters entirely**, yielding
      47.2% attribution-required, 12.8% ShareAlike, 5.5% NonCommercial — which is why
-     nothing in this build asks it for one.
+     nothing in this build asks it for one. **That 47.2% is of `primaryImage`
+     *results*.** Across the mirrored corpus it is 5,432 of 12,863, **42.2%**. Both
+     numbers are right, the denominators differ, and they get compared.
 3. Store license URL, `attribution` (original creator) **and** `contributor` (uploader)
-   separately — they differ 31% of the time. `attribution` is null 19.3% overall but
+   separately — they differ ~~31%~~ **50.0%** of the time, measured across the whole
+   corpus rather than sampled: 6,437 of 12,863. `attribution` is null 19.3% overall but
    **0% null among the 5,432 images that require attribution**, so the field is always
    present when it matters.
 4. Parse `chart.ttl` once into ~40 KB JSON: name, rank, `skos:broader`, `inMYA` begin
@@ -365,7 +415,7 @@ earlier ones.
 
 ---
 
-## Phase 6 — Vernacular names (deferred)
+## Phase 6 — Vernacular names ~~(deferred)~~ **shipped**
 
 Not required for launch, but the search experience is meaningfully worse without it.
 **OTT carries no common names**: "Tyrannosaurus" resolves, "T. rex" and "dog" do not.
@@ -382,6 +432,33 @@ which is small, already snapshotted, and covers *fossil* groups.
 Feeds the FTS index as an additional column, weighted below scientific names so exact
 binomials always win.
 
+**P9157 is not a complete map of OTT, and the hole is at the top rather than the
+bottom.** Wikidata's `animal` item (Q729) carries no P9157 statement, and neither do
+Metazoa, Bilateria or `cellular organisms`. An id-only join therefore answers "dog" and
+returns nothing at all for "animal" — the opposite of the failure anyone would predict,
+and the reason the bounded `wdt:P225` name pass above exists: exact-and-unique only, per
+architecture §5, 25 queries.
+
+**Pace the endpoint.** WDQS rate-limits with `429` and a `Retry-After`, also serves 502
+and 503, and enforces a hard 60-second query timeout. A `GET` carrying a large `VALUES`
+clause comes back `503 VCL failed` and must be POSTed instead. It is free and shared,
+which is the same academic-scale infrastructure `data-sources.md` warns about for Open
+Tree.
+
+**A Wikidata item can carry another taxon's OTT id**, because P9157 is a free-text
+external identifier and nothing stops one. Until it was fixed the app said *Homo
+sapiens* is also known as *Homo floresiensis* and answered `frog` with 2,080 archaea
+captioned "Giant Bullfrog". The query now fetches each item's own `wdt:P225` and refuses
+any contribution whose taxon name disagrees with OTT's. Three cheaper rules were tried
+first and all three fail; `vernaculars.py` records why, and one of them fails by taking
+"Dog" off *Canis lupus familiaris*. Do not re-derive them.
+
+**The 9,839 broken taxa needed the index too, and nobody had recorded that they were
+missing from it.** Rejected from synthesis means no `node.name`, which meant the palette
+returned nothing at all for *Escherichia coli* or *Dinosauria* — two names a curious
+person is entirely likely to type. They are a fifth FTS column, flagged `kind = broken`,
+and they answer with the substitution explained rather than performed.
+
 ---
 
 ## Build orchestration
@@ -395,9 +472,20 @@ concestor-build topology   # phase 1
 concestor-build dates      # phase 2  ← decision gate
 concestor-build resolve    # phase 3
 concestor-build fossils    # phase 4
-concestor-build assets     # phase 5
-concestor-build package    # → topology.bin, meta.bin, concestor.db, manifest
+concestor-build images     # phase 5a
+concestor-build timescale  # phase 5b
+concestor-build vernaculars # phase 6
+concestor-build names      # phase 6b
+concestor-build search     # the FTS index, after vernaculars
+concestor-build package    # gate the artifact set, write the manifest
 ```
+
+Two corrections to what this block used to say, both of which cost a reader a failed
+command. There is no ~~`assets`~~ subcommand — phase 5 is two of them, `images` and
+`timescale`, and `cli.py` is the list. And `package` does not emit
+~~`topology.bin`, `meta.bin`~~ — those files do not exist, per phase 1's output note
+above; it gates the artifact set and writes `build/manifest.json` beside the `.npy`
+files and `concestor.db` that phases 1–6 already wrote.
 
 `manifest.json` records the build id, every source URL with SHA-256 and fetch timestamp,
 per-phase gate results, and the reconciliation summary. It ships inside the artifact set
