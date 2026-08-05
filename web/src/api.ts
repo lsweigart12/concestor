@@ -976,6 +976,24 @@ export const api = {
        * a coverage gap, deliberately not papered over with a guess.
        */
       corrected?: string | null;
+      /**
+       * A spelling that answers better than the typed one — and the rows here
+       * are still the typed one's.
+       *
+       * The counterpart to `corrected` and never sent with it. `corrected`
+       * arrives when the typed string had nothing to lose; this arrives when it
+       * had a row or two of accidental substring matches, which is what almost
+       * every real typo produces against 2.3M names. `elefant` finds one
+       * ciliate, on its synonym *Paradileptus elefantinus*.
+       *
+       * So the palette must offer it and must not perform it: the reader keeps
+       * what they asked for, and the better spelling is a door rather than a
+       * substitution. Mid-typing this can be wrong — "sahelan" is offered
+       * "sahelian" while the reader is three letters from *Sahelanthropus* —
+       * and that is survivable precisely because their own rows are still on
+       * screen.
+       */
+      suggested?: string | null;
     }>(`/v1/search?q=${encodeURIComponent(q)}&limit=${limit}`, signal),
 
   /**

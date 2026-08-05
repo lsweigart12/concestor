@@ -357,6 +357,16 @@ export function Palette({
    * caption one search's rows with another search's correction.
    */
   const [corrected, setCorrected] = useState<string | null>(null);
+  /**
+   * A better spelling than the typed one, with the typed one's rows still here.
+   *
+   * The other half of `corrected` and never live at the same time — the server
+   * substitutes only where there was nothing to substitute for. Held in state
+   * for the identical reason: it is a property of *this* answer, and leaving it
+   * up across a keystroke would offer one search's spelling beside another
+   * search's rows.
+   */
+  const [suggested, setSuggested] = useState<string | null>(null);
   const [searching, setSearching] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
   const [active, setActive] = useState(0);
@@ -406,6 +416,7 @@ export function Palette({
       setHits([]);
       setFossils([]);
       setCorrected(null);
+      setSuggested(null);
       setSearching(false);
       return;
     }
@@ -429,6 +440,7 @@ export function Palette({
           setHits(r.results);
           setFossils(r.fossils ?? []);
           setCorrected(r.corrected ?? null);
+          setSuggested(r.suggested ?? null);
           setFailed(null);
         }
       } catch (e) {
@@ -436,6 +448,7 @@ export function Palette({
           setHits([]);
           setFossils([]);
           setCorrected(null);
+          setSuggested(null);
           setFailed(e instanceof Error ? e.message : String(e));
         }
       } finally {
@@ -762,6 +775,17 @@ export function Palette({
 
           {!failed && corrected && <SpellingNote typed={needle} used={corrected} />}
 
+          {!failed && suggested && (
+            <SpellingOffer
+              better={suggested}
+              onTake={() => {
+                setQ(suggested);
+                setActive(0);
+                inputRef.current?.focus();
+              }}
+            />
+          )}
+
           {!failed &&
             flat.length === 0 &&
             notes.length === 0 &&
@@ -1063,13 +1087,14 @@ function FossilRow({
  * The rows below this are for a different spelling than the one typed.
  *
  * Shown rather than performed, which is the whole of what this component is
- * for. The server only corrects a query that returned **nothing** and only when
- * the corrected one returns something, so the alternative here was never "the
- * right answer without a caption" — it was an empty list. But a search that
- * quietly answers a different question than the one asked is the same mistake
- * as putting a confident number on an undated node, and this app does not make
- * that one: `age_tier` exists so that a taxon nobody has dated renders without a
- * figure rather than with a plausible guess.
+ * for. The server only substitutes for a query that returned **nothing** and
+ * only when the corrected one returns something, so the alternative here was
+ * never "the right answer without a caption" — it was an empty list. A typed
+ * string that did find a row or two keeps them and gets {@link SpellingOffer}
+ * instead. But a search that quietly answers a different question than the one
+ * asked is the same mistake as putting a confident number on an undated node,
+ * and this app does not make that one: `age_tier` exists so that a taxon nobody
+ * has dated renders without a figure rather than with a plausible guess.
  *
  * So both strings are on screen and neither is hidden. The typed one is named
  * explicitly — not implied by its absence — because the reader needs to see
@@ -1096,6 +1121,54 @@ function SpellingNote({ typed, used }: { typed: string; used: string }) {
         </span>
       </span>
     </div>
+  );
+}
+
+/**
+ * A better spelling, offered beside the rows the reader actually asked for.
+ *
+ * {@link SpellingNote}'s counterpart, and the two are never on screen together.
+ * That one captions rows belonging to a string nobody typed, which is only
+ * honest when the typed string had no rows of its own. This one captions
+ * nothing: the rows below it are the answer to what was asked, and the better
+ * spelling is a door.
+ *
+ * The distinction exists because a typo almost never returns *nothing* against
+ * 2.3M names — `elefant` finds one ciliate whose synonym is *Paradileptus
+ * elefantinus* — and because from one prefix a misspelling and an unfinished
+ * word are indistinguishable. A reader three letters into *Sahelanthropus* can
+ * be offered "sahelian" here, and that is survivable only because their own
+ * rows never moved. Substituting would have taken away the thing they were
+ * typing towards.
+ *
+ * So it is a **button and not a link**: pressing it types the word into the
+ * field, which re-runs the ordinary search and leaves the reader somewhere they
+ * can edit and back out of. Nothing here navigates and nothing is destroyed.
+ */
+function SpellingOffer({
+  better,
+  onTake,
+}: {
+  better: string;
+  onTake: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="palette-note is-lead is-offer"
+      onClick={onTake}
+    >
+      <span className="row-icon">↳</span>
+      <span className="row-body">
+        <span className="row-title">
+          Did you mean <strong>{better}</strong>?
+        </span>
+        <span className="row-sub">
+          What you typed matched only part of a longer name. Press to search for
+          this instead.
+        </span>
+      </span>
+    </button>
   );
 }
 

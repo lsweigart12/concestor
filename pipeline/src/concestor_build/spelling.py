@@ -168,6 +168,25 @@ def words(text: str) -> list[str]:
     return _WORD.findall(text.lower())
 
 
+def fold_ph(word: str) -> str:
+    """`ph` and `f` are the same sound, folded for both the key and the distance.
+
+    It has to be in both or it is in neither, and it was in neither. Folding it
+    into the key alone puts `elefant` in `elephant`'s bucket and then lets the
+    distance charge two edits for the difference the bucket was built to
+    forgive — over a cap of one, on a seven-character word. Every example this
+    rule exists for failed at that last step: `elefant` reached nothing and
+    `dolfin` reached *dolfyn*, a real genus one ordinary edit away. The key's
+    measured 19/20 is a claim about which bucket a word lands in, and nothing
+    was checking what happened after it landed.
+
+    This is not a wider cap. The cap is untouched and every other difference
+    costs exactly what it cost; one substitution stops being counted twice.
+    Mirrored by `foldPH` in the serving binary.
+    """
+    return word.replace("ph", "f")
+
+
 def spelling_key(word: str) -> str:
     """The phonetic key of one already-lowercased ASCII word.
 
@@ -175,7 +194,7 @@ def spelling_key(word: str) -> str:
     a Go test that reads sampled rows out of this table and recomputes them.
     That test is the contract; this docstring is only the reason for it.
     """
-    w = word.replace("ph", "f")
+    w = fold_ph(word)
     w = w[:1] + w[1:].replace("h", "")
     if not w:
         return ""
@@ -288,13 +307,16 @@ def correct_word(con: sqlite3.Connection, word: str) -> str | None:
     rows = con.execute(
         "SELECT word, n FROM spelling WHERE key = ?", (spelling_key(word),)
     ).fetchall()
+    # Both sides folded, because the bucket these came out of was built on the
+    # folded form. See fold_ph.
+    folded = fold_ph(word)
     best: tuple[int, int, int, str] | None = None
     for candidate, n in rows:
         # A word the corpus holds is a word somebody registered, not a typo.
         # `racoon`, `squirel` and `tyranosaurus` are all real taxon names.
         if candidate == word:
             return None
-        d = damerau(word, candidate, cap)
+        d = damerau(folded, fold_ph(candidate), cap)
         if d > cap:
             continue
         # Distance first, then the more widely used spelling, then the shorter
@@ -328,6 +350,10 @@ def correct(con: sqlite3.Connection, text: str) -> str | None:
 # misspellings of animals a curious reader is most likely to make.
 CORRECTIONS: tuple[tuple[str, str], ...] = (
     ("ardvark", "aardvark"),
+    # The `ph`/`f` pair the key was built for, and which nothing reached until
+    # the distance folded it too. See fold_ph.
+    ("elefant", "elephant"),
+    ("dolfin", "dolphin"),
     ("betual", "betula"),
     ("betual pendula", "betula pendula"),
     ("rinoceros", "rhinoceros"),

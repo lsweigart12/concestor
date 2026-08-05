@@ -875,6 +875,86 @@ func TestSearchCorrectsAMisspelling(t *testing.T) {
 	}
 }
 
+// A junk answer is offered a better spelling, and keeps its own rows.
+//
+// `elefant` is the query this exists for: it returns exactly one row, a
+// single-celled ciliate, matched through the synonym *Paradileptus
+// elefantinus*. The old gate asked whether the list was empty, this one was not,
+// and the reader looking for elephants was handed a protozoan with no way out.
+//
+// Everything asserted here is one promise. `suggested` names a spelling that
+// answers better; the rows are still the ones asked for, because from a single
+// prefix a misspelling and an unfinished word cannot be told apart and
+// substituting would take a reader's own results away mid-keystroke; and
+// `corrected` stays empty, because these two fields say different things and a
+// client that saw both would not know which set of rows it was holding.
+func TestSearchOffersASpellingWithoutTakingTheRowsAway(t *testing.T) {
+	ts, st := serve(t)
+	if st.Schema.Spelling == nil {
+		t.Skip("no spelling table; run `concestor-build search`")
+	}
+	type searchResp struct {
+		Query     string               `json:"query"`
+		Corrected string               `json:"corrected"`
+		Suggested string               `json:"suggested"`
+		Results   []store.SearchResult `json:"results"`
+		Fossils   []store.Fossil       `json:"fossils"`
+	}
+	var junk searchResp
+	getJSON(t, ts, "/v1/search?q=elefant&limit=24", &junk)
+	if junk.Query != "elefant" {
+		t.Errorf("query = %q, want the string the reader typed", junk.Query)
+	}
+	if junk.Suggested != "elephant" {
+		t.Errorf("suggested = %q, want %q", junk.Suggested, "elephant")
+	}
+	if junk.Corrected != "" {
+		t.Errorf("corrected = %q; the rows here belong to the typed string and "+
+			"nothing was substituted", junk.Corrected)
+	}
+	if len(junk.Results)+len(junk.Fossils) == 0 {
+		t.Error("the typed query's own rows were taken away; it found a ciliate " +
+			"and the reader is entitled to see it")
+	}
+
+	// The two fields are alternatives, not degrees. An empty answer has nothing
+	// to keep, so it is substituted for and says so.
+	var empty searchResp
+	getJSON(t, ts, "/v1/search?q=rinoceros&limit=24", &empty)
+	if empty.Corrected != "rhinoceros" {
+		t.Errorf("corrected = %q, want %q", empty.Corrected, "rhinoceros")
+	}
+	if empty.Suggested != "" {
+		t.Errorf("suggested = %q on a substituted answer; the two are never both "+
+			"set", empty.Suggested)
+	}
+
+	// And the widening reaches typos rather than typing. Each of these is
+	// weak-banded — nothing matches as a whole word — and each returns a page of
+	// real rows, which is what a reader part-way through a name gets and a
+	// misspeller never does.
+	for _, q := range []string{"giraff", "tyrannosau", "stegosaur", "homo+sapie"} {
+		var mid searchResp
+		getJSON(t, ts, "/v1/search?q="+q+"&limit=24", &mid)
+		if mid.Suggested != "" || mid.Corrected != "" {
+			t.Errorf("%q was offered %q/%q while the reader was still typing it",
+				q, mid.Suggested, mid.Corrected)
+		}
+	}
+
+	// The refusals survive the widening. `hard maple` is a real name phase 6
+	// lacks and `zzzqqq` is this project's benchmark string; both come back empty
+	// and both must stay that way.
+	for _, q := range []string{"hard+maple", "hard+oak", "zzzqqq"} {
+		var gap searchResp
+		getJSON(t, ts, "/v1/search?q="+q+"&limit=24", &gap)
+		if gap.Suggested != "" || gap.Corrected != "" {
+			t.Errorf("%q acquired %q/%q; it is a missing name, not a misspelled one",
+				q, gap.Suggested, gap.Corrected)
+		}
+	}
+}
+
 func TestSearchReturnsBrokenKind(t *testing.T) {
 	ts, _ := serve(t)
 	var body struct {

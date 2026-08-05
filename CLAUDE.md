@@ -830,9 +830,9 @@ saccharum* that the corpus does not carry**, 3–4 edits from anything real, and
 no threshold may reach it — conflating the two is how you ship fuzzy matching,
 watch `hard maple` still fail, and loosen the cap until search is useless. So:
 **correct the query, never relax the matcher.** `/v1/search` is untouched; only
-when *both* corpora come back empty does `store.Suggest` run, and then the
-unchanged search runs again on the corrected string. `spelling.py` builds the
-recall half — a phonetic key per distinct word across both catalogues, 1.25M
+when the answer is one `store.Answer.Weak` calls no good does `store.Suggest`
+run, and then the unchanged search runs again on the corrected string.
+`spelling.py` builds the recall half — a phonetic key per distinct word across both catalogues, 1.25M
 rows and 50.6 MB — and Go ranks the handful that share a key by
 Damerau distance. Eight things not to redo are in `docs/handoff.md` §3, chief
 among them that **`hard maple` is refused by the key rather than by the
@@ -854,6 +854,33 @@ false-correction rate on random junk from 25.3% to 0.5%; and that it is
 equidistant from `betula` and `betel` and the shorter string wins. The
 correction is **shown, never performed** — the same rule as `age_tier`, on a
 different surface.
+
+**The gate in front of it was `no rows at all`, and that gate assumed something
+false.** Over 2.3M names plus 523k fossil taxa a typo almost never returns
+nothing: `elefant` returns *one* row, a single-celled ciliate reached through
+the synonym *Paradileptus elefantinus*, so the list was not empty and the
+correction was silently suppressed. `Answer.Weak` is the gate asked properly —
+**nothing matched as a whole word, and there are no more than eight rows** — and
+the empty list is the bottom of that scale rather than a case beside it. Both
+halves are load-bearing and the second is the one that is not obvious: a prefix
+match *is* what typeahead means, so band alone fires on every second keystroke.
+Measured over 870 prefixes of real corpus words, the weak ones never return
+fewer than a **full page**, so not one of them reaches the corrector and the
+half-vCPU argument survives intact; the bounds are `elefant` (1 row), `cheeta`
+(4) and `mamal` (6) on one side and `tyrannosau` (10 rows, whose only correction
+is the reader's own prefix truncated) on the other. Four things not to redo,
+in `docs/handoff.md` §3: **a weak answer is offered a spelling and never
+substituted for** — `corrected` and `suggested` are separate fields because
+mid-word the two are indistinguishable and taking a reader's own rows away is
+destructive where merely being wrong is not; the guard is now a **strictly
+better band** rather than "it returned something"; refusing a suggestion that is
+a **prefix relative** of the query was measured and refused, because it kills
+`cheeta`→`cheetah`; and **`mamal` is still not corrected** — five characters,
+under the six-character floor, which is the matcher and stays where it is.
+Separately, **`ph`→`f` has to be folded in the distance as well as the key**, or
+it does nothing: the key put `elefant` in `elephant`'s bucket and the raw
+distance then charged two edits over a cap of one. `dolfin` used to reach
+*dolfyn*.
 
 **The species palette opens on a list now, and the list is species rather than
 openings.** `S` used to open on one grey line — *Type to search 110,794

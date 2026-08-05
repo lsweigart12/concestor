@@ -98,6 +98,34 @@ func TestDamerauCountsATranspositionOnce(t *testing.T) {
 	}
 }
 
+// The distance has to forgive what the key forgave, and it did not.
+//
+// `dolfin` and `dolphin` share a key — TestSpellingKey above asserts it — and
+// then the raw distance charged two edits for the difference, over a cap of one
+// on a six-character word. So every pair this sound rule exists for died at the
+// last step: against the real corpus `dolfin` came back *dolfyn*, a genus one
+// ordinary edit away, and `elefant` came back with nothing. The key's measured
+// 19/20 was a claim about which bucket a word lands in and nothing checked what
+// happened after it landed.
+//
+// The cap is not what changed and must not be what changes: 2 is still 2 here.
+func TestTheDistanceFoldsWhatTheKeyFolds(t *testing.T) {
+	if d := damerau("dolfin", "dolphin", 2); d != 2 {
+		t.Errorf("raw dolfin/dolphin = %d, want 2 — the cap is unchanged", d)
+	}
+	if d := damerau(foldPH("dolfin"), foldPH("dolphin"), 2); d != 0 {
+		t.Errorf("folded dolfin/dolphin = %d, want 0", d)
+	}
+	if d := damerau(foldPH("elefant"), foldPH("elephant"), 1); d != 0 {
+		t.Errorf("folded elefant/elephant = %d, want 0", d)
+	}
+	// And nothing else moves. A fold that started swallowing ordinary edits
+	// would be the wider cap this is careful not to be.
+	if d := damerau(foldPH("betual"), foldPH("betel"), 2); d != 2 {
+		t.Errorf("folded betual/betel = %d, want 2", d)
+	}
+}
+
 func TestDistanceCapIsRelativeToLength(t *testing.T) {
 	if got := distanceCap("betual"); got != 1 {
 		t.Errorf("short cap = %d, want 1", got)
@@ -239,6 +267,11 @@ func TestCorrectsRealMisspellings(t *testing.T) {
 	// the same list.
 	for _, c := range []struct{ in, want string }{
 		{"ardvark", "aardvark"},
+		// The `ph`/`f` pair the key was built for. Neither reached its answer
+		// until the distance folded the same sound; see
+		// TestTheDistanceFoldsWhatTheKeyFolds.
+		{"elefant", "elephant"},
+		{"dolfin", "dolphin"},
 		{"betual", "betula"},
 		{"betual pendula", "betula pendula"},
 		{"rinoceros", "rhinoceros"},
@@ -256,6 +289,88 @@ func TestCorrectsRealMisspellings(t *testing.T) {
 		if got != c.want {
 			t.Errorf("Suggest(%q) = %q, want %q", c.in, got, c.want)
 		}
+	}
+}
+
+// The gate in front of the corrector, measured against the corpus rather than
+// asserted about it.
+//
+// This is the test the empty-list gate never had. It assumed a typo returns
+// nothing; over 2.3M names plus 523k fossil taxa a typo usually returns *one*
+// thing, and the correction was then suppressed because the list was not empty.
+// The other half matters just as much and is the reason the row count is in
+// {@link Answer.Weak} at all: a reader part-way through a name the corpus holds
+// is indistinguishable from a misspeller by the band alone — `elefant` is a live
+// prefix of *Paradileptus elefantinus* exactly as `giraff` is one of Giraffidae
+// — and what separates them is how much of the corpus lives under the string.
+//
+// The limit is the one `web/src/palette/Palette.tsx` asks for. Both sides of
+// this test move if that changes, which is why it is written down here.
+func TestJunkAnswersAreWeakAndTypeaheadIsNot(t *testing.T) {
+	st := requireSpelling(t)
+	const limit = 24
+	answer := func(q string) Answer {
+		t.Helper()
+		res, err := st.Search(t.Context(), q, limit)
+		if err != nil {
+			t.Fatalf("Search(%q): %v", q, err)
+		}
+		fos, err := st.SearchFossils(t.Context(), q, limit)
+		if err != nil {
+			t.Fatalf("SearchFossils(%q): %v", q, err)
+		}
+		return Interleave(res, fos, q)
+	}
+	for _, c := range []struct {
+		q    string
+		weak bool
+		why  string
+	}{
+		// The query from the issue. One row, a single-celled ciliate, reached
+		// through the synonym *Paradileptus elefantinus* — so the old gate saw a
+		// non-empty list and said nothing.
+		{"elefant", true, "one ciliate is not an answer about elephants"},
+		{"mamal", true, "a fruit fly and four things named after a beach"},
+		{"cheeta", true, "four rows, none of them a cheetah"},
+		{"elephent", true, "nothing at all, which is the bottom of this scale"},
+		// And the other side: a reader who is simply not finished typing. None of
+		// these may reach the corrector, and the reason they do not is the row
+		// count — every one of them is weak-banded.
+		{"giraff", false, "a full page of giraffes, mid-word"},
+		{"tyrannosau", false, "ten rows of tyrannosaurs; the correction on offer is `tyrannos`"},
+		{"stegosaur", false, "twenty rows of stegosaurs"},
+		{"quercus rob", false, "two words, the second unfinished"},
+		{"homo sapie", false, "the most ordinary query in the product, one letter short"},
+		// Answered outright, so the question never arises.
+		{"elephant", false, "an exact match"},
+		{"dog", false, "a head-word match on Canidae"},
+	} {
+		if got := answer(c.q); got.Weak() != c.weak {
+			t.Errorf("%q: Weak() = %v (band %d, %d rows), want %v — %s",
+				c.q, got.Weak(), got.Band, got.Rows, c.weak, c.why)
+		}
+	}
+}
+
+// `mamal` reaches the gate and stops at the matcher, and that is the right
+// answer rather than a gap this change should have closed.
+//
+// Five characters is under {@link minCorrectedWord}, which is where all the
+// precision in this subsystem lives — it takes the false-correction rate on
+// random junk from 25.3% to 0.5%, and every false correction measured came from
+// a short word one legal edit from another. Widening the *gate* is this issue's
+// business; lowering that floor is relaxing the matcher, which is the one thing
+// `docs/handoff.md` §3 says not to do. So the reader who types `mamal` gets a
+// fruit fly and no suggestion, and the fix for that is phase 6 coverage.
+func TestMamalIsRefusedByTheLengthFloorAndNotByTheGate(t *testing.T) {
+	st := requireSpelling(t)
+	got, err := st.Suggest(t.Context(), "mamal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "" {
+		t.Errorf("Suggest(\"mamal\") = %q; the length floor is load-bearing and "+
+			"nothing in this change may have moved it", got)
 	}
 }
 
