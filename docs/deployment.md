@@ -484,6 +484,18 @@ what a run *is*, and why it is a named alias rather than a checkbox. The alias
 is folded to Cloudflare's rules (lowercase, digits, dashes, leading letter, 45
 characters) so a pasted branch name works.
 
+**One of those two paths has been pulled and the other has not**, which is
+worth a sentence on a page whose recurring subject is a step that reported
+success without doing anything. The pull request path ran end to end on #124:
+the comment's URL loads the app, `R` draws a species, the tree renders against
+production's data. The dispatch path had its guard run through all four modes by
+hand — pull request, dispatch with an alias, dispatch without one, and the
+release's `workflow_call` — and what nothing has exercised is GitHub handing
+`inputs.preview_alias` to the step. It was not tried from this branch on
+purpose: if that input failed to arrive the run would read as a production
+deploy and put an unmerged branch on `concestor.com`. **Exercise it from `main`
+instead**, where the same misfire deploys `main` and costs nothing.
+
 **Version overrides were the other candidate and are not a substitute.** They
 run a chosen version on the real domain, which would have kept the container and
 the zone's settings — but they select it with a
