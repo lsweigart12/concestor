@@ -46,8 +46,9 @@ rather than serving an empty canvas that looks like a bug.
 
 To see the bundle that actually ships, use `scripts/serve.sh`: one Go process
 serving the read API on `/v1` and the built frontend on `/`, by default at
-<http://localhost:8080>. It builds the frontend if `web/dist` is missing — but
-only then, so rebuild `web/` yourself after changing it.
+<http://localhost:8080>. It rebuilds `web/dist` whenever a source file,
+`package.json` or the vite config is newer than the bundle, so what it serves is
+what the source says.
 
 ---
 
