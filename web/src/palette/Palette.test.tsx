@@ -57,7 +57,6 @@ function mount(overrides: Partial<Parameters<typeof Palette>[0]> = {}) {
     open: true,
     onClose: noop,
     commands: [] as Command[],
-    scope: null,
     filter: null,
     onFilter: noop,
     onPick: noop,
@@ -199,7 +198,6 @@ describe("Palette search", () => {
         open={false}
         onClose={noop}
         commands={[]}
-        scope={null}
         filter={null}
         onFilter={noop}
         onPick={noop}

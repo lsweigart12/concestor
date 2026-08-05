@@ -26,7 +26,7 @@
  * for anything the client somehow lacks.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import {
   api,
   type FossilTaxon,
@@ -130,9 +130,15 @@ interface Props {
   /** False when this build has no fossil table at all. */
   available: boolean;
   /**
-   * Opens the action menu for a row. A fossil is not a node — it has no
-   * ancestor path and cannot go on the canvas — so the actions are about the
-   * clade it hangs from, and only the app knows what those are.
+   * Selects a row, which opens its card — the same thing clicking a mark on
+   * the canvas does, and for the same reason: a lane row names a taxon, and
+   * what a reader wants from a taxon they just pointed at is what it is.
+   *
+   * It used to push a scope onto the palette and offer three commands, which
+   * predates the fossil card. Every one of those actions is on the card now —
+   * draw and remove as its own button, the attachment point as a link — and
+   * the card also carries the range, the occurrence count, the encyclopedia
+   * entry and the drawing's credit, none of which a command row can say.
    */
   onPick: (f: FossilTaxon) => void;
   toScreenX: (ma: number) => number;
@@ -259,20 +265,30 @@ export function DrillLane({
             : geom.envelope.x - TEXT_GAP;
           const runW = rowTextWidth(f, geom);
           const silX = toTheRight ? textX + runW + 6 : textX - runW - 6 - ICON;
+          // A card is addressed by `pbdb<taxon_no>` and there is no other key
+          // for a fossil, so a row without one has nothing to open. The palette
+          // already refuses to make such a row pickable; this is the same rule
+          // on the other surface, and it costs a hover state rather than a
+          // press that does nothing.
+          const pickable = (f.pbdb_taxon_no ?? 0) > 0;
           return (
             <g
               key={f.name}
-              className="drill-row is-actionable"
-              role="button"
-              tabIndex={0}
-              aria-label={`${f.name} — open actions`}
-              onClick={() => onPick(f)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  onPick(f);
-                }
-              }}
+              className={pickable ? "drill-row is-actionable" : "drill-row"}
+              {...(pickable
+                ? {
+                    role: "button",
+                    tabIndex: 0,
+                    "aria-label": `${f.name} — open its card`,
+                    onClick: () => onPick(f),
+                    onKeyDown: (e: KeyboardEvent) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        onPick(f);
+                      }
+                    },
+                  }
+                : {})}
             >
               {/* The hit area. Without it only the ink is clickable and a
                   one-pixel bracket is an unusable target. */}

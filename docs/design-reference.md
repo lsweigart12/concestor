@@ -113,11 +113,20 @@ filter tween on the same element.
   frequency, not alphabetically.
 - Commands accept typed arguments inline (species name, clade, node id).
 - A node's own actions are a **contextual section** of the palette rather than
-  a separate mode; a fossil clicked in the drill-down lane still opens a menu
-  scoped to it, because a fossil's actions are all about the node it attaches
-  to and none of the general ones apply.
-- The search field carries a breadcrumb of current scope. Backspace at
-  position zero pops it.
+  a separate mode.
+- **A fossil clicked in the drill-down lane opens its card**, which is what
+  clicking a mark on the canvas does and is the same `sel=` in the URL. It used
+  to push a scope onto the palette offering three commands — draw it, show the
+  clade it hangs below, add that clade — and that predates the fossil card. All
+  three are on the card now, as its own draw/remove button and as links, and
+  the card carries the range, the occurrence count, the encyclopedia entry and
+  the drawing's credit besides. A menu naming three of a taxon's actions, in
+  front of a surface that shows the taxon *and* those actions, is a stop on the
+  way to somewhere. The lane stays open beneath the card, because reading four
+  fossils along one branch is the thing the lane is for.
+- The search field carries a breadcrumb chip for the current filter. Backspace
+  at position zero pops it. The species filter is the only chip there is —
+  the fossil scope was the other one.
 - **A filter is a scope over one corpus, and `S` is the one that exists.** It
   drops commands and fossils from the list entirely rather than demoting them:
   the reader pressed a key naming a corpus, and leaving a command row above the

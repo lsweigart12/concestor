@@ -225,7 +225,7 @@ export interface GraphProps {
   /** The segment whose drill-down lane is open. Lives in the URL. */
   drill: Drill | null;
   onDrill: (d: Drill | null) => void;
-  /** A fossil row was clicked; the app opens its action menu. */
+  /** A fossil row was clicked; the app selects it, which opens its card. */
   onPickFossil: (f: FossilTaxon) => void;
   /** Fossils drawn against the tree. See `tree/graft.ts`. */
   grafts: readonly Graft[];
