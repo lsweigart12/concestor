@@ -79,6 +79,38 @@ concestor_artifacts_missing() {
   exit 1
 }
 
+# The packages web/package.json asks for that $1/web/node_modules does not
+# have. npm's own answer rather than a walk of our own, because a hand-rolled
+# one gets two things wrong: a platform-specific optional dependency is *meant*
+# to be absent (95 of them in this lockfile, every foreign-platform `sharp` and
+# `workerd` binary), and a nested copy satisfies a dependency that a hoisted
+# one does not. `npm ls` reads the installed tree, needs no network and costs
+# ~0.2 s. Of its `problems`, only `missing:` means a package that is not on
+# disk — `invalid` and `extraneous` are different complaints and not ours.
+#
+# `npm ls` exits non-zero whenever it has anything to report, which here is the
+# ordinary case, so its status is swallowed rather than allowed to trip
+# `pipefail` in the callers. An unreadable answer is reported as a shortfall
+# rather than as silence: this whole function exists because a check that
+# cannot tell said everything was fine.
+concestor_lock_shortfall() {
+  { npm --prefix "$1/web" ls --all --json 2>/dev/null || true; } |
+    node -e '
+      const chunks = [];
+      process.stdin.on("data", (d) => chunks.push(d)).on("end", () => {
+        let problems;
+        try {
+          problems = JSON.parse(Buffer.concat(chunks)).problems || [];
+        } catch {
+          problems = ["missing: (npm ls gave no readable answer)"];
+        }
+        for (const p of problems) {
+          if (p.startsWith("missing:")) console.log(p.slice(8).split(",")[0].trim());
+        }
+      });
+    '
+}
+
 # node_modules is gitignored, so a fresh worktree has none. Copying the main
 # checkout's tree beats a fresh install: it needs no network, and on APFS
 # `cp -c` clones copy-on-write, so 103 MB costs neither time nor disk until
@@ -87,24 +119,72 @@ concestor_artifacts_missing() {
 #
 # A copy rather than a symlink, deliberately: a later `npm install` in the
 # worktree must not reach through and rewrite the main checkout's tree.
+#
+# Matching lockfiles decide whether cloning is *appropriate*; they cannot
+# decide whether the result is *usable*, and for a while this function asked
+# only the first question. Two checkouts on the same commit have identical
+# lockfiles by construction, so `cmp` passed while the tree being cloned was
+# itself 52 packages behind its own lockfile — every worktree faithfully
+# inherited a `node_modules` with no `jsdom` in it, and reported nothing. The
+# tree is therefore checked against the lockfile after it exists, whatever
+# produced it, and a shortfall is installed rather than carried.
 concestor_ensure_node_modules() {
-  [ -d "$ROOT/web/node_modules" ] && return 0
-
-  local main=""
+  local main="" cloned_from=""
   main=$(concestor_main_checkout) || main=""
-  if [ -n "$main" ] && [ "$main" != "$ROOT" ] &&
-    [ -d "$main/web/node_modules" ] &&
-    cmp -s "$main/web/package-lock.json" "$ROOT/web/package-lock.json"; then
-    echo "web/node_modules missing — cloning from $main (lockfiles match)…" >&2
-    if ! cp -Rc "$main/web/node_modules" "$ROOT/web/node_modules" 2>/dev/null; then
-      rm -rf "$ROOT/web/node_modules"
-      cp -R "$main/web/node_modules" "$ROOT/web/node_modules"
+
+  if [ ! -d "$ROOT/web/node_modules" ]; then
+    if [ -n "$main" ] && [ "$main" != "$ROOT" ] &&
+      [ -d "$main/web/node_modules" ] &&
+      cmp -s "$main/web/package-lock.json" "$ROOT/web/package-lock.json"; then
+      echo "web/node_modules missing — cloning from $main (lockfiles match)…" >&2
+      if ! cp -Rc "$main/web/node_modules" "$ROOT/web/node_modules" 2>/dev/null; then
+        rm -rf "$ROOT/web/node_modules"
+        cp -R "$main/web/node_modules" "$ROOT/web/node_modules"
+      fi
+      cloned_from="$main"
+    else
+      echo "web/node_modules missing — installing…" >&2
+      (cd "$ROOT/web" && npm install --no-audit --no-fund) || return 1
     fi
-    return 0
   fi
 
-  echo "web/node_modules missing — installing…" >&2
-  (cd "$ROOT/web" && npm install --no-audit --no-fund)
+  # Also reached by a worktree that has been sitting on a bad clone since
+  # before this check existed, which is the point of doing it here rather than
+  # only after the copy above.
+  local short
+  short=$(concestor_lock_shortfall "$ROOT")
+  [ -n "$short" ] || return 0
+
+  echo "web/node_modules does not satisfy web/package-lock.json. Missing:" >&2
+  echo "$short" | sed 's/^/    /' >&2
+  if [ -n "$cloned_from" ]; then
+    echo "  The clone is faithful; the tree it came from is not current." >&2
+    echo "  Run 'npm --prefix web install' in $cloned_from too," >&2
+    echo "  or every worktree after this one pays for it again." >&2
+  fi
+  echo "Installing the shortfall…" >&2
+
+  (cd "$ROOT/web" && npm install --no-audit --no-fund) || {
+    concestor_node_modules_unfixable
+    return 1
+  }
+
+  short=$(concestor_lock_shortfall "$ROOT")
+  [ -n "$short" ] || return 0
+  concestor_node_modules_unfixable
+  return 1
+}
+
+# The other unrecoverable case, alongside concestor_artifacts_missing: the
+# frontend's dependencies are not there and cannot be fetched. Said here so
+# nothing downstream has to guess, because the failure it turns into is
+# `Cannot find package 'jsdom'` from inside vitest's pool, which reads as a
+# broken test harness rather than a checkout that never finished installing.
+concestor_node_modules_unfixable() {
+  printf '\n  %s\n\n' "web/node_modules is still short of web/package-lock.json and the
+  install did not fix it. Nothing that compiles, tests or bundles web/ will
+  work until it does. Run it yourself and read the error:
+      npm --prefix web install" >&2
 }
 
 # Lowest free TCP port at or above $1, checked with bash's own /dev/tcp so

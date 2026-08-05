@@ -32,6 +32,27 @@ scripts borrow instead, and `.worktreeinclude` copies nothing.
   dependencies gets a real `npm install`. A copy and not a symlink, so a later
   install cannot reach through and rewrite the main checkout's tree.
 
+  **Matching lockfiles decide whether cloning is appropriate. They cannot
+  decide whether the result is usable**, and treating them as if they could is
+  how this went wrong once already. Two checkouts on the same commit have
+  identical lockfiles by construction, so the comparison passed while the tree
+  being cloned was itself 52 packages behind its own lockfile — nobody had run
+  `npm install` in the main checkout since #82 added `jsdom`. Every worktree
+  faithfully inherited a `node_modules` with no `jsdom` in it and said nothing,
+  and the failure surfaced a layer away as vitest's `Cannot find package
+  'jsdom'`, which reads as a broken test harness rather than an unfinished
+  checkout. So `concestor_ensure_node_modules` now asks `npm ls` whether the
+  tree it ended up with satisfies the lockfile — after the copy, and equally
+  after finding a `node_modules` already there, which is what makes a worktree
+  sitting on an old bad clone repair itself. A shortfall is installed rather
+  than carried, and the message names the checkout that was behind, because
+  installing into this worktree fixes this worktree and the next one starts
+  from the same stale source.
+
+  `npm ls` rather than a walk of our own: 95 of this lockfile's entries are
+  platform-specific optional dependencies that are *meant* to be absent, and a
+  check that counts those as missing reinstalls on every run.
+
 The server derives both the frontend path and the silhouette root from
 `-build`'s parent directory, so once `build/` is borrowed they both follow it
 to the main checkout. That is right for the silhouette mirror and wrong for the
