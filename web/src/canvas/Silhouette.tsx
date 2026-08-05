@@ -20,31 +20,9 @@
 
 import { useEffect, useState } from "react";
 import { useTip } from "../chrome/Tooltip";
+import { sanitiseSvg } from "./sanitiseSvg";
 
 const cache = new Map<string, Promise<string | null>>();
-
-/**
- * Strip the baked fill, and anything active.
- *
- * These files come from our own mirror of a public upload site. The fill
- * rewrite is the point; dropping `<script>`, foreignObject and `on*` handlers
- * is ordinary hygiene for markup that is about to be inlined, and costs one
- * pass over a few kilobytes.
- */
-export function sanitiseSvg(raw: string): string | null {
-  const start = raw.indexOf("<svg");
-  if (start < 0) return null;
-  let svg = raw.slice(start);
-  svg = svg.replace(/<script[\s\S]*?<\/script>/gi, "");
-  svg = svg.replace(/<foreignObject[\s\S]*?<\/foreignObject>/gi, "");
-  svg = svg.replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "");
-  // The whole reason this component exists.
-  svg = svg.replace(/\sfill\s*=\s*("|')#?(000000|000|black)\1/gi, ' fill="currentColor"');
-  svg = svg.replace(/fill\s*:\s*#?(000000|000|black)\s*;?/gi, "fill:currentColor;");
-  // Let CSS size it rather than the file's intrinsic attributes.
-  svg = svg.replace(/\s(width|height)\s*=\s*("[^"]*"|'[^']*')/gi, "");
-  return svg;
-}
 
 async function load(url: string): Promise<string | null> {
   const hit = cache.get(url);
@@ -60,6 +38,30 @@ async function load(url: string): Promise<string | null> {
   })();
   cache.set(url, p);
   return p;
+}
+
+/**
+ * The markup for one drawing, or null until it arrives — and for good if it
+ * never does.
+ *
+ * The two components below differ in their wrapper and in what they do with a
+ * miss, and in nothing else; this is the whole of what they share, and it was
+ * previously written out twice. `live` guards a component unmounted mid-flight
+ * rather than the fetch itself, which is shared through `cache` and is somebody
+ * else's to wait for.
+ */
+function useSilhouette(phylopicId: string): string | null {
+  const [markup, setMarkup] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    load(`/v1/silhouette/${phylopicId}.svg`).then((m) => {
+      if (live) setMarkup(m);
+    });
+    return () => {
+      live = false;
+    };
+  }, [phylopicId]);
+  return markup;
 }
 
 /**
@@ -92,18 +94,8 @@ export function SilhouetteSvg({
    */
   tip?: string;
 }) {
-  const [markup, setMarkup] = useState<string | null>(null);
+  const markup = useSilhouette(phylopicId);
   const hover = useTip(tip);
-
-  useEffect(() => {
-    let live = true;
-    load(`/v1/silhouette/${phylopicId}.svg`).then((m) => {
-      if (live) setMarkup(m);
-    });
-    return () => {
-      live = false;
-    };
-  }, [phylopicId]);
 
   if (!markup) return null;
   const sized = markup.replace("<svg", `<svg width="${size}" height="${size}"`);
@@ -140,18 +132,8 @@ export function Silhouette({
    */
   fallback?: React.ReactNode;
 }) {
-  const [markup, setMarkup] = useState<string | null>(null);
+  const markup = useSilhouette(phylopicId);
   const hover = useTip(tip);
-
-  useEffect(() => {
-    let live = true;
-    load(`/v1/silhouette/${phylopicId}.svg`).then((m) => {
-      if (live) setMarkup(m);
-    });
-    return () => {
-      live = false;
-    };
-  }, [phylopicId]);
 
   if (!markup) return <>{fallback}</>;
 
