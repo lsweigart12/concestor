@@ -16,6 +16,12 @@ import { api, normalise, SEARCH_MEMO_LIMIT } from "./api";
  * where a fuzzy score computed in the browser outweighed four server ranks and
  * put a sea snail above the butterflies. It is written down here because the
  * flattening step is exactly where somebody would reach for a sort next time.
+ *
+ * The names below read capitalised because this boundary also *cases* them —
+ * `vernacular.ts` is the rule and `vernacular.test.ts` is its own test. That is
+ * a change to each string's first letter and to nothing else, so every claim
+ * this block makes about **order** is untouched by it, which is why the
+ * fixtures were left as the server sends them rather than pre-capitalised.
  */
 describe("vernacular order at the API boundary", () => {
   const homoSapiens = {
@@ -35,11 +41,11 @@ describe("vernacular order at the API boundary", () => {
       vernaculars: string[];
     };
     expect(out.vernaculars).toEqual([
-      "human",
-      "humans",
-      "human being",
-      "man",
-      "men",
+      "Human",
+      "Humans",
+      "Human being",
+      "Man",
+      "Men",
     ]);
   });
 
@@ -55,7 +61,7 @@ describe("vernacular order at the API boundary", () => {
       ],
       synonyms: [],
     }) as { vernaculars: string[] };
-    expect(out.vernaculars[0]).toBe("carnivorans");
+    expect(out.vernaculars[0]).toBe("Carnivorans");
   });
 
   it("flattens objects to strings, so no card ever renders [object Object]", () => {
@@ -64,7 +70,7 @@ describe("vernacular order at the API boundary", () => {
       vernaculars: [{ name: "dog", lang: "en", preferred: true }],
       synonyms: [],
     }) as { vernaculars: string[] };
-    expect(out.vernaculars).toEqual(["dog"]);
+    expect(out.vernaculars).toEqual(["Dog"]);
   });
 
   it("still accepts a bare list of strings", () => {
@@ -73,7 +79,7 @@ describe("vernacular order at the API boundary", () => {
       vernaculars: ["insect", "insects", "bug"],
       synonyms: [],
     }) as { vernaculars: string[] };
-    expect(out.vernaculars).toEqual(["insect", "insects", "bug"]);
+    expect(out.vernaculars).toEqual(["Insect", "Insects", "Bug"]);
   });
 
   it("drops duplicates without disturbing the survivors' order", () => {
@@ -87,7 +93,7 @@ describe("vernacular order at the API boundary", () => {
       ],
       synonyms: [],
     }) as { vernaculars: string[] };
-    expect(out.vernaculars).toEqual(["insect", "insects", "bug"]);
+    expect(out.vernaculars).toEqual(["Insect", "Insects", "Bug"]);
   });
 
   it("survives a malformed row rather than dropping the list", () => {
@@ -96,7 +102,7 @@ describe("vernacular order at the API boundary", () => {
       vernaculars: ["dog", null, { lang: "en" }, { name: "domestic dog" }],
       synonyms: [],
     }) as { vernaculars: string[] };
-    expect(out.vernaculars).toEqual(["dog", "domestic dog"]);
+    expect(out.vernaculars).toEqual(["Dog", "Domestic dog"]);
   });
 });
 
