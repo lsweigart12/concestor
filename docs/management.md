@@ -39,13 +39,13 @@ The time axis is secondary; rough dating is fine. The fossil layer is secondary.
 4. `docs/phase2-decision.md`, `docs/phase3-pbdb-path.md`, `docs/serving-binary.md` — settled decisions with their evidence.
 5. `CLAUDE.md`, `pipeline/README.md` — conventions and how to run things.
 
-**The previous version of this brief told you not to re-research the figures in those documents. That instruction is now conditionally wrong, and this is the most important thing on this page.** The specs were written before anything was built. Building it proved a dozen of their figures wrong, and every correction is enumerated in `handoff.md` §4 — but the corrections live *only* there. The specs still say the old thing.
+**The previous version of this brief told you not to re-research the figures in those documents. That instruction was conditionally wrong for a year, and this paragraph is the account of why it no longer is.** The specs were written before anything was built. Building it proved a couple of dozen of their figures wrong, and for a while every correction lived *only* in a `handoff.md` §4 titled "Corrections to the design docs" — 2,148 lines into a 3,600-line file — while this page told every newcomer to read the specs first and called them the spec.
 
-**Those four traps are now fixed in the specs themselves** — `fossil` is keyed on `taxon_no`, the Dinosauria spot check names Tyrannosauridae, phase 1 step 8 says the `search` phase builds the index, and the GBIF-vernaculars-are-free claim is struck in all three places. Each correction is struck through in place rather than deleted, so a reader who half-remembers the old figure finds out why it changed instead of wondering whether they misremembered.
+**§4 has now been applied in place and is gone.** Each correction is struck through where the wrong claim was, with the measured figure and the reason beside it, so a reader who half-remembers the old number finds out why it changed instead of wondering whether they misremembered. **Follow that convention.** It is the reason the reconciliation was worth doing at all: a deleted error teaches nobody anything, and a reader arriving with a stale figure in their head is the exact person the doc has to reach.
 
-The reconciliation is not finished. `handoff.md` §4 is still the authoritative list and it is longer than those four.
+Every one was re-measured against the current build before it was applied, and that mattered — §4 recorded the artifact set as 2,004 MB and it is 2,062.6 MB; it recorded `node_fts` as two columns short and it is three; the accepted-key fallback it flagged as irreproducible is still irreproducible and still gives 138,180. **An errata list drifts exactly like the document it corrects.** That is the argument for applying corrections rather than accumulating them, and it is why nothing like §4 should be started again: correct the doc, or write the finding into `handoff.md` §3 or §7 where it is a *finding* rather than a pending edit.
 
-So: **trust `handoff.md` over the specs wherever they disagree.** The traps that would have cost a reader real time are corrected in place; the rest of §4 has not been folded back, and until it is, §4 wins.
+So: **the specs and `handoff.md` should now agree.** Where they do not, `handoff.md` is still the truth and the spec is still the thing to fix — in place.
 
 ## What to do, in order
 
@@ -91,7 +91,17 @@ It also corrected architecture §7, which describes the four bounds as if they c
 
 **What it needs now is a better sample.** Ranking by occurrence count guarantees nested near-duplicates — seven of those eight rows read "239 Ma – present" and nothing a person would recognise appears. Mixing in rank diversity, or preferring taxa that carry a vernacular, would make the lane worth opening twice.
 
-### 5. Fix phase 3's cross-kingdom homonyms
+### 5. Fix phase 3's cross-kingdom homonyms — **done**
+
+Shipped as `refuse_disagreements` in `resolve.py`, and the account below is what it was
+before the fix. **16,833 resolutions withdrawn over every method** — not `name_exact`
+alone; `gbif_backbone_provenance` supplied 7,191 of them, so "only trust the backbone"
+was never the fix — plus 235 more where a name is still claimed by two accepted PBDB
+taxa. Phase 4's independent check went from **1,019 of 1,048** to **31 of 60**. Three
+details are load-bearing and none may be reordered: the extancy sweep runs *before* the
+ambiguity one, so *Scopus* keeps the hamerkop instead of losing both; it needs phase 2's
+`age_ma` as a living-lineage guard, without which 1,162 correct attachments go; and
+`manual` overrides are exempt. handoff.md §5 has the rest.
 
 Found while doing item 3 and previously unrecorded. `xref` resolves PBDB to OTT **by name**, and OTT carries the same genus name in unrelated kingdoms, so a Cambrian fossil lands on a living plant. Measured with a test that needs no new data — a taxon last seen before the Permian cannot be a living genus: **1,019 of the 1,048** nodes carrying an exact attachment with `lla > 250 Ma` have living descendants. Phase 4 already reports it every build as an `observe`, so the baseline is recorded. *Sadleria* is a Hawaiian fern with a Devonian fossil on it; *Streptosolen* is a South American shrub with an Ordovician one.
 
@@ -113,7 +123,7 @@ Everything settled in the previous brief still holds, and is now implemented rat
 
 - Do not start the congruification fallback.
 - Do not attempt the exhaustive 73-hour PBDB crawl. The prioritised `n_occs`-ordered crawl is the settled answer.
-- Do not optimise the artifact set yet. It is 2,048 MB against architecture §11's 700 MB estimate, which means §11's cost paragraph needs re-deriving before anyone sizes a machine — but nothing is broken by it, and trimming `xref` before the product is finished is optimising the wrong thing.
+- Do not optimise the artifact set yet. It is ~~2,048 MB~~ **2,062.6 MB on the current build** against architecture §11's 700 MB estimate — a reading rather than a constant; it moves with every pipeline run and `concestor-build package` reports it. §11's cost paragraph has now been re-derived in place, and `deployment.md` §1 measures the deployable payload (2,229 MB, silhouettes included) and the RSS a container actually needs (361 MB after startup). Nothing is broken by the size, and trimming `xref` before the product is finished is optimising the wrong thing.
 - Do not reintroduce a fixed layout width in the frontend. It follows the viewport so the fit stays near 1:1; at a fixed 1240px a narrow panel fits at ~0.45 zoom, which renders every label at under 6px. This matters more since the semantic-zoom tiers were removed: the names no longer disappear at that scale, they are merely unreadable, and the layout width is the only thing still keeping them legible.
 
 ### 6. The vernacular join was producing false statements — **fixed**

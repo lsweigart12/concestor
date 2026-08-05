@@ -98,6 +98,18 @@ time is unacceptable. Correct, but the layer has more to work with than expected
 GBIF's PBDB checklist preserves PBDB's `taxon_no` verbatim in `taxonID`. Verified
 end to end:
 
+> **What `pbdb.zip` actually is, since `snapshot/manifest.json` and handoff.md §5 both
+> called it something else.** It is a **ColDP archive dated 2026-07-26 with 518,442
+> rows**, not a Darwin Core archive of 461,889 — confirmed against the ColDP schema
+> from the archive's own contents: `NameUsage.tsv`, `NameRelation.tsv`,
+> `TaxonProperty.tsv`, `VernacularName.tsv` and a `metadata.yaml` declaring the CoLDP
+> JSON schema and `version: 2026-07-26`. **461,889 is the record count of GBIF's
+> *ingested* checklist**, which is a different object. `col:ID` is `txn:38613`, so the
+> `taxon_no` claim above survives the correction intact. Note also that
+> phase3-pbdb-path.md §5 forbids joining against the ColDP for the backbone path: its
+> compound synonym ids silently map a synonym onto the accepted taxon's number, so that
+> join goes against `pbdb_taxa.csv`.
+
 ```
 PBDB   txn:38613  "Tyrannosaurus"
 GBIF   {"key":121494660, "nubKey":4822631, "taxonID":"38613"}
@@ -167,7 +179,10 @@ Your claim about climbing to parents is right, and better than described.
 **Two corrections.** Stale `build` values return **`410 Gone`, not a redirect** — the
 error body carries the current build, so retry from that. And **`primaryImage` ignores
 license filters entirely**: a naive client rendering default thumbnails gets 47.2%
-requiring attribution, 12.8% ShareAlike, and **5.5% NonCommercial**. For anything
+requiring attribution, 12.8% ShareAlike, and **5.5% NonCommercial**. That 47.2% is of
+`primaryImage` *results*; across the mirrored corpus the attribution-required share is
+5,432 of 12,863, **42.2%**. Both are right and the denominators differ, which is worth
+saying because they get compared. For anything
 commercial, use `/images?filter_clade={uuid}&filter_license_nc=false&page=0&embed_items=true`
 and take item 0, which reproduces primaryImage's proximity ordering while staying safe
 (93.7% coverage); walk `/lineage` upward for the remainder.
@@ -189,7 +204,9 @@ License distribution (full corpus, enumerated not sampled):
 | CC-BY-NC-SA 3.0 | 325 | 2.5% | **no** |
 
 Attribution is a two-field problem: `attribution` is the **original creator**,
-`_links.contributor.title` is the **uploader**. They differ 31% of the time.
+`_links.contributor.title` is the **uploader**. They differ ~~31%~~ **50.0%** of the
+time — 6,437 disagreements enumerated across the whole 12,863-image corpus, against the
+sample the 31% came from.
 `attribution` is null 19.3% overall but **0% null among the 5,432 images that actually
 require attribution** — so render `attribution` when the license demands BY and it will
 always be there.
@@ -232,7 +249,12 @@ always be there.
   genera, 8,841 families, and the tip set includes subspecies, varieties,
   cultivars and 1,615 group-rank terminals. `web/src/corpora.ts` owns the one
   figure a reader is shown and `corpora.test.ts` reads it from this line.
-- **Root-to-tip depth**: min 2, **mean 41.3**, **max 111**.
+- **Root-to-tip depth**: min 2, **mean 41.3**, **max 111**. *Root-to-tip* is
+  load-bearing and this line is right — it is easy to misread and one gate did, failing
+  at 41.67 against an expected 41.32 because it averaged over **all** nodes rather than
+  over tips. Internal nodes sit deeper on average (44.14), so the three figures are
+  41.32 over tips, 44.14 over internal nodes and 41.67 over everything. Say which
+  population before quoting one.
 - **Branching factor**: mean 8.02, **max 12,964**. A single node with ~13,000 children
   will break any UI assuming small fanout.
 - **24.5% of internal nodes are unary** (exactly one child). These inflate depth without

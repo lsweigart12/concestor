@@ -53,8 +53,10 @@ DOWNLOADS: list[JsonDict] = [
         "url": "https://hosted-datasets.gbif.org/datasets/pbdb.zip",
         "rel": "gbif_pbdb_checklist/pbdb.zip",
         "note": (
-            "PBDB checklist Darwin Core archive. Preserves PBDB taxon_no "
-            "verbatim in taxonID. Carries no nubKey — see the API export."
+            "PBDB checklist ColDP archive, 518,442 rows — not a Darwin Core "
+            "archive of 461,889, which is GBIF's ingested count. Preserves "
+            "PBDB taxon_no verbatim in taxonID (col:ID is txn:38613). "
+            "Carries no nubKey — see the API export."
         ),
     },
     # --- Open Tree ------------------------------------------------------

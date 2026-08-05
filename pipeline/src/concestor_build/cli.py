@@ -89,7 +89,9 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("search", help="build the FTS index over names and vernaculars")
 
-    sub.add_parser("package", help="emit topology.bin, meta.bin and the build manifest")
+    # Not "topology.bin, meta.bin": those files do not exist and never will.
+    # `package.py`'s docstring is the reasoning; this string is what a user sees.
+    sub.add_parser("package", help="gate the artifact set and write the build manifest")
 
     sub.add_parser("render", help="throwaway renderer — one induced subtree")
 

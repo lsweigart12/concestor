@@ -41,13 +41,16 @@ reports 173 MiB against 155.9 MB of actual bytes, because 12,865 small SVGs
 round up to a lot of blocks, and it reports almost nothing at all inside a
 worktree, where `build/` is a tree of symlinks.
 
-Two corrections to `docs/handoff.md` §4 fall out of that table, neither of which
-changes an argument:
+Two corrections to the artifact figure fall out of that table, neither of which changes
+an argument. They were raised against `handoff.md` §4, which has since been applied into
+`architecture.md` §11 and deleted:
 
-- **The 2,004 MB figure is `concestor.db` plus the arrays, and it has drifted.**
-  Today that pair is **2,048.9 MB**. The number moves with every pipeline run
-  and `concestor-build package` reports it; treat it as a reading, not a
-  constant.
+- **The artifact figure is `concestor.db` plus the arrays, and it drifts.** §4 said
+  2,004 MB and this page said 2,048.9 MB; on the build measured here it is
+  **2,062.6 MB**. The number moves with every pipeline run and `concestor-build
+  package` reports it; treat it as a reading, not a constant. Which is the whole
+  argument for correcting a doc in place rather than keeping an errata list beside it —
+  the errata drift too.
 - **It omits the silhouettes.** The server resolves `silhouette.svg_path`
   against `snapshot/phylopic` and serves the file. That is another **155.9 MB**
   that has to be wherever the binary is, and nothing had written it down —

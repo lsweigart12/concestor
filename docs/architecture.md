@@ -34,9 +34,8 @@ artifact set, which ships as a new container image, which deploys atomically.
                               │
               ┌───────────────┼────────────────┐
               ▼               ▼                ▼
-      topology.bin      concestor.db     silhouettes/
-      meta.bin          (SQLite, RO)     (SVG, on CDN)
-       (mmap'd)
+      topology/*.npy    concestor.db     silhouettes/
+       (mmap'd)         (SQLite, RO)     (SVG, on CDN)
               │               │                │
   RUNTIME     └───────┬───────┘                │
   ┌──────────────────────────────────┐         │
@@ -128,10 +127,18 @@ OTT ids are also **not stable**: `forwards.tsv` carries 297,070 retirements in t
 release alone, and the live API follows them silently. The resolution layer (§5) chases
 forwards transitively at build time and records every hop.
 
-### 3.2 Core arrays — `topology.bin`, `meta.bin`
+### 3.2 Core arrays — ~~`topology.bin`, `meta.bin`~~ `build/topology/*.npy`
 
 Hot-path data lives in flat typed arrays, memory-mapped by the API process. No SQL on
 the path lookup.
+
+**Those two filenames were never built and never will be.** A `.npy` file is a 128-byte
+ASCII header followed by exactly the raw little-endian array this section describes, so
+phase 1's output already *is* this format; `server/internal/npy` mmaps it directly.
+Concatenating a second on-disk copy would double the disk cost and give the most
+load-bearing array in the system two candidate sources of truth. Read the names below as
+naming a *format*; `package.py`'s docstring is the decision and ingest.md phase 1 states
+the output.
 
 | Array | Type | Bytes | Size |
 |---|---|---:|---:|
@@ -143,8 +150,18 @@ the path lookup.
 | `age_tier` | u8 | 1 | 2.7 MB |
 | `flags` | u16 | 2 | 5.5 MB |
 
-**~55 MB total** for 2,725,682 nodes. `path()` is a 41-step walk through a mmap'd
+~~**~55 MB total**~~ for 2,725,682 nodes. `path()` is a 41-step walk through a mmap'd
 `u32` array — nanoseconds, no allocation, no query planner.
+
+**Measured on the built set it is 137.5 MB**, and the difference is arrays this table
+predates rather than any of these growing. `flags` never became an array — it is a
+`TEXT` column on `node` — and what shipped instead is `age_layout` (§3.5), `ott_id`,
+`child_count`, the `ott_sorted`/`ott_to_idx` lookup pair, and phase 2's `age_layout`
+and `age_tier` kept under `_phase2` names so phase 4's rewrite can be diffed against
+them and re-run without compounding its own output. Thirteen files; `build/manifest.json`
+lists every one with its byte count, and eleven of the thirteen are mmap'd at startup.
+The paragraph still holds — 137.5 MB is nothing beside `concestor.db` — but §11 sized a
+machine off the smaller number, and see the correction there.
 
 `subtree_in` is `idx` itself, so it isn't stored.
 
@@ -160,14 +177,29 @@ CREATE TABLE node (
   node_key     TEXT NOT NULL,         -- 'ott770315' | 'mrcaott83926ott3607676'
   name         TEXT,
   rank_id      INTEGER,               -- dictionary-encoded
-  is_broken    INTEGER NOT NULL DEFAULT 0,
+  -- `is_broken` was specified here and CANNOT WORK. A non-monophyletic taxon
+  -- is *rejected* from synthesis — `input_output_stats.json` calls it
+  -- `num_taxa_rejected: 9839` — so none of the 9,839 is a node at all and the
+  -- flag would be permanently zero while every gate passed. They live in
+  -- `broken_taxon` instead (9,839 rows), carrying the substituted MRCA, its
+  -- resolved `idx`, the attachment points and the intruding taxa, which is
+  -- what the UI needs in order to explain the substitution rather than
+  -- silently answer a different question.
   phylopic_id  TEXT,                  -- resolved at build time
   source       INTEGER NOT NULL       -- 0=taxonomy-only, 1=phylogeny-supported
 );
 CREATE UNIQUE INDEX node_ott ON node(ott_id) WHERE ott_id IS NOT NULL;
 
+-- Two columns as specified; FIVE as built. `synonyms` is `syn`, and three
+-- more arrived with the front door: `abbr` (the *T. rex* form), `vern`
+-- (common names, phase 6) and `broken` — because the 9,839 rejected taxa have
+-- no `node.name` and so were completely unsearchable, and *Escherichia coli*
+-- and *Dinosauria* are two names a curious person is entirely likely to type.
+-- It is `content=''`, one row per *name* rather than per node, and
+-- `node_fts.rowid` is a `search_name.id` and never a `node.idx`.
 CREATE VIRTUAL TABLE node_fts USING fts5(
-  name, synonyms, content='', tokenize='unicode61 remove_diacritics 2'
+  sci, abbr, syn, vern, broken,
+  content='', tokenize='unicode61 remove_diacritics 2'
 );
 
 -- fossil taxa, attached to the tree rather than placed in it
@@ -208,14 +240,19 @@ CREATE TABLE silhouette (
   phylopic_id TEXT PRIMARY KEY,
   license_url TEXT NOT NULL,
   attribution TEXT,                   -- original creator
-  contributor TEXT,                   -- uploader; differs 31% of the time
+  contributor TEXT,                   -- uploader; differs 50% of the time,
+                                      -- not 31%. Measured across the whole
+                                      -- 12,863-image corpus: 6,437 disagree.
   commercial_ok INTEGER NOT NULL
 );
 ```
 
-Estimated ~600 MB with the FTS index. Combined with the arrays, the whole dataset is
-**under 700 MB** — it fits in a container image and stays resident in page cache on a
-small instance.
+~~Estimated ~600 MB with the FTS index. Combined with the arrays, the whole dataset is
+**under 700 MB**~~ — see the correction in §11. Measured on the built set the artifact
+set is **2,062.6 MB**: `concestor.db` is 1,925.0 MB and the arrays 137.5 MB. It still
+fits in a container image, but "stays resident in page cache on a small instance" needs
+a bigger small instance than this sentence had in mind, and `deployment.md` §1 is where
+that was sized against a real machine.
 
 ### 3.4 Fossils attach to segments; they are not placed in the tree
 
@@ -297,7 +334,8 @@ Scope, measurements and the `fea` trap in handoff.md §7.
 
 ### Recommendation: one static binary over mmap'd arrays plus read-only SQLite
 
-Go or Rust. The `topology.bin` / `meta.bin` arrays are mmap'd at startup;
+Go or Rust — **Go, decided; `serving-binary.md` has the reasoning.** The
+~~`topology.bin` / `meta.bin`~~ `build/topology/*.npy` arrays are mmap'd at startup;
 `concestor.db` is opened `immutable=1`. Both are baked into the container image.
 
 - **No database server.** Nothing to provision, back up, fail over, or migrate.
@@ -307,8 +345,11 @@ Go or Rust. The `topology.bin` / `meta.bin` arrays are mmap'd at startup;
   reads it ship together, so there is no way to serve v16.1 dates against a v15.1
   topology.
 
-Image size ~700 MB. That is large for a container and completely fine for one that
-deploys on a release cadence rather than per-commit.
+~~Image size ~700 MB.~~ **Measured, the deployable payload is 2,229 MB** — 2,062.6 MB of
+artifact set, 155.9 MB of mirrored silhouettes the server resolves and serves itself, and
+the 10.4 MB binary. That is large for a container and still fine for one that deploys on
+a release cadence rather than per-commit, but it is not the number this paragraph was
+written against; `deployment.md` §1 has the table and the RSS it actually needs.
 
 ### Endpoints
 
@@ -399,8 +440,11 @@ subtree size is what makes "can" surface Canidae before *Cania*.
 
 **Known gap: OTT carries no vernacular names.** "Tyrannosaurus" works; "T. rex" and
 "dog" do not. For an app whose premise is inviting exploration, that is a serious UX
-hole, not a rough edge. Vernaculars from GBIF or Wikidata are scheduled as ingest
-phase 5 — see [ingest.md](ingest.md).
+hole, not a rough edge. **Closed.** Vernaculars are ingest ~~phase 5~~ **phase 6**, and
+they came from Wikidata rather than GBIF: `topology.py` never parses `sourceinfo` into
+the database and the snapshotted `simple.txt.gz` carries no vernacular names at all, so
+the GBIF half was never free. See [ingest.md](ingest.md) phase 6 and
+[name-ranking.md](name-ranking.md), which is how they are ordered.
 
 **A misspelled query is corrected, and the correction is shown.** This is the one
 place a request does more than "an FTS query and a join", and it is confined to the
@@ -432,7 +476,8 @@ structure and it is four bytes per node.
 
 ### Progressive client-side topology
 
-`topology.bin` delta-encodes extremely well — preorder numbering guarantees
+~~`topology.bin`~~ **`parent.npy`** delta-encodes extremely well — preorder numbering
+guarantees
 `parent[i] < i` and usually close, so `i - parent[i]` varint-encodes to roughly
 **3–4 MB, ~2 MB Brotli**. Fetched in the background after first paint. Once resident,
 the client computes paths locally and stops calling `/path` entirely.
@@ -463,17 +508,28 @@ table is an artifact, reviewed like code.
      `topology.py` never parses `sourceinfo` into the database, and the
      snapshotted `simple.txt.gz` carries no vernacular names at all. Common
      names come from Wikidata P9157 and the PBDB ColDP archive. -->
-| 3 | `phylopic_resolve` | PhyloPic `/resolve/opentreeoflife.org/taxonomy/{ott}` | 0.98 |
-| 4 | `gbif_pbdb_chain` | PBDB `taxon_no` → GBIF legacy `taxonID` → `nubKey` → OTT | 0.90 |
-| 5 | `name_exact` | exact string, **unique** candidate only | 0.70 |
-| 6 | — | ambiguous or unmatched → `idx = NULL`, candidates recorded | 0.00 |
+| ~~3~~ **5** | `phylopic_resolve` | PhyloPic `/resolve/opentreeoflife.org/taxonomy/{ott}` | 0.98 |
+| ~~4~~ **3** | `gbif_pbdb_chain` | PBDB `taxon_no` → GBIF legacy `taxonID` → `nubKey` → OTT | 0.90 |
+| **4** | **`gbif_backbone_provenance`** | the offline half of the same chain — `simple.txt.gz` cols 8 and 10 | 0.85 |
+| ~~5~~ **6** | `name_exact` | exact string, **unique** candidate only | 0.70 |
+| ~~6~~ **7** | — | ambiguous or unmatched → `idx = NULL`, candidates recorded | 0.00 |
+
+**Two corrections to that table, neither of which changes an argument.** It disagreed
+with ingest.md phase 3 on where `phylopic_resolve` ranks — 3rd here against 5th there —
+and it omitted `gbif_backbone_provenance` entirely. The build follows **ingest.md's
+order** and **this document's confidences**, and `fossil_attach_method` in the database
+is the order as shipped. It is moot in practice, because the source namespaces are
+disjoint: nothing PhyloPic resolves is ever a candidate for the PBDB chain.
 
 Method 2 is nearly free and covers a lot: OTT already stores NCBI, GBIF, IRMNG, WoRMS,
 Index Fungorum, and SILVA ids verbatim. Note it is **many-to-one** — *Amanita muscaria*
 carries six NCBI ids — so the table holds a list, never a scalar.
 
-Method 4 is the one that makes fossils work, at ~59% end-to-end yield. See
-data-sources §4 for the verified chain and its decay risk.
+The PBDB chain is the one that makes fossils work, at ~~~59%~~ **48.2%** end-to-end
+yield — measured on 253 checklist records against the 120 the ~59% came from, with the
+first hop *better* than recorded (92.9%) and the second materially worse (51.9%). See
+data-sources §4 and phase3-pbdb-path.md §5 for the verified chain and its decay risk,
+and ingest.md phase 3's gates for why the two hops are scored separately.
 
 **There is no fuzzy method.** Method 5 requires an exact string match yielding exactly
 one candidate. If a name yields two, it is not resolved — the candidates are recorded in
@@ -638,6 +694,20 @@ the field" — which is precisely the audience this product is *not* for. So:
 - **Keep the official hue *relationships*, drop the official saturation and luminance.**
   Periods stay distinguishable and stay in their familiar relative order, but the band is
   dim, desaturated and recessive.
+
+  ~~Periods stay distinguishable~~ — **not everywhere, and the two claims in this
+  section are in tension.** ICS separates the four Paleoproterozoic periods (Siderian
+  → Statherian) almost entirely by a *lightness* ramp, which is the exact channel this
+  bullet instructs us to drop: they span 10.5° of hue, and their **official** minimum
+  pairwise distance is 0.022 — already at the edge of a just-noticeable difference before
+  we touch it. After contraction it is 0.0049, below it. No value of the contraction
+  factor that keeps the band recessive fixes that, because the flatness is ICS's rather
+  than ours. The next bullet is the resolution, and a reader should not have to discover
+  that for themselves. So the timescale phase gates the contraction as **faithful** —
+  every pairwise distance scaled by exactly `K = 0.22`, hue bit-preserved — rather than
+  gating a distinguishability it cannot deliver; `period sibling min ΔE` reports the
+  number as an `observe` so it cannot be lost. `timescale.py`'s module docstring is the
+  full derivation.
 - **The band never glows.** It is a reference scale at the edge of the canvas, not data.
   Nothing in it should compete with a trace for attention.
 - Wayfinding comes from labels and hairline dividers first, hue second.
@@ -877,8 +947,8 @@ handoff.md §5.
 detail card, plus a credits view enumerating everything currently displayed. CC-BY
 requires it regardless of commercial use. Per design-reference.md the credits view is a
 **command**, not a settings panel. It is a two-field problem — `attribution` is the
-original creator, `_links.contributor.title` the uploader, and they differ 31% of the
-time.
+original creator, `_links.contributor.title` the uploader, and they differ ~~31%~~ **50%**
+of the time — 6,437 of the 12,863-image corpus, enumerated rather than sampled.
 
 ### Typography
 
@@ -926,7 +996,9 @@ and isolation belong here too.
 
 **1 — Two leaves → minimal connecting subtree.** Search resolves two `idx` values.
 `path()` each. LCA is the last common element. Render the two paths from the LCA down,
-suppressing degree-2 nodes. One round trip, or zero once the client has `topology.bin`.
+suppressing degree-2 nodes. One round trip, or zero once the client has the parent array
+(~~`topology.bin`~~ — see §3.2; there is no such file, and this is the delta-encoded
+`parent.npy` above, which is not built either).
 
 **2 — Add an Nth node → induced subtree, animated.** Fetch one path. Re-run the
 suppression rule over the enlarged marked set. New tip slots in at its preorder position;
@@ -976,8 +1048,8 @@ best-identified source and the one we are least permitted to ship.
 | Duke et al. tree fails to validate against v16.1 | **high** — it is the entire time axis | Phase-2 gate in ingest with explicit accept/reject criteria; congruification + BLADJ fallback documented but not built |
 | GBIF legacy backbone withdrawn | **high** — it is the only PBDB→OTT id path | Snapshot it in phase 1, not later. It is frozen as of 2023-08-28 and GBIF has moved on to CoL Extended Release |
 | Users read interpolated ages as measured | **high** — it is a credibility failure, not a bug | Provenance tiers rendered visually (§3.5); structural regions never show a numeric age |
-| No vernacular names in search | **medium** — blocks casual exploration | Ingest phase 5 pulls vernaculars from GBIF/Wikidata |
-| Broken taxa (9,839) answer a different question silently | **medium** | `is_broken` baked; UI explains and offers the attachment points rather than substituting |
+| No vernacular names in search | **medium** — blocks casual exploration | ~~Ingest phase 5 pulls vernaculars from GBIF/Wikidata~~ **Closed.** Ingest **phase 6** pulls them from Wikidata; the GBIF half was never free (§5's note) |
+| Broken taxa (9,839) answer a different question silently | **medium** | ~~`is_broken` baked~~ — it cannot be, see §3.3. **`broken_taxon` holds all 9,839**, and they are a fifth `node_fts` column so the names are at least *findable*; UI explains and offers the attachment points rather than substituting |
 | PhyloPic NC/SA licensing in a commercial context | **medium** | License stored per image; `--commercial-safe` build flag filters NC at 93.7% coverage |
 | A 12,964-child polytomy reaches the layout | **low** | Never rendered in full — suppression means only marked children appear. Guard the drill-down lane with a cap and an explicit "showing N of M" |
 | PBDB license ambiguity (API says CC0, FAQ says NC-ND) | **low** | Email `admin@paleobiodb.org` before any commercial launch |
@@ -987,9 +1059,24 @@ best-identified source and the one we are least permitted to ship.
 ## 11. Cost
 
 Build: hours, on a release cadence, on one machine. Runtime: two small instances
-(~700 MB image, mostly page cache) behind a CDN that absorbs nearly everything, since
-all responses are immutable. Storage: ~700 MB of artifacts plus ~136 MB of mirrored
-silhouettes.
+(~~~700 MB image~~ **2,229 MB**, mostly page cache) behind a CDN that absorbs nearly
+everything, since all responses are immutable. Storage: ~~~700 MB of artifacts~~
+**2,062.6 MB** plus ~~~136 MB~~ **155.9 MB** of mirrored silhouettes.
+
+**The 700 MB estimate predates the resolution layer and the silhouette map, and it is
+short by a factor of three.** `concestor-build package` reports the artifact figure every
+build and it moves with every pipeline run — treat it as a reading, not a constant.
+`dbstat` on the built database, largest first: `xref` 258.5 MB, `search_name` 220.5 MB,
+`broken_taxon` 180.7 MB, `node_image` 169.2 MB, `node` 152.9 MB, `node_fts_docsize`
+98.8 MB, `xref_idx` 96.6 MB, `node_fts_data` 82.3 MB, plus the rest of the FTS index.
+None of this changes the architecture — everything is still immutable, still baked, still
+deployable as an image — but this paragraph is the one anyone sizes a machine from, so
+**re-derive it before you do**, and read `deployment.md` §1, which measures the payload
+and the RSS on a real container rather than summing a table. Two things there are worth
+knowing here: the silhouettes are not in the artifact set and have to be wherever the
+binary is, and RSS after startup is 361 MB rather than anything near the artifact size.
+The size gate in `package.py` is an **`observe` deliberately** — the right response to it
+is to decide what to trim, not to fail a build.
 
 This is a very cheap system to run. That is the payoff for pushing all the difficulty
 into a build pipeline that runs when a new synthesis release lands — roughly annually.
