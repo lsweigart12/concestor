@@ -1670,11 +1670,14 @@ export default function App() {
       // Enter is in the table too and is deliberately not visible here: this
       // handler prevents the default of everything it matches, and doing that
       // to Enter would take keyboard activation off every button in the app.
-      // `bindings.ts`'s `Scope` is the whole of that argument.
+      // `bindings.ts`'s `Scope` is the whole of that argument, and `Tab` — which
+      // this line used to match, and so used to prevent — is the rest of it:
+      // nothing in the table claims it any more, so the focus ring moves.
       const action = matchKey(e);
       if (action === null) return;
-      // Everything below is ours, so nothing below reaches the browser. Tab
-      // would otherwise walk the focus ring and `/` opens quick-find in Firefox.
+      // Everything below is ours, so nothing below reaches the browser. `/`
+      // opens quick-find in Firefox, which is the reason this line survives a
+      // table holding nothing but bare letters.
       e.preventDefault();
 
       switch (action) {

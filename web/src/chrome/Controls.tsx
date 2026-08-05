@@ -176,8 +176,14 @@ export function Controls({
       fullscreen act on the canvas, and one of them is destructive — and a
       landmark that promises links to elsewhere and delivers a destructive
       button is worse than none. Not `toolbar` either, which is a keyboard
-      contract (one tab stop, arrows between the buttons) this bar does not
-      keep and cannot keep while `Tab` belongs to the canvas.
+      contract — one tab stop for the whole bar, arrows between the buttons —
+      that this bar does not keep. It could now: `Tab` used to be spent on
+      stepping the selection and reached nothing here at all, and since it moved
+      to `n` every button in here is a tab stop of its own. Which is exactly why
+      the role stays off. A reader tabs through nine controls across two rows and
+      lands on each one, and the role would promise them a shortcut past it that
+      is not implemented — a lie about the keyboard is what this landmark was
+      chosen to avoid in the first place.
 
       What it *is* is the strip along the top edge carrying the app's mark and
       every global command, which is what a banner is. The groups inside keep

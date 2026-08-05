@@ -33,15 +33,17 @@
  * - *Persistent.* Nothing times out. It goes when the pointer leaves, when
  *   focus leaves, on Escape, or on the press it was explaining.
  *
- * **The focus half of that is currently near-dead, and not because of anything
- * here.** `App.tsx` calls `preventDefault` on every key it matches, and
- * `bindings.ts` claims bare `Tab` for stepping the selection — so the focus
- * ring does not move in this app at all, and a tip that opens on focus is
- * waiting for something that cannot happen outside the palette and the dialog.
- * The handlers stay, because they are correct the moment that changes and cost
- * one comparison until then; the keyboard reachability of the whole control
- * surface is a bigger question than a tooltip, and it belongs to whoever picks
- * up `bindings.ts`.
+ * **The focus half of that was near-dead for this component's whole life, and
+ * is live now.** `App.tsx` calls `preventDefault` on every key it matches, and
+ * `bindings.ts` used to claim bare `Tab` for stepping the selection — so the
+ * focus ring did not move in this app at all, and a tip that opens on focus was
+ * waiting for something that could not happen outside the palette and the
+ * dialog. The handlers were kept anyway, on the ground that they were correct
+ * the moment that changed and cost one comparison until then, and that is what
+ * they turned out to be: `step` moved to `n`, `Tab` went back to the browser,
+ * and every tip on the bar and the mode panel now opens under the focus ring
+ * without a line changing here. Which is the argument for writing the correct
+ * handler while the thing it depends on is still broken.
  *
  * **Mouse only, deliberately.** `pointerenter` fires for touch, so a tapped
  * control on a phone would raise a tip that nothing can dismiss — the finger is

@@ -307,7 +307,7 @@ reason to weaken the rule.
 
 **The keyboard surface is bare letters, and `web/src/chrome/bindings.ts` is
 the only table.** `P` palette, `S` species-filtered palette, `F` fit (`⇧F` fit
-selection), `/` isolate, `Tab` step, `T` time scale, `L` labels, `A` ages, `B`
+selection), `/` isolate, `N` next (`⇧N` previous), `T` time scale, `L` labels, `A` ages, `B`
 bioluminescence, `R` random species, `E` expand to fullscreen, `C` clear. **The four canvas modes hold the
 letters that name them**, which is why the time scale is on `T`: `l` names the
 labels, where it only ever named one of the two scales it switched between.
@@ -321,7 +321,19 @@ symmetry — is wrong twice over: it names the gesture rather than the result, a
 a canvas that already opens drill lanes and isolates lineages gives "expand" a
 competing meaning. A badge teaches the key, a label teaches the action, and where
 they cannot be the same word the label wins.
-`matchKey` refuses any press holding ctrl, meta or
+**`Tab` is the browser's and has no row at all**, which is what makes the rest of
+this surface honest. It held `step` — globally, and the handler
+`preventDefault`s everything it matches — so the focus ring did not move in this
+app at all and *every* control the bar, the mode panel and the detail card draw
+was unreachable without a pointer. That is the Enter failure one level up (Enter
+would have cost keyboard activation; `Tab` cost keyboard navigation) and it is
+fixed the same way, except by **absence rather than a `Scope`**: no surface here
+wants `Tab`, and scoping it to a focused canvas would trap a reader inside the
+canvas, which is a keyboard trap and a worse bug. So `step` moved to `N` and the
+*word* moved with it — "Step" has no free letter left (`s`, `t`, `e` and `p` are
+all spent), and the alternative was a third badge printing one thing and doing
+another. `keyboard.test.tsx` is the pin, and it transcribes App's handler rather
+than mounting it, on purpose. `matchKey` refuses any press holding ctrl, meta or
 alt — that refusal is the feature, because the old `⌘`-based surface was a
 losing negotiation with the browser (`⌘L` is the URL bar and cannot be
 prevented, `⌘F` is find, `⌘R` is reload) and every binding that survived it was
@@ -370,7 +382,7 @@ any of the words in it, which is the argument the canvas-mode panel already
 settled. Four: **Concestor** (the app's mark, the palette under it), **Add
 species** (`S` and `R` as *search* and *random*), **Canvas** (fullscreen, clear
 and share — everything that acts on the canvas as a whole, with the two one-way
-ones kept adjacent at the far right), **Navigate** (fit, isolate, step, second
+ones kept adjacent at the far right), **Navigate** (fit, isolate, next, second
 row).
 **Fullscreen is absent rather than disabled where the browser has none**, which
 is deliberately the opposite of the bar's own rule: a greyed `fit` says "add a
