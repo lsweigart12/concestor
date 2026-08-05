@@ -3,11 +3,12 @@
 # Start Concestor for local preview: one Go process serving both the read API
 # on /v1 and the built frontend on /.
 #
-# This is what `.claude/launch.json` runs, so it is also what the preview
-# browser opens. It is deliberately a single process rather than the Vite dev
-# server plus an API — a preview should show the thing that ships, and the
-# server already serves `web/dist` with SPA fallback. Use `scripts/dev.sh`
-# when you want hot reload; that starts its own API and proxies /v1 to it.
+# This is `.claude/launch.json`'s `concestor-built` entry, the second of the
+# two. It is deliberately a single process rather than the Vite dev server plus
+# an API — it exists to show the thing that ships, and the server already
+# serves `web/dist` with SPA fallback. `scripts/dev.sh` is the entry that leads
+# and the one to use while writing code; it starts its own API, proxies /v1 to
+# it, and serves the frontend from source.
 #
 # It refuses to start rather than serving something misleading. An empty canvas
 # because `build/` is missing looks identical to an empty canvas because the
@@ -35,11 +36,43 @@ if [ -n "$CONCESTOR_BORROWED_FROM" ]; then
 fi
 
 # --- the frontend -----------------------------------------------------------
-# Built, not dev-served. Rebuild only when it is missing; `npm run build` is
-# fast but a preview that silently recompiles on every launch hides the fact
-# that dist is stale.
+# Built, not dev-served, and rebuilt whenever an input is newer than the
+# bundle. This is the `concestor-built` entry in `.claude/launch.json`, the one
+# reached for specifically to see what ships: before merging, and for anything
+# touching asset loading or the analytics beacon, neither of which exists under
+# `scripts/dev.sh`. That is exactly when being handed an old bundle costs the
+# most, and it has already cost one bug report filed against source that was
+# fixed and merely not rebuilt.
+#
+# This used to rebuild only when dist was *missing*, on the reasoning that a
+# preview which silently recompiles on every launch hides the fact that dist is
+# stale. The goal was right and nothing implemented it: the script neither
+# recompiled nor said a word, so it produced the outcome it set out to avoid.
+# Freshness is now checked rather than assumed, and the argument the artifacts
+# section above already makes applies here verbatim — a stale bundle looks
+# identical to a current one, and the difference costs whoever hits it an hour.
+#
+# Rebuilding rather than warning, because the build is under a second (0.4–0.6 s
+# measured cold, TypeScript 7 being the native compiler) and a warning printed
+# above a server's own startup chatter is a warning nobody reads.
+#
+# The inputs are enumerated rather than taken as `web/`, because node_modules,
+# dist and tsconfig.tsbuildinfo all live there and are outputs or dependencies
+# rather than sources. `web/worker` is deliberately absent: it is the Cloudflare
+# Worker, deployed separately, and never part of the bundle this process serves.
+web_inputs=(index.html package.json package-lock.json vite.config.ts
+  tsconfig.json src public)
+
+rebuild=""
 if [ ! -f "$ROOT/web/dist/index.html" ]; then
-  echo "web/dist missing — building the frontend once…" >&2
+  rebuild="web/dist is missing"
+else
+  newer=$(cd "$ROOT/web" && find "${web_inputs[@]}" -newer dist/index.html -print -quit) || newer=""
+  [ -n "$newer" ] && rebuild="web/$newer is newer than the bundle"
+fi
+
+if [ -n "$rebuild" ]; then
+  echo "Building the frontend — $rebuild…" >&2
   concestor_ensure_node_modules
   (cd "$ROOT/web" && npm run build)
 fi

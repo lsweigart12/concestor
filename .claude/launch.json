@@ -9,10 +9,13 @@
       // source and proxies /v1 to an API this script starts on a private
       // port, so it does not depend on the other entry already running.
       //
-      // First, because it cannot serve a stale frontend and the entry below
-      // can: `serve.sh` rebuilds `web/dist` only when it is *missing*, so an
-      // hour-old bundle is served without a word. That has already cost a bug
-      // report filed against code that was fixed and merely not rebuilt.
+      // First, because it is the one to work in: the frontend is served from
+      // source, so an edit is on screen without a build step and the question
+      // of whether the bundle is current never arises. The entry below used to
+      // answer that question wrongly — it rebuilt `web/dist` only when it was
+      // *missing*, so an hour-old bundle was served without a word, which cost
+      // a bug report filed against code that was fixed and merely not rebuilt.
+      // It now rebuilds whenever an input is newer than the bundle.
       //
       // It is also closer to production than "what ships" suggests, on the
       // half that matters most often. `docs/deployment.md` records the
@@ -36,6 +39,10 @@
       // `dev.sh` the analytics beacon 404s because vite proxies /v1 to a Go
       // binary that has never heard of it (`docs/analytics.md`). Both are
       // expected there, and neither is visible until you run this.
+      //
+      // It rebuilds `web/dist` whenever a source file, `package.json` or the
+      // vite config is newer than it, so what it serves is what the source
+      // says. The build is under a second.
       "name": "concestor-built",
       "runtimeExecutable": "scripts/serve.sh",
       "runtimeArgs": [],

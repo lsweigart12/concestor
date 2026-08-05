@@ -198,9 +198,18 @@ source, it cannot show a stale frontend.
 frontend in one Go process on :8080. Run it before merging, and for anything
 touching asset loading or analytics, since Vite serves transformed modules
 rather than the shipped chunks and under `dev.sh` the beacon `404`s. It verifies
-the artifacts exist first and builds `web/dist` if it is missing, rather than
-serving a blank canvas that looks identical to a broken one — but *only* if it
-is missing, so a `web/` change made since the last build is not picked up.
+the artifacts exist first, rather than serving a blank canvas that looks
+identical to a broken one, and it **rebuilds `web/dist` whenever an input is
+newer than the bundle** — `web/src`, `public`, `index.html`, `package.json`,
+`package-lock.json`, `vite.config.ts` and `tsconfig.json`, enumerated because
+`node_modules` and `dist` sit in the same directory. It used to rebuild only
+when `web/dist` was *missing*, on the reasoning that recompiling every launch
+hides staleness; nothing implemented the other half, so it neither recompiled
+nor reported, and an hour-old bundle was served in silence. That produced a bug
+report against `title` attributes the source had already stopped emitting and
+`web/src/chrome/tip.test.ts` forbids. Rebuilding rather than warning, because
+the build is 0.4–0.6 s cold — TypeScript 7 is the native compiler — and a
+warning above a server's own startup output is a warning nobody reads.
 
 Both configurations set `autoPort`, and both scripts run unchanged inside a
 git worktree — see [worktrees.md](worktrees.md). That matters because every

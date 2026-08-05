@@ -11,7 +11,11 @@
 # wrong process is worse than one that will not start.
 #
 # Use scripts/serve.sh instead when you want to see what actually ships: this
-# one serves Vite's transformed modules, not web/dist.
+# one serves Vite's transformed modules, not web/dist. Which is also why it
+# needs no staleness check of its own — Vite transforms the source on request,
+# so there is no bundle to be out of date. The `-web` path below points at
+# web/dist all the same, and may be stale or absent, but that is only what
+# someone hitting the API port directly would get.
 
 set -euo pipefail
 
