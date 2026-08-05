@@ -403,6 +403,19 @@ Three consequences, all of them the point:
   run. `deploy-web.yml`'s own run list is now previews and hand-deploys only,
   and looking there for the production history is looking in the wrong place.
 
+**And a called workflow may not request more permission than its caller
+grants** — which is the second way this arrangement can take the release path
+down, found the day the preview URL was added. `deploy-web.yml` grew
+`pull-requests: write` so it could comment a preview onto the pull request,
+`release.yml` granted `contents: write` and nothing else, and the next Release
+run ended in **`startup_failure`**: no jobs, no logs, no annotation, and a red
+run whose only information is that word. It happens even though the `deploy`
+job is *skipped* on a `ci:` merge, because GitHub validates every called
+workflow before it runs any job — so the `if:` above is no protection, and a
+permission the *preview* needed stopped the *release*. The fix is a
+`permissions:` block on the `deploy` job in `release.yml`, and the rule to keep
+is that the two blocks move together.
+
 **Triggering on `push: tags: v*` instead does not work**, and for exactly the
 same reason — semantic-release pushes the tag with the same token, so the guard
 applies unchanged. It is the tempting second guess and it fails identically and
