@@ -107,7 +107,7 @@ Found while doing item 3 and previously unrecorded. `xref` resolves PBDB to OTT 
 
 It is not confined to the naive path — `name_exact` 991, `gbif_backbone_provenance` 221, `gbif_pbdb_chain` 168 — so 389 survived a route meant to be evidence-based.
 
-The fix is a lineage comparison in phase 3: PBDB has its own `parent_no` hierarchy and OTT has the tree, so refuse a resolution where the two disagree above family level. Put the test in as an `observe` gate *before* the fix so the baseline is recorded. Phase 4 already guards itself by refusing a fossil bound on any node with a living descendant, which is right for phase 4 and does nothing for every other `xref` consumer — and `xref` is 270 MB of this database.
+~~The fix is a lineage comparison in phase 3~~ — PBDB's own `parent_no` hierarchy against OTT's tree, refusing a resolution where the two disagree above family level. **That is not what shipped**, and the discriminator that did is cheaper and sharper: an *extancy* disagreement, guarded by phase 2's `age_ma`. The rest of this paragraph held and was followed — the test went in as an `observe` gate before the fix so the baseline was on the record, and phase 4's own guard (refuse a fossil bound on any node with a living descendant) is right for phase 4 and does nothing for every other `xref` consumer. `xref` is 258.5 MB of this database.
 
 ## Decisions already taken — implement, don't relitigate
 

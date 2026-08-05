@@ -337,6 +337,17 @@ one*, which is the same academic-scale infrastructure data-sources.md warns
 about for Open Tree. The tail beyond the budget buys taxa with fewer than ~10
 occurrences each.
 
+**What `--budget 25000` buys is not "the top 25,000 genera", and the two get
+confused.** ~~The top 25,000 genera hold 93.3% of genus occurrences~~ is a true
+statement about a crawl nobody runs: `n_occs` is a **subtree total**, so higher taxa
+dominate the ordering and the first 25,000 all-rank taxa contain only **7,946 genera**
+and reach **75.3%** of genus occurrences. The 25,000th *genus* sits at all-rank position
+**87,126**. The all-rank ordering is still the right one — those higher taxa are exactly
+the attachment points the parent-walk lands on, and the chain's 2,384 `xref` rows produce
+**265,468** fossil attachments — but the two figures are not interchangeable, and phase
+3's gate deliberately carries the 93.3% as its expected value with the measured 75.3%
+beside it so the difference stays legible.
+
 **Do not run the exhaustive crawl.** Raise the budget only if a coverage gate
 goes red and the shortfall is traced to crawl depth specifically — and if it
 does, raise it in increments and measure, rather than reaching for 523k.

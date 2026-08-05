@@ -525,7 +525,7 @@ Method 2 is nearly free and covers a lot: OTT already stores NCBI, GBIF, IRMNG, 
 Index Fungorum, and SILVA ids verbatim. Note it is **many-to-one** — *Amanita muscaria*
 carries six NCBI ids — so the table holds a list, never a scalar.
 
-The PBDB chain is the one that makes fossils work, at ~~~59%~~ **48.2%** end-to-end
+The PBDB chain is the one that makes fossils work, at ~~59%~~ **48.2%** end-to-end
 yield — measured on 253 checklist records against the 120 the ~59% came from, with the
 first hop *better* than recorded (92.9%) and the second materially worse (51.9%). See
 data-sources §4 and phase3-pbdb-path.md §5 for the verified chain and its decay risk,
@@ -1059,9 +1059,9 @@ best-identified source and the one we are least permitted to ship.
 ## 11. Cost
 
 Build: hours, on a release cadence, on one machine. Runtime: two small instances
-(~~~700 MB image~~ **2,229 MB**, mostly page cache) behind a CDN that absorbs nearly
-everything, since all responses are immutable. Storage: ~~~700 MB of artifacts~~
-**2,062.6 MB** plus ~~~136 MB~~ **155.9 MB** of mirrored silhouettes.
+( ~~700 MB image~~ **2,229 MB**, mostly page cache) behind a CDN that absorbs nearly
+everything, since all responses are immutable. Storage: ~~700 MB of artifacts~~
+**2,062.6 MB** plus ~~136 MB~~ **155.9 MB** of mirrored silhouettes.
 
 **The 700 MB estimate predates the resolution layer and the silhouette map, and it is
 short by a factor of three.** `concestor-build package` reports the artifact figure every
