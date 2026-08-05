@@ -130,7 +130,9 @@ describe("the add delta — the signature interaction's input", () => {
     const d = addDelta(null, after, fixture.selection[0]!);
     // Every rendered node but the root, which is the point the first wave
     // leaves from and has no segment above it to draw.
-    expect([...d.drawOrder.flat()].sort((a, b) => a - b)).toEqual(
+    // `.flat()` already returns a fresh array, so the in-place sort has nothing
+    // of the delta's to mutate.
+    expect(d.drawOrder.flat().sort((a, b) => a - b)).toEqual(
       after.rendered.filter((v) => v !== after.mrca),
     );
     expect(d.drawOrder.flat()).not.toContain(after.mrca);

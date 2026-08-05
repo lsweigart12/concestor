@@ -61,7 +61,7 @@ jobs:
             --to "${{ github.event.pull_request.head.sha }}"
 
   web:
-    name: web (typecheck, test, build)
+    name: web (format, lint, typecheck, test, build)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -86,6 +86,24 @@ jobs:
       # `ci`, not `install`: the lockfile is the input, and a job that quietly
       # resolves a different tree is testing something the reviewer cannot see.
       - run: npm ci
+        working-directory: web
+
+      # The same two gates the other halves get — `gofmt -l` and `go vet` in
+      # `server`, `ruff format --check` and `ruff check` in `pipeline` — and in
+      # the same order, formatter before linter. They run before the typecheck
+      # because they are the cheap ones: both finish in well under a second
+      # over 138 files, against several for `tsc -b`.
+      #
+      # `prettier.config.js` and `.oxlintrc.json` each carry the reasoning for
+      # what they do and do not enforce. The short version is that
+      # `tsconfig.json` already runs `strict`, `noUnusedLocals` and
+      # `noUncheckedIndexedAccess`, so what the linter adds is the class of
+      # defect a typechecker is content with: a hook called conditionally, a
+      # module imported twice, an optional chain that throws one property on.
+      - run: npm run format:check
+        working-directory: web
+
+      - run: npm run lint
         working-directory: web
 
       - run: npm run typecheck

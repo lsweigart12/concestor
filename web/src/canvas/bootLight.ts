@@ -338,7 +338,14 @@ export function useBootLights(active: boolean, reduced: boolean): readonly Scree
       // A key that has left takes its birth with it, or a carousel returning to
       // an opening it has already shown would arrive at full brightness while
       // its neighbours kindled.
-      for (const k of [...born.current.keys()]) if (!seen.has(k)) born.current.delete(k);
+      //
+      // The spread is not useless: the loop deletes out of the map it is
+      // walking. The specification happens to make that safe on a live Map
+      // iterator, but "happens to be safe" is not what the next reader should
+      // have to know, and copying 3–8 keys costs nothing.
+      // oxlint-disable-next-line no-useless-spread
+      for (const k of [...born.current.keys()])
+        if (!seen.has(k)) born.current.delete(k);
       /*
         Under `prefers-reduced-motion` there is no kindle at all, and it has to
         be dropped here rather than clamped downstream. The still frame redraws

@@ -68,8 +68,27 @@ that is deliberate (see `package.py`).
 our own; **no dagre, no ELK, no d3-hierarchy**, because a graph-layout engine
 assigns `x` by depth and here `x` is time.
 
+**`web/` is formatted by Prettier and linted by oxlint, and both block the
+merge** — the counterparts to `gofmt`/`go vet` and `ruff format`/`ruff check`.
+**The linter is not typescript-eslint, and that is forced rather than
+preferred:** on TypeScript 7 it refuses to load at all (`typescript-eslint does
+not support TS 7.0`), and the upstream workaround is to alias the *build*
+compiler down to the TypeScript 6 API — vite, vitest and `tsc -b` all
+typechecking against a compiler one major behind the one this ships on, so a
+linter can parse. Do not re-derive that; `web/.oxlintrc.json` records it, along
+with the five rule categories and two plugins that were measured over `src/` and
+refused because each is dominated by arguments with the author rather than
+defects. **Every value in `web/prettier.config.js` is Prettier's own default**,
+because the house style already was one: the 90th-percentile line was 79
+characters before the formatter existed, and `printWidth: 100` was measured and
+refused for collapsing 1,518 line breaks somebody chose. The rule set is small
+on purpose — `tsconfig.json` already runs `strict`, `noUnusedLocals` and
+`noUncheckedIndexedAccess`, so what the linter adds is only what a typechecker
+is content with. **What neither of them catches is a dead *export***, which is
+why 57 of them accumulated; that count is in `docs/handoff.md` §3.
+
 ```bash
-cd web && npm install && npm run build && npm test   # 745 tests, two projects
+cd web && npm install && npm run format:check && npm run lint && npm run build && npm test   # 770 tests, two projects
 cd server && go test ./... && go run . -build ../build
 scripts/check.sh          # everything CI runs, plus the dataset tests it can't
 ```

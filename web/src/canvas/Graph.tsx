@@ -64,8 +64,7 @@ import {
   union,
   unlaidOut,
 } from "./viewport";
-import type { Induced } from "../tree/induced";
-import type { AddDelta } from "../tree/induced";
+import type { AddDelta, Induced } from "../tree/induced";
 import { isGraftIdx, type Graft } from "../tree/graft";
 import { divergenceFor, markName, UNNAMED, type LabelMode } from "../tree/naming";
 import {

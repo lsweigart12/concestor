@@ -27,9 +27,25 @@ pipeline is hours of work against academic APIs that, per
 Pointing a CI matrix at Open Tree would be the rudest thing this project could
 do.
 
-**`web`** — `npm ci`, then typecheck, vitest (745 tests), and `vite build`. The
-built `dist` is uploaded as an artifact and handed to the `cloudflare` job, so
-the thing that gets validated for deployment is the thing that was tested.
+**`web`** — `npm ci`, then `prettier --check`, `oxlint`, typecheck, vitest
+(770 tests), and `vite build`. The built `dist` is uploaded as an artifact and
+handed to the `cloudflare` job, so the thing that gets validated for deployment
+is the thing that was tested.
+
+The first two arrived late and are the counterparts to `gofmt -l`/`go vet` and
+`ruff format --check`/`ruff check`; until they landed, the largest body of
+source in the repository was the only part of it with no static analysis at
+all. **The linter is oxlint rather than typescript-eslint, and that is forced
+rather than preferred:** typescript-eslint declares `typescript@<6.1.0` as a
+peer and throws `typescript-eslint does not support TS 7.0` on import if the
+resolution is forced past it, and the upstream workaround is to alias the
+*build* compiler down to the TypeScript 6 API — which would have vite, vitest
+and `tsc -b` all typechecking this repository with a compiler one major behind
+the one it ships on, so the linter can parse. `web/.oxlintrc.json` carries the
+whole account, including the five categories and two plugins that were measured
+over `src/` and refused. `web/prettier.config.js` carries the other half: every
+value in it is Prettier's own default, because the house style already was —
+the 90th-percentile line was 79 characters before the formatter existed.
 
 `npm test` runs two vitest projects and CI runs both from the one command:
 `node`, the pure-module suite that has always been there, and `dom`, which

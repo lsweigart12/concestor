@@ -20,7 +20,7 @@
 
 import { describe, expect, it } from "vitest";
 import { hashKey, seeded } from "./biolum";
-import { tierBrightness } from "./flow";
+import { land, onLanding, tierBrightness } from "./flow";
 import {
   TIER_INTERPOLATED,
   TIER_MEASURED,
@@ -28,7 +28,6 @@ import {
   TIER_STRUCTURAL,
 } from "../api";
 import { mayPump } from "./TraceEdge";
-import { land, onLanding } from "./flow";
 import {
   nearestOn,
   samplePath,
