@@ -2067,11 +2067,12 @@ still return nothing, and the next person loosens the threshold until search is
 useless.
 
 Settled as: **correct the query, never relax the matcher.** `/v1/search`
-answers exactly as before; only when both corpora come back empty does
-`store.Suggest` run, and then the *unchanged* search runs again on the corrected
-string. Bands, `Interleave`, `notInTree` and the client are untouched, and every
-query that worked pays nothing — which is the point on a `standard-1` container
-with half a vCPU. `pipeline/src/concestor_build/spelling.py` is the account and
+answers exactly as before; only when the answer is one `store.Answer.Weak` calls
+no good does `store.Suggest` run, and then the *unchanged* search runs again on
+the corrected string. Bands, `Interleave`'s ordering, `notInTree` and the
+ranking are untouched, and every query that worked pays nothing — which is the
+point on a `standard-1` container with half a vCPU.
+`pipeline/src/concestor_build/spelling.py` is the account and
 `server/internal/store/spelling.go` the serving half. Seven things not to redo:
 
 - **`hard maple` is refused by the *key*, not by the threshold.** Its key is
@@ -2127,7 +2128,9 @@ caption on the rows below, unlike `BrokenNote` and `UndatedNote`, which footnote
 rows that are *not* there — and names both strings, because the reader needs to
 see what was misread to judge whether the answer is theirs. The literal is not
 offered as a link: it is reachable and it is empty, and a link promising results
-that do not exist would be a second wrong answer.
+that do not exist would be a second wrong answer. `SpellingOffer` is its
+counterpart and the two are never on screen together — see the section below for
+why an answer with rows of its own gets a door rather than a substitution.
 
 **Non-ASCII words are not indexed and never corrected** — 3,424 of 1,250,845
 distinct words, 0.27%. That buys the whole Unicode question: without it Go needs
@@ -2140,6 +2143,76 @@ coverage gap and it needs its own work — measure how many well-known English
 names are absent from `vernacular` before building anything, and note that the
 Wikidata crawl cannot be assumed to fix it, for the same reason it cannot fix
 `oak`. §7 has the bound.
+
+### The gate in front of the corrector, and what it was assuming
+
+The rule above shipped behind **`no rows at all`**, and that gate assumed a typo
+returns none. Against 2.3M names plus 523k fossil taxa it almost never does:
+**`elefant` returns exactly one row**, *Paradileptus conicus*, a single-celled
+ciliate reached through its synonym *Paradileptus elefantinus*. The list was not
+empty, so nothing was offered, and the app politely explained why it was showing
+a protozoan. `store.Answer.Weak` is the same question asked properly —
+**nothing matched as a whole word, and there are no more than `sparseRows`
+rows** — with the empty list as the bottom of that scale rather than a case
+beside it.
+
+The second half is the one that is not obvious, and it is where the measuring
+went. A prefix match *is* what typeahead means: `elefant` is a live prefix of
+*elefantinus* exactly as `giraff` is one of Giraffidae, and from a single string
+a misspelling and an unfinished word cannot be told apart at all. So the
+discriminator is not the query but **how much of the corpus lives under it**.
+Measured over 870 prefixes, six characters and longer, of 250 well-attested
+corpus words: 573 reach nothing better than a prefix match and **the smallest of
+those still returns a full page**. A reader part-way through a name the corpus
+holds is never short of rows. The threshold's bounds are two-sided and both come
+from real strings — it must reach `elefant` (1 row), `cheeta` (4) and `mamal`
+(6), and must not reach `tyrannosau` (10 rows), where the only correction on
+offer is `tyrannos`, the reader's own prefix truncated.
+
+**Cost, which is the reason the old gate existed.** Nothing changes for a query
+that worked. Of the 870 typeahead prefixes, **zero** newly reach the corrector;
+of 946 synthetic single-edit typos, 14 more do (+1.5%); `Suggest` itself is one
+indexed lookup per word of six characters or more, median **118 µs** against a
+mean typeahead search of 5.4–6.8 ms on the same machine. The second search is
+unchanged and still runs only when a candidate survives. Four things not to
+redo:
+
+- **A weak answer is offered a spelling; it is never substituted for.**
+  `corrected` and `suggested` are two fields rather than one because they say
+  different things. `corrected` means *these rows are for a different string*,
+  which is only honest when the typed string had none of its own. Mid-word the
+  gate is sometimes wrong — `sahelan` is offered `sahelian` while the reader is
+  three letters from *Sahelanthropus*, and `pachycephalos` is offered
+  `pachycephalus` — and that is survivable **only** because their own rows never
+  move. Substituting would take away the thing they are typing towards.
+- **The guard is a strictly better band, not "it returned something".** Against
+  an empty list those are the same test, which is why the shipped behaviour does
+  not change; against a weak list they are not, and trading one junk answer for
+  another is a second guess rather than a correction.
+- **Refusing a suggestion that is a prefix relative of the query was measured
+  and refused.** It is tempting — it kills `acanthosteg`→`acanthostega`,
+  `betula pendul`→`betula pendula` and four more of the seven false offers
+  measured over deep-typed rare names — and it also kills **`cheeta`→`cheetah`**,
+  which is the exact shape this work exists to fix. A rule that cannot tell those
+  two apart is not a rule.
+- **`mamal` is still not corrected, and the gate is not why.** It is five
+  characters, under `minCorrectedWord`, which is where all the precision in this
+  subsystem lives — 25.3% to 0.5% on random junk, and every false correction
+  measured came from a short word one legal edit from another. Widening the gate
+  is this issue; lowering that floor is relaxing the matcher.
+  `TestMamalIsRefusedByTheLengthFloorAndNotByTheGate` holds it there.
+
+**And `ph`→`f` was folded into the key and nowhere else, which meant it did
+nothing.** The key exists to put `elefant` in `elephant`'s bucket, and it does —
+and then the raw Damerau distance charged **two** edits for the difference, over
+a cap of one on a seven-character word, so every pair the rule was built for
+died at the last step. Against the real corpus `elefant` reached nothing and
+`dolfin` reached ***dolfyn***, a real genus one ordinary edit away. The distance
+now folds what the key folds, in `foldPH` and `fold_ph`, one on each side. **The
+cap did not move**: `betual`/`betel` is still two, and the false-correction rate
+on 2,000 random junk strings is unchanged at 1/2000. The key's measured 19/20 was
+always a claim about which bucket a word lands in, and nothing was checking what
+happened after it landed.
 
 ### Readership: four sources that fail differently, and no single number
 

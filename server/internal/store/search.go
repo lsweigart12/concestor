@@ -274,8 +274,75 @@ func (s *Store) Search(ctx context.Context, q string, limit int) ([]SearchResult
 	return results, nil
 }
 
+// Answer is how good the best row in a ranking is, and how many rows there are
+// to choose from. {@link Interleave} returns it because that is the one place
+// where both corpora have been scored on the same scale, and computing it a
+// second time somewhere else is how the two would come to disagree.
+//
+// It is not serialised and it is not a ranking signal. Its whole job is the
+// question handleSearch asks after the answer exists: *was that any good?* —
+// see {@link Answer.Weak}.
+//
+// The zero value is inert in both directions, which is what makes it safe to
+// return beside an error: Weak wants a bad band and the zero Band is the best
+// one, Better wants rows and the zero Rows is none.
+type Answer struct {
+	// The best band any pickable row reached. Lower is better; bandNone on an
+	// empty list, which is the honest reading rather than a sentinel — nothing
+	// matched, in any way at all.
+	Band int
+	// Pickable rows across both corpora. Broken taxa are not counted, on the
+	// same grounds Interleave declines to stamp them: they render as a note and
+	// cannot be chosen, so they are not rows a reader can act on.
+	Rows int
+}
+
+// How few rows a weak answer may hold before the query is read as a dead end
+// rather than a word somebody is part-way through typing.
+//
+// The two are genuinely indistinguishable from one string — `elefant` is a live
+// prefix of *Paradileptus elefantinus* exactly as `giraff` is one of Giraffidae
+// — so the discriminator is not the query but *how much of the corpus lives
+// under it*. Measured over 870 prefixes, six characters and longer, of 250
+// well-attested corpus words: 573 of them reach nothing better than a prefix
+// match, and the smallest of those still returns a **full page**. A reader
+// part-way through a name the corpus holds is never short of rows.
+//
+// The bounds are two-sided and both are from real strings. It MUST reach
+// `elefant` (1 row, one ciliate whose synonym is *Paradileptus elefantinus*),
+// `cheeta` (4) and `mamal` (6). It must NOT reach `tyrannosau` (10 rows), where
+// the only correction on offer is `tyrannos` — the reader's own prefix,
+// truncated.
+const sparseRows = 8
+
+// Weak reports whether this answer is poor enough to be worth asking the
+// spelling index about. Both halves are load-bearing:
+//
+//   - **Nothing matched as a whole word.** A band at or below bandToken means
+//     some name contains the query as words, and a reader who typed real words
+//     did not misspell them.
+//   - **And there is almost nothing there.** A prefix match is what typeahead
+//     means, so the band alone would fire on every second keystroke.
+//
+// The empty list is the same test rather than a separate one: no rows is
+// bandNone and zero, which is as weak as an answer gets.
+func (a Answer) Weak() bool {
+	return a.Band > bandToken && a.Rows <= sparseRows
+}
+
+// Better reports whether this answer is worth putting to the reader in place of
+// that one.
+//
+// A strictly better band, and rows to show. "It returned something" was enough
+// while the only thing it was measured against was an empty list; against a
+// weak list it is not, because trading one junk answer for another junk answer
+// is not a correction, it is a second guess.
+func (a Answer) Better(than Answer) bool {
+	return a.Rows > 0 && a.Band < than.Band
+}
+
 // Interleave puts the two corpora in one order and stamps each row with its
-// position in it, in place.
+// position in it, in place, and reports how good that order turned out to be.
 //
 // # Why the server does this
 //
@@ -311,7 +378,7 @@ func (s *Store) Search(ctx context.Context, q string, limit int) ([]SearchResult
 // Broken taxa are left unstamped. They render as a note rather than a row —
 // they cannot be picked — so a position in a list of pickable things would be a
 // position in a list they are not in.
-func Interleave(nodes []SearchResult, fossils []Fossil, q string) {
+func Interleave(nodes []SearchResult, fossils []Fossil, q string) Answer {
 	qFold := strings.ToLower(q)
 	type slot struct {
 		band   int
@@ -343,6 +410,7 @@ func Interleave(nodes []SearchResult, fossils []Fossil, q string) {
 		}
 		return !x.fossil && y.fossil
 	})
+	out := Answer{Band: bandNone, Rows: len(slots)}
 	for n, sl := range slots {
 		order := n
 		if sl.fossil {
@@ -350,7 +418,9 @@ func Interleave(nodes []SearchResult, fossils []Fossil, q string) {
 		} else {
 			nodes[sl.i].Order = &order
 		}
+		out.Band = min(out.Band, sl.band)
 	}
+	return out
 }
 
 func matchStrength(m string) int {

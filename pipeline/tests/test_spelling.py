@@ -135,6 +135,21 @@ def test_corrects_a_real_logged_typo(tiny):
     assert spelling.correct(tiny, "ardvark") == "aardvark"
 
 
+def test_the_distance_forgives_what_the_key_forgave(tiny):
+    """`ph` and `f` are the same sound, and folding it into the key alone was
+    doing nothing at all.
+
+    `dolfin` and `dolphin` share a key — the test above asserts it — and then
+    the raw distance charges two edits for the difference, over a cap of one on
+    a six-character word. So the pair the rule exists for never reached its
+    answer: `dolfin` came back *dolfyn* against the real corpus, a genus one
+    ordinary edit away. The cap is untouched; the substitution simply stops
+    being counted twice."""
+    assert spelling.damerau("dolfin", "dolphin", 2) == 2
+    assert spelling.fold_ph("dolfin") == spelling.fold_ph("dolphin")
+    assert spelling.correct(tiny, "dolfin") == "dolphin"
+
+
 def test_corrects_only_the_misspelled_word(tiny):
     """With typeahead the misspelling that matters is in the *leading* token: a
     trailing one still has the prefix's results on screen, while `betual` kills

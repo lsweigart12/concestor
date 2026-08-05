@@ -774,6 +774,21 @@ type searchBody struct {
 	// an undated node. Absent whenever nothing was corrected, which is every
 	// query that worked.
 	Corrected string `json:"corrected,omitempty"`
+	// A spelling that answers better than the typed one — with the typed one's
+	// rows left exactly where they are.
+	//
+	// The difference from `Corrected` is the whole reason there are two fields,
+	// and it is not a shade of confidence. `Corrected` says *these rows are for
+	// a different string*, which is only ever honest when the typed string had
+	// no rows of its own to lose. This says *there is a better string, and here
+	// is what you asked for*. Substituting here would be destructive rather than
+	// merely wrong: the reader part-way through "Sahelanthropus" is holding
+	// three real rows, and replacing them mid-word takes away the thing they are
+	// typing towards.
+	//
+	// Never set together with `Corrected` — an answer either had rows to keep or
+	// it did not.
+	Suggested string `json:"suggested,omitempty"`
 }
 
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
@@ -787,47 +802,69 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = min(n, 50)
 	}
-	body, err := s.searchBoth(r, q, limit)
+	body, ans, err := s.searchBoth(r, q, limit)
 	if err != nil {
 		s.Log.Error("search", "q", q, "err", err)
 		s.fail(w, r, http.StatusInternalServerError, "search failed")
 		return
 	}
-	// Nothing matched, so — and only so — ask whether the query was misspelled.
+	// The answer was no good, so — and only so — ask whether the query was
+	// misspelled.
 	//
-	// The fallback is deliberately the *last* thing tried rather than a wider
-	// net cast at the start. Both corpora answered with nothing, which means
-	// this reader was going to get an empty list; the second pass costs them a
-	// search they were not otherwise going to spend, on a container with half a
-	// vCPU where that matters. Every query that worked pays exactly zero.
+	// The gate used to be `no rows at all`, and it assumed a typo produces
+	// none. Over 2.3M names plus 523k fossil taxa it usually produces *one*:
+	// `elefant` returns a single ciliate, on a substring of its synonym
+	// *Paradileptus elefantinus*, and a reader looking for elephants was
+	// politely handed a protozoan with no correction offered, because the list
+	// was not empty. {@link store.Answer.Weak} is the same gate asked properly —
+	// nothing matched as a whole word, and there is almost nothing there — and
+	// the empty list is the bottom of that scale rather than a case beside it.
 	//
-	// A correction that leads nowhere is not a correction. If the corrected
-	// string is itself empty-handed the original answer stands, uncorrected and
-	// unexplained, which is the honest report: we did not find it and we do not
-	// have a better guess. That guard is also what keeps `hard maple` — a real
-	// name for *Acer saccharum* that phase 6 simply lacks — from acquiring a
-	// plausible-looking wrong answer.
-	if len(body.Results) == 0 && len(body.Fossils) == 0 {
+	// It is still the *last* thing tried rather than a wider net cast at the
+	// start, and it still costs the reader whose query worked exactly nothing.
+	// That is the half-vCPU argument and it survives the widening intact:
+	// measured over 870 prefixes of real corpus words, the weak ones never come
+	// back with fewer than a full page, so not one of them reaches this branch.
+	//
+	// A correction that leads nowhere is not a correction, and a correction that
+	// leads somewhere no better is not one either. That guard is what keeps
+	// `hard maple` — a real name for *Acer saccharum* that phase 6 simply lacks
+	// — from acquiring a plausible-looking wrong answer, though `hard maple` is
+	// in fact refused a step earlier still, by the phonetic key.
+	if ans.Weak() {
 		if fixed, err := s.St.Suggest(r.Context(), q); err != nil {
 			s.Log.Warn("spelling", "q", q, "err", err)
 		} else if fixed != "" {
-			alt, err := s.searchBoth(r, fixed, limit)
+			alt, altAns, err := s.searchBoth(r, fixed, limit)
 			if err != nil {
 				s.Log.Warn("spelling search", "q", fixed, "err", err)
-			} else if len(alt.Results) > 0 || len(alt.Fossils) > 0 {
-				alt.Query, alt.Corrected = q, fixed
-				body = alt
+			} else if altAns.Better(ans) {
+				// Substituted only where there was nothing to substitute *for*,
+				// and that test is on the *body* rather than on `ans.Rows`.
+				// They differ by one case and it matters: a broken taxon is not
+				// a row, so an answer made only of broken taxa has no rows and
+				// is still something on the reader's screen — the note
+				// explaining that *Dinosauria* is not monophyletic, which is an
+				// answer to what they typed and must not be swapped out from
+				// under them. See the two fields on searchBody.
+				if len(body.Results) == 0 && len(body.Fossils) == 0 {
+					alt.Query, alt.Corrected = q, fixed
+					body = alt
+				} else {
+					body.Suggested = fixed
+				}
 			}
 		}
 	}
 	s.writeJSON(w, r, http.StatusOK, body)
 }
 
-// searchBoth answers one string from both catalogues and puts them in one order.
-func (s *Server) searchBoth(r *http.Request, q string, limit int) (searchBody, error) {
+// searchBoth answers one string from both catalogues and puts them in one
+// order, and reports how good that answer is.
+func (s *Server) searchBoth(r *http.Request, q string, limit int) (searchBody, store.Answer, error) {
 	res, err := s.St.Search(r.Context(), q, limit)
 	if err != nil {
-		return searchBody{}, err
+		return searchBody{}, store.Answer{}, err
 	}
 	body := searchBody{Query: q, Results: res, Fossils: []store.Fossil{}}
 	// A failure here costs the fossil section and nothing else. The species
@@ -845,8 +882,7 @@ func (s *Server) searchBoth(r *http.Request, q string, limit int) (searchBody, e
 	// After both lists exist and before either is written, because `order` is a
 	// statement about the pair. A fossil scan that failed leaves the nodes
 	// stamped 0..n-1, which is the same order they were already in.
-	store.Interleave(body.Results, body.Fossils, q)
-	return body, nil
+	return body, store.Interleave(body.Results, body.Fossils, q), nil
 }
 
 // --- /v1/hits ------------------------------------------------------------

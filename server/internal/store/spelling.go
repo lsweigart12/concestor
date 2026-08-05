@@ -21,11 +21,18 @@ import (
 //
 // # Nothing here is on the hot path
 //
-// `/v1/search` answers exactly as it did. Only when it has come back with
-// nothing — no node and no fossil — does {@link Store.Suggest} run, and then
-// the *unchanged* search runs a second time on the corrected string. Bands,
-// `Interleave`, `notInTree` and the client are untouched. The reader who pays
-// for the second pass is the one who was going to get an empty list anyway,
+// `/v1/search` answers exactly as it did. Only when it has come back with an
+// answer {@link Answer.Weak} calls no good — nothing matched as a whole word
+// and there are almost no rows — does {@link Store.Suggest} run, and then the
+// *unchanged* search runs a second time on the corrected string. Bands,
+// `Interleave`'s ordering, `notInTree` and the ranking are untouched.
+//
+// The gate was `no rows at all` until it was measured against real typos, half
+// of which land one junk substring match and so silently suppressed the
+// correction. What replaced it is not looser on the hot path: a reader part-way
+// through a name the corpus holds gets a full page of prefix matches, never a
+// handful, so the widening reaches typos and not typing. The reader who pays
+// for the second pass is still the one who was going to get nothing usable,
 // which matters on a `standard-1` container with half a vCPU.
 //
 // # Two implementations of one key, and the test that holds them together
@@ -168,8 +175,25 @@ func isSpellingVowel(c byte) bool {
 //
 // Mirrored exactly by `spelling_key` in the pipeline. Do not change one without
 // the other; `spelling_test.go` is what tells you that you have.
+// foldPH is the one sound rule both the key and the distance apply: `ph` and
+// `f` are the same sound, and English spells it both ways in exactly the words
+// this corrector exists for.
+//
+// It has to be in both places or it is in neither, and it *was* in neither.
+// Folding it into the key alone puts `elefant` in `elephant`'s bucket and then
+// lets the distance charge two edits for the difference the bucket was built to
+// forgive — over a cap of one, on a seven-character word. So the corpus's own
+// examples all failed at the last step: `elefant` reached nothing, `dolfin`
+// reached *dolfyn* (a real genus, one ordinary edit away), and `phasianus` was
+// unreachable from `fasianus`. The key's measured 19/20 was a claim about which
+// bucket a word lands in, and nothing was checking what happened after.
+//
+// This is not a wider cap. The cap is untouched and every other difference still
+// costs what it cost; one substitution stops being counted twice.
+func foldPH(word string) string { return strings.ReplaceAll(word, "ph", "f") }
+
 func spellingKey(word string) string {
-	folded := strings.ReplaceAll(word, "ph", "f")
+	folded := foldPH(word)
 	if folded == "" {
 		return ""
 	}
@@ -292,6 +316,9 @@ func (s *Store) suggestWord(ctx context.Context, word string) (string, error) {
 	defer rows.Close() //nolint:errcheck
 
 	budget := distanceCap(word)
+	// Both sides folded, because the bucket these candidates came out of was
+	// built on the folded form. See foldPH.
+	folded := foldPH(word)
 	bestWord := ""
 	bestDist, bestUse := budget+1, int64(-1)
 	for rows.Next() {
@@ -307,7 +334,7 @@ func (s *Store) suggestWord(ctx context.Context, word string) (string, error) {
 		if cand == word {
 			return "", nil
 		}
-		d := damerau(word, cand, budget)
+		d := damerau(folded, foldPH(cand), budget)
 		if d > budget {
 			continue
 		}

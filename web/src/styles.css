@@ -1663,6 +1663,27 @@ body {
 .palette-note.is-lead .row-title strong {
   color: var(--ink);
 }
+/*
+ * The one note that is pressable, because the one note that has not already
+ * been acted on. Every other note in this panel reports something that has
+ * happened; this offers a spelling the reader may take or ignore, and the rows
+ * under it are still theirs. It is a <button>, so the browser's own defaults
+ * have to be undone before `.palette-note`'s flex row survives inside it.
+ */
+.palette-note.is-offer {
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--hairline);
+  cursor: pointer;
+}
+.palette-note.is-offer:hover .row-title,
+.palette-note.is-offer:focus-visible .row-title {
+  color: var(--ink);
+}
 
 /*
  * The control bar, on the top edge.

@@ -197,6 +197,77 @@ func TestInterleaveStampsOneContiguousOrder(t *testing.T) {
 	}
 }
 
+// The summary Interleave returns is a report on the order it just made, and it
+// has to be read off that order rather than recomputed — which is the point of
+// returning it at all.
+func TestInterleaveReportsTheBestBandAndTheRowCount(t *testing.T) {
+	name, other := "Sample", "Sampled thing"
+	broken := "Sample group"
+	nodes := []SearchResult{
+		{Kind: "node", Name: &other, band: bandPrefix},
+		// Not a row. It cannot be picked, so it cannot count towards how much
+		// the reader has to choose from — the same rule that leaves it unstamped.
+		{Kind: "broken", Name: &broken, band: bandExact},
+	}
+	fossils := []Fossil{{Name: name}}
+	got := Interleave(nodes, fossils, name)
+	if got.Band != bandExact {
+		t.Errorf("band = %d, want %d — the fossil's name is the query", got.Band, bandExact)
+	}
+	if got.Rows != 2 {
+		t.Errorf("rows = %d, want 2 — one node, one fossil, and the broken taxon "+
+			"is a note rather than a row", got.Rows)
+	}
+
+	// An empty answer reads as bandNone rather than as a sentinel, because that
+	// is what it is: nothing matched, in any way at all.
+	if got := Interleave(nil, nil, name); got.Band != bandNone || got.Rows != 0 {
+		t.Errorf("empty answer = %+v, want {Band:%d Rows:0}", got, bandNone)
+	}
+}
+
+// Both halves of Weak, one at a time, because either alone is a rule this
+// project has already been burnt by. Band alone fires on every second keystroke
+// — a prefix match is what typeahead *means* — and row count alone fires on a
+// rare name that matched exactly and has only two relatives.
+func TestWeakNeedsBothAWeakBandAndAnEmptyPage(t *testing.T) {
+	for _, c := range []struct {
+		a    Answer
+		want bool
+		why  string
+	}{
+		{Answer{Band: bandNone, Rows: 0}, true, "the empty list, which is the bottom of this scale rather than a case beside it"},
+		{Answer{Band: bandPrefix, Rows: 1}, true, "`elefant`: one ciliate, on a substring of its synonym"},
+		{Answer{Band: bandPrefix, Rows: sparseRows}, true, "at the threshold, not past it"},
+		{Answer{Band: bandPrefix, Rows: sparseRows + 1}, false, "`tyrannosau`: ten rows, and the only correction on offer is the reader's own prefix truncated"},
+		{Answer{Band: bandToken, Rows: 1}, false, "the query is in there as whole words; a reader who typed real words did not misspell them"},
+		{Answer{Band: bandExact, Rows: 1}, false, "one row, and it is the name"},
+	} {
+		if got := c.a.Weak(); got != c.want {
+			t.Errorf("Answer%+v.Weak() = %v, want %v — %s", c.a, got, c.want, c.why)
+		}
+	}
+}
+
+// "It returned something" was enough while the only thing a correction was
+// measured against was an empty list. Against a weak list it is not: trading one
+// junk answer for another is a second guess, not a correction.
+func TestBetterWantsAStrictlyBetterBandAndRowsToShow(t *testing.T) {
+	weak := Answer{Band: bandPrefix, Rows: 1}
+	if !(Answer{Band: bandExact, Rows: 12}).Better(weak) {
+		t.Error("an exact match with rows should beat a lone prefix hit")
+	}
+	if (Answer{Band: bandPrefix, Rows: 40}).Better(weak) {
+		t.Error("equal bands are not an improvement, however many rows arrive")
+	}
+	if (Answer{Band: bandExact, Rows: 0}).Better(weak) {
+		t.Error("a correction that leads nowhere is not a correction")
+	}
+	if (Answer{Band: bandNone, Rows: 3}).Better(weak) {
+		t.Error("a worse band is not an improvement")
+	}
+}
+
 // A node beats a fossil only as the *last* tiebreak. Where the two are equally
 // good matches at equal standing in their own list, the thing that can join the
 // tree wins — and nowhere else, or this is the pinned tail again wearing a
