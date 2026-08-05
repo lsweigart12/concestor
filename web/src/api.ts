@@ -12,6 +12,8 @@
  * response, and there are two answers. See {@link get}.
  */
 
+import { displayCommonName, displayCommonNameOrNull } from "./vernacular";
+
 /** Age provenance, architecture §3.5. The numbers match `age_tier.npy`. */
 export const TIER_MEASURED = 0;
 export const TIER_INTERPOLATED = 1;
@@ -724,6 +726,18 @@ function normNode(raw: Record<string, unknown>): PathNode {
   return {
     ...(raw as unknown as PathNode),
     tier,
+    // How a common name is cased is this client's decision and not the
+    // server's; `vernacular.ts` is the whole rule and the reasoning. Applied
+    // here rather than at the canvas label, the card subtitle and the four
+    // other places that print one, because a seventh costs one line to write.
+    // `?? null` rather than passing `undefined` through, because
+    // `exactOptionalPropertyTypes` will not let an optional property be
+    // *assigned* undefined. Absent and null already mean one thing to every
+    // reader of this field — `commonName` reaches both through `?.` — and the
+    // server sends the key on every entry-shaped body regardless.
+    vernacular:
+      displayCommonNameOrNull(raw.vernacular as string | null | undefined) ??
+      null,
     // Belt and braces on the hard requirement: even if a future server build
     // sends a number alongside a structural tier, it does not reach the UI.
     age_ma:
@@ -787,6 +801,21 @@ export function normalise(url: string, body: unknown): unknown {
       normNode,
     );
   }
+  // `/v1/search` and `/v1/hits` are the same row shape and the palette's
+  // subtitle is the most-read common name in the app — it is the list a reader
+  // scans to choose a species, and it is where one word arriving in two cases
+  // is most obvious. Cased here so `litRanges` highlights the string that is
+  // actually printed; the rule cannot move a character, only change one, so
+  // the ranges it computes are unaffected either way.
+  if (Array.isArray(b.results)) {
+    for (const r of b.results as Record<string, unknown>[]) {
+      if (r && typeof r === "object") {
+        r.vernacular = displayCommonNameOrNull(
+          r.vernacular as string | null | undefined,
+        );
+      }
+    }
+  }
   if (url.startsWith("/v1/node/")) {
     const n = normNode(b);
     Object.assign(b, n);
@@ -811,7 +840,15 @@ export function normalise(url: string, body: unknown): unknown {
     // useful shape and one the UI never templated for — "Also known as [object
     // Object]" shipped. Flatten at the boundary and change nothing else: the
     // list arrives most-used first and the card reads it positionally.
-    b.vernaculars = toStrings(b.vernaculars);
+    // The card's subtitle is `[0]` and "Also called" is the rest, so one map
+    // cases both. Deduped *after* rather than relying on `toStrings`: casing
+    // can newly collide two names the server sent as two rows, and "Aardvark ·
+    // Aardvark" under one card would be a duplicate this rule invented. No node
+    // in the current build collides — 0 of 110,794 — so this removes nothing
+    // today; it is here because the rule is what makes it possible at all.
+    // Order still comes from the server, first occurrence winning, because the
+    // card reads this list positionally and `usage_rank` is what put it in it.
+    b.vernaculars = [...new Set(toStrings(b.vernaculars).map(displayCommonName))];
   }
   // A fossil card draws a PhyloPic image too, so it needs the same translation
   // — and this is the third place that has needed it, which is why it is one

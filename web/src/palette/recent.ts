@@ -51,6 +51,7 @@
  */
 
 import type { SearchHit } from "../api";
+import { displayCommonNameOrNull } from "../vernacular";
 import { RECENT_LIMIT } from "./starters";
 
 const KEY = "concestor.recent";
@@ -98,9 +99,18 @@ export function loadRecent(buildID: string | null): SearchHit[] {
     // Trimmed on read as well as on write. The cap is a display decision and
     // may fall; a blob written under a larger one would otherwise keep
     // overflowing the band until the reader happened to pick something.
+    //
+    // Cased on read for the same reason and against the same kind of staleness.
+    // This is the one path in the app where a row reaches the screen without
+    // passing `api.ts`, so it is the one place the boundary cannot reach: the
+    // build stamp above catches a *dataset* that moved on, and a common name
+    // cased by an older build of this *code* is a different sort of stale that
+    // no stamp here would catch. Without it the recents band would sit directly
+    // above a fresh result list, printing "aardvark" beside its "Aardvark".
     return (parsed as Stored).hits
       .filter((h): h is SearchHit => isUsableHit(h))
-      .slice(0, RECENT_LIMIT);
+      .slice(0, RECENT_LIMIT)
+      .map((h) => ({ ...h, vernacular: displayCommonNameOrNull(h.vernacular) }));
   } catch {
     return [];
   }

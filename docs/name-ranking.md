@@ -448,3 +448,35 @@ headline as `man`.
   therefore only `require` when the crawl reports complete**, and `observe`
   otherwise. Do not reorder the plan to fix this without accepting that the
   prefix digest changes and every checkpoint on disk is discarded.
+
+---
+
+## 9. Casing, which is a different question
+
+Everything above decides **which** name a taxon goes by. How that name is
+*cased* on screen is not the same question and was owned by nothing, so the
+corpus's own capitalisation reached the reader: 122,310 of 162,466 English
+vernaculars start uppercase and 39,821 start lowercase, which is one search
+returning "Aardvark", "aardvark" and "Aardvark", and the opening panda tree
+drawing "Raccoon" and "Giant panda" beside "lesser panda" and "polar bear".
+
+**`web/src/vernacular.ts` is the rule and holds the whole argument.** It
+capitalises the first letter and changes nothing else. Three things not to
+redo, all measured there:
+
+- **Full sentence case is unreachable and the corpus was asked.** 57,168 names
+  are Title Cased throughout and lowercasing their interior would be right, but
+  62,747 carry an interior capital and many are proper nouns. Scoring every
+  interior word by how often it appears lowercase does not separate the two:
+  any threshold protecting `African` (0.01) also protects `Mountain` (0.19),
+  `Webworm` (0.20) and `Moth` (0.25), and any threshold reaching `Moth` also
+  lowercases `Rocky` (0.75) out of "Rocky Mountain". So "Glassy-Winged Tiger"
+  is left as it is, deliberately, and a lexicon is refused rather than deferred.
+- **Up rather than down**, because the canvas is a mixture — a common name sits
+  in the same column as *Homo* and *Pan*, and "human" beside "Pan" is the same
+  bug reversed. It also moves the minority: 24.5%.
+- **It is display-only and the server is untouched.** `/v1` stays a faithful
+  mirror of the table, on the same line this project draws for a spelling
+  correction and for `age_tier`. It is applied at `api.ts`'s boundary and at
+  `recent.ts`'s `loadRecent`, which is the one path restoring a row without a
+  response — not at the six places that print a name.
