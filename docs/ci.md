@@ -27,9 +27,18 @@ pipeline is hours of work against academic APIs that, per
 Pointing a CI matrix at Open Tree would be the rudest thing this project could
 do.
 
-**`web`** — `npm ci`, then typecheck, vitest (504 tests), and `vite build`. The
+**`web`** — `npm ci`, then typecheck, vitest (632 tests), and `vite build`. The
 built `dist` is uploaded as an artifact and handed to the `cloudflare` job, so
 the thing that gets validated for deployment is the thing that was tested.
+
+`npm test` runs two vitest projects and CI runs both from the one command:
+`node`, the pure-module suite that has always been there, and `dom`, which
+boots jsdom and renders React components. Neither needs `build/`, so unlike §2
+below, a green `web` job does mean what it looks like it means. What it still
+does not cover is anything a real browser does and jsdom does not — layout,
+paint, WebGL — so the bioluminescent mode and every measurement taken off
+`getBoundingClientRect` remain outside it. `vitest.config.ts` says which
+filenames land in which project.
 
 **`server`** — `gofmt -l`, `go vet`, `go build`, then `go test -json` through
 `scripts/ci/go-test-summary.py`. See §2, which is the important part.

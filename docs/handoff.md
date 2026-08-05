@@ -222,7 +222,8 @@ symptom is quietly stale answers.
 
 ```bash
 cd web && npm install && npm run build   # the server picks up web/dist
-npm test                                 # 148 tests
+npm test                                 # 632 tests, in two vitest projects
+npm test -- --project=dom                # just the ones that render components
 ```
 
 The client owns the topology after first paint (architecture §4): it fetches
@@ -2341,6 +2342,65 @@ app. The ten cover primate, carnivoran, whale, fish, reptile, bird, mollusc,
 insect, plant and fungus, because the list is the only place "all of life" is
 ever *shown* rather than asserted. The lion was the closest cut — it is a
 perfectly good row, and the dog already holds the familiar-carnivoran slot.
+
+### The components can be rendered by a test now, in a second vitest project
+
+The gap was harness rather than culture, and that distinction is the whole of
+why this took one small PR. `vitest.config.ts` was three lines — `environment:
+"node"`, `include: ["src/**/*.test.ts"]` — so a `.test.tsx` would not have been
+collected even if somebody had written one, and roughly 8,000 lines of `.tsx`
+had no behavioural coverage of any kind. Everything around it was already
+right: `tree/induced.ts` is pinned to a Python reference built from the real
+baked arrays, `canvas/gl/tuning.test.ts` proves a float invariant with a stated
+tolerance, and `chrome/tip.ts` exists as a separate module *specifically* so the
+tooltip's arithmetic could be tested — its header says so, in the words "this
+project having no DOM to render into."
+
+Two projects rather than one environment. `node` keeps exactly the tests it had
+in exactly the environment it had them in — 614 of them, about 350 ms — and
+`dom` boots jsdom beside it. Switching globally would have cost that speed for
+every pure module in the repo to serve the handful of files that need a
+document, and the fast suite is the one people actually run on save.
+
+Six things worth not redoing:
+
+- **The filename decides the project, and there are two ways in.**
+  `*.test.tsx` is a component test; `*.dom.test.ts` is a *module* test that
+  needs a document anyway — `localStorage`, `sessionStorage`, `matchMedia`,
+  `window`. The second door exists because `fuzzy.ts`'s persistence path is
+  exactly that shape, and naming its test `.tsx` when it renders nothing would
+  be a lie about what the file is. A node test that starts complaining a global
+  is missing is a test to rename, not a reason to widen the config.
+- **Naming `exclude` replaces it.** The defaults carry `**/node_modules/**`,
+  and a project whose `include` is anchored at `src/` looks fine without them
+  right up until it does not. They are spread back in.
+- **Advance timers inside `act`.** This is the one that will cost an afternoon.
+  `Tooltip.tsx` notifies its `useSyncExternalStore` subscribers from a
+  `setTimeout`, and `fireEvent` wraps its own dispatch in `act` — so a
+  *chained* tip, which `openDelay` opens with zero delay synchronously inside
+  the handler, passes without `act`, while a delayed one schedules a render
+  that is never flushed and the assertion reads the DOM from before the timer
+  fired. The first tip of a run behaves differently from the second, which is
+  the worst possible shape for a flake.
+- **Module state outlives a test.** The tooltip store's `active` and
+  `lastClosed` are module-level, so one test's tip is the next test's initial
+  condition and `openDelay` will answer 0 inside `CHAIN_MS`. `Tooltip.test.tsx`
+  has a `coldStart` that runs the clock past the chain; anything talking to a
+  module singleton needs the same.
+- **`fetch` throws in the harness rather than being mocked away.** jsdom
+  inherits node's global `fetch`, which resolves against
+  `http://localhost:3000` — so an unstubbed request in a component test does
+  not fail, it *hangs* for a connection timeout and then fails somewhere
+  unrelated. `setup-dom.ts` replaces it with something that says what to do
+  instead: stub the `api` method you are exercising, not the transport.
+- **The tests assert behaviour that could not have been a pure function.**
+  `Palette.test.tsx` is the 110 ms debounce and the `AbortController` around
+  `/v1/search`, both of which are properties of when React runs an effect's
+  cleanup; `Tooltip.test.tsx` proves the two claims in that component's header
+  that only rendered markup can settle — that `useTip` adds no element and no
+  attribute to its trigger, and that `pointerdown` on some *other* element
+  dismisses the tip. Each was confirmed to bite by breaking the source and
+  watching the right tests, and only those, go red.
 
 ---
 
