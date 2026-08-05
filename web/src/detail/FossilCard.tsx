@@ -121,7 +121,13 @@ export function FossilCard({
   const lineage = useLineage(host?.key ?? null, exact);
 
   return (
-    <aside className="detail" style={{ color: `hsl(${hue} 60% 62%)` }}>
+    // One name for the slot rather than the subject's own — see
+    // `detail/blocks.tsx`. The subject is the `h2` immediately inside it.
+    <aside
+      className="detail"
+      aria-label="Selection"
+      style={{ color: `hsl(${hue} 60% 62%)` }}
+    >
       {sil && (
         <div className="detail-image">
           <Silhouette phylopicId={sil.phylopic_id} size={110} />
