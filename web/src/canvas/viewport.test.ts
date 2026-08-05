@@ -24,6 +24,7 @@ import {
   revealShift,
   toScreenRect,
   union,
+  unlaidOut,
 } from "./viewport";
 
 /**
@@ -234,5 +235,119 @@ describe("the subject a reveal is measured on", () => {
   it("travels with the transform, so a zoomed-out mark is a small one", () => {
     const r = toScreenRect({ x: 100, y: 50, w: 40, h: 20 }, { x: 30, y: 5, zoom: 0.5 });
     expect(r).toEqual({ x: 80, y: 30, w: 20, h: 10 });
+  });
+});
+
+// --------------------------------------- the canvas a move is made into --
+
+/**
+ * The refusal, and the census that keeps it at every call site.
+ *
+ * `unlaidOut` is one line of arithmetic and the whole of #100 and #117. React
+ * Flow files a container measuring zero as a square 500px canvas, so every
+ * `vw`/`vh` above can be a number nothing on screen has; hand the resulting
+ * move to d3-zoom with a duration and its tween divides by the container's real
+ * extent, which is zero, and the store transform is NaN for the length of the
+ * animation.
+ *
+ * #112 fixed that inline inside `fitTarget` and there were three writers. The
+ * other two kept producing it — the reveal on every cold load carrying a
+ * selection — which is why the rule is a named export now and why the second
+ * half of this file counts the call sites rather than trusting one.
+ */
+describe("a viewport move is refused into a canvas that is not there", () => {
+  it("refuses a container measured at zero on either axis", () => {
+    expect(unlaidOut({ clientWidth: 0, clientHeight: 0 })).toBe(true);
+    expect(unlaidOut({ clientWidth: 1280, clientHeight: 0 })).toBe(true);
+    expect(unlaidOut({ clientWidth: 0, clientHeight: 800 })).toBe(true);
+  });
+
+  it("allows a container that has been laid out", () => {
+    expect(unlaidOut({ clientWidth: 1280, clientHeight: 800 })).toBe(false);
+    // The smallest thing that is still a canvas. The threshold is zero and not
+    // a judgement about how much room is enough — `cardReserve` and
+    // `MIN_USABLE` are where that judgement lives, and duplicating it here
+    // would give the two a way to disagree.
+    expect(unlaidOut({ clientWidth: 1, clientHeight: 1 })).toBe(false);
+  });
+
+  /**
+   * A ref reads `null` before it attaches, and that is not a refusal: there is
+   * nothing to measure, so there is nothing to disagree with. Refusing here
+   * would block the first fit of every load rather than the wrong ones.
+   */
+  it("does not refuse when there is nothing to measure", () => {
+    expect(unlaidOut(null)).toBe(false);
+    expect(unlaidOut(undefined)).toBe(false);
+  });
+
+  /**
+   * The arithmetic under the refusal, for the case the refusal exists to stop
+   * reaching d3-zoom. None of it divides by a span that can be zero, so all of
+   * it is finite even against the invented 500 and against a literal 0×0 — the
+   * NaN was never ours, which is why a `|| 0` at the render boundary would have
+   * silenced the console and left the wrong pan in place.
+   */
+  it("computes a finite move even for the viewport it refuses", () => {
+    const viewports: { vw: number; vh: number }[] = [
+      { vw: 0, vh: 0 },
+      { vw: 500, vh: 500 },
+    ];
+    for (const { vw, vh } of viewports) {
+      const free = freeRect({ vw, vh, bottom: 104, cardOpen: true, pad: 18 });
+      expect(Number.isFinite(free.w) && Number.isFinite(free.h)).toBe(true);
+      const { dx, dy } = revealShift({ x: 4000, y: 3000, w: 40, h: 20 }, free);
+      expect(Number.isFinite(dx) && Number.isFinite(dy)).toBe(true);
+      const fit = fitViewport({
+        content: { x: 0, y: 0, w: 0, h: 0 },
+        vw,
+        vh,
+        reserve: 0,
+        bottom: 104,
+        maxZoom: 1.4,
+      });
+      expect(Number.isFinite(fit.x)).toBe(true);
+      expect(Number.isFinite(fit.y)).toBe(true);
+      expect(Number.isFinite(fit.zoom)).toBe(true);
+    }
+  });
+});
+
+/**
+ * The half that would have caught #117.
+ *
+ * A rule enforced at one of three call sites is not enforced, and nothing about
+ * `fitTarget` said so — the other two writers sit six hundred lines away and
+ * were found only by patching `setAttribute` in a browser. This is a lint over
+ * the source, in the style of `chrome/tip.test.ts`: every call that hands the
+ * viewport to React Flow must be reachable only past the refusal.
+ *
+ * Deliberately a count and a token search rather than a shape: it must survive
+ * a reformat — `#84` adds Prettier — and it must fail for a *new* writer added
+ * without the guard, which is the case that costs the console another issue.
+ */
+describe("every viewport writer on the canvas asks first", () => {
+  const GRAPH: string =
+    Object.entries(
+      import.meta.glob<string>("./Graph.tsx", {
+        query: "?raw",
+        import: "default",
+        eager: true,
+      }),
+    )[0]?.[1] ?? "";
+
+  /** A search for an absence passes for free against a file nobody read. */
+  it("is reading Graph.tsx at all", () => {
+    expect(GRAPH.length).toBeGreaterThan(1000);
+    expect(GRAPH).toContain("useReactFlow");
+  });
+
+  it("guards each of them with unlaidOut", () => {
+    const writers = GRAPH.match(/\brf\.(setViewport|fitView)\s*\(/g) ?? [];
+    // Three today: the fit, the selection fit, and the reveal. A fourth is
+    // welcome and must bring its own refusal.
+    expect(writers.length).toBeGreaterThanOrEqual(3);
+    const guards = GRAPH.match(/\bunlaidOut\s*\(/g) ?? [];
+    expect(guards.length).toBeGreaterThanOrEqual(writers.length);
   });
 });
