@@ -84,6 +84,43 @@ export function cardReserve(vw: number, open: boolean): number {
   return vw - CARD_RESERVE >= MIN_FREE_W ? CARD_RESERVE : 0;
 }
 
+/** As much of an element as the question below needs. */
+export interface Measured {
+  clientWidth: number;
+  clientHeight: number;
+}
+
+/**
+ * Whether the canvas is a container the browser has not laid out yet.
+ *
+ * **Nothing here may move the viewport while this is true**, and asking React
+ * Flow instead of measuring cannot answer it. `useResizeHandler` writes
+ * `size.width || 500` into the store, so a container measuring zero is filed
+ * as a square 500px canvas — "no canvas yet" and "a 500px canvas" are the same
+ * two numbers, and every `vw`/`vh` in this file inherits that. Hand the
+ * resulting move to d3-zoom with a duration and its tween divides by the
+ * container's *real* extent, which is zero: `interpolateZoom` resolves to NaN
+ * and the store transform is NaN for the length of the animation.
+ *
+ * That is one value, and everything downstream goes with it — React Flow's own
+ * background `<pattern>` and the dots inside it, `--icon-scale`, and every tick
+ * the axis projects. The axis is the visible half: `buildTicks` refuses a tick
+ * it cannot place, correctly, so the whole ruler empties rather than drawing
+ * one tick in the wrong place. A reader on a cold load watches every date
+ * vanish and come back.
+ *
+ * **Refusing costs nothing**, which is what makes this the fix rather than a
+ * guard. Every caller re-runs on a size change, so the move lands the moment
+ * there is a canvas to land it in — and it is then computed against the real
+ * one rather than against an invented 500.
+ *
+ * A ref that has not attached yet reports `null`, and that is *not* a refusal:
+ * there is nothing to measure, so there is nothing to disagree with.
+ */
+export function unlaidOut(el: Measured | null | undefined): boolean {
+  return !!el && (el.clientWidth === 0 || el.clientHeight === 0);
+}
+
 export interface Viewport {
   x: number;
   y: number;

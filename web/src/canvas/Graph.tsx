@@ -62,6 +62,7 @@ import {
   revealShift,
   toScreenRect,
   union,
+  unlaidOut,
 } from "./viewport";
 import type { Induced } from "../tree/induced";
 import type { AddDelta } from "../tree/induced";
@@ -778,25 +779,10 @@ function Inner(props: GraphProps) {
     const c = lay.content;
     if (!c || !vw || !vh) return null;
     // And `vw`/`vh` are not enough, because they can be a number React Flow
-    // made up. `useResizeHandler` writes `size.width || 500` into the store and
-    // logs its error 004 — so a container the browser has not laid out yet
-    // reports a square 500px canvas rather than zero, and the guard above sees
-    // a viewport worth fitting into. Two things then go wrong at once, and the
-    // second is the one that shows: the fit is computed against a size nothing
-    // on screen has, and `rf.setViewport(t, { duration })` hands it to d3-zoom,
-    // whose tween divides by the *real* extent of `.react-flow__renderer`.
-    // That is zero, so `interpolateZoom` returns NaN and the store transform
-    // becomes NaN. One value, and everything that reads it goes with it:
-    // React Flow's own background `<pattern>` and the dots inside it, the
-    // `--icon-scale` this component sets below, and every tick the axis
-    // projects through `toScreenX` — which is the whole run of
-    // `Expected length, "NaN"` the canvas used to log on load, against four
-    // kinds of element that have nothing else in common. Measuring here
-    // rather than trusting the store is the fix, and nothing is lost by
-    // refusing: a size change re-arms `owedFit` below, so the fit lands the
-    // moment there is a canvas to land it in.
-    const el = canvasRef.current;
-    if (el && (el.clientWidth === 0 || el.clientHeight === 0)) return null;
+    // made up — `unlaidOut` is the whole account. Nothing is lost by refusing:
+    // a size change re-arms `owedFit` below, so the fit lands the moment there
+    // is a canvas to land it in.
+    if (unlaidOut(canvasRef.current)) return null;
     return fitViewport({
       // The bounds already include every placed label, so the fit frames what
       // is actually drawn rather than the dots plus a guessed margin.
@@ -946,6 +932,12 @@ function Inner(props: GraphProps) {
 
   useEffect(() => {
     if (!fitSignal) return;
+    // The third writer, and the one that has never gone wrong: a fit signal is
+    // a key press, and a reader pressing a key has a canvas. It is guarded all
+    // the same, because "there is no canvas to move into" is one rule and this
+    // is the call site where it happens to be reachable only by luck — which is
+    // exactly what was true of the reveal below until it was not.
+    if (unlaidOut(canvasRef.current)) return;
     if (fitSignal.kind === "selection" && focusedIdx !== null) {
       rf.fitView({
         duration: reduced ? 0 : 420,
@@ -1045,6 +1037,17 @@ function Inner(props: GraphProps) {
    * Deliberately last: it reads the settled transform, so if the reframe above
    * has already brought the subject into the clear there is nothing to do and
    * nothing happens.
+   *
+   * And it refuses an unlaid-out canvas for the reason `fitTarget` does, which
+   * is the same reason and was not the same code. `!vw || !vh` above is exactly
+   * the guard {@link unlaidOut} exists because React Flow defeats: on a cold
+   * load into a container the browser has not sized yet, this fired a 320ms
+   * pan framed against an invented 500×500 viewport, and d3-zoom's tween made
+   * the store transform NaN for the whole animation. The canvas kept its
+   * `<pattern>`, its dots and its `--icon-scale` from that number, and the time
+   * axis — refusing ticks it could not place — emptied of all eighteen and came
+   * back with fifteen. The subject loses nothing by the refusal: `vw` and `vh`
+   * are deps, so a real canvas re-runs this and reveals against that one.
    */
   useEffect(() => {
     if (focusedIdx === null || !vw || !vh) return;
@@ -1055,6 +1058,11 @@ function Inner(props: GraphProps) {
     const subject = box ? union(dot, labelRect(p.x, p.y, box)) : dot;
     const wait = Math.max(REVEAL_DELAY, fitUntil.current - Date.now() + 60);
     const t = window.setTimeout(() => {
+      // Measured here rather than at the top: the wait is a floor raised past
+      // any reframe already on its way, so the canvas this pans into is the one
+      // that exists when the timer fires and not the one that did when it was
+      // set.
+      if (unlaidOut(canvasRef.current)) return;
       const v = rf.getViewport();
       const { dx, dy } = revealShift(
         toScreenRect(subject, v),
