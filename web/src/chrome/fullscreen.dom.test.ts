@@ -36,7 +36,8 @@ vi.hoisted(() => {
   });
 });
 
-const { FULLSCREEN_REFUSED, useFullscreen } = await import("./fullscreen");
+const { FULLSCREEN_DEADLINE_MS, FULLSCREEN_REFUSED, useFullscreen } =
+  await import("./fullscreen");
 
 /** Say what the browser would say, and tell the page it changed. */
 function browserWent(fullscreen: boolean): void {
@@ -82,11 +83,11 @@ describe("useFullscreen reads the state from the browser", () => {
   /**
    * And a press on its own changes nothing.
    *
-   * A browser that refuses the request *rejects a promise* rather than throwing,
-   * and this is the case a remembered boolean gets wrong: the button would
-   * report "on" over a window that never moved, with nothing on screen to
-   * contradict it. The reader is told instead, and the state stays where the
-   * document left it.
+   * A browser that refuses the request may reject a promise, and this is the
+   * case a remembered boolean gets wrong: the button would report "on" over a
+   * window that never moved, with nothing on screen to contradict it. The
+   * reader is told instead, and the state stays where the document left it.
+   * The two refusals that are *not* a rejection follow.
    */
   it("does not flip on the press itself when the browser refuses", async () => {
     browserWent(false);
@@ -100,6 +101,57 @@ describe("useFullscreen reads the state from the browser", () => {
     });
     expect(refused).toHaveBeenCalledWith(FULLSCREEN_REFUSED);
     expect(result.current.on).toBe(false);
+  });
+
+  /**
+   * The same, for a browser that throws where it stands instead of rejecting.
+   *
+   * From the hook's side this is the worse of the two, because the exception
+   * does not stop at `toggle` — it goes up through the keydown listener that
+   * asked, and the reader gets silence *and* a broken press.
+   */
+  it("tells the reader when the request throws rather than rejects", () => {
+    browserWent(false);
+    document.documentElement.requestFullscreen = () => {
+      throw new TypeError("requestFullscreen is not a function");
+    };
+    const refused = vi.fn();
+    const { result } = renderHook(() => useFullscreen(refused));
+    act(() => {
+      result.current.toggle();
+    });
+    expect(refused).toHaveBeenCalledWith(FULLSCREEN_REFUSED);
+    expect(result.current.on).toBe(false);
+  });
+
+  /**
+   * And the one this was all filed for: a browser that answers nothing.
+   *
+   * Measured in an embedded browser that declines fullscreen — under a real
+   * user gesture the promise never settles, so there is no rejection to catch
+   * and no resolution to act on, and every version of this that hung a handler
+   * off the promise reported nothing at all. The window is asked instead.
+   */
+  it("tells the reader when the browser simply never answers", async () => {
+    vi.useFakeTimers();
+    try {
+      browserWent(false);
+      document.documentElement.requestFullscreen = () =>
+        new Promise<void>(() => {});
+      const refused = vi.fn();
+      const { result } = renderHook(() => useFullscreen(refused));
+      act(() => {
+        result.current.toggle();
+      });
+      expect(refused).not.toHaveBeenCalled();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(FULLSCREEN_DEADLINE_MS);
+      });
+      expect(refused).toHaveBeenCalledWith(FULLSCREEN_REFUSED);
+      expect(result.current.on).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   /**
