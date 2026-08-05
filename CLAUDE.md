@@ -69,10 +69,33 @@ our own; **no dagre, no ELK, no d3-hierarchy**, because a graph-layout engine
 assigns `x` by depth and here `x` is time.
 
 ```bash
-cd web && npm install && npm run build && npm test   # 545 tests
+cd web && npm install && npm run build && npm test   # 632 tests, two projects
 cd server && go test ./... && go run . -build ../build
 scripts/check.sh          # everything CI runs, plus the dataset tests it can't
 ```
+
+**`web` has two vitest projects, and which one a test lands in is decided by
+its filename.** `node` is everything that was there before — pure modules, no
+document, 614 tests in about 350 ms, and that speed is the reason the
+environment was not simply switched over. `dom` boots jsdom and renders with
+`@testing-library/react`, and it collects **`*.test.tsx`** (a component test)
+and **`*.dom.test.ts`** (a module test that needs `localStorage`,
+`sessionStorage`, `matchMedia` or `window` — calling such a file `.tsx` when it
+renders nothing would be a lie about what it is). `vitest.config.ts` is the
+whole rule and `src/test/setup-dom.ts` is the whole harness: `cleanup`, a
+`scrollIntoView` stub for a layout engine jsdom does not have, a `sendBeacon`
+that swallows analytics, and a `fetch` that **throws** rather than quietly
+resolving against `http://localhost:3000` and hanging. Stub the `api` method
+you are exercising — `vi.spyOn(api, "search")` — rather than the transport.
+Four things not to redo are in `docs/handoff.md` §3, chief among them that
+**timer advances must be wrapped in `act`**: the tooltip store notifies
+`useSyncExternalStore` subscribers from a `setTimeout`, and `fireEvent` wraps
+its own dispatch, so a *chained* tip that opens with zero delay passes without
+`act` and a delayed one silently reads the DOM from before the timer fired.
+`Palette.test.tsx`, `Tooltip.test.tsx` and `Confirm.test.tsx` are the pattern
+to copy; the first is the debounce-and-abort path around `/v1/search`, which is
+not arithmetic that could have been lifted into a pure module because it is
+entirely a property of when React runs an effect's cleanup.
 
 **Running in a worktree.** `scripts/serve.sh` and `scripts/dev.sh` are the two
 `.claude/launch.json` configurations and work unchanged in a parallel
