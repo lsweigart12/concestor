@@ -245,7 +245,15 @@ async function beacon(request: Request, env: Env): Promise<Response> {
     // log holding unchecked client input is a log you cannot trust when you read
     // it back — which matters more than the bytes, since the body is capped at
     // 8 KB and a single log at 256 KB.
-    console.log({ concestor: LOG_MARKER, kind, subject, tree, cause, session: sid, size });
+    console.log({
+      concestor: LOG_MARKER,
+      kind,
+      subject,
+      tree,
+      cause,
+      session: sid,
+      size,
+    });
   }
 
   return noStore(204);
@@ -256,7 +264,10 @@ function str(v: unknown, max: number): string {
 }
 
 function noStore(status: number): Response {
-  return new Response(null, { status, headers: { "Cache-Control": "no-store" } });
+  return new Response(null, {
+    status,
+    headers: { "Cache-Control": "no-store" },
+  });
 }
 
 export default {

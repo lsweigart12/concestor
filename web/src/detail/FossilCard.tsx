@@ -25,7 +25,11 @@
  * claim than a node card's and is captioned as one.
  */
 
-import { drawnBounds, youngEndIsIndeterminate, type FossilDetail } from "../api";
+import {
+  drawnBounds,
+  youngEndIsIndeterminate,
+  type FossilDetail,
+} from "../api";
 import { endedSpanLabel, maLabel } from "../canvas/Bracket";
 import { Silhouette } from "../canvas/Silhouette";
 import { placementNote } from "../canvas/NodeMark";
@@ -190,7 +194,11 @@ export function FossilCard({
             <>
               A fossil taxon has no place of its own in the tree, so this is the
               classification of{" "}
-              <TaxonLink target={host?.key} onSelect={onSelect} rank={host?.rank}>
+              <TaxonLink
+                target={host?.key}
+                onSelect={onSelect}
+                rank={host?.rank}
+              >
                 <strong>{host?.name ?? "the node it hangs below"}</strong>
               </TaxonLink>{" "}
               — the deepest node this fossil is known to sit beneath, not a
@@ -239,18 +247,20 @@ export function FossilCard({
           <p className="note">
             The later end of that range is not one any identified member of{" "}
             <strong>{fossil.name}</strong> reaches. The youngest that is
-            recorded is {maLabel(fossil.lla_identified as number)} Ma; everything
-            after it rests on material catalogued no more precisely than the
-            group itself — a specimen filed as <em>{fossil.name}</em> sp. or
-            indet., which says where something in the group turned up and not
-            where this one did.{" "}
+            recorded is {maLabel(fossil.lla_identified as number)} Ma;
+            everything after it rests on material catalogued no more precisely
+            than the group itself — a specimen filed as <em>{fossil.name}</em>{" "}
+            sp. or indet., which says where something in the group turned up and
+            not where this one did.{" "}
             {movedTo !== null ? (
               <>
                 So the range above ends at {maLabel(movedTo)} Ma, where its own
                 named record ends, and that is where it is drawn.{" "}
-                <strong>PBDB's own figure for the taxon is{" "}
-                {maLabel(fossil.lla as number)} Ma</strong>, and this is the
-                only difference between the two.
+                <strong>
+                  PBDB's own figure for the taxon is{" "}
+                  {maLabel(fossil.lla as number)} Ma
+                </strong>
+                , and this is the only difference between the two.
               </>
             ) : (
               <>
@@ -270,13 +280,13 @@ export function FossilCard({
             , at its own date. The line meets the branch{" "}
             {graft.joinAt === "first-appearance" ? (
               <>
-                at its first appearance, which is the latest its lineage can have
-                parted from the rest.
+                at its first appearance, which is the latest its lineage can
+                have parted from the rest.
               </>
             ) : graft.joinAt === "anchor" ? (
               <>
-                at that point because it first appears later — its lineage parted
-                somewhere below there, off the branches drawn here.
+                at that point because it first appears later — its lineage
+                parted somewhere below there, off the branches drawn here.
               </>
             ) : (
               <>

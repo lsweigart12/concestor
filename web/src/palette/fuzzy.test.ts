@@ -20,9 +20,11 @@ describe("fuzzy matching", () => {
 
   it("reports ranges that reconstruct the original string", () => {
     const m = fuzzy("sap", "Homo sapiens")!;
-    expect(highlight("Homo sapiens", m.ranges).map((p) => p.text).join("")).toBe(
-      "Homo sapiens",
-    );
+    expect(
+      highlight("Homo sapiens", m.ranges)
+        .map((p) => p.text)
+        .join(""),
+    ).toBe("Homo sapiens");
     expect(highlight("Homo sapiens", m.ranges).some((p) => p.hit)).toBe(true);
   });
 
@@ -81,7 +83,9 @@ describe("a regular plural is the word the reader typed", () => {
     // Papilionidae is headlined "swallowtail butterflies". Without this it was
     // the one row on the page for "butterfly" with nothing lit — directly
     // above three that had, which reads as "this one does not match".
-    expect(litRanges("butterfly", "swallowtail butterflies")).toEqual([[12, 23]]);
+    expect(litRanges("butterfly", "swallowtail butterflies")).toEqual([
+      [12, 23],
+    ]);
     expect(litRanges("shark", "mackerel sharks")).toEqual([[9, 15]]);
     expect(litRanges("finch", "Darwin's finches")).toEqual([[9, 16]]);
   });

@@ -59,7 +59,8 @@ function mount(
 function attrs(root: HTMLElement): string[] {
   const out: string[] = [];
   for (const el of root.querySelectorAll("*")) {
-    for (const a of el.attributes) out.push(`${el.tagName}@${a.name}=${a.value}`);
+    for (const a of el.attributes)
+      out.push(`${el.tagName}@${a.name}=${a.value}`);
   }
   return out;
 }

@@ -70,7 +70,9 @@ describe("seeds", () => {
    * data value, which is the one thing this mode may not do.
    */
   it("scatters consecutive ids instead of ramping through them", () => {
-    const run = Array.from({ length: 24 }, (_, i) => seeded(hashKey(`${500000 + i}-7`))());
+    const run = Array.from({ length: 24 }, (_, i) =>
+      seeded(hashKey(`${500000 + i}-7`))(),
+    );
     const gaps = run.slice(1).map((p, i) => Math.abs(p - run[i]!));
     expect(sum(gaps) / gaps.length).toBeGreaterThan(0.2);
   });
@@ -157,9 +159,16 @@ describe("strum", () => {
   it("never moves the ends, wherever it is plucked", () => {
     for (const at of [0, 0.02, 0.25, 0.5, 0.83, 0.98, 1]) {
       for (let t = 0; t < STRUM_MS; t += 11) {
-        expect(Math.abs(strumAt(0, t, undefined, at)), `at ${at}`).toBeLessThan(1e-9);
-        expect(Math.abs(strumAt(1, t, undefined, at)), `at ${at}`).toBeLessThan(1e-9);
-        expect(Number.isFinite(strumAt(0.5, t, undefined, at)), `at ${at}`).toBe(true);
+        expect(Math.abs(strumAt(0, t, undefined, at)), `at ${at}`).toBeLessThan(
+          1e-9,
+        );
+        expect(Math.abs(strumAt(1, t, undefined, at)), `at ${at}`).toBeLessThan(
+          1e-9,
+        );
+        expect(
+          Number.isFinite(strumAt(0.5, t, undefined, at)),
+          `at ${at}`,
+        ).toBe(true);
       }
     }
   });
@@ -212,7 +221,9 @@ describe("strum", () => {
   it("draws the rest shape at rest and something else while ringing", () => {
     const pts = samplePath(line(100), 4);
     const rest = strumPath(pts, STRUM_MS);
-    expect(rest).toBe("M0.00 50.00 L25.00 50.00 L50.00 50.00 L75.00 50.00 L100.00 50.00");
+    expect(rest).toBe(
+      "M0.00 50.00 L25.00 50.00 L50.00 50.00 L75.00 50.00 L100.00 50.00",
+    );
     expect(strumPath(pts, 30)).not.toBe(rest);
   });
 
@@ -258,7 +269,6 @@ describe("strum", () => {
     expect(strumPath([], 10)).toBe("");
   });
 });
-
 
 describe("the landing", () => {
   /*

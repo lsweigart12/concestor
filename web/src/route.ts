@@ -49,7 +49,9 @@ export function routeOf(pathname: string): Route {
 
 /** The current route, kept in step with back and forward. */
 export function useRoute(): Route {
-  const [route, setRoute] = useState<Route>(() => routeOf(window.location.pathname));
+  const [route, setRoute] = useState<Route>(() =>
+    routeOf(window.location.pathname),
+  );
   useEffect(() => {
     const onPop = () => setRoute(routeOf(window.location.pathname));
     window.addEventListener("popstate", onPop);

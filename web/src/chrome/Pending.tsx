@@ -112,7 +112,10 @@ export function PendingLine({
   className?: string;
 }) {
   return (
-    <span className={className ? `pending ${className}` : "pending"} role="status">
+    <span
+      className={className ? `pending ${className}` : "pending"}
+      role="status"
+    >
       {children}
     </span>
   );

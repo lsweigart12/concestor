@@ -848,7 +848,9 @@ export function normalise(url: string, body: unknown): unknown {
     // today; it is here because the rule is what makes it possible at all.
     // Order still comes from the server, first occurrence winning, because the
     // card reads this list positionally and `usage_rank` is what put it in it.
-    b.vernaculars = [...new Set(toStrings(b.vernaculars).map(displayCommonName))];
+    b.vernaculars = [
+      ...new Set(toStrings(b.vernaculars).map(displayCommonName)),
+    ];
   }
   // A fossil card draws a PhyloPic image too, so it needs the same translation
   // — and this is the third place that has needed it, which is why it is one

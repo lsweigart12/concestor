@@ -54,7 +54,12 @@ import { kbd } from "./bindings";
  */
 function Src({ href, children }: { href: string; children: React.ReactNode }) {
   return (
-    <a className="about-src" href={href} target="_blank" rel="noreferrer noopener">
+    <a
+      className="about-src"
+      href={href}
+      target="_blank"
+      rel="noreferrer noopener"
+    >
       {children}
     </a>
   );
@@ -148,7 +153,8 @@ function Features() {
       <li className="feature">
         <h3 className="feature-h">Any of {SPECIES_PHRASE}</h3>
         <p className="feature-p">
-          Searched by the name you actually call it.  No struggling to spell <em>tyrannosaurus</em>.
+          Searched by the name you actually call it. No struggling to spell{" "}
+          <em>tyrannosaurus</em>.
         </p>
       </li>
       <li className="feature">
@@ -196,9 +202,9 @@ function Features() {
         */}
         <h3 className="feature-h">Every tree is a link</h3>
         <p className="feature-p">
-          Whatever you build is in the address bar, so you can send it,
-          bookmark it, or come back to it. How you are <em>reading</em> it —
-          the labels, the ages, the light — stays with you instead.
+          Whatever you build is in the address bar, so you can send it, bookmark
+          it, or come back to it. How you are <em>reading</em> it — the labels,
+          the ages, the light — stays with you instead.
         </p>
       </li>
       <li className="feature">
@@ -355,7 +361,9 @@ export function AboutPage() {
           <ul className="page-list">
             <li>
               <strong>The tree</strong> — the{" "}
-              <Src href="https://tree.opentreeoflife.org/">Open Tree of Life</Src>{" "}
+              <Src href="https://tree.opentreeoflife.org/">
+                Open Tree of Life
+              </Src>{" "}
               synthesis (v16.1), one topology over {SPECIES_PHRASE} and the
               groups that contain them, assembled from published studies.
             </li>
@@ -411,7 +419,9 @@ export function AboutPage() {
           </p>
           <p className="page-foot-p">
             <span className="mono">
-              {about?.release ? releaseLabel(about.release) : "version unavailable"}
+              {about?.release
+                ? releaseLabel(about.release)
+                : "version unavailable"}
             </span>
           </p>
           <button type="button" className="btn" onClick={leaveAbout}>

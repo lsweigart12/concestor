@@ -103,14 +103,22 @@ describe("the species count a reader is told", () => {
   const num = (s: string) => Number(s.replace(/,/g, ""));
 
   /** `- **2,295,972 of them are \`rank='species'\`**, and …` */
-  const species = /\*\*([\d,]+) of them are `rank='species'`\*\*/.exec(DATA_SOURCES);
+  const species = /\*\*([\d,]+) of them are `rank='species'`\*\*/.exec(
+    DATA_SOURCES,
+  );
   /** `- **2,725,682 nodes total**: 2,385,875 tips + 339,807 internal.` */
   const split = /([\d,]+) tips \+ ([\d,]+) internal/.exec(DATA_SOURCES);
 
   it("is reading the dataset's own figures at all", () => {
     expect(DATA_SOURCES.length).toBeGreaterThan(1000);
-    expect(species, "data-sources.md no longer states the species count").toBeTruthy();
-    expect(split, "data-sources.md no longer states the tip/internal split").toBeTruthy();
+    expect(
+      species,
+      "data-sources.md no longer states the species count",
+    ).toBeTruthy();
+    expect(
+      split,
+      "data-sources.md no longer states the tip/internal split",
+    ).toBeTruthy();
   });
 
   it("counts species, and not the two neighbouring figures that are not", () => {
@@ -162,7 +170,8 @@ describe("the species count a reader is told", () => {
 
   it("found the files it means to scan", () => {
     expect(FILES.length).toBeGreaterThan(30);
-    for (const [name, text] of FILES) expect(text.length, name).toBeGreaterThan(0);
+    for (const [name, text] of FILES)
+      expect(text.length, name).toBeGreaterThan(0);
     expect(FILES.map(([f]) => f)).toEqual(
       expect.arrayContaining([
         "./corpora.ts",
@@ -183,7 +192,9 @@ describe("the species count a reader is told", () => {
    * the text is real by finding something that is in it.
    */
   it("is looking at the text and not at an empty list", () => {
-    const found = FILES.filter(([, t]) => t.includes(SPECIES_PHRASE)).map(([f]) => f);
+    const found = FILES.filter(([, t]) => t.includes(SPECIES_PHRASE)).map(
+      ([f]) => f,
+    );
     expect(found).toContain("./corpora.ts");
   });
 

@@ -23,7 +23,12 @@ function fossil(name: string, n: number, interval = true): FossilTaxon {
   };
 }
 
-function node(idx: number, name: string | null, rank: string | null, tips: number): PathNode {
+function node(
+  idx: number,
+  name: string | null,
+  rank: string | null,
+  tips: number,
+): PathNode {
   return {
     idx,
     key: `n${idx}`,
@@ -52,7 +57,10 @@ describe("laneRows", () => {
   });
 
   it("says nothing when the lane is complete", () => {
-    const rows = laneRows([fossil("Tyrannosaurus", 87), fossil("T. rex", 70)], 2);
+    const rows = laneRows(
+      [fossil("Tyrannosaurus", 87), fossil("T. rex", 70)],
+      2,
+    );
     expect(rows.shown).toBe(2);
     expect(capNote(rows)).toBeNull();
   });
@@ -82,7 +90,9 @@ describe("laneRows", () => {
   });
 
   it("counts the unnamed remainder of the unplaced rather than dropping it", () => {
-    const eight = Array.from({ length: 8 }, (_, i) => fossil(`U${i}`, 1, false));
+    const eight = Array.from({ length: 8 }, (_, i) =>
+      fossil(`U${i}`, 1, false),
+    );
     const note = unplacedNote(eight);
     expect(note).toContain("U0, U1, U2, U3, U4 and 3 more");
   });

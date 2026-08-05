@@ -58,7 +58,14 @@ describe("idxFromKey", () => {
   it("claims nothing that is not an index key", () => {
     // A false positive here would light the wrong mark on the canvas, which is
     // worse than lighting none.
-    for (const k of ["ott770315", "pbdb54833", "mrcaott123ott456", "idx:", "idx:x", "idx:-3"]) {
+    for (const k of [
+      "ott770315",
+      "pbdb54833",
+      "mrcaott123ott456",
+      "idx:",
+      "idx:x",
+      "idx:-3",
+    ]) {
       expect(idxFromKey(k)).toBeNull();
     }
   });

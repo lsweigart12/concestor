@@ -11,7 +11,10 @@ import { TIER_INTERPOLATED, TIER_MEASURED, TIER_STRUCTURAL } from "../api";
 import { legendRows, type TracePattern } from "./Legend";
 
 const measured: TracePattern = { tier: TIER_MEASURED, unbounded: false };
-const interpolated: TracePattern = { tier: TIER_INTERPOLATED, unbounded: false };
+const interpolated: TracePattern = {
+  tier: TIER_INTERPOLATED,
+  unbounded: false,
+};
 const structural: TracePattern = { tier: TIER_STRUCTURAL, unbounded: false };
 const unbounded: TracePattern = { tier: TIER_STRUCTURAL, unbounded: true };
 

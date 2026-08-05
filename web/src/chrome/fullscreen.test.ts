@@ -25,9 +25,10 @@ import {
 } from "./fullscreen";
 
 /** A document that says yes, with the two calls recorded. */
-function doc(
-  over: Partial<FullscreenDoc> = {},
-): FullscreenDoc & { request: ReturnType<typeof vi.fn>; exit: ReturnType<typeof vi.fn> } {
+function doc(over: Partial<FullscreenDoc> = {}): FullscreenDoc & {
+  request: ReturnType<typeof vi.fn>;
+  exit: ReturnType<typeof vi.fn>;
+} {
   const request = vi.fn(() => Promise.resolve());
   const exit = vi.fn(() => Promise.resolve());
   return {
@@ -77,7 +78,11 @@ describe("toggleFullscreen", () => {
     // window manager — and the reader is owed the reason rather than silence.
     const refused: string[] = [];
     toggleFullscreen(
-      doc({ documentElement: { requestFullscreen: () => Promise.reject(new Error("no")) } }),
+      doc({
+        documentElement: {
+          requestFullscreen: () => Promise.reject(new Error("no")),
+        },
+      }),
       (why) => refused.push(why),
     );
     await Promise.resolve();
@@ -116,7 +121,9 @@ describe("toggleFullscreen", () => {
       const refused: string[] = [];
       toggleFullscreen(
         doc({
-          documentElement: { requestFullscreen: () => new Promise<void>(() => {}) },
+          documentElement: {
+            requestFullscreen: () => new Promise<void>(() => {}),
+          },
         }),
         (why) => refused.push(why),
       );
@@ -138,7 +145,9 @@ describe("toggleFullscreen", () => {
     try {
       const said: string[] = [];
       const went = doc({
-        documentElement: { requestFullscreen: () => new Promise<void>(() => {}) },
+        documentElement: {
+          requestFullscreen: () => new Promise<void>(() => {}),
+        },
       });
       toggleFullscreen(went, (why) => said.push(why));
       went.fullscreenElement = SOMETHING;
@@ -163,7 +172,9 @@ describe("toggleFullscreen", () => {
       const refused: string[] = [];
       toggleFullscreen(
         doc({
-          documentElement: { requestFullscreen: () => Promise.reject(new Error("no")) },
+          documentElement: {
+            requestFullscreen: () => Promise.reject(new Error("no")),
+          },
         }),
         (why) => refused.push(why),
       );

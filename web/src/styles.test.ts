@@ -140,7 +140,6 @@ describe("a class the components apply is a class the stylesheet answers", () =>
     expect(SOURCES.every(([, s]) => s.length > 0)).toBe(true);
   });
 
-
   /**
    * The one cross-reference worth running, and it is not "is this class used".
    *
@@ -206,7 +205,13 @@ describe("the label draws no type the measurer has not been told about", () => {
    * text column can see must be one the measurer models.
    */
   it("sets no font-size in the label column that labels.ts does not model", () => {
-    const COLUMN = ["mark-label", "mark-text", "mark-name", "mark-age", "mark-meta"];
+    const COLUMN = [
+      "mark-label",
+      "mark-text",
+      "mark-name",
+      "mark-age",
+      "mark-meta",
+    ];
     const found = new Map<string, string>();
     for (const { selector, decls } of RULES) {
       if (!classesIn(selector).some((c) => COLUMN.includes(c))) continue;

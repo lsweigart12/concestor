@@ -41,7 +41,11 @@
 import { useEffect, useRef } from "react";
 import type { Emitter } from "./biolum";
 import { flowGeneration, flowSources, surgeOf } from "./flow";
-import { BiolumRenderer, type MarkLight, type ScreenLight } from "./gl/renderer";
+import {
+  BiolumRenderer,
+  type MarkLight,
+  type ScreenLight,
+} from "./gl/renderer";
 
 export interface WaterProps {
   /** Live viewport transform: the tree's light lives in layout space. */
@@ -63,7 +67,15 @@ export interface WaterProps {
   reduced: boolean;
 }
 
-export function Water({ tx, ty, zoom, emitters, lights, active, reduced }: WaterProps) {
+export function Water({
+  tx,
+  ty,
+  zoom,
+  emitters,
+  lights,
+  active,
+  reduced,
+}: WaterProps) {
   const ref = useRef<HTMLCanvasElement>(null);
   /*
     The transform and the emitter list are read from refs inside the loop rather
@@ -127,14 +139,21 @@ export function Water({ tx, ty, zoom, emitters, lights, active, reduced }: Water
     const syncMarks = () => {
       marks.length = 0;
       for (const e of emit.current) {
-        marks.push({ x: e.x, y: e.y, hue: e.hue, power: e.power, flareAt: e.flareAt?.() });
+        marks.push({
+          x: e.x,
+          y: e.y,
+          hue: e.hue,
+          power: e.power,
+          flareAt: e.flareAt?.(),
+        });
       }
     };
 
     const screen: ScreenLight[] = [];
     const syncScreen = () => {
       screen.length = 0;
-      for (const l of lit.current) screen.push({ ...l, x: l.x - originX, y: l.y - originY });
+      for (const l of lit.current)
+        screen.push({ ...l, x: l.x - originX, y: l.y - originY });
     };
 
     const draw = () => {
@@ -227,7 +246,12 @@ export function Water({ tx, ty, zoom, emitters, lights, active, reduced }: Water
       let lastLights: readonly ScreenLight[] | null = null;
       const settle = () => {
         const gen = flowGeneration();
-        if (gen === lastGen && emit.current === lastMarks && lit.current === lastLights) return;
+        if (
+          gen === lastGen &&
+          emit.current === lastMarks &&
+          lit.current === lastLights
+        )
+          return;
         if (
           flowSources().length === 0 &&
           emit.current.length === 0 &&

@@ -38,7 +38,8 @@ describe("openings", () => {
    * on screen look identical.
    */
   it("carries a distinct, well-formed silhouette per taxon", () => {
-    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+    const uuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
     for (const o of OPENINGS) {
       const art = o.taxa.map((t) => t.art);
       for (const t of o.taxa) {
@@ -91,7 +92,9 @@ describe("nextOpening", () => {
   });
 
   it("wraps, so the last question is not a dead end", () => {
-    expect(nextOpening(OPENINGS[OPENINGS.length - 1]!)?.id).toBe(OPENINGS[0]!.id);
+    expect(nextOpening(OPENINGS[OPENINGS.length - 1]!)?.id).toBe(
+      OPENINGS[0]!.id,
+    );
   });
 
   it("never offers the question just answered", () => {

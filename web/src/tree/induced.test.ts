@@ -113,7 +113,8 @@ describe("the add delta — the signature interaction's input", () => {
     expect(d.drawOrder[d.drawOrder.length - 1]).toContain(added);
     // Root-ward first: staggering in this order reads as travel.
     expect(d.drawOrder.length).toBeGreaterThan(0);
-    for (const v of d.drawOrder.flat()) expect(before.rendered).not.toContain(v);
+    for (const v of d.drawOrder.flat())
+      expect(before.rendered).not.toContain(v);
   });
 
   it("treats the very first selection as its own subject", () => {

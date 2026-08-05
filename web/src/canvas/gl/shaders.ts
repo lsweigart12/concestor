@@ -42,9 +42,12 @@ import * as T from "./tuning";
  */
 const PRECISION = 8;
 const f = (n: number): string => {
-  if (!Number.isFinite(n)) throw new Error(`shader constant is not finite: ${n}`);
+  if (!Number.isFinite(n))
+    throw new Error(`shader constant is not finite: ${n}`);
   if (n !== 0 && Math.abs(n) < 10 ** -PRECISION) {
-    throw new Error(`shader constant ${n} would be written as 0.0; raise PRECISION`);
+    throw new Error(
+      `shader constant ${n} would be written as 0.0; raise PRECISION`,
+    );
   }
   const s = n.toFixed(PRECISION).replace(/0+$/, "");
   return s.endsWith(".") ? s + "0" : s;
@@ -134,7 +137,10 @@ void main(){ vUV = corner * 0.5 + 0.5; gl_Position = vec4(corner, 0.0, 1.0); }
 `;
 
 export const river = {
-  vs: COMMON + PATH + /* glsl */ `
+  vs:
+    COMMON +
+    PATH +
+    /* glsl */ `
 layout(location=0) in vec2 corner;
 uniform float uMinR;
 out vec2 vUV; out vec3 vTint; out float vA;
@@ -218,7 +224,9 @@ void main(){
 
 /** The marks. Same buffer, so a node lights the snow exactly as a branch does. */
 export const marks = {
-  vs: COMMON + /* glsl */ `
+  vs:
+    COMMON +
+    /* glsl */ `
 layout(location=0) in vec2 corner;
 layout(location=1) in vec4 inst;   // x, y, hue, power
 uniform vec2 uRes; uniform vec3 uView;
@@ -257,7 +265,9 @@ void main(){
  * distance in the ellipse's own units, so the falloff is unchanged.
  */
 export const screen = {
-  vs: COMMON + /* glsl */ `
+  vs:
+    COMMON +
+    /* glsl */ `
 layout(location=0) in vec2 corner;
 layout(location=1) in vec4 geom;   // x, y, rx, ry — device px, canvas-local
 layout(location=2) in vec4 lit;    // hue, power, seed, spare
@@ -338,7 +348,9 @@ void main(){
  * be anything and nothing ever jumps.
  */
 export const snow = {
-  vs: COMMON + /* glsl */ `
+  vs:
+    COMMON +
+    /* glsl */ `
 layout(location=0) in vec2 corner;
 uniform vec2 uRes; uniform vec2 uPan; uniform float uT;
 uniform sampler2D uField;
@@ -403,7 +415,9 @@ void main(){
   vec2 c = scr / uRes * 2.0 - 1.0;
   gl_Position = vec4(c.x, -c.y, 0.0, 1.0);
 }`,
-  fs: COMMON + /* glsl */ `
+  fs:
+    COMMON +
+    /* glsl */ `
 in float vV; in float vHue; in vec2 vScr; in vec2 vN; in float vHalf; in float vS;
 in float vReveal;
 out vec4 o;

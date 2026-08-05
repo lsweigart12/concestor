@@ -150,7 +150,10 @@ export function pickFrom(
   // Clamped rather than trusted. `Math.random()` never returns 1, but this
   // takes a number, and an index one past the end would return `undefined`
   // through a signature that promises it cannot.
-  const i = Math.min(free.length - 1, Math.max(0, Math.floor(roll * free.length)));
+  const i = Math.min(
+    free.length - 1,
+    Math.max(0, Math.floor(roll * free.length)),
+  );
   return free[i] ?? null;
 }
 
@@ -185,6 +188,9 @@ export const FOSSIL_BADGE_HINT =
  * predates `order`. Each list is still internally ranked there; they just
  * cannot interleave, so the nodes lead as they did before.
  */
-export function rowScore(order: number | null | undefined, fallback: number): number {
+export function rowScore(
+  order: number | null | undefined,
+  fallback: number,
+): number {
   return 4000 - (order ?? fallback) * 10;
 }

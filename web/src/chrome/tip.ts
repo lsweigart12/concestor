@@ -145,7 +145,8 @@ export function place(anchor: Rect, tip: Size, vp: Size): Placement {
   */
   const side: Side = anchor.y + anchor.h / 2 > vp.h / 2 ? "top" : "bottom";
 
-  const y = side === "bottom" ? anchor.y + anchor.h + GAP : anchor.y - GAP - tip.h;
+  const y =
+    side === "bottom" ? anchor.y + anchor.h + GAP : anchor.y - GAP - tip.h;
   // Centred on the trigger, then shifted back inside the window. The order is
   // load-bearing: clamping a centred x is one line, while choosing an edge to
   // align to needs a rule for which edge, and gets it wrong on the trigger

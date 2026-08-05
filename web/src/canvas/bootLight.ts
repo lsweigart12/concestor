@@ -295,7 +295,10 @@ export function lightsFrom(
  * `getBoundingClientRect` is cheap but a new array identity is not, since the
  * still frame downstream redraws on exactly that.
  */
-export function useBootLights(active: boolean, reduced: boolean): readonly ScreenLight[] {
+export function useBootLights(
+  active: boolean,
+  reduced: boolean,
+): readonly ScreenLight[] {
   const [lights, setLights] = useState<readonly ScreenLight[]>(NONE);
   /**
    * When each key was first seen. A ref rather than state: it is read inside
@@ -352,7 +355,9 @@ export function useBootLights(active: boolean, reduced: boolean): readonly Scree
         only when something changes, so a ramp would be sampled once and left
         frozen at whatever fraction that draw caught.
       */
-      const next = lightsFrom(boxes, (k) => (reduced ? undefined : born.current.get(k)));
+      const next = lightsFrom(boxes, (k) =>
+        reduced ? undefined : born.current.get(k),
+      );
       setLights((prev) => (sameLights(prev, next) ? prev : next));
     };
     const schedule = () => {
@@ -379,7 +384,10 @@ export function useBootLights(active: boolean, reduced: boolean): readonly Scree
 const NONE: readonly ScreenLight[] = Object.freeze([]);
 
 /** Whether two published sets are the same picture, field for field. */
-export function sameLights(a: readonly ScreenLight[], b: readonly ScreenLight[]): boolean {
+export function sameLights(
+  a: readonly ScreenLight[],
+  b: readonly ScreenLight[],
+): boolean {
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) {
     const p = a[i]!;

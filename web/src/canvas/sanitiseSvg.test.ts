@@ -22,7 +22,9 @@ function doc(inner: string, rootAttrs = ' viewBox="0 0 100 100"'): string {
 
 describe("sizing", () => {
   it("takes width and height off the root", () => {
-    const out = sanitiseSvg(doc("", ' viewBox="0 0 100 100" width="100" height="100"'));
+    const out = sanitiseSvg(
+      doc("", ' viewBox="0 0 100 100" width="100" height="100"'),
+    );
     expect(out).not.toMatch(/width=/);
     expect(out).toMatch(/viewBox="0 0 100 100"/);
   });
@@ -40,7 +42,9 @@ describe("sizing", () => {
     // picture 7,837 nodes inherit: Eilema at 7,753, Macropodus opercularis at
     // 77, Ateles paniscus at 7. Without width and height the image has no box.
     const out = sanitiseSvg(
-      doc('<image width="89.6" height="154.88" xlink:href="data:image/png;base64,iVBORw0K"/>'),
+      doc(
+        '<image width="89.6" height="154.88" xlink:href="data:image/png;base64,iVBORw0K"/>',
+      ),
     );
     expect(out).toContain('width="89.6"');
     expect(out).toContain('height="154.88"');
@@ -56,33 +60,43 @@ describe("what may not reach the DOM", () => {
   });
 
   it("refuses an href that leaves the document", () => {
-    const out = sanitiseSvg(doc('<image href="https://example.com/pixel.png"/>'));
+    const out = sanitiseSvg(
+      doc('<image href="https://example.com/pixel.png"/>'),
+    );
     expect(out).not.toContain("example.com");
   });
 
   it("refuses a data: URL that is itself a document", () => {
     // A raster is a picture; an SVG is a document, and a document can carry
     // script. That is the whole of why the media type is on the list.
-    const out = sanitiseSvg(doc('<image href="data:image/svg+xml;base64,PHN2Zz4="/>'));
+    const out = sanitiseSvg(
+      doc('<image href="data:image/svg+xml;base64,PHN2Zz4="/>'),
+    );
     expect(out).not.toContain("svg+xml");
   });
 
   it("keeps a fragment reference", () => {
     const out = sanitiseSvg(
-      doc('<clipPath id="c"><path d="M0 0"/></clipPath><path clip-path="url(#c)" d="M1 1"/>'),
+      doc(
+        '<clipPath id="c"><path d="M0 0"/></clipPath><path clip-path="url(#c)" d="M1 1"/>',
+      ),
     );
     expect(out).toContain('<clipPath id="c">');
     expect(out).toContain('clip-path="url(#c)"');
   });
 
   it("refuses a url() that leaves the document", () => {
-    const out = sanitiseSvg(doc('<path d="M0 0" fill="url(https://example.com/x#g)"/>'));
+    const out = sanitiseSvg(
+      doc('<path d="M0 0" fill="url(https://example.com/x#g)"/>'),
+    );
     expect(out).not.toContain("example.com");
     expect(out).toContain('<path d="M0 0"/>');
   });
 
   it("drops style, which would otherwise declare rules for the whole page", () => {
-    const out = sanitiseSvg(doc("<style>svg{display:none}</style><path d=\"M0 0\"/>"));
+    const out = sanitiseSvg(
+      doc('<style>svg{display:none}</style><path d="M0 0"/>'),
+    );
     expect(out).not.toContain("display:none");
     expect(out).not.toContain("<style");
     expect(out).toContain('<path d="M0 0"/>');
@@ -90,7 +104,9 @@ describe("what may not reach the DOM", () => {
 
   it("drops animation elements", () => {
     const out = sanitiseSvg(
-      doc('<a><animate attributeName="href" to="javascript:alert(1)"/></a><set attributeName="onload" to="alert(1)"/>'),
+      doc(
+        '<a><animate attributeName="href" to="javascript:alert(1)"/></a><set attributeName="onload" to="alert(1)"/>',
+      ),
     );
     expect(out).not.toContain("animate");
     expect(out).not.toContain("<set");
@@ -104,12 +120,18 @@ describe("what may not reach the DOM", () => {
   });
 
   it("drops foreignObject and its content", () => {
-    const out = sanitiseSvg(doc("<foreignObject><body><iframe src=x /></body></foreignObject>"));
-    expect(out).toBe('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"></svg>');
+    const out = sanitiseSvg(
+      doc("<foreignObject><body><iframe src=x /></body></foreignObject>"),
+    );
+    expect(out).toBe(
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"></svg>',
+    );
   });
 
   it("drops event handlers", () => {
-    const out = sanitiseSvg(doc('<path d="M0 0" onload="alert(1)" onclick=alert(2)/>'));
+    const out = sanitiseSvg(
+      doc('<path d="M0 0" onload="alert(1)" onclick=alert(2)/>'),
+    );
     expect(out).toContain('<path d="M0 0"/>');
     expect(out).not.toContain("alert");
   });
@@ -117,12 +139,16 @@ describe("what may not reach the DOM", () => {
   it("drops an attribute nobody asked for rather than passing it", () => {
     // The point of an allow-list: it is wrong only about things it has not
     // heard of, and being wrong there means dropping them.
-    const out = sanitiseSvg(doc('<path d="M0 0" formaction="/x" srcdoc="<b>"/>'));
+    const out = sanitiseSvg(
+      doc('<path d="M0 0" formaction="/x" srcdoc="<b>"/>'),
+    );
     expect(out).toContain('<path d="M0 0"/>');
   });
 
   it("drops comments and CDATA", () => {
-    const out = sanitiseSvg(doc("<!-- note --><![CDATA[raw]]><path d=\"M0 0\"/>"));
+    const out = sanitiseSvg(
+      doc('<!-- note --><![CDATA[raw]]><path d="M0 0"/>'),
+    );
     expect(out).not.toContain("note");
     expect(out).not.toContain("raw");
   });
@@ -130,7 +156,9 @@ describe("what may not reach the DOM", () => {
 
 describe("the fill rewrite, which is why any of this is inlined", () => {
   it("rewrites the baked fill on a group", () => {
-    const out = sanitiseSvg(doc('<g fill="#000000" stroke="none"><path d="M0 0"/></g>'));
+    const out = sanitiseSvg(
+      doc('<g fill="#000000" stroke="none"><path d="M0 0"/></g>'),
+    );
     expect(out).toContain('fill="currentColor"');
     expect(out).toContain('stroke="none"');
   });
@@ -144,11 +172,15 @@ describe("the fill rewrite, which is why any of this is inlined", () => {
   });
 
   it("leaves a fill that is not the baked one", () => {
-    expect(sanitiseSvg(doc('<path d="M0 0" fill="#231f20"/>'))).toContain('fill="#231f20"');
+    expect(sanitiseSvg(doc('<path d="M0 0" fill="#231f20"/>'))).toContain(
+      'fill="#231f20"',
+    );
   });
 
   it("rewrites it in a style attribute too", () => {
-    const out = sanitiseSvg(doc('<path d="M0 0" style="fill:#000;stroke-width:0.26"/>'));
+    const out = sanitiseSvg(
+      doc('<path d="M0 0" style="fill:#000;stroke-width:0.26"/>'),
+    );
     expect(out).toContain('style="fill:currentColor;stroke-width:0.26"');
   });
 });
@@ -169,12 +201,18 @@ describe("the shape of the output", () => {
   it("closes what a truncated file left open", () => {
     // This string goes to innerHTML. A file cut off mid-download must not
     // adopt the rest of the page.
-    const out = sanitiseSvg('<svg viewBox="0 0 1 1"><g fill="#000"><path d="M0 0"/>');
-    expect(out).toBe('<svg viewBox="0 0 1 1"><g fill="currentColor"><path d="M0 0"/></g></svg>');
+    const out = sanitiseSvg(
+      '<svg viewBox="0 0 1 1"><g fill="#000"><path d="M0 0"/>',
+    );
+    expect(out).toBe(
+      '<svg viewBox="0 0 1 1"><g fill="currentColor"><path d="M0 0"/></g></svg>',
+    );
   });
 
   it("ignores a close tag matching nothing open", () => {
-    const out = sanitiseSvg('<svg viewBox="0 0 1 1"></g><path d="M0 0"/></svg>');
+    const out = sanitiseSvg(
+      '<svg viewBox="0 0 1 1"></g><path d="M0 0"/></svg>',
+    );
     expect(out).toBe('<svg viewBox="0 0 1 1"><path d="M0 0"/></svg>');
   });
 
@@ -210,7 +248,9 @@ describe("the shape of the output", () => {
     expect(out).toContain('viewBox="0 0 982.000000 352.000000"');
     expect(out).toContain('preserveAspectRatio="xMidYMid meet"');
     expect(out).toContain('fill="currentColor"');
-    expect(out).toContain('transform="translate(0.000000,352.000000) scale(0.100000,-0.100000)"');
+    expect(out).toContain(
+      'transform="translate(0.000000,352.000000) scale(0.100000,-0.100000)"',
+    );
     expect(out).toContain('<path d="M3775 3489 c-49 -37 -120 -40 -172 -8z"/>');
     expect(out).not.toMatch(/\swidth=/);
     expect(out).not.toContain("potrace");

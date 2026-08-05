@@ -82,7 +82,9 @@ describe("witnessFor", () => {
     expect(witnessFor(split({ divergence_range: null }))).toBeNull();
     expect(
       witnessFor(
-        split({ divergence_range: { fea: null, fla: null, lea: null, lla: null } }),
+        split({
+          divergence_range: { fea: null, fla: null, lea: null, lla: null },
+        }),
       ),
     ).toBeNull();
   });

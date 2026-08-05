@@ -56,11 +56,16 @@ describe("the DOM contract", () => {
     expect(SOURCES).toHaveLength(4);
     expect(SOURCES.filter((s) => s.scope === "boot")).toHaveLength(2);
     for (const s of SOURCES) {
-      expect(s.sel.trim(), "an empty selector matches the whole document").not.toBe("");
+      expect(
+        s.sel.trim(),
+        "an empty selector matches the whole document",
+      ).not.toBe("");
       // Every one is anchored on a class. `.boot-inner > h1` is the wordmark and
       // the combinator is deliberate: the same panel renders an unreachable-API
       // heading, which is an apology rather than an invitation and must not glow.
-      expect(s.sel.startsWith("."), `${s.sel} is not anchored on a class`).toBe(true);
+      expect(s.sel.startsWith("."), `${s.sel} is not anchored on a class`).toBe(
+        true,
+      );
     }
   });
 
@@ -178,9 +183,11 @@ describe("boxes become lights", () => {
    * screen a shared phase is not a shimmer, it is a heartbeat.
    */
   it("gives neighbouring lights different phases", () => {
-    const set = ["wordmark:Concestor", "card:Are you a fish?", "command:Commands"].map(
-      (k) => lightsFrom([box("card", { key: k })])[0]!.seed,
-    );
+    const set = [
+      "wordmark:Concestor",
+      "card:Are you a fish?",
+      "command:Commands",
+    ].map((k) => lightsFrom([box("card", { key: k })])[0]!.seed);
     expect(new Set(set).size).toBe(set.length);
   });
 
@@ -191,7 +198,10 @@ describe("boxes become lights", () => {
   it("takes each light's birth from the caller, and none by default", () => {
     const born = new Map([["command:Commands", 1234]]);
     const [cmd, word] = lightsFrom(
-      [box("command", { key: "command:Commands" }), box("wordmark", { key: "wordmark:x" })],
+      [
+        box("command", { key: "command:Commands" }),
+        box("wordmark", { key: "wordmark:x" }),
+      ],
       (k) => born.get(k),
     );
     expect(cmd!.bornAt).toBe(1234);
@@ -206,7 +216,8 @@ describe("boxes become lights", () => {
  * measuring itself sixty times a second.
  */
 describe("two measurements are the same picture", () => {
-  const one = () => lightsFrom([box("command", { key: "command:Commands" })], () => 7);
+  const one = () =>
+    lightsFrom([box("command", { key: "command:Commands" })], () => 7);
 
   it("says so when nothing moved", () => {
     expect(sameLights(one(), one())).toBe(true);
@@ -215,16 +226,25 @@ describe("two measurements are the same picture", () => {
   it("says otherwise when anything at all did", () => {
     expect(sameLights(one(), [])).toBe(false);
     expect(
-      sameLights(one(), lightsFrom([box("command", { key: "command:Commands" })])),
+      sameLights(
+        one(),
+        lightsFrom([box("command", { key: "command:Commands" })]),
+      ),
     ).toBe(false);
     expect(
       sameLights(
         one(),
-        lightsFrom([box("command", { key: "command:Commands", x: 401 })], () => 7),
+        lightsFrom(
+          [box("command", { key: "command:Commands", x: 401 })],
+          () => 7,
+        ),
       ),
     ).toBe(false);
     expect(
-      sameLights(one(), lightsFrom([box("card", { key: "command:Commands" })], () => 7)),
+      sameLights(
+        one(),
+        lightsFrom([box("card", { key: "command:Commands" })], () => 7),
+      ),
     ).toBe(false);
   });
 });

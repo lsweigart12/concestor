@@ -58,8 +58,10 @@ describe("the card's footprint is the stylesheet's", () => {
         return false;
       }
     });
-    expect(blocks, `no @media (max-width: ${CARD_STACK_W}px) moves the card`)
-      .toHaveLength(1);
+    expect(
+      blocks,
+      `no @media (max-width: ${CARD_STACK_W}px) moves the card`,
+    ).toHaveLength(1);
     const block = blocks[0]!;
     expect(decl(".detail", "top", block)).toBe(`${CARD_STACK_TOP}px`);
     expect(decl(".detail", "max-height", block)).toBe(
@@ -98,7 +100,14 @@ describe("cardReserve", () => {
 
 describe("fitViewport", () => {
   const content = { x: 0, y: 0, w: 1000, h: 400 };
-  const base = { content, vw: 1200, vh: 800, reserve: 0, bottom: 100, maxZoom: 4 };
+  const base = {
+    content,
+    vw: 1200,
+    vh: 800,
+    reserve: 0,
+    bottom: 100,
+    maxZoom: 4,
+  };
 
   it("centres the content in the container when nothing is on it", () => {
     const v = fitViewport(base);
@@ -168,7 +177,13 @@ describe("freeRect", () => {
   });
 
   it("never reports a negative box, however little is left", () => {
-    const r = freeRect({ vw: 320, vh: 200, bottom: 104, cardOpen: true, pad: 10 });
+    const r = freeRect({
+      vw: 320,
+      vh: 200,
+      bottom: 104,
+      cardOpen: true,
+      pad: 10,
+    });
     expect(r.w).toBeGreaterThan(0);
     expect(r.h).toBeGreaterThan(0);
   });
@@ -228,12 +243,18 @@ describe("revealShift", () => {
 
 describe("the subject a reveal is measured on", () => {
   it("is the mark and its label together", () => {
-    const r = union({ x: 0, y: 0, w: 10, h: 10 }, { x: 20, y: -5, w: 100, h: 30 });
+    const r = union(
+      { x: 0, y: 0, w: 10, h: 10 },
+      { x: 20, y: -5, w: 100, h: 30 },
+    );
     expect(r).toEqual({ x: 0, y: -5, w: 120, h: 30 });
   });
 
   it("travels with the transform, so a zoomed-out mark is a small one", () => {
-    const r = toScreenRect({ x: 100, y: 50, w: 40, h: 20 }, { x: 30, y: 5, zoom: 0.5 });
+    const r = toScreenRect(
+      { x: 100, y: 50, w: 40, h: 20 },
+      { x: 30, y: 5, zoom: 0.5 },
+    );
     expect(r).toEqual({ x: 80, y: 30, w: 20, h: 10 });
   });
 });

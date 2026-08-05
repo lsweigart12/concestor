@@ -124,7 +124,10 @@ describe("the icon is painted in the app's own palette", () => {
     const m = /hsl\(var\(--accent-h\)\s+([\d.]+)%\s+([\d.]+)%\)/.exec(
       customProp("accent"),
     );
-    expect(m, "--accent is no longer an hsl() this test can resolve").toBeTruthy();
+    expect(
+      m,
+      "--accent is no longer an hsl() this test can resolve",
+    ).toBeTruthy();
     const accent = hslToHex(ACCENT_H, Number(m![1]) / 100, Number(m![2]) / 100);
 
     expect(DRAWN).toContain(`fill="${customProp("void")}"`);
@@ -177,8 +180,12 @@ describe("the generator draws the same glyph as the SVG", () => {
 
   it("found the three circles and the plate", () => {
     expect(circles).toHaveLength(3);
-    expect(attr(/<rect\b[^>]*>/.exec(DRAWN)![0], "rx")).toBe(pyConst("CORNER_R")[0]);
-    expect(attr(/<rect\b[^>]*>/.exec(DRAWN)![0], "width")).toBe(pyConst("BOX")[0]);
+    expect(attr(/<rect\b[^>]*>/.exec(DRAWN)![0], "rx")).toBe(
+      pyConst("CORNER_R")[0],
+    );
+    expect(attr(/<rect\b[^>]*>/.exec(DRAWN)![0], "width")).toBe(
+      pyConst("BOX")[0],
+    );
   });
 
   it("agrees on the bloom, the ring and the core", () => {
@@ -225,7 +232,7 @@ describe("the inline mark is the icon's glyph", () => {
   const TSX = read("./chrome/BrandMark.tsx");
 
   it("is reading a component that draws circles at all", () => {
-    expect(TSX).toContain("viewBox=\"0 0 32 32\"");
+    expect(TSX).toContain('viewBox="0 0 32 32"');
     expect([...TSX.matchAll(/<circle\b[^/>]*\/>/g)]).toHaveLength(3);
   });
 
@@ -269,8 +276,9 @@ describe("the inline mark is the icon's glyph", () => {
 
 describe("the document links what public/ actually holds", () => {
   it("links all three icons, and the .ico before the .svg", () => {
-    const hrefs = [...HTML.matchAll(/<link\b[^>]*rel="(?:apple-touch-)?icon"[^>]*>/g)]
-      .map((m) => /href="([^"]+)"/.exec(m[0])![1]!);
+    const hrefs = [
+      ...HTML.matchAll(/<link\b[^>]*rel="(?:apple-touch-)?icon"[^>]*>/g),
+    ].map((m) => /href="([^"]+)"/.exec(m[0])![1]!);
     expect(hrefs).toEqual([
       "/favicon.ico",
       "/favicon.svg",

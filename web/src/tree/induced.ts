@@ -113,7 +113,8 @@ export function induced(
     let run: number[] = [];
     for (const v of p) {
       if (rendered.has(v)) {
-        if (!segments.has(v)) segments.set(v, { anc: lastRendered, suppressed: run });
+        if (!segments.has(v))
+          segments.set(v, { anc: lastRendered, suppressed: run });
         lastRendered = v;
         run = [];
       } else {
@@ -195,7 +196,8 @@ export function addDelta(
     const seen = wave.get(v);
     if (seen !== undefined) return seen;
     const anc = after.segments.get(v)?.anc ?? null;
-    const w = anc === null ? ROOT : prior.has(anc) ? 0 : Math.max(waveOf(anc) + 1, 0);
+    const w =
+      anc === null ? ROOT : prior.has(anc) ? 0 : Math.max(waveOf(anc) + 1, 0);
     wave.set(v, w);
     return w;
   };

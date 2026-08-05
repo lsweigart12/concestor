@@ -182,7 +182,12 @@ export function Legend({ edges }: { edges: readonly TracePattern[] }) {
           {/* aria-hidden: the swatch illustrates the label, it does not make a
               second statement. A screen reader gets the words, which is where
               the meaning is. */}
-          <svg className="legend-swatch" width="22" height="8" aria-hidden="true">
+          <svg
+            className="legend-swatch"
+            width="22"
+            height="8"
+            aria-hidden="true"
+          >
             <g
               className={`trace ${TIER_CLASS[r.tier]}${r.unbounded ? " trace-unbounded" : ""}${r.attachment ? " trace-attachment" : ""}`}
             >

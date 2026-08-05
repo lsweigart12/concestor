@@ -39,7 +39,12 @@ function run(opts: {
   const at = p.first.map(() => 0);
   if (p.rest.length === 0) return { drawn, at, cut: false };
 
-  let seq: Sequence | null = { keys, drawn: p.first.length, since: 0, settled: false };
+  let seq: Sequence | null = {
+    keys,
+    drawn: p.first.length,
+    since: 0,
+    settled: false,
+  };
   // One millisecond at a time, which is what a real clock does and what makes
   // "waits on its path" distinguishable from "waits 1300ms".
   for (let now = 0; now <= until; now++) {
@@ -136,7 +141,12 @@ describe("a step waits on its path", () => {
 
   it("delays the sequence on a cold cache rather than outrunning it", () => {
     const r = run({
-      arrivals: { [KEYS[0]!]: 0, [KEYS[1]!]: 4000, [KEYS[2]!]: 4000, [KEYS[3]!]: 4000 },
+      arrivals: {
+        [KEYS[0]!]: 0,
+        [KEYS[1]!]: 4000,
+        [KEYS[2]!]: 4000,
+        [KEYS[3]!]: 4000,
+      },
       settleAt: 4000,
     });
     expect(r.drawn).toEqual(KEYS);
@@ -169,7 +179,9 @@ describe("a step waits on its path", () => {
   });
 
   it("is finished once every key is drawn", () => {
-    expect(step(armed({ drawn: KEYS.length }), 10_000, all)).toEqual({ kind: "done" });
+    expect(step(armed({ drawn: KEYS.length }), 10_000, all)).toEqual({
+      kind: "done",
+    });
   });
 });
 

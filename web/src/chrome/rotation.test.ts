@@ -16,7 +16,13 @@
 
 import { describe, expect, it } from "vitest";
 import { OPENINGS } from "../openings";
-import { AUTO_ADVANCES, READ_MS_PER_WORD, REACH_MS, dwellFor, wordsIn } from "./rotation";
+import {
+  AUTO_ADVANCES,
+  READ_MS_PER_WORD,
+  REACH_MS,
+  dwellFor,
+  wordsIn,
+} from "./rotation";
 
 /** What the constant this replaced was, so the comparison below is a fact. */
 const OLD_FLAT_DWELL_MS = 7600;
@@ -30,7 +36,12 @@ const CAROUSEL = import.meta.glob<string>("./OpeningCarousel.tsx", {
 describe("wordsIn", () => {
   it("counts the question and the reveal together, which is what is on screen", () => {
     expect(
-      wordsIn({ id: "x", question: "Is a koala a bear?", reveal: "No.", taxa: [] }),
+      wordsIn({
+        id: "x",
+        question: "Is a koala a bear?",
+        reveal: "No.",
+        taxa: [],
+      }),
     ).toBe(6);
   });
 
@@ -39,7 +50,12 @@ describe("wordsIn", () => {
     // free to re-wrap them. A split on " " rather than on whitespace would
     // count "the\nshark" as one word and quietly shorten that opening's dwell.
     expect(
-      wordsIn({ id: "x", question: " Are\nyou  a fish? ", reveal: "You\tand the salmon", taxa: [] }),
+      wordsIn({
+        id: "x",
+        question: " Are\nyou  a fish? ",
+        reveal: "You\tand the salmon",
+        taxa: [],
+      }),
     ).toBe(8);
   });
 });
@@ -68,8 +84,12 @@ describe("dwellFor", () => {
     const spread = OPENINGS.map(wordsIn);
     expect(Math.max(...spread)).toBeGreaterThan(Math.min(...spread));
 
-    const longest = OPENINGS.reduce((a, b) => (wordsIn(a) >= wordsIn(b) ? a : b));
-    const shortest = OPENINGS.reduce((a, b) => (wordsIn(a) <= wordsIn(b) ? a : b));
+    const longest = OPENINGS.reduce((a, b) =>
+      wordsIn(a) >= wordsIn(b) ? a : b,
+    );
+    const shortest = OPENINGS.reduce((a, b) =>
+      wordsIn(a) <= wordsIn(b) ? a : b,
+    );
     expect(dwellFor(longest)).toBeGreaterThan(dwellFor(shortest));
   });
 

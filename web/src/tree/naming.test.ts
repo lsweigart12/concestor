@@ -12,7 +12,13 @@ import { describe, expect, it } from "vitest";
 import type { PathNode } from "../api";
 import { induced } from "./induced";
 import { layout } from "./layout";
-import { branchProse, commonName, divergenceFor, markName, UNNAMED } from "./naming";
+import {
+  branchProse,
+  commonName,
+  divergenceFor,
+  markName,
+  UNNAMED,
+} from "./naming";
 
 /** idx → [name, rank]. Everything else on the node is irrelevant here. */
 const NAMED: Record<number, [string, string | null]> = {
@@ -77,7 +83,17 @@ const node = (idx: number): PathNode => {
 
 // Real ancestor chains, trimmed to Homininae. The unnamed run between the
 // human/chimp split and the genus Homo is what makes this the interesting case.
-const CHAIN = [594474, HOMININI, 594476, 594477, 594478, 594479, 594480, 594481, 594482];
+const CHAIN = [
+  594474,
+  HOMININI,
+  594476,
+  594477,
+  594478,
+  594479,
+  594480,
+  594481,
+  594482,
+];
 const PATHS: Record<number, number[]> = {
   [HOMO_SAPIENS]: [...CHAIN, 594483, 594484, HOMO_SAPIENS],
   [NEANDERTHAL]: [...CHAIN, 594483, 594484, HOMO_SAPIENS, NEANDERTHAL],
@@ -87,7 +103,9 @@ const PATHS: Record<number, number[]> = {
 
 const SELECTION = [HOMO_SAPIENS, NEANDERTHAL, ERECTUS, CHIMP];
 const ind = induced(SELECTION, (i) => PATHS[i]);
-const nodes = new Map(ind.rendered.concat(...Object.values(PATHS)).map((i) => [i, node(i)]));
+const nodes = new Map(
+  ind.rendered.concat(...Object.values(PATHS)).map((i) => [i, node(i)]),
+);
 
 describe("naming a divergence the taxonomy does not name", () => {
   it("reads the names off the suppressed run, not off the leaves", () => {
@@ -159,14 +177,21 @@ describe("the name a mark shows", () => {
   it("falls back silently where nothing was ranked", () => {
     // Most of a deep tree. 110,794 nodes of 2.7M carry an English name, so a
     // marker on every fallback would decorate the whole canvas.
-    expect(markName(at(594480), "common")).toEqual({ text: "Homo", rank: "genus" });
+    expect(markName(at(594480), "common")).toEqual({
+      text: "Homo",
+      rank: "genus",
+    });
   });
 
   it("refuses a common name above genus, however good the name is", () => {
     // The server does not send one either; this is the second of the two
     // refusals, and it is what keeps "animals" off Metazoa when a build's
     // payload predates the first.
-    const subfamily = { name: "Homininae", rank: "subfamily", vernacular: "great apes" };
+    const subfamily = {
+      name: "Homininae",
+      rank: "subfamily",
+      vernacular: "great apes",
+    };
     expect(commonName(subfamily)).toBeNull();
     expect(markName(subfamily, "common")).toEqual({
       text: "Homininae",
@@ -178,7 +203,11 @@ describe("the name a mark shows", () => {
     // PBDB's ColDP files the binomial itself as a vernacular for thousands of
     // taxa, which would print *Tyrannosaurus rex* in roman and call it English.
     expect(
-      commonName({ name: "Tyrannosaurus rex", rank: "species", vernacular: "Tyrannosaurus rex" }),
+      commonName({
+        name: "Tyrannosaurus rex",
+        rank: "species",
+        vernacular: "Tyrannosaurus rex",
+      }),
     ).toBeNull();
   });
 });
@@ -188,7 +217,9 @@ describe("a derived name in common names", () => {
     // *Homo* and *Pan* are genera with no ranked English name, so the human /
     // chimp split reads the same in both modes. This is the case the switch
     // helps least, and a deep tree is mostly made of it.
-    expect(divergenceFor(HOMININI, ind, nodes, "common")?.text).toBe("Homo / Pan");
+    expect(divergenceFor(HOMININI, ind, nodes, "common")?.text).toBe(
+      "Homo / Pan",
+    );
   });
 
   it("still prefers the genus, so two species do not make it English", () => {
@@ -199,7 +230,9 @@ describe("a derived name in common names", () => {
     // ranked English name against 99,960 species. Choosing human and chimp
     // alone still gives "Homo / Pan" in both modes.
     const pair = induced([HOMO_SAPIENS, CHIMP], (i) => PATHS[i]);
-    expect(divergenceFor(pair.mrca, pair, nodes, "common")?.text).toBe("Homo / Pan");
+    expect(divergenceFor(pair.mrca, pair, nodes, "common")?.text).toBe(
+      "Homo / Pan",
+    );
   });
 
   it("italicises run by run, so one fork can carry both kinds of name", () => {

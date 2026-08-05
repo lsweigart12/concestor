@@ -172,7 +172,10 @@ export class BiolumRenderer {
     this.gl = gl;
     // Half-float render targets. Without this the light buffer clips at 1 and
     // the tone map has nothing left to roll off — see tuning's EXPOSURE.
-    if (!gl.getExtension("EXT_color_buffer_half_float") && !gl.getExtension("EXT_color_buffer_float")) {
+    if (
+      !gl.getExtension("EXT_color_buffer_half_float") &&
+      !gl.getExtension("EXT_color_buffer_float")
+    ) {
       throw new Error("no float render targets");
     }
     this.build();
@@ -260,7 +263,11 @@ export class BiolumRenderer {
 
     this.quad = gl.createBuffer()!;
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quad);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+    gl.bufferData(
+      gl.ARRAY_BUFFER,
+      new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]),
+      gl.STATIC_DRAW,
+    );
 
     this.vaQuad = gl.createVertexArray()!;
     gl.bindVertexArray(this.vaQuad);
@@ -334,14 +341,30 @@ export class BiolumRenderer {
     const gl = this.gl;
     const tex = gl.createTexture()!;
     gl.bindTexture(gl.TEXTURE_2D, tex);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, w, h, 0, gl.RGBA, gl.HALF_FLOAT, null);
+    gl.texImage2D(
+      gl.TEXTURE_2D,
+      0,
+      gl.RGBA16F,
+      w,
+      h,
+      0,
+      gl.RGBA,
+      gl.HALF_FLOAT,
+      null,
+    );
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     const fbo = gl.createFramebuffer()!;
     gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
-    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+    gl.framebufferTexture2D(
+      gl.FRAMEBUFFER,
+      gl.COLOR_ATTACHMENT0,
+      gl.TEXTURE_2D,
+      tex,
+      0,
+    );
     return { tex, fbo, w, h };
   }
 
@@ -400,7 +423,9 @@ export class BiolumRenderer {
 
     this.pathBuf = new Float32Array(PATH_SAMPLES * n * 4);
     this.metaBuf = new Float32Array(n * 3 * 4);
-    this.per = Math.ceil(Math.max(...this.sources.map((s) => T.quotaFor(s.len))));
+    this.per = Math.ceil(
+      Math.max(...this.sources.map((s) => T.quotaFor(s.len))),
+    );
     this.uploadPaths();
 
     /* The glass: one triangle strip per branch, degenerate-joined into one
@@ -468,7 +493,17 @@ export class BiolumRenderer {
       }
     }
     gl.bindTexture(gl.TEXTURE_2D, this.pathTex);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, PATH_SAMPLES, n, 0, gl.RGBA, gl.FLOAT, this.pathBuf);
+    gl.texImage2D(
+      gl.TEXTURE_2D,
+      0,
+      gl.RGBA32F,
+      PATH_SAMPLES,
+      n,
+      0,
+      gl.RGBA,
+      gl.FLOAT,
+      this.pathBuf,
+    );
   }
 
   private uploadMeta(now: number): void {
@@ -494,7 +529,17 @@ export class BiolumRenderer {
       this.metaBuf[(2 * n + i) * 4] = src.reveal();
     }
     gl.bindTexture(gl.TEXTURE_2D, this.metaTex);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, n, 3, 0, gl.RGBA, gl.FLOAT, this.metaBuf);
+    gl.texImage2D(
+      gl.TEXTURE_2D,
+      0,
+      gl.RGBA32F,
+      n,
+      3,
+      0,
+      gl.RGBA,
+      gl.FLOAT,
+      this.metaBuf,
+    );
   }
 
   private uploadMarks(marks: readonly MarkLight[], now: number): number {
@@ -511,7 +556,11 @@ export class BiolumRenderer {
       this.markBuf[i * 4 + 3] = m.power * (1 + T.FLARE_GAIN * flare);
     }
     gl.bindBuffer(gl.ARRAY_BUFFER, this.bMarks);
-    gl.bufferData(gl.ARRAY_BUFFER, this.markBuf.subarray(0, marks.length * 4), gl.DYNAMIC_DRAW);
+    gl.bufferData(
+      gl.ARRAY_BUFFER,
+      this.markBuf.subarray(0, marks.length * 4),
+      gl.DYNAMIC_DRAW,
+    );
     return marks.length;
   }
 
@@ -542,7 +591,11 @@ export class BiolumRenderer {
       this.screenBuf[o + 7] = 0;
     }
     gl.bindBuffer(gl.ARRAY_BUFFER, this.bScreen);
-    gl.bufferData(gl.ARRAY_BUFFER, this.screenBuf.subarray(0, lights.length * 8), gl.DYNAMIC_DRAW);
+    gl.bufferData(
+      gl.ARRAY_BUFFER,
+      this.screenBuf.subarray(0, lights.length * 8),
+      gl.DYNAMIC_DRAW,
+    );
     return lights.length;
   }
 
@@ -558,7 +611,11 @@ export class BiolumRenderer {
     return pass;
   }
 
-  private tex(unit: number, tex: WebGLTexture, loc: WebGLUniformLocation | null): void {
+  private tex(
+    unit: number,
+    tex: WebGLTexture,
+    loc: WebGLUniformLocation | null,
+  ): void {
     const gl = this.gl;
     gl.activeTexture(gl.TEXTURE0 + unit);
     gl.bindTexture(gl.TEXTURE_2D, tex);
@@ -609,7 +666,12 @@ export class BiolumRenderer {
       this.tex(0, this.pathTex, r.u("uPath"));
       this.tex(1, this.metaTex, r.u("uMeta"));
       gl.uniform2f(r.u("uRes"), this.w, this.h);
-      gl.uniform3f(r.u("uView"), view.tx * this.dpr, view.ty * this.dpr, view.zoom * this.dpr);
+      gl.uniform3f(
+        r.u("uView"),
+        view.tx * this.dpr,
+        view.ty * this.dpr,
+        view.zoom * this.dpr,
+      );
       gl.uniform1f(r.u("uT"), t);
       gl.uniform1i(r.u("uSamples"), PATH_SAMPLES);
       gl.uniform1i(r.u("uPer"), this.per);
@@ -620,7 +682,12 @@ export class BiolumRenderer {
       const m = this.use("marks");
       gl.bindVertexArray(this.vaMarks);
       gl.uniform2f(m.u("uRes"), this.w, this.h);
-      gl.uniform3f(m.u("uView"), view.tx * this.dpr, view.ty * this.dpr, view.zoom * this.dpr);
+      gl.uniform3f(
+        m.u("uView"),
+        view.tx * this.dpr,
+        view.ty * this.dpr,
+        view.zoom * this.dpr,
+      );
       gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, nMarks);
     }
     /*
@@ -674,7 +741,12 @@ export class BiolumRenderer {
     gl.uniform2f(sn.u("uRes"), this.w, this.h);
     gl.uniform2f(sn.u("uPan"), view.tx * this.dpr, view.ty * this.dpr);
     gl.uniform1f(sn.u("uT"), t);
-    gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, T.snowCountFor(this.w, this.h));
+    gl.drawArraysInstanced(
+      gl.TRIANGLE_STRIP,
+      0,
+      4,
+      T.snowCountFor(this.w, this.h),
+    );
 
     const c = this.use("compose");
     this.tex(0, this.light.tex, c.u("uLight"));
@@ -687,7 +759,12 @@ export class BiolumRenderer {
       this.tex(0, field.tex, g.u("uField"));
       this.tex(1, this.metaTex, g.u("uMeta"));
       gl.uniform2f(g.u("uRes"), this.w, this.h);
-      gl.uniform3f(g.u("uView"), view.tx * this.dpr, view.ty * this.dpr, view.zoom * this.dpr);
+      gl.uniform3f(
+        g.u("uView"),
+        view.tx * this.dpr,
+        view.ty * this.dpr,
+        view.zoom * this.dpr,
+      );
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, this.glassCount);
     }
 
@@ -737,7 +814,8 @@ export class BiolumRenderer {
     gl.deleteVertexArray(this.vaMarks);
     gl.deleteVertexArray(this.vaScreen);
     gl.deleteVertexArray(this.vaGlass);
-    for (const name of Object.keys(this.passes)) gl.deleteProgram(this.passes[name]!.p);
+    for (const name of Object.keys(this.passes))
+      gl.deleteProgram(this.passes[name]!.p);
     /*
       **The context is deliberately not lost here.**
 

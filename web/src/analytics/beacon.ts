@@ -186,7 +186,12 @@ export class Beacon {
 
   /** A taxon the reader chose. Interactive adds only — see `docs/analytics.md` §2. */
   add(key: string): void {
-    this.record({ kind: "add", subject: cap(key, MAX_SUBJECT), tree: "", cause: "" });
+    this.record({
+      kind: "add",
+      subject: cap(key, MAX_SUBJECT),
+      tree: "",
+      cause: "",
+    });
   }
 
   /** The selection changed. Recorded once it settles, and never as a duplicate. */
@@ -223,7 +228,12 @@ export class Beacon {
     this.pendingQuery = null;
     if (q === null || q === this.lastQuery) return;
     this.lastQuery = q;
-    this.record({ kind: "search", subject: cap(q, MAX_SUBJECT), tree: "", cause: "" });
+    this.record({
+      kind: "search",
+      subject: cap(q, MAX_SUBJECT),
+      tree: "",
+      cause: "",
+    });
   }
 
   private emitTree(): void {
@@ -284,7 +294,12 @@ function post(events: readonly Event[]): void {
     // `sendBeacon` first because it is the only transport the browser promises
     // to finish after the page is gone, which is exactly when the last tree of
     // a session is emitted.
-    if (navigator.sendBeacon?.(BEACON_PATH, new Blob([body], { type: "application/json" }))) {
+    if (
+      navigator.sendBeacon?.(
+        BEACON_PATH,
+        new Blob([body], { type: "application/json" }),
+      )
+    ) {
       return;
     }
     void fetch(BEACON_PATH, {

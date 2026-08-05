@@ -204,7 +204,10 @@ export function nearestOn(
     const len2 = dx * dx + dy * dy;
     // A zero-length segment has no direction to project onto; its endpoint is
     // already a candidate through its neighbours.
-    const f = len2 > 0 ? Math.min(1, Math.max(0, ((x - a.x) * dx + (y - a.y) * dy) / len2)) : 0;
+    const f =
+      len2 > 0
+        ? Math.min(1, Math.max(0, ((x - a.x) * dx + (y - a.y) * dy) / len2))
+        : 0;
     const px = a.x + dx * f;
     const py = a.y + dy * f;
     const d2 = (x - px) ** 2 + (y - py) ** 2;

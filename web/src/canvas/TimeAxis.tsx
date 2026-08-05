@@ -182,7 +182,9 @@ export function buildTicks(
   // A flat centre-to-centre gap was fine while every tick was a short number and
   // stopped being fine the moment one of them read "present".
   const placed: { age: number; x: number; half: number }[] = [];
-  const order = [...candidates].sort((a, b) => a.rank - b.rank || a.age - b.age);
+  const order = [...candidates].sort(
+    (a, b) => a.rank - b.rank || a.age - b.age,
+  );
   for (const t of order) {
     if (placed.some((p) => p.age === t.age)) continue;
     const x = toScreenX(t.age);
@@ -504,7 +506,6 @@ export function TimeAxis({
             )}
           </>
         )}
-
       </svg>
 
       {/* The footer is DOM rather than more SVG: it holds running text of two

@@ -28,7 +28,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { beacon, type Cause } from "../analytics/beacon";
 import { api, type FossilTaxon, type PathNode, type Resolved } from "../api";
-import { addDelta, induced, type AddDelta, type Induced } from "../tree/induced";
+import {
+  addDelta,
+  induced,
+  type AddDelta,
+  type Induced,
+} from "../tree/induced";
 import type { AxisMode } from "../tree/layout";
 import type { LabelMode } from "../tree/naming";
 import { plan, remaining, step, type Sequence } from "./sequence";
@@ -145,7 +150,11 @@ export const AGES_DEFAULT = true;
  * take the app down with it. Falling back is free — the default is the canvas
  * as it was.
  */
-function readMode<T>(key: string, parse: (raw: string) => T | null, fallback: T): T {
+function readMode<T>(
+  key: string,
+  parse: (raw: string) => T | null,
+  fallback: T,
+): T {
   try {
     const raw = sessionStorage.getItem(key);
     return raw === null ? fallback : (parse(raw) ?? fallback);
@@ -308,7 +317,9 @@ export function toApiKey(key: string): string {
 
 /** The compact form we put in URLs. */
 export function toUrlKey(key: string): string {
-  return key.startsWith("ott") && /^\d+$/.test(key.slice(3)) ? key.slice(3) : key;
+  return key.startsWith("ott") && /^\d+$/.test(key.slice(3))
+    ? key.slice(3)
+    : key;
 }
 
 export interface Broken {
@@ -337,7 +348,9 @@ export interface TreeState {
 }
 
 export function useTree() {
-  const [view, setView] = useState<ViewState>(() => decode(window.location.search));
+  const [view, setView] = useState<ViewState>(() =>
+    decode(window.location.search),
+  );
   // Not part of `view`, and so not in the URL or in history. See `BIOLUM_KEY`.
   const [biolum, setBiolum] = useState<boolean>(loadBiolum);
   const [labels, setLabelsState] = useState<LabelMode>(loadLabels);
@@ -349,11 +362,15 @@ export function useTree() {
   const [broken, setBroken] = useState<Broken[]>([]);
   const [unresolved, setUnresolved] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [delta, setDelta] = useState<(AddDelta & { token: number }) | null>(null);
+  const [delta, setDelta] = useState<(AddDelta & { token: number }) | null>(
+    null,
+  );
   // Resolved fossils, by PBDB taxon number. Like `nodes`, this only grows: the
   // API is immutable within a build, so removing a graft from the view need
   // not throw away the row it was drawn from.
-  const [fossils, setFossils] = useState<Map<number, FossilTaxon>>(() => new Map());
+  const [fossils, setFossils] = useState<Map<number, FossilTaxon>>(
+    () => new Map(),
+  );
   const [fossilsLoading, setFossilsLoading] = useState(false);
   /** An opening being drawn one taxon at a time, or null. See `sequence.ts`. */
   const [sequence, setSequence] = useState<Sequence | null>(null);
@@ -480,7 +497,12 @@ export function useTree() {
       for (const n of r.path) next.set(n.idx, n);
       return next;
     });
-    setPaths((m) => new Map(m).set(key, r.path.map((n) => n.idx)));
+    setPaths((m) =>
+      new Map(m).set(
+        key,
+        r.path.map((n) => n.idx),
+      ),
+    );
     setIdxOf((m) => new Map(m).set(key, r.idx));
     return r.idx;
   }, []);
@@ -553,7 +575,10 @@ export function useTree() {
       // from a hand-edited or stale URL, nothing will ever be drawn for it, and
       // leaving it in means re-requesting it on every subsequent render.
       if (lost.length) {
-        setView((v) => ({ ...v, fossils: v.fossils.filter((n) => !lost.includes(n)) }));
+        setView((v) => ({
+          ...v,
+          fossils: v.fossils.filter((n) => !lost.includes(n)),
+        }));
       }
     })();
     return () => {
@@ -562,7 +587,10 @@ export function useTree() {
   }, [view.fossils, fossils]);
 
   const selectionIdx = useMemo(
-    () => view.keys.map((k) => idxOf.get(k)).filter((v): v is number => v !== undefined),
+    () =>
+      view.keys
+        .map((k) => idxOf.get(k))
+        .filter((v): v is number => v !== undefined),
     [view.keys, idxOf],
   );
 
@@ -584,10 +612,15 @@ export function useTree() {
     lastCount.current = selectionIdx.length;
     if (grew && ind.rendered.length) {
       const added = selectionIdx[selectionIdx.length - 1];
-      const newest = ind.leaves.find((l) => !prevInduced.current?.leaves.includes(l));
+      const newest = ind.leaves.find(
+        (l) => !prevInduced.current?.leaves.includes(l),
+      );
       const target = newest ?? added;
       if (target !== undefined) {
-        setDelta({ ...addDelta(prevInduced.current, ind, target), token: ++token.current });
+        setDelta({
+          ...addDelta(prevInduced.current, ind, target),
+          token: ++token.current,
+        });
       }
     }
     prevInduced.current = ind;
@@ -711,11 +744,20 @@ export function useTree() {
    * surfaces that offer an opening and from no other path.
    */
   const openSequenced = useCallback(
-    (keys: readonly string[], axis: AxisMode | undefined, reduced: boolean): boolean => {
+    (
+      keys: readonly string[],
+      axis: AxisMode | undefined,
+      reduced: boolean,
+    ): boolean => {
       const p = plan(keys, reduced);
       open(p.first, axis);
       if (p.rest.length === 0) return false;
-      setSequence({ keys: [...keys], drawn: p.first.length, since: Date.now(), settled: false });
+      setSequence({
+        keys: [...keys],
+        drawn: p.first.length,
+        since: Date.now(),
+        settled: false,
+      });
       // `finally`, not `then`: a batch that fails is still an answer about
       // every key in it. Without this a dead API would leave the canvas holding
       // one taxon and an animation that never ends.
@@ -775,7 +817,9 @@ export function useTree() {
     const land = (key: string, at: number) => {
       drawStep(key);
       setSequence((s) =>
-        s && s.keys[s.drawn] === key ? { ...s, drawn: s.drawn + 1, since: at } : s,
+        s && s.keys[s.drawn] === key
+          ? { ...s, drawn: s.drawn + 1, since: at }
+          : s,
       );
     };
     if (next.kind === "draw") {
@@ -833,7 +877,9 @@ export function useTree() {
    */
   const addFossil = useCallback((taxonNo: number) => {
     setView((v) =>
-      v.fossils.includes(taxonNo) ? v : { ...v, fossils: [...v.fossils, taxonNo] },
+      v.fossils.includes(taxonNo)
+        ? v
+        : { ...v, fossils: [...v.fossils, taxonNo] },
     );
   }, []);
 
@@ -852,7 +898,10 @@ export function useTree() {
     cause.current = "clear";
     setView(DEFAULT);
   }, []);
-  const setAxis = useCallback((axis: AxisMode) => setView((v) => ({ ...v, axis })), []);
+  const setAxis = useCallback(
+    (axis: AxisMode) => setView((v) => ({ ...v, axis })),
+    [],
+  );
   // Written through on the setter, like the light above, so the store is the
   // only thing that touches the key and a render can never overwrite a choice.
   const setLabels = useCallback((mode: LabelMode) => {
@@ -874,7 +923,8 @@ export function useTree() {
     [],
   );
   const select = useCallback(
-    (key: string | null) => setView((v) => ({ ...v, selected: key && toUrlKey(key) })),
+    (key: string | null) =>
+      setView((v) => ({ ...v, selected: key && toUrlKey(key) })),
     [],
   );
   const toggleIsolate = useCallback(

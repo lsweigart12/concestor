@@ -197,7 +197,8 @@ export function graftYoungest(
   span: { oldest: number; youngest: number },
 ): number {
   const drawn = f.lla_drawn;
-  if (typeof drawn !== "number" || !Number.isFinite(drawn)) return span.youngest;
+  if (typeof drawn !== "number" || !Number.isFinite(drawn))
+    return span.youngest;
   return Math.min(Math.max(drawn, span.youngest), span.oldest);
 }
 
@@ -253,7 +254,8 @@ export function makeGraft(
   // offer is the node itself.
   const anchorAge = nodes.get(at.anchor)?.age_layout ?? 0;
   const ancIdx = ind.segments.get(at.anchor)?.anc ?? null;
-  const branchTop = ancIdx === null ? anchorAge : (nodes.get(ancIdx)?.age_layout ?? anchorAge);
+  const branchTop =
+    ancIdx === null ? anchorAge : (nodes.get(ancIdx)?.age_layout ?? anchorAge);
   const joinAge = Math.min(Math.max(span.oldest, anchorAge), branchTop);
   const joinAt =
     joinAge === span.oldest
@@ -347,7 +349,10 @@ export function buildGrafts(
   // layout question — it is what decides whether two connectors cross — and
   // `graftOrder` in `layout.ts` settles it, stably, on top of this.
   grafts.sort(
-    (a, b) => a.anchor - b.anchor || b.node.age_layout - a.node.age_layout || a.idx - b.idx,
+    (a, b) =>
+      a.anchor - b.anchor ||
+      b.node.age_layout - a.node.age_layout ||
+      a.idx - b.idx,
   );
   return { grafts, refused };
 }

@@ -200,7 +200,12 @@ export function TraceEdge({ id, data }: EdgeProps) {
 
     const draw = core.animate(
       [{ strokeDashoffset: len }, { strokeDashoffset: 0 }],
-      { duration: DRAW_MS, delay: d.delay, easing: "cubic-bezier(.16,.9,.3,1)", fill: "both" },
+      {
+        duration: DRAW_MS,
+        delay: d.delay,
+        easing: "cubic-bezier(.16,.9,.3,1)",
+        fill: "both",
+      },
     );
 
     // Once the line has arrived, it decays from flare-bright to steady.
@@ -211,7 +216,12 @@ export function TraceEdge({ id, data }: EdgeProps) {
         { opacity: 1, filter: "brightness(2.1)" },
         { opacity: 1, filter: "brightness(1)" },
       ],
-      { duration: DECAY_MS, delay: d.delay + DRAW_MS, easing: "ease-out", fill: "both" },
+      {
+        duration: DECAY_MS,
+        delay: d.delay + DRAW_MS,
+        easing: "ease-out",
+        fill: "both",
+      },
     );
 
     const done = () => {
@@ -272,7 +282,8 @@ export function TraceEdge({ id, data }: EdgeProps) {
       // the tube at the time without re-registering anything.
       bend: () => bendRef.current,
       surgeAt: () => surgeOf(id),
-      reveal: () => revealAt(performance.now(), drawFrom.current, d.delay, DRAW_MS),
+      reveal: () =>
+        revealAt(performance.now(), drawFrom.current, d.delay, DRAW_MS),
     });
   }, [id, d.d, d.hue, d.tier, d.unbounded, d.delay, streaming]);
 
@@ -307,7 +318,9 @@ export function TraceEdge({ id, data }: EdgeProps) {
       const halo = haloRef.current;
       if (!core) return;
       strumAtRef.current = performance.now();
-      const walls = [halo, core].filter((el): el is SVGPathElement => el !== null);
+      const walls = [halo, core].filter(
+        (el): el is SVGPathElement => el !== null,
+      );
       surgeBranch(id);
 
       const t0 = performance.now();
@@ -399,7 +412,9 @@ export function TraceEdge({ id, data }: EdgeProps) {
       */
       const ctm = core.getScreenCTM();
       if (!ctm) return;
-      const local = new DOMPoint(e.clientX, e.clientY).matrixTransform(ctm.inverse());
+      const local = new DOMPoint(e.clientX, e.clientY).matrixTransform(
+        ctm.inverse(),
+      );
       const hitAt = nearestOn(pts, local.x, local.y);
       if (!hitAt) return;
 

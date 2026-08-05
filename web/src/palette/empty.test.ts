@@ -21,11 +21,8 @@
 import { describe, expect, it } from "vitest";
 import { emptyState, MIN_QUERY } from "./Palette";
 
-const state = (
-  query: string,
-  searching: boolean,
-  slow: boolean,
-) => emptyState({ query, searching, slow });
+const state = (query: string, searching: boolean, slow: boolean) =>
+  emptyState({ query, searching, slow });
 
 describe("the palette's empty list", () => {
   it("never denies a match while a search is out", () => {
