@@ -15,14 +15,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   api,
   ApiError,
-  type About,
   type FossilTaxon,
-  type FossilDetail,
   type NodeDetail,
   type PathNode,
   type RandomPool,
   type SearchHit,
-  type TimescaleInterval,
 } from "./api";
 import { pickFrom, randomKind, SPECIES_PHRASE } from "./corpora";
 import { Graph } from "./canvas/Graph";
@@ -30,6 +27,7 @@ import { isScientificItalic } from "./canvas/NodeMark";
 import { Detail } from "./detail/Detail";
 import { CardPending } from "./detail/blocks";
 import { FossilCard } from "./detail/FossilCard";
+import { useCards } from "./detail/cards";
 import { idxFromKey, selectionKeyFor } from "./detail/target";
 import {
   buildGrafts,
@@ -37,8 +35,8 @@ import {
   isGraftIdx,
   makeGraft,
   parseGraftKey,
-  type GraftRefusal,
 } from "./tree/graft";
+import { useGraftRefusals } from "./tree/refusals";
 import {
   Palette,
   ABOUT_SECTION,
@@ -47,7 +45,6 @@ import {
   type Scope,
   type Suggestions,
 } from "./palette/Palette";
-import { STARTERS } from "./palette/starters";
 import { forgetRecent, loadRecent, rememberRecent } from "./palette/recent";
 import { OpeningCarousel } from "./chrome/OpeningCarousel";
 import { keysOf, nextOpening, type Opening } from "./openings";
@@ -56,11 +53,15 @@ import { Controls, type ControlGroup, type ControlId } from "./chrome/Controls";
 import { PendingLine, usePending } from "./chrome/Pending";
 import { kbd, matchKey } from "./chrome/bindings";
 import { FULLSCREEN_AVAILABLE, useFullscreen } from "./chrome/fullscreen";
+import { useIdle } from "./chrome/idle";
+import { useWindowKeys } from "./chrome/keys";
+import { useToasts } from "./chrome/toasts";
 import { prefersReduced } from "./chrome/motion";
 import { goAbout } from "./route";
 import { NextOpening } from "./chrome/NextOpening";
 import { resetUsage } from "./palette/fuzzy";
-import { toApiKey, useTree } from "./state/store";
+import { useBoot } from "./state/boot";
+import { useTree } from "./state/store";
 import type { LabelMode } from "./tree/naming";
 import { laneHue } from "./tree/layout";
 import { divergenceFor, nestedSelections } from "./tree/naming";
@@ -99,21 +100,6 @@ const LABEL_TURN: Record<
     subtitle: "The tree as a shape: marks, traces and silhouettes",
   },
 };
-
-interface Toast {
-  id: number;
-  body: React.ReactNode;
-  warn?: boolean;
-}
-
-/**
- * How long a graft refusal must persist before it is worth saying, in ms.
- *
- * Long enough to outlast a path fetch on a local API and short enough that a
- * real refusal still feels like a response to the click that caused it.
- */
-const REFUSAL_SETTLE_MS = 700;
-const REFUSAL_REASONS: GraftRefusal[] = ["off-tree", "no-range", "no-identity"];
 
 /**
  * There is no `RANDOM_CANDIDATES` any more, and what it was for is now free.
@@ -209,27 +195,22 @@ type Afterglow = { at: "reveal" | "next"; opening: Opening };
 
 export default function App() {
   const tree = useTree();
+  /** Everything this app says in words — see `chrome/toasts.ts`. */
+  const { toasts, toast } = useToasts();
+  /**
+   * The three requests made before a reader has asked for anything.
+   *
+   * `setAbout` is here because a random pick may have to re-read `build_id`
+   * past the memo when a deploy lands mid-session; `state/boot.ts` is the
+   * account, and it is the only write to it from outside that hook.
+   */
+  const { about, setAbout, reachable, timescale, starters } = useBoot();
   // Closed on load. The canvas is the page; the boot hint says how to open it.
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [scoped, setScoped] = useState(false);
   /** Non-null when the palette is answering about one corpus only. */
   const [filter, setFilter] = useState<PaletteFilter | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
-  const [toasts, setToasts] = useState<Toast[]>([]);
-  const [about, setAbout] = useState<About | null>(null);
-  /**
-   * The curated species the empty palette offers, dressed by `/v1/hits`.
-   *
-   * Fetched once on boot and held here rather than in the palette, because the
-   * palette is unmounted between openings and would re-ask every time — the
-   * memo in `api.ts` would answer instantly, but the state would still start
-   * empty and the list would flash in on every open.
-   */
-  const [starters, setStarters] = useState<SearchHit[]>([]);
-  const [timescale, setTimescale] = useState<TimescaleInterval[] | null>(null);
-  const [detail, setDetail] = useState<NodeDetail | null>(null);
-  const [fossilDetail, setFossilDetail] = useState<FossilDetail | null>(null);
-  const [fetchingFossil, setFetchingFossil] = useState(false);
   const [fitSignal, setFitSignal] = useState<{
     kind: "all" | "selection";
     token: number;
@@ -251,7 +232,6 @@ export default function App() {
    * if the graph never mounts.
    */
   const [viewFit, setViewFit] = useState(false);
-  const [reachable, setReachable] = useState<boolean | null>(null);
   /**
    * A random pick is out.
    *
@@ -267,62 +247,6 @@ export default function App() {
    * instant and occasionally not is exactly the case a pending flag is for.
    */
   const [picking, setPicking] = useState(false);
-  const [idle, setIdle] = useState(false);
-  const toastId = useRef(0);
-
-  const toast = useCallback((body: React.ReactNode, warn = false) => {
-    const id = ++toastId.current;
-    setToasts((t) => [...t, { id, body, warn }]);
-    window.setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 5200);
-  }, []);
-
-  // Boot. The API is a hard dependency for search; say so plainly rather than
-  // rendering an empty canvas that looks like it worked.
-  //
-  // **`/v1/about` is the probe, and there is no separate one.** A `/healthz`
-  // fetch stood here and could not fail: that path exists on the Go mux only,
-  // and neither surface the app is served from routes it there — production
-  // answers it with `index.html` and so does vite. `api.ts` has the full
-  // account. The consequence worth stating here is that the branch below was
-  // unreachable in production for as long as this was two requests.
-  //
-  // It is also the warm-up, and that is not a side effect to be tidied away
-  // later. `/v1/about` is `max-age=60, must-revalidate` rather than immutable
-  // precisely so that it reaches the container on every boot — so this is what
-  // wakes a sleeping one, before anybody has typed anything.
-  useEffect(() => {
-    api.about().then(
-      (a) => {
-        setAbout(a);
-        setReachable(true);
-      },
-      () => setReachable(false),
-    );
-    // Alongside the probe rather than behind it. The geologic band is a
-    // reference scale and not the subject: its absence costs legibility, not
-    // correctness, so it neither gates the boot nor waits on it.
-    api
-      .timescale()
-      .then((t) => setTimescale(t.intervals))
-      .catch(() => {});
-    // The species palette's empty state, fetched now so it is already there
-    // when `S` is first pressed — waiting until the palette opens would put a
-    // round trip in front of the one screen a reader judges the app on.
-    //
-    // Alongside for the same reason as the timescale, and it is the cheaper of
-    // the two: one fixed URL, a pure function of the build, so the edge answers
-    // it and the container sees roughly one per Worker version. It must not
-    // gate `reachable` — `/v1/about` is the probe, and a second endpoint
-    // reporting on reachability is a second answer that can disagree with it.
-    api
-      .hits([...STARTERS])
-      .then((r) => setStarters(r.results))
-      .catch(() => {
-        // The palette falls back to its prompt line, which is what it said
-        // before this existed. A suggestion list is an invitation, and an
-        // invitation that failed to load is not an error worth reporting.
-      });
-  }, []);
 
   /**
    * The focused fossil, when `sel` names one.
@@ -375,103 +299,16 @@ export default function App() {
   const selectedNodeKey = focusedTaxonNo === null ? tree.view.selected : null;
 
   /**
-   * The key whose card is being fetched, or null.
+   * Both cards: which one is open, what is on it, and what is still coming.
    *
-   * Separate from `detail` because the two are about different taxa during the
-   * fetch, and that gap is the whole reason this exists. A card reached by a
-   * link — a classification rung, a witness, a watermark — is very often one
-   * the app has never asked about, so the request is a real round trip, and
-   * until it lands the *previous* taxon's card is still on screen answering as
-   * if it were the one just clicked. Every figure on it is wrong and none of it
-   * looks wrong.
+   * `detail/cards.ts` holds the two fetches and the two placeholder gates. The
+   * one value that has to come back out to this level rather than staying with
+   * the card is `cardOpen`, because the *canvas* reads it — it reframes into the
+   * strip beside an open card, and answering "is there a panel over the top
+   * right" from a second expression is how the two start to disagree.
    */
-  const [fetchingKey, setFetchingKey] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!selectedNodeKey) {
-      setDetail(null);
-      setFetchingKey(null);
-      return;
-    }
-    let cancelled = false;
-    setFetchingKey(selectedNodeKey);
-    const done = () => !cancelled && setFetchingKey(null);
-    api
-      .node(toApiKey(selectedNodeKey))
-      .then((d) => {
-        // `/v1/node` explains a broken taxon rather than 404ing, and that
-        // payload has no `idx` — rendering it as a card would print `undefined`
-        // against every figure. The canvas already announces broken taxa in the
-        // reader's language; here the card simply does not open.
-        if (!cancelled) setDetail(typeof d.idx === "number" ? d : null);
-        done();
-      })
-      .catch(() => {
-        if (!cancelled) setDetail(null);
-        done();
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedNodeKey]);
-
-  // The fossil card's own payload. A separate fetch from the node card's and a
-  // separate piece of state, because the two cards show different things: this
-  // one carries the drawing's credit and the attachment point's name, and has
-  // no age, no tip count and no ancestry to show.
-  useEffect(() => {
-    if (focusedTaxonNo === null) {
-      setFossilDetail(null);
-      setFetchingFossil(false);
-      return;
-    }
-    let cancelled = false;
-    setFetchingFossil(true);
-    const done = () => !cancelled && setFetchingFossil(false);
-    api
-      .fossil(focusedTaxonNo)
-      .then((d) => {
-        if (!cancelled) setFossilDetail(d);
-        done();
-      })
-      .catch(() => {
-        if (!cancelled) setFossilDetail(null);
-        done();
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [focusedTaxonNo]);
-
-  /**
-   * Whether a card is worth showing a placeholder for, and which one.
-   *
-   * Gated on {@link usePending} rather than on the request itself: `/v1/node`
-   * and `/v1/fossil` are memoised for the session, so a taxon the reader has
-   * already looked at answers in the frame they clicked in, and swapping a
-   * complete card for a placeholder and back inside one frame is a flicker
-   * bought with nothing. What survives the delay is the case this is for — a
-   * name on a card that nobody has opened before.
-   */
-  const cardPending = usePending(fetchingKey !== null);
-  const fossilCardPending = usePending(fetchingFossil);
-
-  /**
-   * Is a card on screen, over the top-right of the canvas?
-   *
-   * Computed once and used both here and by the canvas, which reframes around
-   * it — see `canvas/viewport.ts`. Derived from the render conditions rather
-   * than from the selection, because a selection does not always produce a
-   * card: a broken taxon answers `/v1/node` with a payload the card refuses,
-   * and a canvas that had reserved a corner for it would leave a hole with
-   * nothing in it. Every one of the three states below wears `.detail` and so
-   * occupies the same rectangle.
-   */
-  const nodeCardOpen =
-    focusedTaxonNo === null && (cardPending || detail !== null);
-  const fossilCardOpen =
-    focusedTaxonNo !== null && (fossilCardPending || fossilDetail !== null);
-  const cardOpen = nodeCardOpen || fossilCardOpen;
+  const { detail, fossilDetail, cardPending, fossilCardPending, cardOpen } =
+    useCards(selectedNodeKey, focusedTaxonNo);
 
   /**
    * A shared link whose lineages have not arrived.
@@ -1379,76 +1216,9 @@ export default function App() {
   );
   const grafts = graftSet.grafts;
 
-  /**
-   * Say when a fossil in the view is not being drawn, and why.
-   *
-   * A graft that silently fails to appear is indistinguishable from a broken
-   * canvas — the same reasoning the broken-taxon and unresolved-key notices
-   * above are built on. `off-tree` is the one that happens in ordinary use, and
-   * it is recoverable rather than fatal: removing the species a fossil hung
-   * from takes its branch off the canvas, and putting one back brings the
-   * fossil with it. So the fossil stays in the URL and the notice says what to
-   * do, instead of the view quietly dropping it.
-   *
-   * Announced once per fossil per reason, and only once the view has held
-   * still. Both halves of that are load-bearing. Without the dedup the message
-   * repeats on every unrelated add; without the settle delay it fires into
-   * every ordinary flow, because `off-tree` is *transiently true* twice over —
-   * on a cold load before the paths land, and in the gap between drawing a
-   * fossil and adding the clade it needs. Both were seen: `Dimetrodon` was
-   * announced undrawable one frame before being drawn, twice, for two
-   * different reasons. A graft that becomes drawable clears its mark, so
-   * removing its clade later says so again.
-   */
-  const announce = useCallback(
-    (f: FossilTaxon, reason: GraftRefusal) => {
-      toast(
-        reason === "off-tree" ? (
-          <>
-            <strong>{f.name}</strong> is not drawn: the branch it attaches to is
-            not on the canvas. Add the clade it sits in and it will appear.
-          </>
-        ) : reason === "no-range" ? (
-          <>
-            <strong>{f.name}</strong> has no appearance interval recorded, so
-            there is nowhere in time to put it. PBDB records none for about a
-            fifth of its taxa.
-          </>
-        ) : (
-          <>
-            <strong>{f.name}</strong> cannot be drawn: this build's fossil table
-            carries no identifier for it.
-          </>
-        ),
-        true,
-      );
-    },
-    [toast],
-  );
-
-  const announcedRefusals = useRef(new Set<string>());
-  useEffect(() => {
-    for (const g of grafts) {
-      for (const reason of REFUSAL_REASONS) {
-        announcedRefusals.current.delete(`${g.fossil.pbdb_taxon_no}:${reason}`);
-      }
-    }
-    if (tree.loading || tree.induced.rendered.length === 0) return;
-    if (graftSet.refused.length === 0) return;
-    // The cleanup is what makes the delay work: any change to the refusal set
-    // cancels the pending notice, so a refusal that is being resolved never
-    // reaches the screen. Nobody is waiting on this message, so waiting for the
-    // set to settle costs nothing.
-    const t = window.setTimeout(() => {
-      for (const { fossil: f, reason } of graftSet.refused) {
-        const seen = `${f.pbdb_taxon_no ?? f.name}:${reason}`;
-        if (announcedRefusals.current.has(seen)) continue;
-        announcedRefusals.current.add(seen);
-        announce(f, reason);
-      }
-    }, REFUSAL_SETTLE_MS);
-    return () => window.clearTimeout(t);
-  }, [graftSet.refused, grafts, tree.loading, tree.induced.rendered.length, announce]);
+  // And say so when one of them is not drawn. `tree/refusals.tsx` is the notice
+  // and the two rules that keep it from firing into every ordinary flow.
+  useGraftRefusals(graftSet, tree.loading, tree.induced.rendered.length, toast);
 
   const fossilCommands: Command[] = useMemo(() => {
     const f = pickedFossil;
@@ -1620,23 +1390,10 @@ export default function App() {
    * it. And an open dialog owns it outright: the whole point of asking is that
    * the next keystroke is an answer to the question, not another command.
    *
-   * **The subscription and the behaviour are deliberately separated**, and that
-   * is the fix for a real bug rather than tidiness. This used to be one effect
-   * whose dependency list ended in `tree`, and `useTree()` builds a fresh object
-   * on every render — so the window listener was torn off and put back on every
-   * render, which on this canvas is continuous. A binding that is being
-   * unsubscribed and resubscribed dozens of times a second is one the reader
-   * sometimes presses into a gap: the press does nothing, the chrome wakes on
-   * its own listener, and the second press — landing on a subscription that has
-   * settled — works. That is exactly the "it only fires the second time"
-   * symptom, and it was worst after the chrome faded, because a reader who has
-   * been still for four seconds is a reader whose next input is a keypress
-   * rather than a click.
-   *
-   * So the listener below is registered **once**, for the life of the app, and
-   * calls through a ref. The ref is rewritten after every render, so the
-   * handler still closes over current state — nothing about the behaviour
-   * changes, only how often the browser is told about it.
+   * This is rebuilt as often as its dependencies like, and that costs nothing:
+   * `useWindowKeys` subscribes **once** and calls through a ref. That split is
+   * the fix for a real bug rather than tidiness, and `chrome/keys.ts` is the
+   * account of it.
    */
   const onKey = useCallback(
     (e: KeyboardEvent) => {
@@ -1777,20 +1534,9 @@ export default function App() {
     ],
   );
 
-  // The live handler, kept in a ref so the subscription below never has to
-  // change. Written in an effect rather than during render, because a render
-  // React discards must not be the one the next press is answered from.
-  const onKeyRef = useRef(onKey);
-  useEffect(() => {
-    onKeyRef.current = onKey;
-  }, [onKey]);
-
-  // Registered once. See the note above `onKey` for why that is the whole fix.
-  useEffect(() => {
-    const listener = (e: KeyboardEvent) => onKeyRef.current(e);
-    window.addEventListener("keydown", listener);
-    return () => window.removeEventListener("keydown", listener);
-  }, []);
+  // Registered once, and called through a ref. `chrome/keys.ts` is the whole of
+  // that fix and the account of the bug it is for.
+  useWindowKeys(onKey);
 
   /**
    * The control bar's rows, which are the bindings with their callbacks bound.
@@ -1949,22 +1695,10 @@ export default function App() {
     return () => document.body.classList.remove("biolum");
   }, [tree.biolum]);
 
-  // Chrome auto-hides. The canvas is the page.
-  useEffect(() => {
-    let t = window.setTimeout(() => setIdle(true), 4000);
-    const wake = () => {
-      setIdle(false);
-      window.clearTimeout(t);
-      t = window.setTimeout(() => setIdle(true), 4000);
-    };
-    window.addEventListener("mousemove", wake);
-    window.addEventListener("keydown", wake);
-    return () => {
-      window.clearTimeout(t);
-      window.removeEventListener("mousemove", wake);
-      window.removeEventListener("keydown", wake);
-    };
-  }, []);
+  // Chrome auto-hides. The canvas is the page. `chrome/idle.ts` is the timer;
+  // whether the bar is *allowed* to go is decided at the `Controls` call below,
+  // because an afterglow holds it open.
+  const idle = useIdle();
 
   if (reachable === false) {
     return (
