@@ -37,7 +37,7 @@ import type { Induced } from "./induced";
  * boolean, because italicisation is the caller's rule (`isScientificItalic`)
  * and importing it here would point `tree/` back at `canvas/`.
  */
-export interface NamePart {
+interface NamePart {
   text: string;
   /** Rank of the taxon this run names; null for punctuation. */
   rank: string | null;
@@ -94,7 +94,7 @@ const COMMON_RANKS = new Set(["genus", "species", "subspecies"]);
  * roman and the other italic, from one rule, in both the canvas's renderer and
  * the card's.
  */
-export interface MarkName {
+interface MarkName {
   text: string;
   rank: string | null;
 }

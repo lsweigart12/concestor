@@ -167,7 +167,7 @@ import type { AxisMode } from "./tree/layout";
  * throws. `art` is a PhyloPic id served straight off `/v1/silhouette/{id}.svg`,
  * so the preview needs no API round trip before the canvas has anything on it.
  */
-export interface OpeningTaxon {
+interface OpeningTaxon {
   key: string;
   /** PhyloPic id. All but the mushroom are the taxon's own drawing. */
   art: string;

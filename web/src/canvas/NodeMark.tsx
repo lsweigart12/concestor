@@ -134,7 +134,7 @@ export function isScientificItalic(rank: string | null): boolean {
  *                               a different kind of claim and is written by
  *                               `occurrenceSpan` below, never here.
  */
-export const PRESENT = "present";
+const PRESENT = "present";
 
 export function ageLabel(age: number | null, tier: Tier): string | null {
   if (!tierHasAge(tier) || age === null || !Number.isFinite(age)) return null;
@@ -180,7 +180,7 @@ export function occurrenceSpan(
  * a mark it cannot draw. Those two reading the same source is what keeps a
  * label from being measured at one width and drawn at another.
  */
-export interface MarkAge {
+interface MarkAge {
   /** Stands in for a word. `null` where the figure speaks for itself. */
   glyph: AgeGlyphKind | null;
   /** Never empty. A slot holding a glyph and no figure is not an age. */
@@ -358,7 +358,7 @@ export function witnessTitle(
  * a witness uses — one function, so a fossil cannot describe itself one way in
  * a lane and another way on the canvas.
  */
-export function graftTitle(g: Graft): string {
+function graftTitle(g: Graft): string {
   const span = fossilSpan(g.fossil);
   const when = span
     ? ` is found in the rock through ${endedSpanLabel(span.oldest, span.youngest)}`
@@ -412,7 +412,7 @@ export function metaLine(rank: string | null, show: boolean): string {
 export const DIVERGENCE_META = "DIVERGENCE";
 
 /** The hover tooltip that spells the derived name out. */
-export function derivedTitle(divergence: Divergence): string {
+function derivedTitle(divergence: Divergence): string {
   return `The last common ancestor of ${branchProse(divergence.branches)}. The Open Tree taxonomy has no name for this node.`;
 }
 

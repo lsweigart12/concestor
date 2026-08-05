@@ -11,7 +11,7 @@
  * important to you.
  */
 
-export interface Match {
+interface Match {
   score: number;
   /** [start, end) index pairs into the haystack, for highlighting. */
   ranges: [number, number][];

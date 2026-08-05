@@ -109,7 +109,7 @@ const AGES_KEY = "concestor.ages";
  * loader looks it up in this list and falls to the default, rather than falling
  * through a chain of comparisons.
  */
-export const LABEL_MODES = ["off", "scientific", "common"] as const;
+const LABEL_MODES = ["off", "scientific", "common"] as const;
 
 /**
  * Common, on, off — and a default is an answer to *who arrives here*.
@@ -137,7 +137,7 @@ export const LABEL_MODES = ["off", "scientific", "common"] as const;
  * decides which way `is-modified` lights, and a control with its own copy of
  * that is a control that can disagree with the store about what it is showing.
  */
-export const BIOLUM_DEFAULT = false;
+const BIOLUM_DEFAULT = false;
 export const LABELS_DEFAULT: LabelMode = "common";
 export const AGES_DEFAULT = true;
 
@@ -328,23 +328,6 @@ export interface Broken {
   mrcaKey: string;
   mrcaIdx: number | null;
   attachmentPoints: number;
-}
-
-export interface TreeState {
-  view: ViewState;
-  /** Every node we have ever seen, by idx. The API is immutable, so this only grows. */
-  nodes: Map<number, PathNode>;
-  induced: Induced;
-  /** Most recent add, driving the signature animation. Cleared once played. */
-  delta: (AddDelta & { token: number }) | null;
-  /** The *tree* is resolving. Not fossils — see `fossilsLoading`. */
-  loading: boolean;
-  fossilsLoading: boolean;
-  /** Selections that resolved to a non-monophyletic taxon and were not added. */
-  broken: Broken[];
-  /** Selections the API could not resolve at all — a stale or mistyped id. */
-  unresolved: string[];
-  error: string | null;
 }
 
 export function useTree() {
@@ -992,4 +975,16 @@ export function useTree() {
   };
 }
 
+/**
+ * What a component holds when it holds the tree.
+ *
+ * Inferred rather than declared, and there is no second description of this
+ * shape anywhere. There used to be: a hand-written `TreeState` interface sat
+ * beside this line naming ten of the thirty-four members `useTree` returns,
+ * exported, referenced by nothing, and drifting — `fossils`, `sequencing`,
+ * `holdMaxAge` and every one of the eighteen actions arrived without it. Two
+ * descriptions of one object is one description and one liability, and the
+ * liability is the one a reader trusts because it is the one with the doc
+ * comments on it.
+ */
 export type Tree = ReturnType<typeof useTree>;

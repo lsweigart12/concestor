@@ -47,7 +47,7 @@ import {
   type ScreenLight,
 } from "./gl/renderer";
 
-export interface WaterProps {
+interface WaterProps {
   /** Live viewport transform: the tree's light lives in layout space. */
   tx: number;
   ty: number;

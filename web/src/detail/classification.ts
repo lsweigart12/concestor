@@ -41,7 +41,7 @@ import type { PathNode } from "../api";
  * overlapping things in the Open Tree taxonomy, because both appear and
  * dropping either loses a rung on some lineage.
  */
-export const LADDER_RANKS = [
+const LADDER_RANKS = [
   "domain",
   "kingdom",
   "phylum",
@@ -51,7 +51,7 @@ export const LADDER_RANKS = [
   "genus",
 ] as const;
 
-export type LadderRank = (typeof LADDER_RANKS)[number];
+type LadderRank = (typeof LADDER_RANKS)[number];
 
 const LADDER = new Set<string>(LADDER_RANKS);
 

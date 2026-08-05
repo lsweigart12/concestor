@@ -2613,6 +2613,61 @@ Seven things worth not redoing:
   telling a lint from a test that has given up: if it would be *more* correct
   against the whole corpus than against the running app, it belongs in the text.
 
+### `web/` is formatted and linted now, and the "57 dead exports" were not dead
+
+Prettier and oxlint block the merge, in `.github/workflows/ci.yml`'s `web` job
+and in `scripts/check.sh`. `web/prettier.config.js` and `web/.oxlintrc.json`
+each carry the whole reasoning; `docs/ci.md` §1 is the summary. The two things
+to know before touching either are that **typescript-eslint cannot be installed
+on TypeScript 7** — it throws on import, and the upstream workaround aliases the
+*build* compiler down to the TS 6 API — and that the rule set is `correctness`
+and two named rules because `tsconfig.json` already runs `strict`,
+`noUnusedLocals` and `noUncheckedIndexedAccess`, so the five other categories
+were each measured over `src/` and each turned out to be an argument with the
+author rather than a defect finder.
+
+The dead-export count was real and its diagnosis was not. 61 exported names
+were referenced by no other file, on today's tree. **Exactly one of them was
+dead code**: `TreeState` in `state/store.ts`, a hand-written interface naming
+ten of the thirty-four members `useTree` returns, sitting beside the
+`ReturnType<typeof useTree>` that actually describes it, referenced by nothing
+and drifting — `fossils`, `sequencing`, `holdMaxAge` and all eighteen actions
+had arrived without it. It is gone and `Tree` now carries the comment. The
+other 60 were live symbols whose own file uses them and whose `export` was
+redundant; 51 are now private, which is a visibility change with no runtime in
+it and which the typechecker verifies exhaustively — `noUnusedLocals` fails on
+one that turns out to be unread inside its own file, and every remaining
+importer fails to resolve, so a wrong call in either direction is a build
+error rather than a silent one.
+
+The remaining nine are the point, and none of the first four is findable by
+the scan that found the rest:
+
+- **`worker/index.ts`'s `ReadApi` is named in `wrangler.jsonc`**, as the
+  Durable Object class the container binding points at. It is outside the type
+  graph entirely, so every reachability tool in the ecosystem calls it dead and
+  removing the `export` breaks the deploy rather than the build.
+- **`detail/wiki.ts`'s `LANG_NOTE` is a record rather than a value.** Nothing
+  reads it; `docs/name-ranking.md` §8 and `pipeline`'s `name_rank.py` both aim
+  a reader at it *by name*. Un-exporting it does not compile, because
+  `noUnusedLocals` deletes a private constant nobody reads — which is the whole
+  mechanism by which the export is load-bearing.
+- **`src/test/`'s exports are a harness**, written to be imported by tests that
+  do not exist yet. `css.ts`'s `CSS_TEXT`, `normValue` and `rulesFor` are the
+  API the section above replaced ten hand-rolled regexes with.
+- **`canvas/Graph.tsx`'s `GraphProps` is a seam somebody is about to cut**, and
+  it is the one held back on judgement rather than on a mechanism. 27 props, 12
+  of them callbacks, the whole channel from `App` through `Graph` to
+  `TimeAxis`, `DrillLane` and `NodeMark` — and issue #94 names it by this name
+  as where a staged refactor of the two largest components begins. Making it
+  private and public again two PRs later is churn in the file the refactor has
+  to be read against; a lint-and-format PR is the wrong place to move a
+  boundary nobody has decided yet.
+
+Neither tool gates a cross-file dead export, and none in this ecosystem does it
+without its own config and its own opinions. The count is cheap to retake:
+every exported name, against every other file, as whole words.
+
 ---
 
 ## 4. The corrections that used to live here — applied, and gone

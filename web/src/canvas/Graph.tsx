@@ -174,6 +174,18 @@ const STAGGER = 96;
  */
 const BIOLUM_AVAILABLE = BiolumRenderer.supported();
 
+/**
+ * The prop-drilling channel from `App` through `Graph` to `TimeAxis`,
+ * `DrillLane` and `NodeMark`.
+ *
+ * **Exported although no other file imports it**, which is the one exception
+ * in the sweep that made 51 of its neighbours private. This is not an accident
+ * of history like the rest of them: it is the seam between the two largest
+ * components in the repository, 27 props of which 12 are callbacks, and issue
+ * #94 names it by this name as the thing a staged refactor pulls apart. A
+ * visibility change here is a change to what that refactor starts from, and
+ * this PR changes no behaviour and settles no design.
+ */
 export interface GraphProps {
   induced: Induced;
   nodes: Map<number, PathNode>;

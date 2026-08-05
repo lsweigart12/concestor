@@ -254,9 +254,9 @@ export const LANDING_AT = 0.5;
  * a quarter as dense on a large display, which is exactly where a slow rain
  * stops reading as weather and starts reading as dust on the screen.
  */
-export const SNOW_PER_PX2 = 1 / 32;
-export const SNOW_MIN = 8000;
-export const SNOW_MAX = 30000;
+const SNOW_PER_PX2 = 1 / 32;
+const SNOW_MIN = 8000;
+const SNOW_MAX = 30000;
 export const SNOW_AMBIENT = 0.07;
 
 export function snowCountFor(w: number, h: number): number {

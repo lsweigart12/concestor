@@ -60,6 +60,12 @@ const WIKI_SITE = "enwiki";
  * picker is a real feature and not a line of code — the vernacular names on the
  * card come from the same crawl and are also filtered to English, so doing this
  * properly means doing both together. Recorded rather than pretended away.
+ *
+ * **The `export` is load-bearing and nothing imports it.** This is a record
+ * rather than a value, no code reads it, and `noUnusedLocals` would delete a
+ * private one — while `docs/name-ranking.md` §8 and `name_rank.py` both point
+ * a reader here by this name. Narrowing it to a comment would lose the anchor
+ * those two aim at; narrowing it to a private constant would not compile.
  */
 export const LANG_NOTE = "English Wikipedia and Wikidata only.";
 

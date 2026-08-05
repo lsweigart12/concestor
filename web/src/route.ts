@@ -23,7 +23,7 @@
 
 import { useEffect, useState } from "react";
 
-export type Route = "app" | "about";
+type Route = "app" | "about";
 
 /** Where the about page lives. One string, because three files need it. */
 export const ABOUT_PATH = "/about";

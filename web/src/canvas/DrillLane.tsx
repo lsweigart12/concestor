@@ -61,7 +61,7 @@ export interface Drill {
   lower: number;
 }
 
-export interface SegmentState {
+interface SegmentState {
   data: SegmentResponse | null;
   error: string | null;
   loading: boolean;

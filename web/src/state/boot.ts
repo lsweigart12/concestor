@@ -22,7 +22,7 @@ import {
 } from "../api";
 import { STARTERS } from "../palette/starters";
 
-export interface Boot {
+interface Boot {
   about: About | null;
   /**
    * Exposed because a random pick may have to re-read it past the memo.

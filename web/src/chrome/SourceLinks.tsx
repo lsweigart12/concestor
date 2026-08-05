@@ -30,7 +30,7 @@ import { goAbout } from "../route";
 import { useTip } from "./Tooltip";
 
 /** The public repository. One place, so a rename cannot leave a dead link. */
-export const SOURCE_URL = "https://github.com/lsweigart12/concestor";
+const SOURCE_URL = "https://github.com/lsweigart12/concestor";
 
 /** GitHub's mark, at 14px. `currentColor` so it inherits the hover state. */
 function GitHubMark() {

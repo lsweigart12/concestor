@@ -30,7 +30,7 @@
  */
 
 /** The events, and there are only three. `docs/analytics.md` §2 is why. */
-export type Kind = "search" | "add" | "tree";
+type Kind = "search" | "add" | "tree";
 
 /**
  * What put a tree on screen — a made tree and a received one are not the same.

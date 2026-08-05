@@ -236,7 +236,7 @@ export interface PathResponse {
  * from synthesis, so they are not nodes at all. The live Open Tree API
  * silently answers about the substituted MRCA instead; we explain.
  */
-export interface BrokenResponse {
+interface BrokenResponse {
   broken: true;
   ott_id: number;
   name: string | null;
@@ -380,7 +380,7 @@ export interface NodeDetail extends PathNode {
 }
 
 /** One end of the span an undated node was placed within. */
-export interface LayoutBound {
+interface LayoutBound {
   idx: number;
   key: string;
   /** Null on an `mrcaott…` clade — 24.4% of the upper bounds. */

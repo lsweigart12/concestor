@@ -29,11 +29,11 @@
 /** How long the ring lasts, ms. */
 export const STRUM_MS = 620;
 /** Cycles per second. Fast enough to read as a string, slow enough to see. */
-export const STRUM_HZ = 7.5;
+const STRUM_HZ = 7.5;
 /** Peak displacement at the pluck point, in layout px. */
-export const STRUM_AMP = 7;
+const STRUM_AMP = 7;
 /** Samples along the path. Enough for a smooth curve at any length we draw. */
-export const STRUM_SAMPLES = 40;
+const STRUM_SAMPLES = 40;
 
 /**
  * Move the antinode to where the string was actually plucked.

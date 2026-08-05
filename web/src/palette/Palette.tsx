@@ -240,7 +240,7 @@ const DEBOUNCE_MS = 110;
  * The two-character floor is the effect's, not this function's; both read
  * `MIN_QUERY` so the list cannot describe a search that never ran.
  */
-export type EmptyState = "prompt" | "silent" | "searching" | "no-match";
+type EmptyState = "prompt" | "silent" | "searching" | "no-match";
 
 /** Below this the palette does not search at all, and must not report on one. */
 export const MIN_QUERY = 2;

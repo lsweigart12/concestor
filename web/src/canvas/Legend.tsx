@@ -49,7 +49,7 @@ import { traceStroke, TIER_CLASS, type TraceEdgeData } from "./TraceEdge";
 export type TracePattern = Pick<TraceEdgeData, "tier" | "unbounded"> &
   Partial<Pick<TraceEdgeData, "attachment">>;
 
-export interface LegendRow {
+interface LegendRow {
   id: string;
   tier: Tier;
   /** Extra trace classes beyond the tier's own, in canvas order. */

@@ -67,7 +67,7 @@ import type { ScreenLight } from "./gl/renderer";
 import { LANE_HUES } from "../tree/layout";
 
 /** Which of the three a measured element is. Decides its geometry and its power. */
-export type LitKind = "wordmark" | "card" | "command";
+type LitKind = "wordmark" | "card" | "command";
 
 /** One element that may emit, as measured. Client rect, CSS px. */
 export interface LitBox {
@@ -126,7 +126,7 @@ export const SOURCES: readonly {
  * finished fetching renders nothing at all, and a light at its collapsed
  * position would be a point of colour sitting beside the row it belongs to.
  */
-export function measureBoot(root: ParentNode): LitBox[] {
+function measureBoot(root: ParentNode): LitBox[] {
   const boot = root.querySelector(".boot");
   const out: LitBox[] = [];
   for (const src of SOURCES) {

@@ -18,7 +18,7 @@
 
 import { useCallback, useRef, useState, type ReactNode } from "react";
 
-export interface Toast {
+interface Toast {
   id: number;
   body: ReactNode;
   warn?: boolean;
@@ -37,7 +37,7 @@ const TOAST_MS = 5200;
 /** Say something. `warn` is for a thing the reader asked for and did not get. */
 export type Say = (body: ReactNode, warn?: boolean) => void;
 
-export interface Toasts {
+interface Toasts {
   toasts: Toast[];
   toast: Say;
 }

@@ -41,7 +41,7 @@
 
 import { useTip } from "./Tooltip";
 
-export interface ModeSegment<T> {
+interface ModeSegment<T> {
   value: T;
   /** What the segment prints. Also what the key badge would have to match. */
   label: string;

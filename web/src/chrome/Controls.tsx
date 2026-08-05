@@ -93,7 +93,7 @@ export type ControlAction = Common &
   );
 
 /** Where a group sits. See the note at the head of this file. */
-export type ControlSlot = "lead" | "trail" | "rest";
+type ControlSlot = "lead" | "trail" | "rest";
 
 export interface ControlGroup {
   /**

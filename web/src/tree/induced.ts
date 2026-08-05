@@ -12,7 +12,7 @@
  * what the `2|L| − 1` assertion below is guarding.
  */
 
-export interface Segment {
+interface Segment {
   /** Nearest rendered ancestor. `null` at the induced root (the MRCA). */
   anc: number | null;
   /**

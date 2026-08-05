@@ -59,14 +59,14 @@ export interface Appearance {
   lla: number | null;
 }
 
-export interface Span {
+interface Span {
   x: number;
   w: number;
 }
 
-export type Certainty = "extent" | "instant" | "overlapping" | "unrecorded";
+type Certainty = "extent" | "instant" | "overlapping" | "unrecorded";
 
-export type BracketGeom =
+type BracketGeom =
   | {
       /** No appearance interval at all. The caller owes it a treatment. */
       kind: "absent";
@@ -222,7 +222,7 @@ export function bracketTitle(name: string, b: BracketGeom): string {
   }
 }
 
-export interface BracketKeyRow {
+interface BracketKeyRow {
   id: "certain" | "envelope" | "absent";
   text: string;
 }

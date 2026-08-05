@@ -77,7 +77,7 @@ export interface LabelInput {
  * the viewport's reveal. Three copies of one offset is three chances for a
  * label to be measured a few pixels away from where it is drawn.
  */
-export interface LabelPlacement {
+interface LabelPlacement {
   side: "left" | "right";
   /** Vertical offset of the label's centre from the node's centre. */
   dy: number;
