@@ -64,15 +64,7 @@ export interface Command {
   hint?: string;
   keys?: string;
   section: string;
-  /** Hidden unless a node is focused — the contextual actions menu. */
-  contextual?: boolean;
   run: () => void;
-}
-
-export interface Scope {
-  label: string;
-  /** Popped by backspace at cursor position zero. */
-  onPop: () => void;
 }
 
 /**
@@ -96,7 +88,6 @@ interface Props {
   open: boolean;
   onClose: () => void;
   commands: Command[];
-  scope: Scope | null;
   /** Set when the list is restricted to one corpus. */
   filter: PaletteFilter | null;
   onFilter: (f: PaletteFilter | null) => void;
@@ -363,7 +354,6 @@ export function Palette({
   open,
   onClose,
   commands,
-  scope,
   filter,
   onFilter,
   onPick,
@@ -715,14 +705,14 @@ export function Palette({
    */
   const onChange = useCallback(
     (v: string) => {
-      if (!filter && !scope && v === `${FILTER_PREFIX.species} `) {
+      if (!filter && v === `${FILTER_PREFIX.species} `) {
         onFilter("species");
         setQ("");
         return;
       }
       setQ(v);
     },
-    [filter, scope, onFilter],
+    [filter, onFilter],
   );
 
   const onKeyDown = useCallback(
@@ -741,20 +731,18 @@ export function Palette({
         commit(flat[active]);
       } else if (
         e.key === "Backspace" &&
-        (scope || filter) &&
+        filter &&
         e.currentTarget.selectionStart === 0 &&
         e.currentTarget.selectionEnd === 0
       ) {
-        // Backspace at position zero pops the scope, per design-reference.md —
-        // and now the filter, which is the same gesture on the same chip.
-        // Innermost first: a filter is entered from inside a scope, never the
-        // other way round.
+        // Backspace at position zero pops the chip, per design-reference.md.
+        // The filter is the only one there is: a fossil row used to push a
+        // scope of its own here, and it opens its card now instead.
         e.preventDefault();
-        if (filter) onFilter(null);
-        else scope?.onPop();
+        onFilter(null);
       }
     },
-    [flat, active, commit, onClose, scope, filter, onFilter],
+    [flat, active, commit, onClose, filter, onFilter],
   );
 
   if (!open) return null;
@@ -768,7 +756,6 @@ export function Palette({
     >
       <div className="palette" role="dialog" aria-label="Command palette">
         <div className="palette-input-row">
-          {scope && <span className="scope-chip">{scope.label}</span>}
           {filter && <span className="scope-chip">{FILTER_LABEL[filter]}</span>}
           <input
             ref={inputRef}
@@ -779,9 +766,7 @@ export function Palette({
             placeholder={
               filter
                 ? "Search species — try “dog”"
-                : scope
-                  ? "Action…"
-                  : "Search a species, or type a command — try “dog”"
+                : "Search a species, or type a command — try “dog”"
             }
             spellCheck={false}
             autoComplete="off"

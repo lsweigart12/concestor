@@ -127,10 +127,13 @@ SQL rather than deduplicated afterwards, so a synonym no longer consumes a lane
 row before the dedup can drop it.
 
 **The rows are interactive.** Each carries its own silhouette — never a borrow,
-since a fossil has no clade to inherit from — and clicking one opens the command
-palette scoped to it. The actions are about the *attachment point*, because that
-is the only honest thing to offer: a fossil has no ancestor path, so it cannot
-be selected, added, isolated or linked to.
+since a fossil has no clade to inherit from — and clicking one opens that
+fossil's card. This paragraph used to say the click opened a palette scoped to
+the row, on the reasoning that a fossil has no ancestor path and so cannot be
+selected at all. That was true when it was written and stopped being true when
+the graft got a key: `pbdb<taxon_no>` is a selection like any other, and the
+card it opens says what the fossil is, where in the rock it turns up, which
+node it hangs below, and who drew it. See `fossil-grafts.md` §6.
 
 What this proves for the rest of the plan: the image link works, the refusal
 discipline holds, and the `is_extant` hazard in §5 is real enough to have been

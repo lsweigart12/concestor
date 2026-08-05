@@ -318,7 +318,14 @@ the gate, *Dimetrodon* was announced as undrawable one frame before being drawn.
 - `f=108454,91487` in the URL, beside `n=`. Deliberately a **separate list**:
   a selection is a node and induces a subtree, a graft is an annotation and
   induces nothing. A fossil in `keys` would be sent to `/v1/paths`.
-- The drill-down lane's action menu leads with *Draw … on the tree*.
+- The drill-down lane's rows **select**, exactly as a mark on the canvas does:
+  one press puts `sel=pbdb<taxon_no>` in the URL and opens the fossil card,
+  whose own button draws it. There was an action menu here — a palette scope
+  with *Draw … on the tree* at the top — and it was written before the card
+  existed. Every action it offered is on the card, and a row with no
+  `pbdb_taxon_no` is now not pressable at all, because there is no key to
+  address a card by and the palette already refuses such a row for the same
+  reason.
 
 ## 7. Searchable, and selectable
 

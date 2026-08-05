@@ -20,8 +20,9 @@
  * on first import.
  */
 
-import { act } from "@testing-library/react";
+import { act, fireEvent } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { api, type FossilDetail, type FossilTaxon } from "./api";
 import { SOURCES } from "./canvas/bootLight";
 import { BINDINGS, type ActionId } from "./chrome/bindings";
 import {
@@ -315,5 +316,119 @@ describe("every control the bar draws has a command behind it", () => {
     );
     expect(row, "share lost the one surface it has").toBeDefined();
     expect(row?.querySelector(".kbd")).toBeNull();
+  });
+});
+
+/**
+ * A fossil row in the drill-down lane opens the fossil's card.
+ *
+ * It used to push a *scope* onto the palette and offer three commands — draw
+ * it, show the clade it hangs below, add that clade — which predates the fossil
+ * card by some months. Every one of those actions is on the card now, and the
+ * card also carries the range, the occurrence count, the encyclopedia entry and
+ * the drawing's credit, none of which a command row can say. So the lane row
+ * does what a mark on the canvas does: it selects.
+ *
+ * Rendered rather than read, because the claim is about three components that
+ * do not import each other. `DrillLane` calls a prop, `App` decides what that
+ * means, and the card is a sibling of the canvas that is chosen by the URL —
+ * and the failure this is guarding against is precisely that the press goes
+ * somewhere else instead.
+ */
+describe("a fossil in the lane opens its card", () => {
+  const TAXON_NO = 108454;
+
+  /** One placed row: a name, a bracket, and the key a card is addressed by. */
+  const ROW: FossilTaxon = {
+    name: "Tyrannosaurus rex",
+    pbdb_taxon_no: TAXON_NO,
+    rank: "species",
+    attach_idx: 1,
+    attach_walk: 3,
+    n_occs: 41,
+    is_extant: false,
+    fea: 72.1,
+    fla: 68.0,
+    lea: 68.0,
+    lla: 66.0,
+  };
+
+  /** What `/v1/fossil` answers with once the row is pressed. */
+  const DETAIL: FossilDetail = { ...ROW, attach: null };
+
+  function stubFossilApi(): void {
+    vi.spyOn(api, "segment").mockResolvedValue({
+      upper_idx: 1,
+      lower_idx: 101,
+      intermediates: [],
+      fossils: [ROW],
+      fossils_available: true,
+      fossils_total: 1,
+    });
+    vi.spyOn(api, "fossil").mockResolvedValue(DETAIL);
+  }
+
+  // `fireEvent` rather than `el.click()`, because a lane row is an SVG `<g>`
+  // and jsdom's `SVGElement` has no `click` method at all — only `HTMLElement`
+  // does. The event is the same one React handles either way.
+  async function click(el: Element | null | undefined, what: string) {
+    if (!el) throw new Error(`nothing to click: ${what}`);
+    await act(async () => {
+      fireEvent.click(el);
+      await new Promise((r) => {
+        setTimeout(r, 60);
+      });
+    });
+  }
+
+  /**
+   * Draw a tree, choose a leaf, and open the lane on the branch above it.
+   *
+   * Through the palette's own row rather than by setting `seg=` in the URL, so
+   * the lane arrives the way a reader opens it and the segment the app asks
+   * about is the one it worked out for itself.
+   */
+  async function openLane(): Promise<void> {
+    await renderApp();
+    stubFossilApi();
+    await drawOpening();
+    await dismissAnswer();
+    await click(document.querySelector(".mark.is-leaf"), "a leaf to select");
+    await openPalette();
+    const row = [...document.querySelectorAll(".palette .row")].find((r) =>
+      /fossil occurrences along/i.test(r.textContent ?? ""),
+    );
+    await click(row, "the command that opens the lane");
+  }
+
+  it("selects the fossil, and leaves the palette out of it", async () => {
+    await openLane();
+    const lane = document.querySelector(".drill-row.is-actionable");
+    expect(lane, "the lane is drawing no pressable row").not.toBeNull();
+
+    await click(lane, "the fossil row");
+
+    // The URL is the selection, exactly as it is for a mark: `pbdb108454`
+    // cannot collide with an OTT id, which is what lets the two share `sel=`.
+    expect(new URL(window.location.href).searchParams.get("sel")).toBe(
+      `pbdb${TAXON_NO}`,
+    );
+    expect(document.querySelector(".palette")).toBeNull();
+    expect(api.fossil).toHaveBeenCalledWith(TAXON_NO);
+    expect(document.querySelector(".detail h2")?.textContent).toBe(ROW.name);
+  });
+
+  /**
+   * And the lane stays open under it. `drill` is separate state from `selected`
+   * — a reader comparing four taxa along one branch reads them one after
+   * another, and a lane that closed on the first press would make that four
+   * round trips through the canvas.
+   */
+  it("leaves the lane open under the card, so the next row is one press away", async () => {
+    await openLane();
+    await click(document.querySelector(".drill-row"), "the fossil row");
+    expect(document.querySelector(".detail")).not.toBeNull();
+    expect(document.querySelector(".drill")).not.toBeNull();
+    expect(document.querySelectorAll(".drill-row")).toHaveLength(1);
   });
 });

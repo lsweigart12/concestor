@@ -32,6 +32,7 @@ import { idxFromKey, selectionKeyFor } from "./detail/target";
 import {
   buildGrafts,
   graftIdx,
+  graftKey,
   isGraftIdx,
   makeGraft,
   parseGraftKey,
@@ -42,7 +43,6 @@ import {
   ABOUT_SECTION,
   type Command,
   type PaletteFilter,
-  type Scope,
   type Suggestions,
 } from "./palette/Palette";
 import { forgetRecent, loadRecent, rememberRecent } from "./palette/recent";
@@ -207,7 +207,6 @@ export default function App() {
   const { about, setAbout, reachable, timescale, starters } = useBoot();
   // Closed on load. The canvas is the page; the boot hint says how to open it.
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const [scoped, setScoped] = useState(false);
   /** Non-null when the palette is answering about one corpus only. */
   const [filter, setFilter] = useState<PaletteFilter | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
@@ -215,15 +214,6 @@ export default function App() {
     kind: "all" | "selection";
     token: number;
   } | null>(null);
-  /**
-   * A fossil row the reader clicked in the drill-down lane.
-   *
-   * Kept apart from `focusedIdx` because a fossil is not a node: it has no
-   * ancestor path, so it cannot be selected, added, isolated or linked to, and
-   * pretending otherwise would offer four commands that do nothing. What it
-   * has is an attachment point, and the actions are about that.
-   */
-  const [pickedFossil, setPickedFossil] = useState<FossilTaxon | null>(null);
   /**
    * Whether the canvas is already showing the fit, reported by the graph.
    *
@@ -1185,7 +1175,6 @@ export default function App() {
           icon: "◎",
           keys: kbd("isolate"),
           section: "This node",
-          contextual: true,
           run: () => {
             tree.toggleIsolate();
             setPaletteOpen(false);
@@ -1197,7 +1186,6 @@ export default function App() {
           icon: "⊹",
           keys: kbd("fit-selection"),
           section: "This node",
-          contextual: true,
           run: () => {
             setFitSignal({ kind: "selection", token: Date.now() });
             setPaletteOpen(false);
@@ -1223,7 +1211,6 @@ export default function App() {
           icon: "⌗",
           ...(open ? { keys: kbd("escape") } : {}),
           section: "This node",
-          contextual: true,
           run: () => {
             tree.setDrill(open ? null : { upper: anc, lower: focusedNode.idx });
             setPaletteOpen(false);
@@ -1237,7 +1224,6 @@ export default function App() {
           icon: "−",
           keys: kbd("remove"),
           section: "This node",
-          contextual: true,
           run: () => {
             tree.remove(focusedNode.key);
             setPaletteOpen(false);
@@ -1295,127 +1281,8 @@ export default function App() {
   // and the two rules that keep it from firing into every ordinary flow.
   useGraftRefusals(graftSet, tree.loading, tree.induced.rendered.length, toast);
 
-  const fossilCommands: Command[] = useMemo(() => {
-    const f = pickedFossil;
-    if (!f) return [];
-    const host = tree.nodes.get(f.attach_idx);
-    const hostName = host?.name ?? "the clade it attaches to";
-    const taxonNo = f.pbdb_taxon_no ?? 0;
-    const drawn = taxonNo > 0 && tree.view.fossils.includes(taxonNo);
-    const out: Command[] = [];
-    // Offered first, because it is now the thing a reader most wants from a
-    // fossil row and the thing they came here believing was impossible.
-    if (taxonNo > 0) {
-      out.push(
-        drawn
-          ? {
-              id: "fossil-undraw",
-              title: `Remove ${f.name} from the tree`,
-              subtitle: "Stop drawing it against the lineage",
-              icon: "−",
-              section: "This fossil",
-              contextual: true,
-              run: () => {
-                tree.removeFossil(taxonNo);
-                setPaletteOpen(false);
-                setScoped(false);
-                toast(
-                  <>
-                    Removed <strong>{f.name}</strong>
-                  </>,
-                );
-              },
-            }
-          : {
-              id: "fossil-draw",
-              title: `Draw ${f.name} on the tree`,
-              subtitle:
-                "Placed at its own date, hanging off the branch it belongs to",
-              icon: "◇",
-              section: "This fossil",
-              contextual: true,
-              run: () => {
-                tree.addFossil(taxonNo);
-                setPaletteOpen(false);
-                setScoped(false);
-                toast(
-                  <>
-                    Drew <strong>{f.name}</strong>
-                  </>,
-                );
-              },
-            },
-      );
-    }
-    out.push({
-      id: "fossil-host",
-      title: `Show ${hostName}`,
-      subtitle: `${f.name} is known from somewhere below it`,
-      icon: "◎",
-      section: "This fossil",
-      contextual: true,
-      run: () => {
-        if (host) tree.select(host.key);
-        setPaletteOpen(false);
-        setScoped(false);
-      },
-    });
-    if (host && !tree.induced.leaves.includes(f.attach_idx)) {
-      out.push({
-        id: "fossil-add-host",
-        title: `Add ${hostName} to the canvas`,
-        subtitle: "Draw the branch this fossil sits on",
-        icon: "+",
-        section: "This fossil",
-        contextual: true,
-        run: () => {
-          tree.add(host.key);
-          setPaletteOpen(false);
-          setScoped(false);
-          toast(
-            <>
-              Added <strong>{hostName}</strong>
-            </>,
-          );
-        },
-      });
-    }
-    return out;
-  }, [pickedFossil, tree, toast]);
-
-  const visibleCommands = useMemo(
-    () =>
-      scoped
-        ? pickedFossil
-          ? fossilCommands
-          : commands.filter((c) => c.contextual)
-        : commands,
-    [commands, fossilCommands, pickedFossil, scoped],
-  );
-
-  const scope: Scope | null = !scoped
-    ? null
-    : pickedFossil
-      ? {
-          label: pickedFossil.name,
-          onPop: () => {
-            setScoped(false);
-            setPickedFossil(null);
-          },
-        }
-      : focusedNode
-        ? {
-            label: focusedNode.name ?? focusedNode.key,
-            onPop: () => setScoped(false),
-          }
-        : null;
-
   /** Open the palette on the whole surface, from a key or from a button. */
   const openPalette = useCallback(() => {
-    // A fossil scope is per-click and never survives into the next opening, or
-    // the palette answers about a row nobody is looking at.
-    setPickedFossil(null);
-    setScoped(false);
     setFilter(null);
     setPaletteOpen(true);
     settle();
@@ -1428,11 +1295,9 @@ export default function App() {
    * twenty — it is the thing the app is for, and the reader who presses `S` has
    * already decided what kind of answer they want. Filtering rather than
    * opening a second surface keeps one list, one set of arrow keys and one
-   * Enter, and the filter is poppable with backspace exactly like a scope.
+   * Enter, and the filter is poppable with backspace at position zero.
    */
   const openSpecies = useCallback(() => {
-    setPickedFossil(null);
-    setScoped(false);
     setFilter("species");
     setPaletteOpen(true);
     settle();
@@ -1482,9 +1347,7 @@ export default function App() {
         if (e.key === "Escape") {
           e.preventDefault();
           setPaletteOpen(false);
-          setScoped(false);
           setFilter(null);
-          setPickedFossil(null);
         }
         return;
       }
@@ -1878,10 +1741,13 @@ export default function App() {
           // The same expression that puts the invitation on screen below, because
           // the mode panel is not drawn under it. See `canvas/Graph.tsx`.
           empty={nothingDrawn}
+          // A lane row selects, exactly as a mark on the canvas does. Same
+          // `sel=` in the URL, same card slot — see `focusedTaxonNo`. The lane
+          // itself is untouched: `drill` is separate state, so the row stays
+          // where it is and the reader can go straight to the next one.
           onPickFossil={(f) => {
-            setPickedFossil(f);
-            setScoped(true);
-            setPaletteOpen(true);
+            const taxonNo = f.pbdb_taxon_no ?? 0;
+            if (taxonNo > 0) tree.select(graftKey(taxonNo));
           }}
           // The narrow window's one control, drawn inside the canvas because that
           // is where `--lane-h` is published — see `chrome/PaletteFab.tsx`. It
@@ -2124,12 +1990,9 @@ export default function App() {
         open={paletteOpen}
         onClose={() => {
           setPaletteOpen(false);
-          setScoped(false);
           setFilter(null);
-          setPickedFossil(null);
         }}
-        commands={visibleCommands}
-        scope={scope}
+        commands={commands}
         filter={filter}
         onFilter={setFilter}
         onPick={addHit}
