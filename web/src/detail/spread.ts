@@ -37,6 +37,7 @@
  * against the four cases without a DOM.
  */
 
+import { isPresent, maFigure } from "../ages";
 import type { LayoutSpread } from "../api";
 
 /** A bound the card can print, with the words already decided. */
@@ -60,16 +61,16 @@ export type SpreadProse =
   | null;
 
 /**
- * The threshold `ageLabel` already uses for "this is the present". Kept the
- * same deliberately: a bound the axis draws at zero must not be described in
- * this paragraph as a number the label refuses to print.
+ * The card's wording for the shared rule in `ages.ts`.
+ *
+ * The threshold is the canvas label's, and has to be: a bound the axis draws at
+ * zero must not be described in this paragraph as a number the label refuses to
+ * print. Only the word differs — this is prose, so it takes the article the
+ * mark's one-line slot cannot afford.
  */
-const PRESENT_MA = 0.05;
-
 function figure(ma: number): string {
-  if (!Number.isFinite(ma) || ma < PRESENT_MA) return "the present";
-  const n = ma >= 100 ? Math.round(ma) : ma >= 10 ? ma.toFixed(0) : ma.toFixed(1);
-  return `${n} Ma`;
+  if (!Number.isFinite(ma) || isPresent(ma)) return "the present";
+  return `${maFigure(ma)} Ma`;
 }
 
 function end(b: LayoutSpread["above"]): SpreadEnd | null {

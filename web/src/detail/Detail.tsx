@@ -29,13 +29,9 @@
  * each stops a specific wrong reading, and none of these did.
  */
 
+import { gapLabel } from "../ages";
 import { TIER_OCCURRENCE, TIER_STRUCTURAL, type NodeDetail } from "../api";
-import {
-  bracketGeom,
-  bracketTitle,
-  endedSpanLabel,
-  gapLabel,
-} from "../canvas/Bracket";
+import { bracketGeom, bracketTitle, endedSpanLabel } from "../canvas/Bracket";
 import { Silhouette } from "../canvas/Silhouette";
 import { kbd } from "../chrome/bindings";
 import { useTip } from "../chrome/Tooltip";

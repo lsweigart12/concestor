@@ -42,6 +42,7 @@ import {
   type Witness,
 } from "../api";
 import { AgeGlyph, type AgeGlyphKind } from "./AgeGlyph";
+import { isPresent, maFigure } from "../ages";
 import { endedSpanLabel } from "./Bracket";
 import { rankIsInformative } from "../detail/classification";
 import type { LabelBox } from "../tree/labels";
@@ -137,10 +138,8 @@ export const PRESENT = "present";
 
 export function ageLabel(age: number | null, tier: Tier): string | null {
   if (!tierHasAge(tier) || age === null || !Number.isFinite(age)) return null;
-  if (age < 0.05) return PRESENT;
-  const n =
-    age >= 100 ? Math.round(age) : age >= 10 ? age.toFixed(0) : age.toFixed(1);
-  return `${tier === TIER_INTERPOLATED ? "≤ " : ""}${n} Ma`;
+  if (isPresent(age)) return PRESENT;
+  return `${tier === TIER_INTERPOLATED ? "≤ " : ""}${maFigure(age)} Ma`;
 }
 
 /**
@@ -218,7 +217,7 @@ export function markAge(
  * figure's clothes, and it took the space a figure would have used.
  *
  * The first attempt at relocating it kept the clock's own condition — `age_ma`
- * under 0.05, so "drawn at the present" — and that was wrong twice over.
+ * under `PRESENT_MA`, so "drawn at the present" — and that was wrong twice over.
  * *Cetacea* and *Homo* are as alive as *Homo sapiens* is, and neither is drawn
  * at the present: a clade sits at its **crown age**, which is when it began, not
  * when it ended. And a mark meaning "this is at x ≈ 0" says only what the
