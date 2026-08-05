@@ -168,7 +168,23 @@ export function Controls({
   }
 
   return (
-    <div className={`controls${idle ? " idle" : ""}`}>
+    /*
+      A `header`, which is to say the page's banner, and it is the second of the
+      two landmarks this app has.
+
+      Not `nav`: half of what is in here does not navigate — clear, share and
+      fullscreen act on the canvas, and one of them is destructive — and a
+      landmark that promises links to elsewhere and delivers a destructive
+      button is worse than none. Not `toolbar` either, which is a keyboard
+      contract (one tab stop, arrows between the buttons) this bar does not
+      keep and cannot keep while `Tab` belongs to the canvas.
+
+      What it *is* is the strip along the top edge carrying the app's mark and
+      every global command, which is what a banner is. The groups inside keep
+      their own `role="group"` labels, so the landmark list reads Concestor, Add
+      species, Canvas, Navigate — the same four captions a reader can see.
+    */
+    <header className={`controls${idle ? " idle" : ""}`}>
       <div className="controls-lead">
         {runs.map((run, i) =>
           run.marked ? (
@@ -197,7 +213,7 @@ export function Controls({
           <PendingLine className="controls-busy mono">resolving…</PendingLine>
         )}
       </div>
-    </div>
+    </header>
   );
 }
 

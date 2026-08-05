@@ -236,7 +236,13 @@ export function Detail({
   const common = divergence ? null : (detail.vernaculars[0] ?? null);
 
   return (
-    <aside className="detail" style={{ color: `hsl(${hue} 60% 62%)` }}>
+    // One name for the slot rather than the subject's own — see
+    // `detail/blocks.tsx`. The subject is the `h2` immediately inside it.
+    <aside
+      className="detail"
+      aria-label="Selection"
+      style={{ color: `hsl(${hue} 60% 62%)` }}
+    >
       {witness && (
         <div className="detail-image">
           <Silhouette phylopicId={witness.phylopicId} size={110} />

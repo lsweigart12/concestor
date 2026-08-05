@@ -1965,7 +1965,10 @@ export default function App() {
 
   if (reachable === false) {
     return (
-      <div className="boot">
+      // The whole document in this state, so it is `main` rather than the
+      // overlay `.boot` is everywhere else — there is no canvas underneath it
+      // to be the page.
+      <main className="boot">
         <div className="boot-inner">
           <h1>Concestor</h1>
           <p>
@@ -1992,12 +1995,29 @@ export default function App() {
             root, then reload.
           </p>
         </div>
-      </div>
+      </main>
     );
   }
 
   return (
     <>
+      {/*
+        The one landmark this app owes a reader, drawn round two elements
+        rather than one.
+
+        *The canvas is the page* is this project's own sentence and it decides
+        which element gets `main`. But the empty canvas's invitation is a
+        sibling of the canvas rather than a child of it, and both are `position:
+        fixed; inset: 0`, so neither can be moved inside the other without
+        moving it on screen. A wrapper covers both and costs nothing: a static
+        box with two out-of-flow children has no size, opens no stacking context
+        of its own, and leaves the paint order the DOM order it already was.
+
+        Leaving the invitation outside would be the worse half of the trade. It
+        is the `h1`, the lede and every way in, on the one view where there is
+        nothing else to find.
+      */}
+      <main>
       <Graph
         induced={tree.induced}
         nodes={tree.nodes}
@@ -2208,6 +2228,7 @@ export default function App() {
           </div>
         </div>
       )}
+      </main>
 
       {/*
         A placeholder rather than the last fossil's card. `fossilCardPending`
@@ -2321,7 +2342,26 @@ export default function App() {
         />
       )}
 
-      <div className="toasts">
+      {/*
+        The column is the live region, and it is the whole column.
+
+        Everything this app says in words it says here — added, removed, drew,
+        link copied, this fossil is not drawn and why — and none of it was
+        reaching anybody who is not watching the bottom of the screen. A toast
+        is a receipt, so `polite` rather than `assertive`: it reports something
+        the reader has just done and must never cut across what they are
+        reading. `aria-atomic` is off because a toast is added beside its
+        neighbours rather than replacing them, and re-reading the two that are
+        already up is how a confirmation becomes a paragraph.
+
+        One region, at the top, rather than one per toast. The pinned answer
+        below used to carry its own `role="status"` and no longer needs to —
+        nested live regions are two announcements for one arrival on some
+        readers, and the thing that decides an answer is announced is that it
+        appears in this column, which is the same thing that decides it for
+        every other line here.
+      */}
+      <div className="toasts" aria-live="polite" aria-atomic="false">
         {toasts.map((t) => (
           <div className={`toast${t.warn ? " warn" : ""}`} key={t.id}>
             {t.body}
@@ -2339,7 +2379,7 @@ export default function App() {
           is still the newest thing at the bottom.
         */}
         {afterglow?.at === "reveal" && (
-          <div className="toast toast-pinned" role="status">
+          <div className="toast toast-pinned">
             <span className="toast-pinned-body">{afterglow.opening.reveal}</span>
             <button
               type="button"

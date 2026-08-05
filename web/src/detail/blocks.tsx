@@ -155,7 +155,10 @@ export function CardActions({
  */
 export function CardPending({ children }: { children: React.ReactNode }) {
   return (
-    <aside className="detail detail-pending">
+    // Named like the two real cards, and named the same in all three states —
+    // the landmark is the *slot*, and one that renamed itself as the fetch
+    // landed would move under anybody navigating by landmark.
+    <aside className="detail detail-pending" aria-label="Selection">
       <PendingLine>{children}</PendingLine>
     </aside>
   );

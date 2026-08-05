@@ -1123,7 +1123,22 @@ function Inner(props: GraphProps) {
         active={biolum}
         reduced={reduced}
       />
+      {/*
+        The name on React Flow's own `role="application"`.
+
+        It sets that role itself and there is no prop to turn it off, which is
+        defensible — an application region hands the arrow keys to the thing
+        inside it, and a pannable, zoomable canvas is the case the role exists
+        for. What is not defensible is an unnamed one: a reader is told they
+        have entered something that has taken their keys and not what. The prop
+        reaches the wrapper because `ReactFlowProps` extends the div's own
+        attributes and the component spreads the rest onto it.
+
+        It says what is drawn rather than what to press. The keys are the
+        palette's business and it is one landmark away.
+      */}
       <ReactFlow
+        aria-label="The tree, drawn against deep time"
         nodes={rfNodes}
         edges={rfEdges}
         nodeTypes={nodeTypes}

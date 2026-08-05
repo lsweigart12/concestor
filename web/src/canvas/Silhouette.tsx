@@ -16,6 +16,33 @@
  * The mirror is ours and the payloads are immutable per build, so this is a
  * one-time fetch per image, shared across every node that inherited it — and
  * with a mean climb of 27 hops, a handful of images cover most of a view.
+ *
+ * **`tip` is the accessible name as well as the tooltip, and a drawing without
+ * one is hidden.** A silhouette is content and not decoration — on a canvas of
+ * dots and dates it is the only thing saying what an animal *looks like* — so
+ * blanket `aria-hidden` was answering the wrong question. But the answer is not
+ * "label them all" either, because almost none of these are portraits: the
+ * corpus is 12,863 drawings against 2.7M nodes, and what the picture actually
+ * claims is `borrowedTitle`'s sentence — *not Cetacea itself, a drawing from
+ * within Delphinidae, the smallest group holding both (95 species)*. That claim
+ * is the number `docs/handoff.md` §5 says the UI must render, and until now it
+ * was rendered to whoever could hold a pointer still.
+ *
+ * So the rule is the one the callers already follow without knowing it: a
+ * drawing that has something to say passes a `tip`, and it now says it to
+ * everybody; a drawing that would only repeat the name printed beside it — the
+ * detail card under its own `h2`, a palette row beside its own label — passes
+ * none and stays out of the tree entirely. One prop, one sentence, and no way
+ * to get one half of it right.
+ *
+ * It has to be attached out here, on the wrapper, and that is not a
+ * preference. `sanitiseSvg` is an allow-list: `title` and `desc` are not
+ * elements it emits and `aria-*` is not an attribute it keeps, so the fetched
+ * markup cannot carry a name of its own — and writing one *into* the string
+ * would interpolate a taxon name into `dangerouslySetInnerHTML`, which is the
+ * hazard the `<title>` child was removed for in the first place. `role="img"`
+ * on the wrapper also prunes the drawing's own nodes from the tree, so the
+ * paths cannot report themselves as anything.
  */
 
 import { useEffect, useState } from "react";
@@ -65,6 +92,22 @@ function useSilhouette(phylopicId: string): string | null {
 }
 
 /**
+ * How a drawing announces itself: by its own sentence, or not at all.
+ *
+ * Spread rather than branched at each call site, because the two wrappers below
+ * are the same decision drawn in HTML and in SVG, and a rule written twice is
+ * one that can be half-changed. `role="img"` is what makes the name stick to
+ * something, and it prunes the fetched paths from the tree with it.
+ */
+function describe(tip: string | undefined): React.AriaAttributes & {
+  role?: string;
+} {
+  return tip === undefined
+    ? { "aria-hidden": true }
+    : { role: "img", "aria-label": tip };
+}
+
+/**
  * The same drawing, inside an `<svg>` rather than beside one.
  *
  * The drill-down lane is a single SVG — brackets, spine and names are all
@@ -86,11 +129,15 @@ export function SilhouetteSvg({
   y: number;
   size: number;
   /**
-   * What the drawing is of, on hover. It used to be an SVG `<title>` child,
-   * which is the platform's tooltip by another route and inherits every one of
-   * its faults — including being written into the markup this component sets
-   * with `dangerouslySetInnerHTML`, where a fossil name carrying an angle
-   * bracket would have been interpolated straight into the DOM.
+   * What the drawing is of, on hover — and, since it is the only sentence
+   * anywhere that says what this picture claims, its accessible name too. See
+   * the note at the head of this file for why the two are one prop.
+   *
+   * It used to be an SVG `<title>` child, which is the platform's tooltip by
+   * another route and inherits every one of its faults — including being
+   * written into the markup this component sets with
+   * `dangerouslySetInnerHTML`, where a fossil name carrying an angle bracket
+   * would have been interpolated straight into the DOM.
    */
   tip?: string;
 }) {
@@ -103,7 +150,7 @@ export function SilhouetteSvg({
     <g
       className="silhouette"
       transform={`translate(${x},${y})`}
-      aria-hidden="true"
+      {...describe(tip)}
       {...hover}
       dangerouslySetInnerHTML={{ __html: sized }}
     />
@@ -118,7 +165,7 @@ export function Silhouette({
 }: {
   phylopicId: string;
   size?: number;
-  /** What the drawing is of, on hover. See {@link SilhouetteSvg}'s note. */
+  /** What the drawing is of, and its name. See {@link SilhouetteSvg}'s note. */
   tip?: string | undefined;
   /**
    * What to render before the markup arrives, and if it never does — the
@@ -141,7 +188,7 @@ export function Silhouette({
     <span
       className="silhouette"
       style={{ width: size, height: size }}
-      aria-hidden="true"
+      {...describe(tip)}
       {...hover}
       dangerouslySetInnerHTML={{ __html: markup }}
     />
