@@ -2,8 +2,9 @@
 #
 # Every check CI runs, plus the ones it cannot: the dataset tests.
 #
-# CI runs on a clean checkout, so 82 of the 99 Go tests and 47 of the 291
-# pipeline tests skip themselves and both suites still report success. That is
+# CI runs on a clean checkout, so most of the Go suite and a fifth of the
+# pipeline's skip themselves and both still report success — docs/ci.md §2
+# counts the split, and is the only place that does. That is
 # the right default there — producing build/ is hours of pipeline time against
 # APIs with no rate limiting — but it means a green CI badge says nothing
 # about any code path that reads the baked artifacts. This script is where

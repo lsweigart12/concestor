@@ -87,6 +87,20 @@ GBIF_EXPRESSIBLE_RANKS = frozenset(
     {"species", "genus", "family", "subspecies", "order", "class", "phylum", "kingdom"}
 )
 
+# The occurrence tier's size, measured on build abe88f49f5eef91d. It was an
+# `observe` with `expected: null` until #92, which is how the documentation
+# carried 2,133 in six files for a build that produced 2,128: nothing compared
+# the prose to anything, and nothing compared the pipeline to itself either.
+#
+# A floor rather than an equality. What this gate is for is a *regression* —
+# a refusal added upstream that quietly empties the tier, which is exactly what
+# phase 3's disagreement sweep did to the candidate pool. The count moving by a
+# few dozen because PBDB published is not a bug and must not block a build. The
+# exact figure has a different guard: `tests/test_doc_figures.py` holds the
+# prose to `build/manifest.json`, where equality is the right test because both
+# sides describe the same artifact.
+MIN_OCCURRENCE_NODES = 2_000
+
 SPOT_TYRANNOSAURUS = 38613
 SPOT_AUBLYSODON = 38614
 # ingest.md asks for "at or below Dinosauria". Dinosauria is ott 90215 in the
@@ -1563,7 +1577,7 @@ TIER_PHASE2 = TOPOLOGY / "age_tier_phase2.npy"
 # mistake a range for a divergence age". It gets its own **table** instead, and
 # the constraint is met identically: what matters is that it is not `age_ma`
 # and cannot be reached by anything reading `age_ma`. A dense (n, 4) float32
-# array would be 43.6 MB to carry 2,133 useful rows, against an artifact set
+# array would be 43.6 MB to carry 2,128 useful rows, against an artifact set
 # already 2 GB over its estimate, and the Go reader is 1-D only — so it would
 # also have been four files. The dense array is still built in memory and every
 # gate below runs against *it* rather than against the rows written, because
@@ -1659,7 +1673,7 @@ def occurrence_gates(
     """The constraints, checked against the arrays rather than the code."""
     has = tier == TIER_OCCURRENCE
 
-    # The number a reader is actually asking about. "2,133 nodes gained a
+    # The number a reader is actually asking about. "2,128 nodes gained a
     # range" invites the conclusion that the available brackets were used up,
     # and the honest question is narrower: does a taxon someone came here to
     # look up stop reading "not estimated"?
@@ -1687,15 +1701,21 @@ def occurrence_gates(
             "tier is for taxa that ended."
         ),
     )
-    g.observe(
+    n_tier = int(has.sum())
+    g.require(
         "nodes gaining the occurrence tier",
-        f"{int(has.sum()):,}",
+        f"{n_tier:,}",
+        f"≥ {MIN_OCCURRENCE_NODES:,} (measured 2,128)",
+        ok=n_tier >= MIN_OCCURRENCE_NODES,
         note=(
             "Extinct taxa read 'not estimated' before this, by construction "
             "rather than by measurement: every age in the artifact set comes "
             "from a chronogram of extant species. This is a different and "
             "weaker claim in the same units — when a taxon is observed in the "
-            "rock, not when lineages parted."
+            "rock, not when lineages parted. A floor, and blocking: an "
+            "upstream refusal that empties the tier is the failure worth "
+            "catching, and the tier's exact size is pinned to the prose by "
+            "tests/test_doc_figures.py instead."
         ),
     )
     g.require(
@@ -1784,7 +1804,7 @@ def write_occurrence(con: sqlite3.Connection, ranges: F32Array, tier: U8Array) -
     """One row per node carrying a fossil range.
 
     Deliberately not a column on `node`: that table has 2.7M rows and other
-    phases write it, and 2,133 of those rows would carry a value. The four
+    phases write it, and 2,128 of those rows would carry a value. The four
     bounds stay four columns — a single `range` column would have to collapse
     two brackets into one, which is the claim architecture §7 says never to
     make.

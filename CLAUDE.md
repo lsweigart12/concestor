@@ -88,7 +88,7 @@ is content with. **What neither of them catches is a dead *export***, which is
 why 57 of them accumulated; that count is in `docs/handoff.md` §3.
 
 ```bash
-cd web && npm install && npm run format:check && npm run lint && npm run build && npm test   # 770 tests, two projects
+cd web && npm install && npm run format:check && npm run lint && npm run build && npm test   # two vitest projects
 cd server && go test ./... && go run . -build ../build
 scripts/check.sh          # everything CI runs, plus the dataset tests it can't
 ```
@@ -136,11 +136,12 @@ prove an absence by rendering the components you remembered to render.
 
 **Running in a worktree.** `scripts/serve.sh` and `scripts/dev.sh` are the two
 `.claude/launch.json` configurations and work unchanged in a parallel
-session's worktree, which has the source but neither `build/` (2.9 GB) nor
+session's worktree, which has the source but neither `build/` (3.2 GB) nor
 `snapshot/` (1.7 GB). They borrow both, read-only, from the main checkout.
 **`go test` does not.** `testenv.BuildDir` walks six parents for
 `build/concestor.db` and from `<worktree>/server/internal/store` that stops one
-level short — so **82 of 99** tests skip and the suite still prints `ok`. Run
+level short — so **most of the suite** skips and it still prints `ok` (the
+split is counted in `docs/ci.md` §2 and nowhere else). Run
 `scripts/check.sh`, which symlinks `build` into the worktree root (it is
 gitignored) and sets `CONCESTOR_REQUIRE_BUILD=1` so a skip becomes a failure;
 `docs/ci.md` §2 is why a green `go test` on its own means very little here.
@@ -235,6 +236,16 @@ Counting rows is not the same as checking them. Structural gates validate the
 shape of the data; add a content gate whenever a column starts carrying
 something a downstream consumer depends on.
 
+**An `observe` with `expected: null` compares a number to nothing**, which is
+how "2,133 nodes carry an occurrence range" survived in six documents against a
+build that produced 2,128. That gate is a blocking floor now. **And the prose is
+checked against `build/manifest.json`** by
+`pipeline/tests/test_doc_figures.py` — the current build id, phase 4's gate
+count, the occurrence tier — on the same principle as `viewport.test.ts`
+reading `styles.css`: a comment cannot fail, so anything a figure is worth is
+worth a test that reads it. It pins three figures and argues its refusals in
+the docstring; read those before adding a fourth.
+
 ## Facts that will cost you hours
 
 All detailed in `docs/data-sources.md`:
@@ -256,8 +267,12 @@ All detailed in `docs/data-sources.md`:
 ## Current state
 
 **All six phases are implemented, the server is built, and the UI works end to
-end.** Every phase is green and `concestor-build package` succeeds; the current
-build is `854cdfa42f77e78e`. `docs/handoff.md` §2 has the table and §7 the honest list of what is
+end.** Every phase is green and `concestor-build package` succeeds. **The build
+id is not repeated here**: `docs/handoff.md` §2 is the one line that names the
+current artifact set, `/v1/about` serves it from `build/manifest.json`, and
+`pipeline/tests/test_doc_figures.py` holds the two to each other. A build id
+anywhere else in these documents dates a measurement and is not a claim about
+`build/`. `docs/handoff.md` §2 has the table and §7 the honest list of what is
 thin. `test_vernaculars.py` asserts the words a person actually types and is
 **green** — `dog`, `cat`, `whale`, `human`, `shark`, `T. rex` all resolve, and
 so now do `frog`, `animal` and `bird`. The P9157 crawl is complete, 287/287
@@ -532,7 +547,7 @@ prevent.
 part", from a chronogram of **extant** species — so an extinct taxon has no
 counterpart to join to and is `structural` by construction, not by measurement.
 `occurrence` answers a different and weaker question: when the taxon is observed
-in the rock. 2,133 nodes carry one. It is written by **phase 4**, not phase 2,
+in the rock. 2,128 nodes carry one. It is written by **phase 4**, not phase 2,
 because the `fossil` table does not exist until then, and it lives in the
 `occurrence` table rather than in `age_ma` — a gate checks that on the array
 rather than trusting the code that wrote it. It renders as a range and **never**

@@ -1,14 +1,16 @@
 """Session-wide guard for the tests that need a built dataset.
 
-Forty-seven of the tests here carry a module-level `skipif` on some artifact
-existing — `build/concestor.db`, a phase's `.npy` output, the snapshot. On a
-clean checkout they all skip and pytest reports success, which is correct for
-CI and misleading anywhere a build was supposed to be present.
+A fifth of the tests here carry a module-level `skipif` on some
+artifact existing — `build/concestor.db`, a phase's `.npy` output, the
+snapshot. On a clean checkout they all skip and pytest reports success, which
+is correct for CI and misleading anywhere a build was supposed to be present.
+docs/ci.md §2 counts the split and is the only place that does; repeating it
+here is how it went stale in five files at once.
 
 `CONCESTOR_REQUIRE_BUILD=1` refuses the run instead, before a single test is
 collected. Failing at the session level rather than per test is deliberate:
-the question "is a dataset here" has one answer for the whole run, and 47
-identical failures would bury it. `scripts/check.sh` sets the variable
+the question "is a dataset here" has one answer for the whole run, and dozens
+of identical failures would bury it. `scripts/check.sh` sets the variable
 whenever it can resolve a build; the Go suite reads the same one.
 
 It guards the database, not `snapshot/`. With a build and no snapshot, 5 tests

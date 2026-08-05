@@ -37,9 +37,10 @@ func BuildDir(tb testing.TB) string {
 //
 // The skip is the right default: a clean checkout has no build/, and CI never
 // will, because producing one is hours of pipeline time against academic APIs
-// that have no rate limiting. What the skip costs is that 82 of 99 tests
-// vanish and `go test` still prints `ok`, which reads as "the server is
-// tested". That has already caught someone out in a git worktree, where
+// that have no rate limiting. What the skip costs is that most of this suite
+// vanishes and `go test` still prints `ok`, which reads as "the server is
+// tested". docs/ci.md §2 counts the split and is the only place that does.
+// That has already caught someone out in a git worktree, where
 // testenv's six-parent walk stops one directory short of the borrowed build/.
 //
 // So the escape hatch: scripts/check.sh sets the variable whenever it can

@@ -133,8 +133,10 @@ release automatically: the version comes from those prefixes, the notes from
 the commits, and neither is written by hand.
 
 CI runs the same checks on every pull request, on a clean checkout — which
-means no `build/`, which means **82 of the 99 Go tests and 47 of the pipeline's
-skip themselves and both suites still report success**. `scripts/check.sh`
+means no `build/`, which means **most of the Go suite and a fifth of the
+pipeline's skip themselves and both still report success**. The split is
+measured in [docs/ci.md](docs/ci.md) §2 and written down only there.
+`scripts/check.sh`
 finds a build, sets `CONCESTOR_REQUIRE_BUILD=1` so a skip becomes a failure,
 and is the run to trust before merging anything that reads the artifacts.
 [docs/ci.md](docs/ci.md) covers that and the Cloudflare deployment path.

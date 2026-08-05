@@ -4,7 +4,7 @@
 `server/internal/testenv` skips every test that needs the baked artifacts when
 build/concestor.db is absent, so a clean checkout — which is what CI is, and
 what a fresh git worktree is — runs 17 of 99 tests and prints `ok`. That is the
-right default (a checkout without a 2.9 GB dataset should not fail) and a bad
+right default (a checkout without a 3.2 GB dataset should not fail) and a bad
 thing to leave invisible, because `ok` reads as "the server is tested".
 
 So this prints the split where the reader will see it, and fails when the

@@ -20,7 +20,7 @@ the deploy as one of its own jobs — and §4 is why that is not the obvious
 shape it replaced.
 
 The three halves share only files, so they get three independent jobs and a red
-run names the half that broke. Nothing in CI needs `build/` (2.9 GB) or
+run names the half that broke. Nothing in CI needs `build/` (3.2 GB) or
 `snapshot/` (1.7 GB), and nothing in CI should ever try to produce them: the
 pipeline is hours of work against academic APIs that, per
 `docs/data-sources.md`, have no rate limiting because nobody implemented it.
@@ -28,7 +28,8 @@ Pointing a CI matrix at Open Tree would be the rudest thing this project could
 do.
 
 **`web`** — `npm ci`, then `prettier --check`, `oxlint`, typecheck, vitest
-(770 tests), and `vite build`. The built `dist` is uploaded as an artifact and
+(two projects, `node` and `dom`), and `vite build`. The built `dist` is
+uploaded as an artifact and
 handed to the `cloudflare` job, so the thing that gets validated for deployment
 is the thing that was tested.
 
@@ -73,18 +74,21 @@ build and gets checked like one. See §4.
 
 ## 2. What a green run does not mean
 
-On a checkout with no dataset:
+On a checkout with no dataset, measured 2026-08-04 — **this table is the one
+place the split is written down**, and the prose elsewhere that used to repeat
+it now points here instead, because it was copied into five files and stale in
+all five:
 
 | Suite | Runs | Skips |
 |---|---|---|
-| Go | 17 | **82** |
-| pytest | 244 | 47 |
+| Go | 31 | **127** |
+| pytest | 307 | 83 |
 
 Both suites report success. `go test` prints `ok` for every package.
 
-That default is correct — a clean checkout without a 2.9 GB build should not
+That default is correct — a clean checkout without a 3.2 GB build should not
 fail — and it is dangerous left unsaid, because `ok` reads as *the server is
-tested* when 83% of the server's tests did not run. The same trap has already
+tested* when 80% of the server's tests did not run. The same trap has already
 caught someone inside a git worktree, where `testenv.BuildDir`'s six-parent
 walk stops one directory short of the borrowed `build/` and the suite quietly
 stopped testing anything.
@@ -101,13 +105,14 @@ So there are two mechanisms, and they are complementary:
   `npy_test.go`'s second copy of the six-parent walk is gone, since a skip
   the flag does not reach is exactly the skip that hides something. The
   pipeline side refuses the whole session in `pipeline/tests/conftest.py`,
-  once, rather than failing 47 times with the same message.
+  once, rather than failing 78 times with the same message.
 
   It guards the database, not `snapshot/`. With a build and no snapshot, 5
   tests in `test_vernaculars.py` still skip: the snapshot is 1.7 GB of pinned
   upstream sources a worktree deliberately does not borrow, so requiring it
-  would make the flag unusable where it is most needed. With both present the
-  count is **99 of 99** Go tests and **291 of 291** pipeline tests.
+  would make the flag unusable where it is most needed. With a build the count
+  is **158 of 158** Go tests and **385 of 390** pipeline tests, those 5 being
+  the snapshot's.
 
 ```bash
 scripts/check.sh
