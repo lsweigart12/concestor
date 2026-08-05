@@ -153,10 +153,32 @@ jobs:
   # set, deploy-web.yml's own guard step still skips every step and reports
   # green, so this adds no way for the deploy to fail on a repository that has
   # no account.
+  # **The permissions here must cover everything deploy-web.yml declares**, and
+  # not covering them is a startup failure of this *whole run* rather than of
+  # this job. A called workflow may not request more than its caller grants;
+  # this file's `contents: write` was the whole grant, deploy-web.yml added
+  # `pull-requests: write` so it could comment a preview URL, and the Release
+  # run that followed the merge never started — no jobs, no logs, no
+  # annotation, and `startup_failure` as the only word about it.
+  #
+  # Two things make that worth a comment this long. It happens even though this
+  # job is **skipped** on the merge that caused it, because GitHub validates
+  # every called workflow before it runs any job — so a permission a preview
+  # needs took down the release path, which is the one thing in this repository
+  # that must not go quiet (§4 of docs/ci.md is the last time it did). And the
+  # failure is *upstream* of the `if:` above, so nothing about `released`
+  # protects it. Whenever deploy-web.yml's `permissions:` block grows, this
+  # block grows with it.
   deploy:
     needs: release
     if: needs.release.outputs.released == 'true'
     uses: ./.github/workflows/deploy-web.yml
+    permissions:
+      # Read, not write: the deploy checks a tag out and builds it. The
+      # workflow-level `contents: write` above is semantic-release's, and a
+      # job that does not push anything should not carry it.
+      contents: read
+      pull-requests: write
     with:
       release_tag: ${{ needs.release.outputs.tag }}
     secrets: inherit
