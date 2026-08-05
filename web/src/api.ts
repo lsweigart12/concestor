@@ -1,12 +1,15 @@
 /**
  * Typed client for the read API (the Go binary in ../server).
  *
- * Everything the API serves is immutable within a build, so every response is
- * cached in-process for the session. That is not an optimisation detail: it is
- * what lets the signature interaction fire in the same frame as the click.
- * Architecture §2 — once a leaf's ancestor path is in memory, the MRCA, the
- * reflow and the drill-down are all set operations over data we already hold,
- * with no round trip.
+ * Everything the API serves is immutable within a build, so a response is
+ * cached in-process once it has been fetched. That is not an optimisation
+ * detail: it is what lets the signature interaction fire in the same frame as
+ * the click. Architecture §2 — once a leaf's ancestor path is in memory, the
+ * MRCA, the reflow and the drill-down are all set operations over data we
+ * already hold, with no round trip.
+ *
+ * How *long* it is kept is a question about the URL rather than about the
+ * response, and there are two answers. See {@link get}.
  */
 
 /** Age provenance, architecture §3.5. The numbers match `age_tier.npy`. */
@@ -833,17 +836,103 @@ function creditFields(sil: Record<string, unknown> | null | undefined): void {
   sil.contributor = sil.contributor ?? sil.uploader ?? null;
 }
 
-const cache = new Map<string, Promise<unknown>>();
+/**
+ * A set of remembered answers, with a rule for how many.
+ *
+ * `limit` of 0 means never evict. Anything above it is a least-recently-used
+ * bound, and `Map`'s own insertion order is the recency: reading an entry
+ * re-inserts it, so the oldest key is always the one at the front.
+ */
+interface Memo {
+  entries: Map<string, Promise<unknown>>;
+  limit: number;
+}
 
 /**
- * Fetch once per URL and remember the answer for the life of the tab.
+ * The memo for every URL the *dataset* bounds.
  *
- * `signal` cancels a request **this call started**, and deliberately not one it
- * merely joined: a cache hit is somebody else's request, already paid for, and
- * a second caller is not entitled to cancel work the first is still waiting on.
- * In practice only the palette passes a signal and only one search is ever out
- * at a time, so the two cases do not meet — but the rule is the one that stays
- * correct if they ever do.
+ * `/v1/node`, `/v1/path`, `/v1/paths`, `/v1/hits`, `/v1/segment`,
+ * `/v1/fossil`, `/v1/timescale`, `/v1/about`, the random pool. Each is a key
+ * the build assigned, or a list built from such keys, so the space a session
+ * can reach is a function of the data and of how many taxa a reader can
+ * actually click — and every response is immutable within the build. Keeping
+ * all of them for the life of the tab is the whole of architecture §2.
+ */
+const forever: Memo = { entries: new Map(), limit: 0 };
+
+/**
+ * How many `/v1/search` answers are kept.
+ *
+ * `/v1/search` is the one URL in this module built from a string the reader
+ * *typed*, and with typeahead every prefix of every query is its own key. The
+ * rule that is right for the rest of the API — remember forever — turns this
+ * one into a log of everything anybody searched for, each entry holding up to
+ * 24 nodes and 24 fossils, held until the tab closes. So it is bounded, and
+ * **the distinction is the endpoint rather than the mechanism**: nothing else
+ * here takes free text, and the day something does it belongs on this side of
+ * {@link memoFor} rather than getting a third rule.
+ *
+ * 64 is chosen against what the memo is actually for. A reader typing one
+ * query past the palette's three-character floor produces one entry per
+ * keystroke, and the hit that has to land is the *backspace* — deleting a
+ * character must not cost a round trip on the half-vCPU container. 64 covers
+ * several whole queries and every backspace inside them; past that the entries
+ * are questions the reader has moved on from. Exported because `api.test.ts`
+ * asserts against the bound, and a test carrying its own copy of a tuning
+ * number is a test that passes after the number changes.
+ */
+export const SEARCH_MEMO_LIMIT = 64;
+
+/** @see SEARCH_MEMO_LIMIT */
+const searches: Memo = { entries: new Map(), limit: SEARCH_MEMO_LIMIT };
+
+/** Which of the two a URL belongs to. The endpoint decides, nothing else. */
+function memoFor(url: string): Memo {
+  return url.startsWith("/v1/search?") ? searches : forever;
+}
+
+function memoGet(m: Memo, url: string): Promise<unknown> | undefined {
+  const hit = m.entries.get(url);
+  // Touch, so that "least recently used" means used rather than fetched.
+  // Skipped where nothing reads recency, because re-inserting into a memo with
+  // no eviction rule is work that buys nothing.
+  if (hit && m.limit) {
+    m.entries.delete(url);
+    m.entries.set(url, hit);
+  }
+  return hit;
+}
+
+function memoSet(m: Memo, url: string, p: Promise<unknown>): void {
+  m.entries.set(url, p);
+  while (m.limit && m.entries.size > m.limit) {
+    const oldest = m.entries.keys().next().value;
+    if (oldest === undefined) break;
+    m.entries.delete(oldest);
+  }
+}
+
+/**
+ * Fetch once per URL and remember the answer — for the life of the tab where
+ * the dataset bounds the URL, and for the last {@link SEARCH_MEMO_LIMIT}
+ * answers where the reader's typing does.
+ *
+ * **`signal` cancels the request, and a joiner inherits that cancellation.** A
+ * second caller for the same URL is handed the first caller's promise, so when
+ * the originator aborts, everything waiting on it gets the `AbortError` —
+ * including a caller that passed no signal at all and asked for none of this.
+ *
+ * That is the opposite of what these lines used to assert, and the *comment* is
+ * what was wrong. Making the assertion true needs a subscriber ledger and an
+ * internal controller — one promise per caller, the fetch aborted only when the
+ * last subscriber gives up — to serve a case that cannot presently arise:
+ * `Palette` is the only caller that passes a signal, it aborts the previous
+ * request in the cleanup that starts the next, and no two of its queries share
+ * a URL. Machinery guarding an unreachable case is untested machinery, which is
+ * how the next latent trap gets written; a comment asserting a safety property
+ * nothing has is worse than no comment at all. `api.test.ts` pins what actually
+ * happens, so the second signal-passing caller arrives to a test telling them
+ * what they inherit rather than to a sentence telling them wrong.
  *
  * Cancelling matters more than it looks. `/v1/search` is served by a *single*
  * container instance with half a vCPU, so an abandoned request is not free — it
@@ -852,7 +941,8 @@ const cache = new Map<string, Promise<unknown>>();
  * every one of those in flight to completion, with their answers thrown away.
  */
 async function get<T>(url: string, signal?: AbortSignal): Promise<T> {
-  const hit = cache.get(url);
+  const memo = memoFor(url);
+  const hit = memoGet(memo, url);
   if (hit) return hit as Promise<T>;
   const p = (async () => {
     const res = await fetch(url, {
@@ -870,27 +960,38 @@ async function get<T>(url: string, signal?: AbortSignal): Promise<T> {
     }
     return normalise(url, await res.json());
   })();
-  // A failed request must not poison the cache — the palette retries on the
+  // A failed request must not poison the memo — the palette retries on the
   // next keystroke and a stuck rejection would look like a dead search box.
   // This is also what makes an abort safe to remember nothing about: the entry
   // is gone before the debounce on the next keystroke has even elapsed, so
   // backspacing to a query that was cancelled asks again rather than
   // rediscovering its cancellation.
-  p.catch(() => cache.delete(url));
-  cache.set(url, p);
+  //
+  // It deletes *this* promise and not merely this URL, which the unbounded
+  // memo never had to care about: an in-flight entry could not be displaced,
+  // because a second caller for the same URL joined it rather than starting
+  // one. Eviction breaks that. A slow request pushed out by 64 later searches,
+  // then asked for again and answered, would on its own rejection delete the
+  // *newer* entry — a cache that quietly forgets the answer it just got.
+  p.catch(() => {
+    if (memo.entries.get(url) === p) memo.entries.delete(url);
+  });
+  memoSet(memo, url, p);
   return p as Promise<T>;
 }
 
 /**
  * There is no `getFresh` any more, and its absence is the point.
  *
- * `get` memoises on the URL forever, which is exactly right for an immutable
- * API and was exactly wrong for one endpoint: `/v1/random` would have answered
- * every press of the command with the first press's pick for the lifetime of
- * the tab, so it was fetched `no-store` here and served `no-store` one layer
- * down. That exception is gone with the endpoint — the draw happens here now,
- * from a pool that *is* a function of the build, so every request this module
- * makes goes through the cache above by the same rule.
+ * `get` memoises on the URL, which is exactly right for an immutable API and
+ * was exactly wrong for one endpoint: `/v1/random` would have answered every
+ * press of the command with the first press's pick for the lifetime of the
+ * tab, so it was fetched `no-store` here and served `no-store` one layer down.
+ * That exception is gone with the endpoint — the draw happens here now, from a
+ * pool that *is* a function of the build, so every request this module makes
+ * goes through a memo above by the same rule. The bound on `/v1/search` is not
+ * a second exception to it: those answers are as immutable as the rest, and
+ * what is bounded is only how many of them a tab is asked to hold.
  */
 
 /** Which corpus a random pick is drawn from. Never both. */
@@ -931,7 +1032,7 @@ export const api = {
    * remembered id would fail identically until the reader reloaded.
    */
   about: (refresh = false) => {
-    if (refresh) cache.delete("/v1/about");
+    if (refresh) forever.entries.delete("/v1/about");
     return get<About>("/v1/about");
   },
 
@@ -953,6 +1054,13 @@ export const api = {
   randomPool: (buildId: string) =>
     get<RandomPool>(`/v1/random-pool/${encodeURIComponent(buildId)}`),
 
+  /**
+   * The one endpoint whose URL the reader writes.
+   *
+   * Which is why its answers live in the bounded memo rather than the one that
+   * keeps everything — {@link SEARCH_MEMO_LIMIT} is the rule and the reasoning.
+   * `signal` is the palette's, and {@link get} says what a joiner inherits.
+   */
   search: (q: string, limit = 20, signal?: AbortSignal) =>
     get<{
       /** Always the string that was asked for, corrected or not. */
