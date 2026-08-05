@@ -38,6 +38,39 @@ if (typeof Element.prototype.scrollIntoView !== "function") {
 }
 
 /**
+ * Give back the `localStorage` node took away.
+ *
+ * jsdom implements it — `globalThis.jsdom.window.localStorage` is a genuine
+ * `Storage` — but node 22 and later ship an *own* experimental `localStorage`
+ * accessor on the global, and vitest's populate step leaves an existing global
+ * alone rather than clobbering a node builtin. So node's accessor wins, it
+ * returns `undefined` without `--localstorage-file`, and the runner prints
+ * "localStorage is not available because --localstorage-file was not provided".
+ * `sessionStorage` is unaffected purely because node has no global of that name,
+ * which is what makes this look like a jsdom bug rather than a collision.
+ *
+ * The real object is put back rather than a `Map` dressed up as one: the point
+ * of a DOM harness is that the module under test reaches the same API it reaches
+ * in a browser, and `fuzzy.ts`'s whole bug is in what comes back *out* of that
+ * API. Guarded on `undefined` so a node without the experimental global, or one
+ * run with the flag, keeps whatever it already had.
+ */
+{
+  const g = globalThis as typeof globalThis & {
+    jsdom?: { window?: { localStorage?: Storage } };
+  };
+  const real = g.jsdom?.window?.localStorage;
+  if (typeof g.localStorage === "undefined" && real) {
+    Reflect.deleteProperty(g, "localStorage");
+    Object.defineProperty(g, "localStorage", {
+      value: real,
+      configurable: true,
+      writable: true,
+    });
+  }
+}
+
+/**
  * Analytics must not leave the process.
  *
  * `beacon.ts` prefers `sendBeacon` and falls back to `fetch`, and it is reached
