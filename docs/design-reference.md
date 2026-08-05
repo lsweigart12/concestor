@@ -67,7 +67,7 @@ filter tween on the same element.
 
 - **Every binding is a bare letter, and nothing here holds a modifier.** `P`
   opens the palette, `S` opens it filtered to species, `F` fits, `/` isolates,
-  `Tab` steps, `T` switches the time scale, `L` cycles the labels, `A` the ages,
+  `N` steps to the next species, `T` switches the time scale, `L` cycles the labels, `A` the ages,
   `B` the light, `R` adds a random species, `C` clears. The four canvas modes
   hold the letters that name them, which is why the time scale is on `T` and no
   longer on `L`: `l` names the labels, where it only ever named one of the two
@@ -83,6 +83,14 @@ filter tween on the same element.
   has no text entry, so the letter keys are ours and the chords stay the
   browser's. `web/src/chrome/bindings.ts` is the one table; `matchKey` refuses
   any press holding ctrl, meta or alt, which is what keeps that promise.
+- **`Tab` is not a letter and is not in the table.** It held `step` until it was
+  noticed that the handler prevents the default of everything it matches, which
+  meant the focus ring never moved and no button in this app could be reached
+  without a pointer. "Keyboard operation is first class" was true of the
+  *commands* and false of the controls, and the two were being claimed in one
+  breath. Stepping is `N` now (`⇧N` back) and `Tab` walks the chrome: the marks
+  on the canvas, then the mode panel, the scale, the axis links, the detail card,
+  the control bar.
 - `P` is the root of the command surface. The empty canvas state is the
   command list, not an illustration.
 - **Every action has a command, a key, and a button.** Keyboard operation is
@@ -170,7 +178,7 @@ filter tween on the same element.
   button whose word is not the word its letter came from, after `P` **commands**:
   a badge teaches the key, a label teaches the action, and *expand* named the
   gesture on a canvas where expanding already means something about a clade. **Navigate** takes the second
-  row: fit, isolate, step are how you look at what you built, which is what you
+  row: fit, isolate, next are how you look at what you built, which is what you
   reach for after there is something to look at.
 - **A control keeps its word at every width the bar is drawn at.** There was a
   narrow layout once — below 720px the labels went and the badges stayed, on the

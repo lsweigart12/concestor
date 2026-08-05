@@ -1753,12 +1753,15 @@ tag and testing its case.
 `c.hint ?? c.subtitle`, and the subtitle is printed two lines under the pointer.
 The fallback is gone.
 
-**The focus path is near-dead, and not because of anything here.** `App.tsx`
-prevents the default of every key it matches and `bindings.ts` claims bare `Tab`
-for stepping the selection, so the focus ring does not move in this app at all.
-The `onFocus` handlers stay — they are correct the moment that changes — but
-keyboard reachability of the whole control surface is a bigger question than a
-tooltip and belongs to whoever picks up `bindings.ts`.
+**The focus path was near-dead, and is live now.** `App.tsx` prevents the
+default of every key it matches and `bindings.ts` claimed bare `Tab` for
+stepping the selection, so the focus ring did not move in this app at all. The
+`onFocus` handlers were kept anyway, on the ground that they were correct the
+moment that changed — and that is what happened: `step` moved to `N`, `Tab` went
+back to the browser, and every tip on the bar and the mode panel now opens under
+the focus ring without a line of the tooltip changing. The general lesson is
+worth the sentence: write the correct handler while the thing it depends on is
+still broken, and say in the header that it is waiting.
 
 ### The bar is groups now, and on a phone it is one button
 
@@ -1771,7 +1774,7 @@ reader has to be able to see where the pressable thing starts *without reading
 any of the words in it*, and eight bare buttons on a strip of scrim gave them
 nothing to see. Four groups: **Concestor** (the app's mark, and the palette
 under it), **Add species** (`S` and `R` as *search* and *random*), **Canvas**
-(expand, clear and share, opposite corner), **Navigate** (fit, isolate, step,
+(expand, clear and share, opposite corner), **Navigate** (fit, isolate, next,
 second row).
 
 **Below 620px none of it is drawn.** The bar, the canvas-mode panel and the
@@ -2475,6 +2478,57 @@ Six things worth not redoing:
   attribute to its trigger, and that `pointerdown` on some *other* element
   dismisses the tip. Each was confirmed to bite by breaking the source and
   watching the right tests, and only those, go red.
+
+### `Tab` is the browser's, and `step` is on `N`
+
+The bar had names and landmarks and a focus ring nothing could reach. `step`
+was bound to bare `Tab`, `App.tsx` prevents the default of every key it
+matches, and the two together meant **the focus ring did not move in this app
+at all**: not one button on the control bar, not one segment of the canvas-mode
+panel, not one link on the detail card was reachable by a reader with a keyboard
+and no pointer. It shipped for the whole life of the control bar and nothing
+caught it, because everything that looks like a keyboard test here was a test of
+the *commands*.
+
+It is the same failure the `Scope` field already exists to prevent, one level
+up — the note beside the Enter row says a globally matched Enter "would take
+keyboard activation off every button in the app", and `Tab` was quietly doing
+the navigation half of exactly that. Five things not to redo:
+
+- **The fix is absence, not a `Scope`.** Enter is scoped because `OpeningCarousel`
+  genuinely wants it; nothing in this app wants `Tab`. Scoping it to a focused
+  canvas would mean a reader who tabs *in* can never tab out, which is a keyboard
+  trap (WCAG 2.1.2) and a worse bug than the one it fixes. A composite widget
+  that legitimately claims `Tab` inward — a grid, a listbox — spends **arrows**
+  on its contents for that reason, so even the elaborate route moves stepping
+  off `Tab`. A row that is not in `BINDINGS` cannot be matched by a caller that
+  forgets, which is the same structural guarantee `Scope` gives Enter and is
+  cheaper.
+- **A roving tabindex and a skip link were both refused, and neither would have
+  worked alone.** A skip link moves focus once; the *next* `Tab` is still eaten
+  by a global handler, so it fixes nothing without the scoping that was just
+  refused.
+- **The word had to move with the letter.** "Step" has no free letter left —
+  `s` is species, `t` the time scale, `e` fullscreen, `p` the palette — so the
+  choice was `N` printed over "Step", which is the one failure the whole table
+  exists to make impossible, or a word that starts with a free letter. "Next"
+  is also the better word: `fullscreen`'s row already settled that a badge
+  teaches the key and a label teaches the action, and "Step" named the gesture
+  where "Next" names what you get. `bindings.test.ts` still pins the
+  badge/label exceptions at **two** (`palette`, `fullscreen`); this is not a
+  third.
+- **`keyboard.test.tsx` transcribes App's handler rather than mounting it**, and
+  says so in its header. The behaviour is two lines inside a 2,400-line `App`
+  downstream of a store, a canvas and a live API; what is copied is
+  `matchKey(e)`, return on null, `preventDefault()`, and it imports the *real*
+  `matchKey`, which is where the bug was. Putting a `Tab` row back fails it.
+- **jsdom implements no tab order and no implicit button activation**, so
+  nothing in that file pretends to observe either: `Tab` moving focus and Enter
+  clicking a focused button are the *browser's* default action for a press
+  nobody cancelled, and neither is the app's to get wrong. What the tests assert
+  is that the press survives to reach that default. The order itself was walked
+  by hand in Chrome and reads: the marks, the mode panel, the scale, the axis
+  links, the detail card, the control bar.
 
 ---
 
@@ -3577,11 +3631,19 @@ than a post-process pass, and it drops the halo below 0.5 zoom — but that was
 chosen on principle, not measured. Nothing has been profiled with a large
 selection on a slow machine.
 
-**No accessibility pass.** Full keyboard operation exists and is real, but
-focus management, screen-reader semantics for the canvas, and a
-non-colour-dependent reading of the provenance tiers have not been examined.
-The dash-pattern channel was chosen partly because it survives without colour;
-that has not been tested with anyone.
+**The accessibility pass is part-done, and the sentence that used to be here
+was wrong.** It read "full keyboard operation exists and is real" — which was
+true of the *commands* and false of the controls, because `step` held bare
+`Tab` and the focus ring could not move at all. That is fixed (§3), the
+landmarks and accessible names are in, and `Tab` now walks the chrome. What is
+still unexamined: **screen-reader semantics for the canvas** — the marks are
+focusable `div`s with no role saying what a tree of them *is*, and there is no
+spoken equivalent of "these two lineages part at 96 Ma"; **a non-colour-
+dependent reading of the provenance tiers**, where the dash-pattern channel was
+chosen partly because it survives without colour and has still not been tested
+with anyone; and **focus management across state changes** — nothing moves focus
+when the detail card opens or when `C` clears the canvas out from under it.
+Nobody who relies on any of this has used the app.
 
 **The artifact set is 2,062.6 MB** against architecture §11's 700 MB estimate.
 Nothing is wrong; §11's cost paragraph has now been re-derived in place and

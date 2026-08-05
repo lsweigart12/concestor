@@ -18,7 +18,7 @@ describe("matchKey", () => {
     expect(matchKey(press("s"))).toBe("species");
     expect(matchKey(press("f"))).toBe("fit");
     expect(matchKey(press("/"))).toBe("isolate");
-    expect(matchKey(press("Tab"))).toBe("step");
+    expect(matchKey(press("n"))).toBe("step");
     expect(matchKey(press("r"))).toBe("random-species");
     expect(matchKey(press("c"))).toBe("clear");
     expect(matchKey(press("b"))).toBe("biolum");
@@ -81,7 +81,7 @@ describe("matchKey", () => {
     // The browser reports "F", not "f", once shift is down. A table keyed on
     // the printed character would miss this and hand the press to `f`.
     expect(matchKey(press("F", { shiftKey: true }))).toBe("fit-selection");
-    expect(matchKey(press("Tab", { shiftKey: true }))).toBe("step-back");
+    expect(matchKey(press("N", { shiftKey: true }))).toBe("step-back");
   });
 
   it("leaves ⇧R alone, because a random pick has no second corpus to aim at", () => {
@@ -90,6 +90,48 @@ describe("matchKey", () => {
     // and a reader whose fingers remember the old key should get nothing
     // rather than something else.
     expect(matchKey(press("R", { shiftKey: true }))).toBeNull();
+  });
+
+  it("gives Tab back to the browser, in both directions and at every scope", () => {
+    // The check this file exists for most, and the one whose failure is
+    // invisible until somebody with no pointer tries to reach a button.
+    //
+    // `step` was on bare `Tab` and `step-back` on `⇧Tab`. App's handler
+    // prevents the default of everything it matches, so for as long as those
+    // rows existed the focus ring did not move in this app at all — the control
+    // bar, the canvas-mode panel and the detail card were all unreachable to a
+    // keyboard, which `a11y.dom.test.tsx` is the other half of.
+    //
+    // It is asserted as an absence at *both* scopes rather than fixed with a
+    // `Scope`, because unlike Enter no surface here wants Tab: scoping it to a
+    // focused canvas would trap a reader inside the canvas, which is a worse
+    // bug (WCAG 2.1.2) than the one it fixes. So the row is gone, and the way to
+    // bring the bug back is to add one.
+    for (const shiftKey of [false, true]) {
+      expect(matchKey(press("Tab", { shiftKey }))).toBeNull();
+      expect(matchKey(press("Tab", { shiftKey }), "global")).toBeNull();
+      expect(matchKey(press("Tab", { shiftKey }), "surface")).toBeNull();
+    }
+    expect(BINDINGS.some((b) => b.key === "Tab")).toBe(false);
+    // And nothing prints it either, which is the same rule from the other end:
+    // a badge reading Tab on a control whose key is `N` is the failure the
+    // whole table exists to make impossible.
+    expect(BINDINGS.some((b) => b.kbd.includes("Tab"))).toBe(false);
+  });
+
+  it("steps the selection on `n`, forward and back", () => {
+    // The letter Tab's job went to. `n` names *next*, which is what the press
+    // gets you, and the shifted half is the same action reversed — the variant
+    // rule, unchanged by the move.
+    expect(matchKey(press("n"))).toBe("step");
+    expect(matchKey(press("N", { shiftKey: true }))).toBe("step-back");
+    expect(kbd("step")).toBe("N");
+    expect(kbd("step-back")).toBe("⇧N");
+    // The word moved with the letter rather than the badge lying about it.
+    // "Step" had no free letter left — `s`, `t`, `e` and `p` are all spent —
+    // and the census below holds the badge/label exceptions at two.
+    expect(binding("step").label).toBe("Next");
+    expect(binding("step-back").label).toBe("Previous");
   });
 
   it("is case-insensitive, so caps lock does not change what a key does", () => {
@@ -107,7 +149,7 @@ describe("matchKey", () => {
     // The whole reason this surface exists. ⌘R reloads, ⌘L reaches the URL
     // bar, ⌘F opens find, and none of them may reach us.
     for (const mod of ["ctrlKey", "metaKey", "altKey"] as const) {
-      for (const key of ["p", "s", "f", "l", "r", "c", "/", "Tab"]) {
+      for (const key of ["p", "s", "f", "l", "r", "c", "/", "n"]) {
         expect(matchKey(press(key, { [mod]: true }))).toBeNull();
         expect(matchKey(press(key, { [mod]: true, shiftKey: true }))).toBeNull();
       }
@@ -144,7 +186,7 @@ describe("matchKey", () => {
     // The other direction, and it is not symmetric by construction — a
     // surface-scoped listener runs on `window` alongside the app's own, so a
     // letter leaking into it would fire twice.
-    for (const key of ["p", "s", "f", "r", "c", "l", "b", "e", "/", "Tab", "Escape"]) {
+    for (const key of ["p", "s", "f", "r", "c", "l", "b", "e", "/", "n", "Escape"]) {
       expect(matchKey(press(key), "surface")).toBeNull();
     }
   });
@@ -192,6 +234,6 @@ describe("the table itself", () => {
   it("prints a key for every action the chrome shows", () => {
     expect(kbd("palette")).toBe("P");
     expect(kbd("random-species")).toBe("R");
-    expect(kbd("step")).toBe("Tab");
+    expect(kbd("step")).toBe("N");
   });
 });

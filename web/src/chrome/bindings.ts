@@ -14,8 +14,9 @@
  * when ctrl, meta or alt is down: a modified press is somebody else's.
  *
  * **Shift is the variant, never a second binding.** `f` frames everything and
- * `⇧F` frames the selection; `Tab` steps forward and `⇧Tab` back. A reader who
- * learns one half has guessed the other, and nothing has to be memorised twice.
+ * `⇧F` frames the selection; `n` walks the selection forward and `⇧N` back. A
+ * reader who learns one half has guessed the other, and nothing has to be
+ * memorised twice.
  *
  * A variant is only earned where the two halves are the same action pointed at
  * different scopes. `⇧R` was here once, drawing a random *fossil* against `r`'s
@@ -36,12 +37,38 @@
  * field that describes the layout from a distance and is not read by it is a
  * second source of truth with no way to be wrong out loud.
  *
- * **A key the browser already spends is scoped to the one surface that wants
- * it.** Enter is the only such row so far, and it is here for the two things
- * this table is for — the badge on the carousel's card reads from it, and the
- * modifier refusal above applies to it — while {@link Scope} keeps it out of
- * the app's global handler, which would `preventDefault` it and so take
- * keyboard activation off every button in the app.
+ * **A key the browser already spends is either scoped to the one surface that
+ * wants it, or it is not here at all.** Enter is the scoped case: it is in the
+ * table for the two things this table is for — the badge on the carousel's card
+ * reads from it, and the modifier refusal above applies to it — while
+ * {@link Scope} keeps it out of the app's global handler, which would
+ * `preventDefault` it and so take keyboard activation off every button in the
+ * app.
+ *
+ * **`Tab` is the other case, and it is why `step` is on `n`.** This table held
+ * `Tab`/`⇧Tab` for stepping the selection, globally, and the global handler
+ * prevents the default of everything it matches — so the focus ring did not
+ * move in this app at all. Every button the bar draws, every segment of the
+ * canvas-mode panel and every link on the detail card was unreachable to a
+ * reader with a keyboard and no pointer: the app was operable by keyboard only
+ * in the sense that its *commands* were, which is not the same claim and was
+ * being made in the same breath. It is exactly the Enter failure one level up —
+ * Enter would have cost keyboard *activation*, `Tab` cost keyboard
+ * *navigation* — and the argument that settled Enter settles this.
+ *
+ * The fix is absence rather than a scope, because unlike Enter there is no
+ * surface in this app that wants `Tab`: scoping it to a focused canvas would
+ * mean a reader who tabs *into* the canvas can never tab out, which is a
+ * keyboard trap (WCAG 2.1.2) and a worse bug than the one being fixed. A
+ * composite widget that legitimately claims `Tab` inward — a grid, a listbox —
+ * spends arrows on its contents and leaves `Tab` alone for exactly this reason,
+ * so even that route moves stepping off `Tab`. So `Tab` has no row, which makes
+ * it structurally invisible to {@link matchKey} and structurally impossible for
+ * the global handler to prevent: a row that is not here cannot be matched by a
+ * caller that forgets, which is the same guarantee {@link Scope} gives Enter.
+ *
+ * `n` for next is what a bare-letter surface has instead, and the label follows
+ * the letter rather than the other way round — see the `step` row.
  */
 
 import { SPECIES_PHRASE } from "../corpora";
@@ -192,18 +219,37 @@ export const BINDINGS: readonly Binding[] = [
   },
   {
     id: "step-back",
-    key: "Tab",
+    key: "n",
     shift: true,
-    kbd: "⇧Tab",
-    label: "Step back",
+    kbd: "⇧N",
+    label: "Previous",
     hint: "Move the selection to the previous species",
   },
   {
+    // **`N` over the word Next, and both halves of that moved together.** This
+    // was `Tab`, which the header explains at length; what it cost here is the
+    // word. "Step" named the action exactly and has no free letter left in it —
+    // `s` is species, `t` the time scale, `e` fullscreen, `p` the palette — so
+    // the choice was a third badge that prints one word and does another, or a
+    // word that starts with a free letter.
+    //
+    // The word moved, and the rule it moved under is the one `fullscreen`
+    // states from the other side: a badge teaches the key and a label teaches
+    // the action. There the letter could not match the right word and the label
+    // won; here a right word *does* start with a free letter, so nothing has to
+    // disagree at all. `bindings.test.ts` pins that this row did not become the
+    // third exception — two is the whole list and a third should have to be
+    // argued for.
+    //
+    // "Next" is also the better word on its own merits, which is what makes
+    // this a repair rather than a concession. "Step" names the gesture; a
+    // reader scanning the Navigate group beside `fit` and `isolate` wants to
+    // know what they get, and what they get is the next species along.
     id: "step",
-    key: "Tab",
+    key: "n",
     shift: false,
-    kbd: "Tab",
-    label: "Step",
+    kbd: "N",
+    label: "Next",
     hint: "Move the selection to the next species",
   },
   {
