@@ -9,15 +9,17 @@
  * renders as somebody else's widget, wherever the pointer happens to be, a
  * second late, and never at all on a touch screen.
  *
- * So the guard is a census in the style of `styles.test.ts` and
- * `Controls.test.ts` — text against text, this project having no DOM to render
- * into — and it counts what it read before trusting a search for an absence.
+ * So the guard is a census in the style of `styles.test.ts`: a lint over the
+ * `.tsx` corpus, counting what it read before trusting a search for an absence.
+ * That is source text and it stays source text on purpose — the question is
+ * whether an attribute is *written anywhere*, which no rendered tree can answer,
+ * and it matches a token rather than a shape, so nothing about it depends on
+ * where an author broke a line. `Tooltip.test.tsx` is the behavioural half:
+ * what the tip does once a document exists to draw it into.
  */
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { decl, rules } from "../test/css";
 import { EDGE, GAP, MAX_W, OPEN_MS, openDelay, place } from "./tip";
-
-const CSS = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 
 /** Every `.tsx` that renders something, as source text. */
 const SOURCES: [string, string][] = Object.entries(
@@ -214,11 +216,7 @@ describe("the measure the copy was written to is the measure it is drawn at", ()
    * `labels.ts`'s font constants are.
    */
   it("pins MAX_W to the stylesheet", () => {
-    const body = /(?:^|[};])\s*\.tip\s*\{([^{}]*)\}/m.exec(
-      CSS.replace(/\/\*[\s\S]*?\*\//g, ""),
-    )?.[1];
-    expect(body, "no .tip rule").toBeTruthy();
-    expect(body).toContain(`max-width: ${MAX_W}px`);
+    expect(decl(".tip", "max-width")).toBe(`${MAX_W}px`);
   });
 
   /**
@@ -228,7 +226,10 @@ describe("the measure the copy was written to is the measure it is drawn at", ()
    * stack's 50.
    */
   it("draws above every other surface", () => {
-    const zs = [...CSS.matchAll(/z-index:\s*(\d+)/g)].map((m) => Number(m[1]));
+    const zs = rules()
+      .map((r) => Number(r.decls.get("z-index")))
+      .filter((z) => Number.isFinite(z));
     expect(Math.max(...zs)).toBe(60);
+    expect(Number(decl(".tip", "z-index"))).toBe(60);
   });
 });

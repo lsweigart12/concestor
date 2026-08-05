@@ -524,7 +524,8 @@ stating because the first version got all three parts of it wrong:
   height the block, the bar and that shelf do not fit in the window at any
   centring. One flag drives both surfaces (`App.tsx`'s `nothingDrawn`), because
   a second expression meaning *nearly* "nothing is drawn" puts the badge back on
-  the chip and reports nothing; `Controls.test.ts` is what holds that.
+  the chip and reports nothing; `web/src/App.test.tsx` is what holds that, by
+  rendering the app and asking whether the invitation and the panel agree.
 
 - **labels: off · common · scientific**, with **common the default** and sitting
   in the middle. The default follows from the audience and nothing else: this is

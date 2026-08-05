@@ -1724,7 +1724,7 @@ body {
  * worth knowing: it has to hide `.canvas-modes` too, which is declared two
  * thousand lines below this, and at equal specificity the later rule wins. The
  * first draft of that block sat here and drew nothing but a hidden button.
- * `chrome/Controls.test.ts` is what caught it and what keeps it caught.
+ * `chrome/swap.test.ts` is what caught it and what keeps it caught.
  */
 .controls {
   position: fixed;
@@ -4343,7 +4343,7 @@ body {
 
 /*
  * The circle's own glow lives with the circle, further down, and not here.
- * `Controls.test.ts` reads the **first** `.palette-fab {` in this file and
+ * `chrome/swap.test.ts` reads the **first** `.palette-fab` rule in this file and
  * asserts the narrow-window geometry on it — `display: none`, and a bottom off
  * `--axis-h` — so a second base rule declared up here silently becomes the one
  * that test measures, and it measures a rule with no geometry in it at all.

@@ -1,5 +1,5 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { decl } from "../test/css";
 import {
   labelBounds,
   MONO,
@@ -68,22 +68,12 @@ function anyOverlap(rs: ReturnType<typeof rects>): [number, number] | null {
  * measured at 9.5, and an MRCA's label is 560 weight and was measured at 400.
  * All three under-measure, so every one of them ended as text through a line or
  * a one-word name broken in half.
+ *
+ * Read with a parser — `test/css.ts` — rather than by finding
+ * `"\n" + selector + " {"` in the file, which is a claim about the one space
+ * between a selector and its brace and about the list being written on one
+ * line. Both are facts about an author's editor rather than about this app.
  */
-const CSS = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
-
-function block(selector: string): string {
-  const at = CSS.indexOf(`\n${selector} {`);
-  if (at < 0) throw new Error(`styles.css has no rule for ${selector}`);
-  return CSS.slice(at, CSS.indexOf("}", at));
-}
-
-function decl(selector: string, prop: string): string {
-  const m = new RegExp(`(?:^|[;{\\s])${prop}:\\s*([^;]+);`).exec(
-    block(selector),
-  );
-  if (!m) throw new Error(`${selector} declares no ${prop}`);
-  return m[1]!.replace(/\s+/g, " ").trim();
-}
 
 describe("the measurer is measuring the type that is actually drawn", () => {
   it("carries the stylesheet's own font stacks, not an abbreviation of them", () => {
@@ -116,7 +106,7 @@ describe("the measurer is measuring the type that is actually drawn", () => {
       decl(".mark-name", "letter-spacing"),
     );
     expect(`${TYPE.AGE_TRACKING}em`).toBe(
-      decl(".num,\n.mono", "letter-spacing"),
+      decl(".num", "letter-spacing"),
     );
     expect(`${TYPE.META_TRACKING}em`).toBe(
       decl(".mark-meta", "letter-spacing"),
@@ -127,7 +117,7 @@ describe("the measurer is measuring the type that is actually drawn", () => {
     // `.mark-age` declares a size and no family; `.num` beside it is where the
     // mono comes from. Measuring the figure in the name's sans would be a
     // different width entirely.
-    expect(decl(".num,\n.mono", "font-family")).toBe("var(--mono)");
+    expect(decl(".num", "font-family")).toBe("var(--mono)");
   });
 
   it("reserves the age glyph as the word it stands in for", () => {

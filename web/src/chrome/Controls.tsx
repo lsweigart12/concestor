@@ -260,8 +260,9 @@ function Control({ a }: { a: ControlAction }) {
       // one rule — the 720px block that hid every label and then had to put
       // share's back — and that rule is gone, so the class was a fact about
       // a button nothing reads. What guarantees share has words is the type,
-      // which is where it always belonged. `Controls.test.ts` asserts both
-      // halves of that, because a stylesheet is where this comes back.
+      // which is where it always belonged. `Controls.test.tsx` renders the bar
+      // and reads the class off the button; `swap.test.ts` holds the other
+      // half, because a stylesheet is where this comes back.
       // `is-command` on the palette button alone, and unlike the keyless
       // marker above it this one has readers: `styles.css` glows its border,
       // and `canvas/bootLight.ts` measures it as a light source in

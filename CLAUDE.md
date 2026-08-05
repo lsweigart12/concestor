@@ -69,14 +69,14 @@ our own; **no dagre, no ELK, no d3-hierarchy**, because a graph-layout engine
 assigns `x` by depth and here `x` is time.
 
 ```bash
-cd web && npm install && npm run build && npm test   # 632 tests, two projects
+cd web && npm install && npm run build && npm test   # 745 tests, two projects
 cd server && go test ./... && go run . -build ../build
 scripts/check.sh          # everything CI runs, plus the dataset tests it can't
 ```
 
 **`web` has two vitest projects, and which one a test lands in is decided by
 its filename.** `node` is everything that was there before — pure modules, no
-document, 614 tests in about 350 ms, and that speed is the reason the
+document, 652 tests in about 320 ms, and that speed is the reason the
 environment was not simply switched over. `dom` boots jsdom and renders with
 `@testing-library/react`, and it collects **`*.test.tsx`** (a component test)
 and **`*.dom.test.ts`** (a module test that needs `localStorage`,
@@ -96,6 +96,24 @@ its own dispatch, so a *chained* tip that opens with zero delay passes without
 to copy; the first is the debounce-and-abort path around `/v1/search`, which is
 not arithmetic that could have been lifted into a pure module because it is
 entirely a property of when React runs an effect's cleanup.
+
+**A test does not read its subject as a string, and `web/src/test/` holds the
+two things that replaced the ten that did.** `App.test.tsx` and
+`App.bare.test.tsx` render the *whole* app through `test/appHarness.tsx` — the
+real canvas, not a mock, because `PaletteFab` is the entire chrome below 620px
+and is drawn inside `Graph`, so a stub there quietly halves every claim about
+the two surfaces agreeing. The two files exist separately because
+`FULLSCREEN_AVAILABLE` and `BIOLUM_AVAILABLE` are module-scope consts and a
+file is the unit a module graph is evaluated in; the capability stubs go in
+`vi.hoisted`. `test/css.ts` parses `styles.css` with **postcss** for the tests
+that pin a constant to the rule that draws it — `CARD_W`, `MAX_W`,
+`labels.ts`'s font stack — which is a genuinely good test badly executed six
+different ways before. Seven things not to redo are in `docs/handoff.md` §3,
+chief among them that `renderApp` must clear the URL and `sessionStorage`
+(the store writes the tree into the address bar with `replaceState`, `cleanup`
+cannot see it, and the next test boots on the last one's tree), and that
+`chrome/tip.test.ts`'s `title` census stays source text on purpose — you cannot
+prove an absence by rendering the components you remembered to render.
 
 **Running in a worktree.** `scripts/serve.sh` and `scripts/dev.sh` are the two
 `.claude/launch.json` configurations and work unchanged in a parallel
