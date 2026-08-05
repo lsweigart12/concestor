@@ -47,14 +47,19 @@ const original = {
   ageLabel(age: number, interpolated: boolean): string {
     if (age < 0.05) return "present";
     const n =
-      age >= 100 ? Math.round(age) : age >= 10 ? age.toFixed(0) : age.toFixed(1);
+      age >= 100
+        ? Math.round(age)
+        : age >= 10
+          ? age.toFixed(0)
+          : age.toFixed(1);
     return `${interpolated ? "≤ " : ""}${n} Ma`;
   },
 
   /** `detail/spread.ts` — the card's prose. */
   figure(ma: number): string {
     if (!Number.isFinite(ma) || ma < 0.05) return "the present";
-    const n = ma >= 100 ? Math.round(ma) : ma >= 10 ? ma.toFixed(0) : ma.toFixed(1);
+    const n =
+      ma >= 100 ? Math.round(ma) : ma >= 10 ? ma.toFixed(0) : ma.toFixed(1);
     return `${n} Ma`;
   },
 
@@ -146,7 +151,13 @@ describe("the shared age rule", () => {
  */
 function cardFigure(ma: number): string {
   const p = spreadProse({
-    above: { idx: 1, key: "ott770315", name: "Hominidae", rank: "family", age_ma: ma },
+    above: {
+      idx: 1,
+      key: "ott770315",
+      name: "Hominidae",
+      rank: "family",
+      age_ma: ma,
+    },
     below: null,
   });
   if (p?.kind !== "toPresent" && p?.kind !== "collapsed") {

@@ -372,7 +372,8 @@ export default function App() {
     }
   }, [tree.unresolved, toast, tree]);
 
-  const focusedNode = focusedIdx !== null ? tree.nodes.get(focusedIdx) : undefined;
+  const focusedNode =
+    focusedIdx !== null ? tree.nodes.get(focusedIdx) : undefined;
 
   const addHit = useCallback(
     (hit: SearchHit) => {
@@ -388,7 +389,9 @@ export default function App() {
       toast(
         <>
           Added{" "}
-          <strong className={isScientificItalic(hit.rank) ? "sci-italic" : undefined}>
+          <strong
+            className={isScientificItalic(hit.rank) ? "sci-italic" : undefined}
+          >
             {hit.name ?? hit.key}
           </strong>
         </>,
@@ -426,7 +429,8 @@ export default function App() {
    * position in this build's arrays and means nothing outside it.
    */
   const selectTaxon = useCallback(
-    (target: string | number) => tree.select(selectionKeyFor(target, tree.nodes)),
+    (target: string | number) =>
+      tree.select(selectionKeyFor(target, tree.nodes)),
     [tree],
   );
 
@@ -436,7 +440,9 @@ export default function App() {
       toast(
         <>
           Added{" "}
-          <strong className={isScientificItalic(d.rank) ? "sci-italic" : undefined}>
+          <strong
+            className={isScientificItalic(d.rank) ? "sci-italic" : undefined}
+          >
             {d.name ?? d.key}
           </strong>
         </>,
@@ -454,7 +460,9 @@ export default function App() {
       toast(
         <>
           Removed{" "}
-          <strong className={isScientificItalic(d.rank) ? "sci-italic" : undefined}>
+          <strong
+            className={isScientificItalic(d.rank) ? "sci-italic" : undefined}
+          >
             {d.name ?? d.key}
           </strong>
         </>,
@@ -636,7 +644,10 @@ export default function App() {
   // because the hook holds it in a ref — nothing downstream re-renders on it.
   const fullscreen = useFullscreen((why) => toast(why, true));
 
-  const present = useMemo(() => new Set(tree.induced.leaves), [tree.induced.leaves]);
+  const present = useMemo(
+    () => new Set(tree.induced.leaves),
+    [tree.induced.leaves],
+  );
   const presentFossils = useMemo(
     () => new Set(tree.view.fossils),
     [tree.view.fossils],
@@ -762,7 +773,11 @@ export default function App() {
       }
 
       if (randomKind(Math.random()) === "fossil") {
-        const no = pickFrom(pool.fossils, (n) => presentFossils.has(n), Math.random());
+        const no = pickFrom(
+          pool.fossils,
+          (n) => presentFossils.has(n),
+          Math.random(),
+        );
         if (no !== null) {
           // `/v1/fossil` returns a `FossilDetail`, which *is* a `FossilTaxon`
           // with the card's extras on top — so this is the graft's own input
@@ -801,7 +816,9 @@ export default function App() {
       toast(
         <>
           Added{" "}
-          <strong className={isScientificItalic(hit.rank) ? "sci-italic" : undefined}>
+          <strong
+            className={isScientificItalic(hit.rank) ? "sci-italic" : undefined}
+          >
             {hit.name ?? hit.key}
           </strong>
           {hit.vernacular ? <> — {hit.vernacular}</> : null}
@@ -1115,7 +1132,8 @@ export default function App() {
       {
         id: "about",
         title: "About Concestor",
-        subtitle: "What this is, where the data comes from, what the dashes mean",
+        subtitle:
+          "What this is, where the data comes from, what the dashes mean",
         icon: "i",
         section: ABOUT_SECTION,
         run: () => {
@@ -1192,7 +1210,8 @@ export default function App() {
       const anc = tree.induced.segments.get(focusedNode.idx)?.anc ?? null;
       if (anc !== null) {
         const open =
-          tree.view.drill?.upper === anc && tree.view.drill.lower === focusedNode.idx;
+          tree.view.drill?.upper === anc &&
+          tree.view.drill.lower === focusedNode.idx;
         base.unshift({
           id: "ctx-drill",
           title: open
@@ -1310,7 +1329,8 @@ export default function App() {
           : {
               id: "fossil-draw",
               title: `Draw ${f.name} on the tree`,
-              subtitle: "Placed at its own date, hanging off the branch it belongs to",
+              subtitle:
+                "Placed at its own date, hanging off the branch it belongs to",
               icon: "◇",
               section: "This fossil",
               contextual: true,
@@ -1327,21 +1347,19 @@ export default function App() {
             },
       );
     }
-    out.push(
-      {
-        id: "fossil-host",
-        title: `Show ${hostName}`,
-        subtitle: `${f.name} is known from somewhere below it`,
-        icon: "◎",
-        section: "This fossil",
-        contextual: true,
-        run: () => {
-          if (host) tree.select(host.key);
-          setPaletteOpen(false);
-          setScoped(false);
-        },
+    out.push({
+      id: "fossil-host",
+      title: `Show ${hostName}`,
+      subtitle: `${f.name} is known from somewhere below it`,
+      icon: "◎",
+      section: "This fossil",
+      contextual: true,
+      run: () => {
+        if (host) tree.select(host.key);
+        setPaletteOpen(false);
+        setScoped(false);
       },
-    );
+    });
     if (host && !tree.induced.leaves.includes(f.attach_idx)) {
       out.push({
         id: "fossil-add-host",
@@ -1354,7 +1372,11 @@ export default function App() {
           tree.add(host.key);
           setPaletteOpen(false);
           setScoped(false);
-          toast(<>Added <strong>{hostName}</strong></>);
+          toast(
+            <>
+              Added <strong>{hostName}</strong>
+            </>,
+          );
         },
       });
     }
@@ -1634,12 +1656,20 @@ export default function App() {
           // `BIOLUM_AVAILABLE` makes: a greyed button explaining that this
           // browser will never do it tells the reader nothing they can act on.
           ...(FULLSCREEN_AVAILABLE
-            ? [{ id: "fullscreen" as const, run: fullscreen.toggle, active: fullscreen.on }]
+            ? [
+                {
+                  id: "fullscreen" as const,
+                  run: fullscreen.toggle,
+                  active: fullscreen.on,
+                },
+              ]
             : []),
           {
             id: "clear",
             run: () => setConfirmClear(true),
-            ...(empty ? { disabledBecause: "The canvas is already empty" } : {}),
+            ...(empty
+              ? { disabledBecause: "The canvas is already empty" }
+              : {}),
           },
           {
             // The one control with no key, so it carries its own words —
@@ -1677,14 +1707,20 @@ export default function App() {
             run: () => tree.toggleIsolate(),
             active: tree.view.isolate,
             ...(focusedIdx === null
-              ? { disabledBecause: "Select a node first — isolate dims everything off its path" }
+              ? {
+                  disabledBecause:
+                    "Select a node first — isolate dims everything off its path",
+                }
               : {}),
           },
           {
             id: "step",
             run: () => stepSelection(false),
             ...(tree.induced.leaves.length === 0
-              ? { disabledBecause: "Add a species and this steps through the selection" }
+              ? {
+                  disabledBecause:
+                    "Add a species and this steps through the selection",
+                }
               : {}),
           },
         ],
@@ -1799,65 +1835,65 @@ export default function App() {
         nothing else to find.
       */}
       <main>
-      <Graph
-        induced={tree.induced}
-        nodes={tree.nodes}
-        delta={tree.delta}
-        onDeltaPlayed={tree.consumeDelta}
-        focusedIdx={focusedIdx}
-        onFocus={(idx) => {
-          if (idx === null) {
-            tree.select(null);
-            return;
-          }
-          // A graft is not in `tree.nodes` and never will be — its index is
-          // negative precisely so that lookup misses. It carries its own key,
-          // which is what goes in `sel` and what opens the fossil card.
-          if (isGraftIdx(idx)) {
-            tree.select(grafts.find((g) => g.idx === idx)?.key ?? null);
-            return;
-          }
-          const n = tree.nodes.get(idx);
-          tree.select(n ? n.key : null);
-        }}
-        isolate={tree.view.isolate}
-        axisMode={tree.view.axis}
-        onAxisMode={tree.setAxis}
-        labels={tree.labels}
-        onLabels={tree.setLabels}
-        ages={tree.ages}
-        onAges={tree.setAges}
-        intervals={timescale}
-        fitSignal={fitSignal}
-        onFitState={setViewFit}
-        cardOpen={cardOpen}
-        drill={tree.view.drill}
-        onDrill={tree.setDrill}
-        grafts={grafts}
-        holdMaxAge={tree.holdMaxAge}
-        biolum={tree.biolum}
-        onBiolum={(v) => {
-          if (v !== tree.biolum) tree.toggleBiolum();
-        }}
-        // The same expression that puts the invitation on screen below, because
-        // the mode panel is not drawn under it. See `canvas/Graph.tsx`.
-        empty={nothingDrawn}
-        onPickFossil={(f) => {
-          setPickedFossil(f);
-          setScoped(true);
-          setPaletteOpen(true);
-        }}
-        // The narrow window's one control, drawn inside the canvas because that
-        // is where `--lane-h` is published — see `chrome/PaletteFab.tsx`. It
-        // takes the invitation too, since the bar that would otherwise carry it
-        // is not on screen at that width — and it takes the same `TIP_LINE`,
-        // spread the same way, so the two surfaces cannot be made to say
-        // different things about the same moment.
-        onPalette={openPalette}
-        {...(tipShown ? { tip: TIP_LINE } : {})}
-      />
+        <Graph
+          induced={tree.induced}
+          nodes={tree.nodes}
+          delta={tree.delta}
+          onDeltaPlayed={tree.consumeDelta}
+          focusedIdx={focusedIdx}
+          onFocus={(idx) => {
+            if (idx === null) {
+              tree.select(null);
+              return;
+            }
+            // A graft is not in `tree.nodes` and never will be — its index is
+            // negative precisely so that lookup misses. It carries its own key,
+            // which is what goes in `sel` and what opens the fossil card.
+            if (isGraftIdx(idx)) {
+              tree.select(grafts.find((g) => g.idx === idx)?.key ?? null);
+              return;
+            }
+            const n = tree.nodes.get(idx);
+            tree.select(n ? n.key : null);
+          }}
+          isolate={tree.view.isolate}
+          axisMode={tree.view.axis}
+          onAxisMode={tree.setAxis}
+          labels={tree.labels}
+          onLabels={tree.setLabels}
+          ages={tree.ages}
+          onAges={tree.setAges}
+          intervals={timescale}
+          fitSignal={fitSignal}
+          onFitState={setViewFit}
+          cardOpen={cardOpen}
+          drill={tree.view.drill}
+          onDrill={tree.setDrill}
+          grafts={grafts}
+          holdMaxAge={tree.holdMaxAge}
+          biolum={tree.biolum}
+          onBiolum={(v) => {
+            if (v !== tree.biolum) tree.toggleBiolum();
+          }}
+          // The same expression that puts the invitation on screen below, because
+          // the mode panel is not drawn under it. See `canvas/Graph.tsx`.
+          empty={nothingDrawn}
+          onPickFossil={(f) => {
+            setPickedFossil(f);
+            setScoped(true);
+            setPaletteOpen(true);
+          }}
+          // The narrow window's one control, drawn inside the canvas because that
+          // is where `--lane-h` is published — see `chrome/PaletteFab.tsx`. It
+          // takes the invitation too, since the bar that would otherwise carry it
+          // is not on screen at that width — and it takes the same `TIP_LINE`,
+          // spread the same way, so the two surfaces cannot be made to say
+          // different things about the same moment.
+          onPalette={openPalette}
+          {...(tipShown ? { tip: TIP_LINE } : {})}
+        />
 
-      {/*
+        {/*
         The empty canvas asks a question rather than giving an instruction.
 
         It used to say "press S and search for two species", which needs the one
@@ -1870,11 +1906,11 @@ export default function App() {
         can see. Search and the random pick stay, demoted to the line below,
         because they are now the second and third ways in rather than the first.
       */}
-      {nothingDrawn && !paletteOpen && (
-        <div className="boot">
-          <div className="boot-inner">
-            <h1>Concestor</h1>
-            {/*
+        {nothingDrawn && !paletteOpen && (
+          <div className="boot">
+            <div className="boot-inner">
+              <h1>Concestor</h1>
+              {/*
               A shared link arrives here, and used to be answered with the
               carousel.
 
@@ -1889,13 +1925,13 @@ export default function App() {
               The frame stays; only the invitation is held back until it is
               true that there is nothing on the way.
             */}
-            {linkPending ? (
-              <PendingLine className="boot-pending">
-                Resolving the lineages in this link…
-              </PendingLine>
-            ) : (
-              <>
-                {/*
+              {linkPending ? (
+                <PendingLine className="boot-pending">
+                  Resolving the lineages in this link…
+                </PendingLine>
+              ) : (
+                <>
+                  {/*
                   **A few, not two**, and the carousel underneath is the reason.
 
                   `openings.ts` refuses to ship a two-taxon opening and says why
@@ -1926,11 +1962,11 @@ export default function App() {
                   about it. "How — and when" is the whole product in three
                   words, and it is the question the app was built to answer.
                 */}
-                <p className="boot-lede">
-                  Everything alive is related. Name a few species and see
-                  exactly how — and when.
-                </p>
-                {/*
+                  <p className="boot-lede">
+                    Everything alive is related. Name a few species and see
+                    exactly how — and when.
+                  </p>
+                  {/*
                   `keyToOpen` was `!aboutOpen`, because the carousel stayed
                   mounted behind the about *panel* and a bare Enter would have
                   redrawn the canvas under a modal the reader was reading. The
@@ -1941,8 +1977,8 @@ export default function App() {
                   an `input`, the clear dialog on a `button`, and both are in
                   that list.
                 */}
-                <OpeningCarousel onOpen={openOpening} keyToOpen />
-                {/*
+                  <OpeningCarousel onOpen={openOpening} keyToOpen />
+                  {/*
                   Two columns, because the three keys and the about link are
                   two different offers and the sentence they used to share made
                   them one. Run together — "or press S …, R …, or P …" — a
@@ -1961,29 +1997,33 @@ export default function App() {
                   offer that survives, and it centres, so the last line of the
                   empty canvas is the one thing on it that still works.
                 */}
-                <div className="boot-alt">
-                  <ul className="boot-keys">
-                    <li>
-                      <span className="kbd">{kbd("species")}</span>
-                      <span>Search {SPECIES_PHRASE}</span>
-                    </li>
-                    <li>
-                      <span className="kbd">{kbd("random-species")}</span>
-                      <span>Add one picked at random</span>
-                    </li>
-                    <li>
-                      <span className="kbd">{kbd("palette")}</span>
-                      <span>Everything this can do</span>
-                    </li>
-                  </ul>
-                  {/*
+                  <div className="boot-alt">
+                    <ul className="boot-keys">
+                      <li>
+                        <span className="kbd">{kbd("species")}</span>
+                        <span>Search {SPECIES_PHRASE}</span>
+                      </li>
+                      <li>
+                        <span className="kbd">{kbd("random-species")}</span>
+                        <span>Add one picked at random</span>
+                      </li>
+                      <li>
+                        <span className="kbd">{kbd("palette")}</span>
+                        <span>Everything this can do</span>
+                      </li>
+                    </ul>
+                    {/*
                     A `button`, on `SourceLinks`'s reasoning: `goAbout` pushes
                     history and swaps the root, so an `href` would offer a
                     middle-click that reloads the app.
                   */}
-                  <button type="button" className="boot-more" onClick={goAbout}>
-                    Learn more about Concestor
-                    {/*
+                    <button
+                      type="button"
+                      className="boot-more"
+                      onClick={goAbout}
+                    >
+                      Learn more about Concestor
+                      {/*
                       The one mark saying this is a door.
 
                       It was a hairline, a line of prose and nothing else — the
@@ -1999,16 +2039,16 @@ export default function App() {
                       difference from the prose around it by moving under the
                       pointer.
                     */}
-                    <span className="boot-more-arrow" aria-hidden="true">
-                      →
-                    </span>
-                  </button>
-                </div>
-              </>
-            )}
+                      <span className="boot-more-arrow" aria-hidden="true">
+                        →
+                      </span>
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        )}
       </main>
 
       {/*
@@ -2104,8 +2144,7 @@ export default function App() {
           title="Clear the canvas?"
           body={
             <>
-              This takes <strong>{tree.induced.leaves.length}</strong>{" "}
-              species
+              This takes <strong>{tree.induced.leaves.length}</strong> species
               {tree.view.fossils.length > 0 && (
                 <>
                   {" "}
@@ -2161,7 +2200,9 @@ export default function App() {
         */}
         {afterglow?.at === "reveal" && (
           <div className="toast toast-pinned">
-            <span className="toast-pinned-body">{afterglow.opening.reveal}</span>
+            <span className="toast-pinned-body">
+              {afterglow.opening.reveal}
+            </span>
             <button
               type="button"
               className="toast-dismiss"

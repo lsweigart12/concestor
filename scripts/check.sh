@@ -118,6 +118,11 @@ if wants web && [ "$NODE_MODULES" = 1 ]; then
   # which is the half a test inside web/ cannot do without carrying a second
   # rasteriser.
   gate "web · images" python3 scripts/make-icons.py --check
+  # Formatter then linter then typechecker, matching the order the pipeline and
+  # server halves already use. `web/prettier.config.js` and
+  # `web/.oxlintrc.json` say what each enforces and why.
+  gate "web · prettier" npm --prefix web run format:check
+  gate "web · oxlint" npm --prefix web run lint
   gate "web · typecheck" npm --prefix web run typecheck
   gate "web · test" npm --prefix web test
   gate "web · build" npm --prefix web run build

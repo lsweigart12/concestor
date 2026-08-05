@@ -61,7 +61,9 @@ describe("matchKey", () => {
     const named = BINDINGS.filter((b) => /^[A-Z]$/.test(b.kbd));
     expect(named.length).toBeGreaterThan(8);
     expect(
-      named.filter((b) => !b.label.toUpperCase().startsWith(b.kbd)).map((b) => b.id),
+      named
+        .filter((b) => !b.label.toUpperCase().startsWith(b.kbd))
+        .map((b) => b.id),
     ).toEqual(["palette", "fullscreen"]);
   });
 
@@ -151,7 +153,9 @@ describe("matchKey", () => {
     for (const mod of ["ctrlKey", "metaKey", "altKey"] as const) {
       for (const key of ["p", "s", "f", "l", "r", "c", "/", "n"]) {
         expect(matchKey(press(key, { [mod]: true }))).toBeNull();
-        expect(matchKey(press(key, { [mod]: true, shiftKey: true }))).toBeNull();
+        expect(
+          matchKey(press(key, { [mod]: true, shiftKey: true })),
+        ).toBeNull();
       }
     }
   });
@@ -186,7 +190,19 @@ describe("matchKey", () => {
     // The other direction, and it is not symmetric by construction — a
     // surface-scoped listener runs on `window` alongside the app's own, so a
     // letter leaking into it would fire twice.
-    for (const key of ["p", "s", "f", "r", "c", "l", "b", "e", "/", "n", "Escape"]) {
+    for (const key of [
+      "p",
+      "s",
+      "f",
+      "r",
+      "c",
+      "l",
+      "b",
+      "e",
+      "/",
+      "n",
+      "Escape",
+    ]) {
       expect(matchKey(press(key), "surface")).toBeNull();
     }
   });

@@ -66,7 +66,10 @@ describe("the shader sources", () => {
    */
   it("carry no constant that failed to resolve", () => {
     for (const [name, p] of programs) {
-      for (const [stage, src] of [["vs", p.vs], ["fs", p.fs]] as const) {
+      for (const [stage, src] of [
+        ["vs", p.vs],
+        ["fs", p.fs],
+      ] as const) {
         expect(src, `${name}.${stage}`).not.toContain("undefined");
         expect(src, `${name}.${stage}`).not.toContain("NaN");
       }
@@ -123,7 +126,8 @@ describe("the tuning reaches the GLSL", () => {
    */
   it("gives the tone map its exposure and the void its colour", () => {
     expect(S.tone.fs).toContain(`exp(-c * ${g(T.EXPOSURE)})`);
-    for (const c of [...T.VOID_NEAR, ...T.VOID_FAR]) expect(S.tone.fs).toContain(g(c));
+    for (const c of [...T.VOID_NEAR, ...T.VOID_FAR])
+      expect(S.tone.fs).toContain(g(c));
   });
 
   it("gives the compose pass its bloom", () => {
@@ -132,7 +136,9 @@ describe("the tuning reaches the GLSL", () => {
 
   /** The wall's shape, every term of which varies across the tube. */
   it("gives the glass the profile of its wall", () => {
-    expect(S.glass.fs).toContain(`smoothstep(${g(T.WALL_INNER)}, ${g(T.WALL_OUTER)}, av)`);
+    expect(S.glass.fs).toContain(
+      `smoothstep(${g(T.WALL_INNER)}, ${g(T.WALL_OUTER)}, av)`,
+    );
     expect(S.glass.fs).toContain(`smoothstep(${g(T.WALL_FADE)}, 0.90, av)`);
     expect(S.glass.fs).toContain(`${g(T.REFLECT_PEAK)}, av)`);
     expect(S.glass.fs).toContain(`* ${g(T.BODY_TRACE)}`);
@@ -150,7 +156,9 @@ describe("the tuning reaches the GLSL", () => {
    */
   it("gives the empty canvas's lights their profile", () => {
     expect(S.screen.fs).toContain(`pow(k, ${g(T.SCREEN_CORE)})`);
-    expect(S.screen.fs).toContain(`pow(k, ${g(T.SCREEN_HALO)}) * ${g(T.SCREEN_HALO_GAIN)}`);
+    expect(S.screen.fs).toContain(
+      `pow(k, ${g(T.SCREEN_HALO)}) * ${g(T.SCREEN_HALO_GAIN)}`,
+    );
     expect(S.screen.fs).toContain(`vec3(1.0), ${g(T.SCREEN_CORE_WHITE)}`);
     expect(S.screen.vs).toContain(`laneRGB(lit.x, ${g(T.SCREEN_SAT)})`);
   });
@@ -198,6 +206,8 @@ describe("the tuning reaches the GLSL", () => {
   it("gives the snow its fall rate and its depth range", () => {
     expect(S.snow.vs).toContain(g(T.SNOW_Z_MIN));
     expect(S.snow.vs).toContain(g(T.SNOW_Z_SPAN));
-    expect(S.snow.vs).toContain(`${g(T.SNOW_FALL_MIN)} + g.x * ${g(T.SNOW_FALL_SPAN)}`);
+    expect(S.snow.vs).toContain(
+      `${g(T.SNOW_FALL_MIN)} + g.x * ${g(T.SNOW_FALL_SPAN)}`,
+    );
   });
 });

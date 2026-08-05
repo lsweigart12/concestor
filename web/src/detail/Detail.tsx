@@ -116,9 +116,10 @@ function SpreadSentence({
   }
   return (
     <>
-      Its nearest dated relative, <Bound end={spread.above} onSelect={onSelect} />
-      , is itself at the present, so there is no span to spread into and the two
-      are drawn at the same point.
+      Its nearest dated relative,{" "}
+      <Bound end={spread.above} onSelect={onSelect} />, is itself at the
+      present, so there is no span to spread into and the two are drawn at the
+      same point.
     </>
   );
 }
@@ -186,7 +187,9 @@ export function Detail({
   // cards that draw no fossil row. `useTip(undefined)` is the resting state and
   // returns nothing to spread.
   const fossilTip = useTip(
-    occurrence ? bracketTitle(detail.name ?? "This taxon", occurrence) : undefined,
+    occurrence
+      ? bracketTitle(detail.name ?? "This taxon", occurrence)
+      : undefined,
   );
   const place = { node: detail, isLeaf };
   const witness = witnessOn(place);
@@ -430,8 +433,11 @@ export function Detail({
             it changes is only where the mark sits along the axis.{" "}
             <SpreadSentence spread={spread} onSelect={onSelect} />
             {hasOrdinalStretch(spread) && (
-              <> Through this stretch the axis reads as nesting order rather
-              than time.</>
+              <>
+                {" "}
+                Through this stretch the axis reads as nesting order rather than
+                time.
+              </>
             )}
           </p>
         )}

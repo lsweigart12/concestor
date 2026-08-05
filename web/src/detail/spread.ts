@@ -87,14 +87,17 @@ function end(b: LayoutSpread["above"]): SpreadEnd | null {
  * between 40 Ma above and 90 Ma below", which is a picture of nothing, and a
  * card is not the place to discover that an invariant broke.
  */
-export function spreadProse(spread: LayoutSpread | null | undefined): SpreadProse {
+export function spreadProse(
+  spread: LayoutSpread | null | undefined,
+): SpreadProse {
   if (!spread) return null;
   const above = end(spread.above);
   if (!above) return null;
 
   const below = end(spread.below);
   if (below && spread.below && spread.above) {
-    if (spread.below.age_ma > spread.above.age_ma) return { kind: "toPresent", above };
+    if (spread.below.age_ma > spread.above.age_ma)
+      return { kind: "toPresent", above };
     return { kind: "between", above, below };
   }
   // No dated descendant. Either there is a span down to the present, or the

@@ -81,7 +81,9 @@ describe("the canvas modes are not in the link", () => {
     // Both are answered the same way: the parameters are dropped, the taxa are
     // kept. Same treatment `bio=1` gets.
     expect(encode(decode("?names=common&ages=0"))).toBe("/");
-    expect(encode(decode("?n=770315&names=off&ages=0&bio=1"))).toBe("?n=770315");
+    expect(encode(decode("?n=770315&names=off&ages=0&bio=1"))).toBe(
+      "?n=770315",
+    );
     expect("labels" in decode("?names=common")).toBe(false);
     expect("ages" in decode("?ages=0")).toBe(false);
   });
@@ -118,7 +120,10 @@ describe("keys have one spelling", () => {
   });
 
   it("collapses the two spellings of one taxon into one entry", () => {
-    expect(decode("?n=ott770315,247341,770315").keys).toEqual(["770315", "247341"]);
+    expect(decode("?n=ott770315,247341,770315").keys).toEqual([
+      "770315",
+      "247341",
+    ]);
   });
 
   it("reads an empty selection as none, rather than as the empty string", () => {

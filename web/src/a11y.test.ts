@@ -90,8 +90,12 @@ describe("every inline graphic says whether it is content", () => {
     expect(INLINE_SVG.length).toBeGreaterThan(4);
     // Both answers are in the corpus, so neither branch of the rule below is
     // passing because nobody takes it.
-    expect(INLINE_SVG.filter(([, a]) => a.includes("aria-hidden"))).not.toHaveLength(0);
-    expect(INLINE_SVG.filter(([, a]) => a.includes("aria-label"))).not.toHaveLength(0);
+    expect(
+      INLINE_SVG.filter(([, a]) => a.includes("aria-hidden")),
+    ).not.toHaveLength(0);
+    expect(
+      INLINE_SVG.filter(([, a]) => a.includes("aria-label")),
+    ).not.toHaveLength(0);
   });
 
   /**
@@ -105,14 +109,18 @@ describe("every inline graphic says whether it is content", () => {
    */
   it("gives every inline svg aria-hidden, or a role and a name", () => {
     const found = INLINE_SVG.filter(
-      ([, a]) => !a.includes("aria-hidden") && !(/\brole=/.test(a) && a.includes("aria-label")),
+      ([, a]) =>
+        !a.includes("aria-hidden") &&
+        !(/\brole=/.test(a) && a.includes("aria-label")),
     ).map(([f]) => f);
     expect(found).toEqual([]);
   });
 });
 
 describe("the drawings decide once", () => {
-  const SILHOUETTE = SOURCES.find(([f]) => f.endsWith("canvas/Silhouette.tsx"))?.[1];
+  const SILHOUETTE = SOURCES.find(([f]) =>
+    f.endsWith("canvas/Silhouette.tsx"),
+  )?.[1];
 
   /**
    * Both wrappers go through `describe`, and neither hardcodes the answer.

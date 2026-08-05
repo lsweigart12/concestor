@@ -105,9 +105,7 @@ describe("the measurer is measuring the type that is actually drawn", () => {
     expect(`${TYPE.NAME_TRACKING}em`).toBe(
       decl(".mark-name", "letter-spacing"),
     );
-    expect(`${TYPE.AGE_TRACKING}em`).toBe(
-      decl(".num", "letter-spacing"),
-    );
+    expect(`${TYPE.AGE_TRACKING}em`).toBe(decl(".num", "letter-spacing"));
     expect(`${TYPE.META_TRACKING}em`).toBe(
       decl(".mark-meta", "letter-spacing"),
     );
@@ -151,14 +149,24 @@ describe("a label with the words switched off", () => {
     which on a wordless canvas is the whole layout, spread out around nothing.
   */
   it("reserves nothing at all when there is nothing to draw", () => {
-    const b = placeLabels([node({ idx: 1, x: 0, y: 0, name: "" })], [], OPTS).get(1)!;
+    const b = placeLabels(
+      [node({ idx: 1, x: 0, y: 0, name: "" })],
+      [],
+      OPTS,
+    ).get(1)!;
     expect(b.width).toBe(0);
     expect(b.height).toBe(0);
   });
 
   it("reserves the picture and no column beside it", () => {
     const bare = node({ idx: 1, x: 0, y: 0, name: "", hasSilhouette: true });
-    const named = node({ idx: 2, x: 0, y: 400, name: "Canis", hasSilhouette: true });
+    const named = node({
+      idx: 2,
+      x: 0,
+      y: 400,
+      name: "Canis",
+      hasSilhouette: true,
+    });
     const boxes = placeLabels([bare, named], [], OPTS);
     // The silhouette is 34px square and its gap only exists to separate it from
     // text. No text, no gap — and the label is exactly the picture.

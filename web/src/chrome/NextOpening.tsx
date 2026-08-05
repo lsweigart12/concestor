@@ -47,7 +47,12 @@ export function NextOpening({
         <span className="next-up-eyebrow">Next</span>
         <span className="next-up-art" aria-hidden="true">
           {opening.taxa.map((t) => (
-            <Silhouette key={t.key} phylopicId={t.art} size={22} tip={t.label} />
+            <Silhouette
+              key={t.key}
+              phylopicId={t.art}
+              size={22}
+              tip={t.label}
+            />
           ))}
         </span>
         <span className="next-up-q">{opening.question}</span>

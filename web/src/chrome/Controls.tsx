@@ -93,7 +93,7 @@ export type ControlAction = Common &
   );
 
 /** Where a group sits. See the note at the head of this file. */
-export type ControlSlot = "lead" | "trail" | "rest";
+type ControlSlot = "lead" | "trail" | "rest";
 
 export interface ControlGroup {
   /**
@@ -138,7 +138,12 @@ export function Controls({
   tip?: React.ReactNode;
 }) {
   const drawGroup = (g: ControlGroup) => (
-    <div className="control-group" key={g.name} role="group" aria-label={g.name}>
+    <div
+      className="control-group"
+      key={g.name}
+      role="group"
+      aria-label={g.name}
+    >
       <span className="control-name">
         {g.brand === true && <BrandMark />}
         {g.name}
@@ -205,7 +210,9 @@ export function Controls({
                 what it is positioned against; the rule says why sideways is
                 what let it come back here.
               */}
-              {tip !== undefined && <span className="control-tip-tray">{tip}</span>}
+              {tip !== undefined && (
+                <span className="control-tip-tray">{tip}</span>
+              )}
             </span>
           ) : (
             run.groups.map(drawGroup)

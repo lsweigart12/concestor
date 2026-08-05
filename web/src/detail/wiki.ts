@@ -60,6 +60,12 @@ const WIKI_SITE = "enwiki";
  * picker is a real feature and not a line of code — the vernacular names on the
  * card come from the same crawl and are also filtered to English, so doing this
  * properly means doing both together. Recorded rather than pretended away.
+ *
+ * **The `export` is load-bearing and nothing imports it.** This is a record
+ * rather than a value, no code reads it, and `noUnusedLocals` would delete a
+ * private one — while `docs/name-ranking.md` §8 and `name_rank.py` both point
+ * a reader here by this name. Narrowing it to a comment would lose the anchor
+ * those two aim at; narrowing it to a private constant would not compile.
  */
 export const LANG_NOTE = "English Wikipedia and Wikidata only.";
 
@@ -129,7 +135,10 @@ export function lookup(q: WikiQuery): Promise<Encyclopedia | null> {
   return p;
 }
 
-async function resolve(qid: string | null, name: string | null): Promise<Encyclopedia | null> {
+async function resolve(
+  qid: string | null,
+  name: string | null,
+): Promise<Encyclopedia | null> {
   let broader: string | null = null;
   let item = qid ? await itemById(qid) : await itemByName(name!);
   // A binomial that resolves to nothing, tried again as its genus.
@@ -153,7 +162,9 @@ async function resolve(qid: string | null, name: string | null): Promise<Encyclo
   // The gloss is enough to render with. The extract is a second request and the
   // richer half of the block, but a failure there must not take the whole block
   // down — a card reading "species of mammal" with a link is still an answer.
-  const extract = item.title ? await summary(item.title).catch(() => null) : null;
+  const extract = item.title
+    ? await summary(item.title).catch(() => null)
+    : null;
   return {
     qid: item.qid,
     wikidataUrl: `https://www.wikidata.org/wiki/${item.qid}`,
@@ -244,14 +255,17 @@ function taxonNameMatches(ent: Record<string, unknown>, want: string): boolean {
   if (!Array.isArray(p225) || p225.length === 0) return false;
   const target = want.trim().toLowerCase();
   for (const c of p225) {
-    const v = (c as { mainsnak?: { datavalue?: { value?: unknown } } })?.mainsnak?.datavalue
-      ?.value;
+    const v = (c as { mainsnak?: { datavalue?: { value?: unknown } } })
+      ?.mainsnak?.datavalue?.value;
     if (typeof v === "string" && v.trim().toLowerCase() === target) return true;
   }
   return false;
 }
 
-function entity(body: JsonObject | null, qid: string): Record<string, unknown> | null {
+function entity(
+  body: JsonObject | null,
+  qid: string,
+): Record<string, unknown> | null {
   const ents = body?.entities as Record<string, unknown> | undefined;
   const e = ents?.[qid] as Record<string, unknown> | undefined;
   if (!e || "missing" in e) return null;
@@ -259,9 +273,11 @@ function entity(body: JsonObject | null, qid: string): Record<string, unknown> |
 }
 
 function readItem(qid: string, ent: Record<string, unknown>): Item {
-  const desc = ent.descriptions as Record<string, { value?: unknown }> | undefined;
+  const desc = ent.descriptions as
+    Record<string, { value?: unknown }> | undefined;
   const gloss = desc?.[WIKI_LANG]?.value;
-  const links = ent.sitelinks as Record<string, { title?: unknown }> | undefined;
+  const links = ent.sitelinks as
+    Record<string, { title?: unknown }> | undefined;
   const title = links?.[WIKI_SITE]?.title;
   return {
     qid,

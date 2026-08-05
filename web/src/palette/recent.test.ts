@@ -187,7 +187,13 @@ describe("recents survive everything that can go wrong with storage", () => {
   });
 
   it("is empty for a blob this app did not write", () => {
-    for (const raw of ["", "null", "[]", "{}", '{"v":99,"build":"x","hits":[]}']) {
+    for (const raw of [
+      "",
+      "null",
+      "[]",
+      "{}",
+      '{"v":99,"build":"x","hits":[]}',
+    ]) {
       stub({ "concestor.recent": raw });
       expect(loadRecent(BUILD), raw).toEqual([]);
     }
@@ -197,7 +203,11 @@ describe("recents survive everything that can go wrong with storage", () => {
     // Every row in this list is one Enter will act on, so a row with no `idx`
     // is worse than a missing row: it is a dead press in the band the reader
     // trusts most. A broken taxon has no idx and should never have been here.
-    const hits = [hit(), { ...hit({ key: "ott2" }), idx: null }, hit({ key: "ott3" })];
+    const hits = [
+      hit(),
+      { ...hit({ key: "ott2" }), idx: null },
+      hit({ key: "ott3" }),
+    ];
     stub({ "concestor.recent": JSON.stringify({ v: 1, build: BUILD, hits }) });
     expect(loadRecent(BUILD).map((h) => h.key)).toEqual(["ott770315", "ott3"]);
   });

@@ -103,7 +103,9 @@ export function OpeningCarousel({
   const reduced = useRef(false);
 
   if (typeof window !== "undefined" && window.matchMedia) {
-    reduced.current = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    reduced.current = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
   }
 
   const go = useCallback((d: number) => {
@@ -218,7 +220,12 @@ export function OpeningCarousel({
       >
         <span className="carousel-art" aria-hidden="true">
           {o.taxa.map((t) => (
-            <Silhouette key={t.key} phylopicId={t.art} size={30} tip={t.label} />
+            <Silhouette
+              key={t.key}
+              phylopicId={t.art}
+              size={30}
+              tip={t.label}
+            />
           ))}
         </span>
         <span className="carousel-q">{o.question}</span>

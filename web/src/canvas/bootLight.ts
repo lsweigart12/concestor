@@ -67,7 +67,7 @@ import type { ScreenLight } from "./gl/renderer";
 import { LANE_HUES } from "../tree/layout";
 
 /** Which of the three a measured element is. Decides its geometry and its power. */
-export type LitKind = "wordmark" | "card" | "command";
+type LitKind = "wordmark" | "card" | "command";
 
 /** One element that may emit, as measured. Client rect, CSS px. */
 export interface LitBox {
@@ -126,7 +126,7 @@ export const SOURCES: readonly {
  * finished fetching renders nothing at all, and a light at its collapsed
  * position would be a point of colour sitting beside the row it belongs to.
  */
-export function measureBoot(root: ParentNode): LitBox[] {
+function measureBoot(root: ParentNode): LitBox[] {
   const boot = root.querySelector(".boot");
   const out: LitBox[] = [];
   for (const src of SOURCES) {
@@ -295,7 +295,10 @@ export function lightsFrom(
  * `getBoundingClientRect` is cheap but a new array identity is not, since the
  * still frame downstream redraws on exactly that.
  */
-export function useBootLights(active: boolean, reduced: boolean): readonly ScreenLight[] {
+export function useBootLights(
+  active: boolean,
+  reduced: boolean,
+): readonly ScreenLight[] {
   const [lights, setLights] = useState<readonly ScreenLight[]>(NONE);
   /**
    * When each key was first seen. A ref rather than state: it is read inside
@@ -338,14 +341,23 @@ export function useBootLights(active: boolean, reduced: boolean): readonly Scree
       // A key that has left takes its birth with it, or a carousel returning to
       // an opening it has already shown would arrive at full brightness while
       // its neighbours kindled.
-      for (const k of [...born.current.keys()]) if (!seen.has(k)) born.current.delete(k);
+      //
+      // The spread is not useless: the loop deletes out of the map it is
+      // walking. The specification happens to make that safe on a live Map
+      // iterator, but "happens to be safe" is not what the next reader should
+      // have to know, and copying 3–8 keys costs nothing.
+      // oxlint-disable-next-line no-useless-spread
+      for (const k of [...born.current.keys()])
+        if (!seen.has(k)) born.current.delete(k);
       /*
         Under `prefers-reduced-motion` there is no kindle at all, and it has to
         be dropped here rather than clamped downstream. The still frame redraws
         only when something changes, so a ramp would be sampled once and left
         frozen at whatever fraction that draw caught.
       */
-      const next = lightsFrom(boxes, (k) => (reduced ? undefined : born.current.get(k)));
+      const next = lightsFrom(boxes, (k) =>
+        reduced ? undefined : born.current.get(k),
+      );
       setLights((prev) => (sameLights(prev, next) ? prev : next));
     };
     const schedule = () => {
@@ -372,7 +384,10 @@ export function useBootLights(active: boolean, reduced: boolean): readonly Scree
 const NONE: readonly ScreenLight[] = Object.freeze([]);
 
 /** Whether two published sets are the same picture, field for field. */
-export function sameLights(a: readonly ScreenLight[], b: readonly ScreenLight[]): boolean {
+export function sameLights(
+  a: readonly ScreenLight[],
+  b: readonly ScreenLight[],
+): boolean {
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) {
     const p = a[i]!;

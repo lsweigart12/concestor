@@ -11,7 +11,7 @@
  * important to you.
  */
 
-export interface Match {
+interface Match {
   score: number;
   /** [start, end) index pairs into the haystack, for highlighting. */
   ranges: [number, number][];
@@ -85,7 +85,10 @@ export function fuzzy(needle: string, haystack: string): Match | null {
  * the page with nothing lit, which reads as *this one does not match* directly
  * above three that do.
  */
-export function litRanges(needle: string, haystack: string): [number, number][] {
+export function litRanges(
+  needle: string,
+  haystack: string,
+): [number, number][] {
   const n = needle.trim().toLowerCase();
   if (!n) return [];
   const h = haystack.toLowerCase();
@@ -284,7 +287,11 @@ function load(): Record<string, Usage> {
     const parsed: unknown = JSON.parse(raw);
     // An array passes `typeof === "object"` and would then be spread into an
     // object by the first write, which is a shape nothing here can read back.
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      Array.isArray(parsed)
+    ) {
       return {};
     }
     const out: Record<string, Usage> = {};

@@ -125,9 +125,9 @@ describe("every absolute URL points at the host this app deploys to", () => {
    * carry a hostname that nothing else in the build would notice going stale.
    * `wrangler.jsonc`'s route is where the apex is actually decided.
    */
-  const absolute = [...HTML.matchAll(/(?:content|href)="(https?:\/\/[^"]+)"/g)].map(
-    (m) => m[1]!,
-  );
+  const absolute = [
+    ...HTML.matchAll(/(?:content|href)="(https?:\/\/[^"]+)"/g),
+  ].map((m) => m[1]!);
 
   it("found the absolute URLs it means to check", () => {
     expect(absolute.length).toBeGreaterThanOrEqual(3);
@@ -169,7 +169,10 @@ describe("the card the tags promise is the card that ships", () => {
    * big-endian at 16 and at 20.
    */
   const u32 = (at: number) =>
-    ((png[at]! << 24) | (png[at + 1]! << 16) | (png[at + 2]! << 8) | png[at + 3]!) >>>
+    ((png[at]! << 24) |
+      (png[at + 1]! << 16) |
+      (png[at + 2]! << 8) |
+      png[at + 3]!) >>>
     0;
   const declared = { w: u32(16), h: u32(20) };
 

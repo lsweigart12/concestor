@@ -147,7 +147,8 @@ const BAKED_FILL_DECL = /fill\s*:\s*#?(?:000000|000|black)\s*(;|$)/gi;
 const TOKEN =
   /<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>|<[!?][\s\S]*?>|<\/\s*([A-Za-z][\w:.-]*)\s*>|<([A-Za-z][\w:.-]*)((?:"[^"]*"|'[^']*'|[^>"'])*?)(\/?)>/g;
 
-const ATTRIBUTE = /([A-Za-z_:][\w:.-]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/g;
+const ATTRIBUTE =
+  /([A-Za-z_:][\w:.-]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/g;
 
 /** `&` that does not already open an entity, which is the only one to escape. */
 const BARE_AMP = /&(?!#\d+;|#x[0-9a-f]+;|[a-z][a-z0-9]*;)/gi;
@@ -182,7 +183,8 @@ function attributes(raw: string, root: boolean): string {
       if (root && (name === "width" || name === "height")) continue;
       if (FOREIGN_REF.test(value) || ACTIVE_SCHEME.test(value)) continue;
       if (name === "fill" && BAKED_FILL.test(value)) value = "currentColor";
-      if (name === "style") value = value.replace(BAKED_FILL_DECL, "fill:currentColor$1");
+      if (name === "style")
+        value = value.replace(BAKED_FILL_DECL, "fill:currentColor$1");
     }
 
     out += ` ${written}="${escapeValue(value)}"`;
@@ -246,7 +248,9 @@ export function sanitiseSvg(raw: string): string | null {
     const keep = dropped === 0 && ELEMENTS.has(opened.toLowerCase());
     const empty = m[4] === "/";
     if (keep) {
-      out.push(`<${opened}${attributes(m[3] ?? "", root)}${empty ? "/>" : ">"}`);
+      out.push(
+        `<${opened}${attributes(m[3] ?? "", root)}${empty ? "/>" : ">"}`,
+      );
     }
     if (!empty) {
       stack.push({ name: opened, kept: keep });

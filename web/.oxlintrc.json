@@ -1,0 +1,90 @@
+// The linter for `web/`, and the counterpart to `go vet` in `server/` and
+// `ruff check` in `pipeline/`.
+//
+// **Why not typescript-eslint.** It was the first thing tried and it cannot be
+// installed here. This project builds on TypeScript 7, and typescript-eslint
+// 8.66 — the current release — declares `typescript@">=4.8.4 <6.1.0"` as a peer
+// and then, if you force the resolution past that, throws on import:
+// "typescript-eslint does not support TS 7.0". The upstream workaround
+// (TypeScript's own 7.0 release notes, and typescript-eslint#10940) is to alias
+// the *build* compiler to `@typescript/native` and let the bare name
+// `typescript` resolve to the TypeScript 6 API package — which means vite,
+// vitest and `tsc -b` all typecheck this repository with a compiler one major
+// behind the one it ships on, so that the linter can parse. That is the wrong
+// way round. oxlint carries its own TypeScript parser, needs no `typescript`
+// package at all, and implements the typescript-eslint rules that matter here.
+//
+// **The rule set is small on purpose, and the reason is measured.** `tsconfig`
+// already runs `strict`, `noUnusedLocals`, `noUnusedParameters`,
+// `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes`, and CI already
+// runs `npm run typecheck`. Nearly everything a type-aware linter would add is
+// therefore already enforced by something that understands the types better
+// than a lint rule does. What was actually missing is the class of defect a
+// typechecker is happy with: a hook called conditionally, a module imported
+// twice, an optional chain that throws one property later.
+//
+// Everything below was measured against the tree before it was chosen. The
+// categories not enabled here are not an oversight — `suspicious`, `perf`,
+// `pedantic`, `style` and `restriction` were each run over the whole of `src/`
+// and each is dominated by arguments with the author rather than defects:
+// `no-array-sort` wants `toSorted()` on arrays built to be sorted in place,
+// `consistent-function-scoping` wants test helpers hoisted out of the `it()`
+// they document, `max-lines` wants `detail/wiki.ts` split at 300, and
+// `require-unicode-regexp` wants a `u` flag on 30 regexes that match ASCII.
+// A gate somebody has to argue with weekly is a gate somebody deletes.
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+
+  // `react` covers react-hooks too. `jsx-a11y` and `vitest` were both trialled
+  // and both refused, with numbers:
+  //
+  //   jsx-a11y  20 findings, and 17 of them from four rules that argue with
+  //             decisions rather than finding defects — `prefer-tag-over-role`
+  //             wants `<dialog>` where the palette and the confirm sheet use
+  //             `role="dialog"` on a positioned div, and
+  //             `no-static-element-interactions` wants a role on the palette's
+  //             backdrop. The accessibility contract this app actually holds
+  //             itself to is `src/a11y.test.ts`, which knows what the canvas is
+  //             and what the control bar promises. Keeping the plugin would
+  //             mean disabling four of its rules, which is a worse description
+  //             of the decision than not enabling it.
+  //
+  //   vitest    25 findings, 18 of them `valid-expect` complaining that
+  //             "Expect takes at most 1 argument" — about `expect(x, "why")`,
+  //             which vitest supports and which is how `store.test.ts` and
+  //             `openings.test.ts` say what a failing assertion means. A rule
+  //             that is wrong about the framework it is named after is not a
+  //             gate.
+  "plugins": ["eslint", "typescript", "unicorn", "oxc", "react", "import"],
+
+  // `correctness` only: code that is outright wrong or useless. It is the one
+  // category whose findings are not a matter of taste, and it is where a
+  // linter earns a place in CI next to a typechecker that already ran.
+  "categories": {
+    "correctness": "error"
+  },
+
+  "rules": {
+    // Not in `correctness`, and worth the line: two imports of the same module
+    // in one file are two chances for the second to be edited and the first to
+    // be left. Zero findings today.
+    "import/no-duplicates": "error",
+
+    // **Off, and this is the one deliberate hole.** It reports five sites and
+    // all five are the same false positive: a dependency array narrowed to
+    // `tree.broken` or `tree.sequencing` where the rule can only see that the
+    // member came off `tree`, so it demands the whole object and would
+    // re-subscribe three window listeners on every selection change. The other
+    // two are `setAbout`, a setter returned by `useBoot()` and stable for the
+    // same reason a `useState` setter is — which the rule cannot see through a
+    // custom hook — and one dependency it calls unnecessary that is read
+    // inside a command's `run`.
+    //
+    // `rules-of-hooks`, which is in `correctness` above and stays on, is the
+    // half of this pair that is never a judgement call: a hook behind an `if`
+    // is a bug in every codebase there is. It reports nothing today.
+    "react-hooks/exhaustive-deps": "off"
+  },
+
+  "ignorePatterns": ["dist/**", ".wrangler/**", "node_modules/**"]
+}

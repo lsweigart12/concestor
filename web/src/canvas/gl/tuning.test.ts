@@ -80,7 +80,10 @@ describe("ampFor", () => {
     for (const seed of SEEDS) {
       for (const len of LENGTHS) {
         const { waveK } = branchParams(seed, len);
-        expect(TAU * waveK * ampFor(waveK), `${seed}/${len}`).toBeLessThanOrEqual(CEILING);
+        expect(
+          TAU * waveK * ampFor(waveK),
+          `${seed}/${len}`,
+        ).toBeLessThanOrEqual(CEILING);
       }
     }
     for (let k = 0.01; k < 1e4; k *= 1.07) {
@@ -226,10 +229,15 @@ describe("branchParams", () => {
   it("keeps every branch within 15% of its own length's crossing time", () => {
     for (const seed of SEEDS) {
       for (const len of LENGTHS) {
-        const nominal = Math.min(CROSS_MAX_S, Math.max(CROSS_MIN_S, len / FLOW_SPEED));
+        const nominal = Math.min(
+          CROSS_MAX_S,
+          Math.max(CROSS_MIN_S, len / FLOW_SPEED),
+        );
         const crossing = 1 / branchParams(seed, len).u0;
         expect(crossing / nominal, `${seed}/${len}`).toBeGreaterThan(1 / 1.15);
-        expect(crossing / nominal, `${seed}/${len}`).toBeLessThanOrEqual(1 / 0.85);
+        expect(crossing / nominal, `${seed}/${len}`).toBeLessThanOrEqual(
+          1 / 0.85,
+        );
       }
     }
   });
@@ -280,7 +288,9 @@ describe("quotaFor", () => {
    */
   it("stays between the floor and the frame budget at any length", () => {
     for (const len of [0, 1, 3, 10, 140, 666, 900, 1e5, 1e9]) {
-      expect(quotaFor(len), `len ${len}`).toBeGreaterThanOrEqual(MIN_PER_BRANCH);
+      expect(quotaFor(len), `len ${len}`).toBeGreaterThanOrEqual(
+        MIN_PER_BRANCH,
+      );
       expect(quotaFor(len), `len ${len}`).toBeLessThanOrEqual(MAX_PER_BRANCH);
     }
     expect(quotaFor(0)).toBe(MIN_PER_BRANCH);
@@ -336,7 +346,6 @@ describe("decay", () => {
   });
 });
 
-
 describe("the entrance", () => {
   /*
     The draw-on and the river inside it are driven by two different clocks — the
@@ -347,7 +356,10 @@ describe("the entrance", () => {
     branch reads as two objects.
   */
   it("uses the same easing the stylesheet's animation was handed", () => {
-    const src = readFileSync(new URL("../TraceEdge.tsx", import.meta.url), "utf8");
+    const src = readFileSync(
+      new URL("../TraceEdge.tsx", import.meta.url),
+      "utf8",
+    );
     const m = src.match(/cubic-bezier\(([^)]+)\)/);
     expect(m, "TraceEdge no longer names a cubic-bezier").not.toBeNull();
     const written = m![1]!.split(",").map((n) => Number(n.trim()));
@@ -382,8 +394,10 @@ describe("the entrance", () => {
     // bisection carried far past the working precision, because "looks about
     // right" is exactly the failure this curve would have.
     const [x1, y1, x2, y2] = DRAW_BEZIER;
-    const cx = (u: number) => 3 * (1 - u) ** 2 * u * x1 + 3 * (1 - u) * u * u * x2 + u ** 3;
-    const cy = (u: number) => 3 * (1 - u) ** 2 * u * y1 + 3 * (1 - u) * u * u * y2 + u ** 3;
+    const cx = (u: number) =>
+      3 * (1 - u) ** 2 * u * x1 + 3 * (1 - u) * u * u * x2 + u ** 3;
+    const cy = (u: number) =>
+      3 * (1 - u) ** 2 * u * y1 + 3 * (1 - u) * u * u * y2 + u ** 3;
     for (let i = 1; i < 200; i++) {
       const t = i / 200;
       let lo = 0;
@@ -414,11 +428,15 @@ describe("the entrance", () => {
     const delay = 300;
     expect(revealAt(start, start, delay, DRAW_MS)).toBe(0);
     expect(revealAt(start + delay - 1, start, delay, DRAW_MS)).toBe(0);
-    expect(revealAt(start + delay + DRAW_MS / 2, start, delay, DRAW_MS)).toBeGreaterThan(0);
+    expect(
+      revealAt(start + delay + DRAW_MS / 2, start, delay, DRAW_MS),
+    ).toBeGreaterThan(0);
     expect(revealAt(start + delay + DRAW_MS, start, delay, DRAW_MS)).toBe(1);
     // And it stays lit. A branch that finished drawing and then went dark again
     // because the clock kept running is the same black-tree failure as above.
-    expect(revealAt(start + delay + DRAW_MS * 40, start, delay, DRAW_MS)).toBe(1);
+    expect(revealAt(start + delay + DRAW_MS * 40, start, delay, DRAW_MS)).toBe(
+      1,
+    );
   });
 
   it("staggers, so a later wave is still dark while an earlier one is filling", () => {

@@ -37,7 +37,9 @@ describe("bracketGeom", () => {
     expect(g.certain!.x).toBeCloseTo(toX(152.21));
     expect(g.certain!.w).toBeCloseTo(152.21 - 143.1);
     expect(g.certain!.x).toBeGreaterThan(g.envelope.x);
-    expect(g.certain!.x + g.certain!.w).toBeLessThan(g.envelope.x + g.envelope.w);
+    expect(g.certain!.x + g.certain!.w).toBeLessThan(
+      g.envelope.x + g.envelope.w,
+    );
     expect(g.oldest).toBe(161.5);
     expect(g.youngest).toBe(137.05);
   });
@@ -99,7 +101,9 @@ describe("bracketGeom", () => {
     if (g.kind !== "range") throw new Error("expected a range");
     expect(g.envelope.w).toBe(MIN_MARK_PX);
     // Centred on the true extent rather than grown off one end.
-    expect(g.envelope.x + g.envelope.w / 2).toBeCloseTo((toX(66.1) + toX(66)) / 2);
+    expect(g.envelope.x + g.envelope.w / 2).toBeCloseTo(
+      (toX(66.1) + toX(66)) / 2,
+    );
   });
 
   /**
@@ -129,8 +133,14 @@ describe("spanLabel", () => {
 
 describe("bracketKey", () => {
   it("names only the marks that are drawn", () => {
-    const extent = bracketGeom({ fea: 161.5, fla: 152.21, lea: 143.1, lla: 137.05 }, toX);
-    const overlap = bracketGeom({ fea: 83.6, fla: 66, lea: 83.6, lla: 66 }, toX);
+    const extent = bracketGeom(
+      { fea: 161.5, fla: 152.21, lea: 143.1, lla: 137.05 },
+      toX,
+    );
+    const overlap = bracketGeom(
+      { fea: 83.6, fla: 66, lea: 83.6, lla: 66 },
+      toX,
+    );
     const absent = bracketGeom(none, toX);
 
     expect(bracketKey([overlap]).map((r) => r.id)).toEqual(["envelope"]);

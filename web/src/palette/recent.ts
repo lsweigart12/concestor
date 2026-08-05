@@ -110,7 +110,10 @@ export function loadRecent(buildID: string | null): SearchHit[] {
     return (parsed as Stored).hits
       .filter((h): h is SearchHit => isUsableHit(h))
       .slice(0, RECENT_LIMIT)
-      .map((h) => ({ ...h, vernacular: displayCommonNameOrNull(h.vernacular) }));
+      .map((h) => ({
+        ...h,
+        vernacular: displayCommonNameOrNull(h.vernacular),
+      }));
   } catch {
     return [];
   }

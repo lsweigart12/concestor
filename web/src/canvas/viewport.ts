@@ -137,7 +137,7 @@ export function fitContentPad(content: Rect, pad: number): Rect {
   };
 }
 
-export interface FitBox {
+interface FitBox {
   /** Content bounds in layout units, margin already included. */
   content: Rect;
   vw: number;

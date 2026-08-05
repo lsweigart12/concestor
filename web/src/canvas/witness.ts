@@ -32,7 +32,12 @@
  * on screen so the reader can see the stretch.
  */
 
-import { witnessFor, silhouetteIsInformative, type PathNode, type Witness } from "../api";
+import {
+  witnessFor,
+  silhouetteIsInformative,
+  type PathNode,
+  type Witness,
+} from "../api";
 
 /** What the two rules below need to know about a node. Both come from layout. */
 export interface Placement {
@@ -59,6 +64,7 @@ export function witnessOn(p: Placement): Witness | null {
  * than withholding: Cetacea, Felidae and Homo all went blank.
  */
 export function mayDrawExemplar(p: Placement): boolean {
-  if (!silhouetteIsInformative(p.node, p.node.silhouette_clade_tips)) return false;
+  if (!silhouetteIsInformative(p.node, p.node.silhouette_clade_tips))
+    return false;
   return p.isLeaf || p.node.silhouette_source_idx === p.node.idx;
 }

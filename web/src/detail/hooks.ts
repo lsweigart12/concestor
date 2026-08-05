@@ -97,7 +97,8 @@ export function useLineage(
       .then((r) => {
         // A broken taxon has no single path — that is what broken means — and
         // the card that shows one already explains it in its own words.
-        if (!cancelled) setState(r.path ? lineageOf(r.path, { subjectIsLast }) : null);
+        if (!cancelled)
+          setState(r.path ? lineageOf(r.path, { subjectIsLast }) : null);
       })
       .catch(() => !cancelled && setState(null));
     return () => {

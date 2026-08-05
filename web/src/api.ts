@@ -236,7 +236,7 @@ export interface PathResponse {
  * from synthesis, so they are not nodes at all. The live Open Tree API
  * silently answers about the substituted MRCA instead; we explain.
  */
-export interface BrokenResponse {
+interface BrokenResponse {
   broken: true;
   ott_id: number;
   name: string | null;
@@ -380,7 +380,7 @@ export interface NodeDetail extends PathNode {
 }
 
 /** One end of the span an undated node was placed within. */
-export interface LayoutBound {
+interface LayoutBound {
   idx: number;
   key: string;
   /** Null on an `mrcaott…` clade — 24.4% of the upper bounds. */
@@ -848,7 +848,9 @@ export function normalise(url: string, body: unknown): unknown {
     // today; it is here because the rule is what makes it possible at all.
     // Order still comes from the server, first occurrence winning, because the
     // card reads this list positionally and `usage_rank` is what put it in it.
-    b.vernaculars = [...new Set(toStrings(b.vernaculars).map(displayCommonName))];
+    b.vernaculars = [
+      ...new Set(toStrings(b.vernaculars).map(displayCommonName)),
+    ];
   }
   // A fossil card draws a PhyloPic image too, so it needs the same translation
   // — and this is the third place that has needed it, which is why it is one

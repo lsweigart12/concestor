@@ -49,7 +49,9 @@ describe("hitSilhouette", () => {
   });
 
   it("draws nothing when the server resolved no image", () => {
-    expect(hitSilhouette(hit({ phylopic_id: null, has_image: false }))).toBeNull();
+    expect(
+      hitSilhouette(hit({ phylopic_id: null, has_image: false })),
+    ).toBeNull();
   });
 
   it("draws a picture shared with a group small enough to recognise", () => {
@@ -67,7 +69,10 @@ describe("hitSilhouette", () => {
     // started looking sideways for a cousin; it is now 0%.
     expect(
       hitSilhouette(
-        hit({ silhouette_source_idx: 588427, silhouette_clade_tips: 1_208_417 }),
+        hit({
+          silhouette_source_idx: 588427,
+          silhouette_clade_tips: 1_208_417,
+        }),
         CAUTIOUS,
       ),
     ).toBeNull();
@@ -80,19 +85,26 @@ describe("hitSilhouette", () => {
   // its size whenever the picture is not the node's own.
   describe("dialled to maximum, which is the shipped default", () => {
     it("is in fact at maximum", () => {
-      expect(SILHOUETTE_POLICY).toEqual({ maxCladeTips: Number.POSITIVE_INFINITY });
+      expect(SILHOUETTE_POLICY).toEqual({
+        maxCladeTips: Number.POSITIVE_INFINITY,
+      });
     });
 
     it("draws a picture shared with a superphylum", () => {
       expect(
         hitSilhouette(
-          hit({ silhouette_source_idx: 588427, silhouette_clade_tips: 2_000_000 }),
+          hit({
+            silhouette_source_idx: 588427,
+            silhouette_clade_tips: 2_000_000,
+          }),
         ),
       ).toBe("abc-123");
     });
 
     it("still draws nothing when there is no image to draw", () => {
-      expect(hitSilhouette(hit({ phylopic_id: null, has_image: false }))).toBeNull();
+      expect(
+        hitSilhouette(hit({ phylopic_id: null, has_image: false })),
+      ).toBeNull();
     });
   });
 

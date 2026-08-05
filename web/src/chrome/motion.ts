@@ -11,5 +11,7 @@
  * mid-draw is asking about the next one.
  */
 export function prefersReduced(): boolean {
-  return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+  return (
+    window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false
+  );
 }

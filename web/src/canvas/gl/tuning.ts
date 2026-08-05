@@ -38,7 +38,10 @@ export const MIN_PER_BRANCH = 90;
 export const MAX_PER_BRANCH = 6000;
 
 export function quotaFor(len: number): number {
-  return Math.max(MIN_PER_BRANCH, Math.min(MAX_PER_BRANCH, len * PINPOINTS_PER_PX));
+  return Math.max(
+    MIN_PER_BRANCH,
+    Math.min(MAX_PER_BRANCH, len * PINPOINTS_PER_PX),
+  );
 }
 
 /**
@@ -140,7 +143,9 @@ export function branchParams(seed: number, len: number): BranchParams {
  * supposed to be inside, or trails behind the tip, and the branch reads as two
  * objects rather than one.
  */
-export const DRAW_BEZIER: readonly [number, number, number, number] = [0.16, 0.9, 0.3, 1];
+export const DRAW_BEZIER: readonly [number, number, number, number] = [
+  0.16, 0.9, 0.3, 1,
+];
 
 /**
  * Evaluate a CSS cubic-bezier timing function at `t ∈ [0, 1]`.
@@ -150,12 +155,17 @@ export const DRAW_BEZIER: readonly [number, number, number, number] = [0.16, 0.9
  * points; the bisection fallback is there for the flat regions Newton walks out
  * of rather than because this curve has any.
  */
-export function bezierEase(t: number, c: readonly [number, number, number, number] = DRAW_BEZIER): number {
+export function bezierEase(
+  t: number,
+  c: readonly [number, number, number, number] = DRAW_BEZIER,
+): number {
   if (!(t > 0)) return 0;
   if (t >= 1) return 1;
   const [x1, y1, x2, y2] = c;
-  const cx = (u: number) => 3 * (1 - u) ** 2 * u * x1 + 3 * (1 - u) * u * u * x2 + u ** 3;
-  const cy = (u: number) => 3 * (1 - u) ** 2 * u * y1 + 3 * (1 - u) * u * u * y2 + u ** 3;
+  const cx = (u: number) =>
+    3 * (1 - u) ** 2 * u * x1 + 3 * (1 - u) * u * u * x2 + u ** 3;
+  const cy = (u: number) =>
+    3 * (1 - u) ** 2 * u * y1 + 3 * (1 - u) * u * u * y2 + u ** 3;
   const dx = (u: number) =>
     3 * (1 - u) ** 2 * x1 + 6 * (1 - u) * u * (x2 - x1) + 3 * u * u * (1 - x2);
   let u = t;
@@ -244,13 +254,15 @@ export const LANDING_AT = 0.5;
  * a quarter as dense on a large display, which is exactly where a slow rain
  * stops reading as weather and starts reading as dust on the screen.
  */
-export const SNOW_PER_PX2 = 1 / 32;
-export const SNOW_MIN = 8000;
-export const SNOW_MAX = 30000;
+const SNOW_PER_PX2 = 1 / 32;
+const SNOW_MIN = 8000;
+const SNOW_MAX = 30000;
 export const SNOW_AMBIENT = 0.07;
 
 export function snowCountFor(w: number, h: number): number {
-  return Math.round(Math.max(SNOW_MIN, Math.min(SNOW_MAX, w * h * SNOW_PER_PX2)));
+  return Math.round(
+    Math.max(SNOW_MIN, Math.min(SNOW_MAX, w * h * SNOW_PER_PX2)),
+  );
 }
 
 /**
@@ -333,7 +345,7 @@ export const SCREEN_HALO_GAIN = 0.34;
  * are for — the row of silhouettes glows in the palette the tree uses — so the
  * colour survives the middle.
  */
-export const SCREEN_CORE_WHITE = 0.20;
+export const SCREEN_CORE_WHITE = 0.2;
 
 /**
  * The breathing, and why every light gets its own rate.
@@ -376,7 +388,11 @@ export const SCREEN_KINDLE_S = 1.05;
  * the first cut had it start dark, which put the reduced-motion canvas at zero
  * brightness forever.
  */
-export function kindle(bornMs: number | undefined, nowMs: number, seconds = SCREEN_KINDLE_S): number {
+export function kindle(
+  bornMs: number | undefined,
+  nowMs: number,
+  seconds = SCREEN_KINDLE_S,
+): number {
   if (bornMs === undefined) return 1;
   const t = (nowMs - bornMs) / 1000 / seconds;
   if (!(t > 0)) return 0;
@@ -449,8 +465,12 @@ export const BLOOM = 0.55;
  * The ratio between the channels is held. This is a *hue*, not a brightness:
  * scaled toward grey it stops being water and becomes a dark grey card.
  */
-export const VOID_NEAR: readonly [number, number, number] = [0.0118, 0.0353, 0.0549];
-export const VOID_FAR: readonly [number, number, number] = [0.0039, 0.0137, 0.0235];
+export const VOID_NEAR: readonly [number, number, number] = [
+  0.0118, 0.0353, 0.0549,
+];
+export const VOID_FAR: readonly [number, number, number] = [
+  0.0039, 0.0137, 0.0235,
+];
 
 /**
  * Device pixel ratio ceiling.
@@ -493,7 +513,11 @@ export const FLARE_S = 0.9;
 export const FLARE_GAIN = 2.6;
 
 /** A decaying 0→1, given when it started and how long it lasts. */
-export function decay(startedMs: number | undefined, nowMs: number, seconds: number): number {
+export function decay(
+  startedMs: number | undefined,
+  nowMs: number,
+  seconds: number,
+): number {
   if (startedMs === undefined) return 0;
   const t = (nowMs - startedMs) / 1000 / seconds;
   if (!(t >= 0) || t >= 1) return 0;

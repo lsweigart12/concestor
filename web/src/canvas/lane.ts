@@ -24,12 +24,12 @@ import type { FossilTaxon, PathNode } from "../api";
 import { SANS, textWidth } from "../tree/labels";
 
 /** Must match the `.drill-*` rules in styles.css. */
-export const HEAD_H = 22;
+const HEAD_H = 22;
 export const SPINE_H = 30;
 export const ROW_H = 16;
 const FOOT_LINE = 13;
 /** One line of footer plus its padding. */
-export const FOOT_H = 8 + FOOT_LINE;
+const FOOT_H = 8 + FOOT_LINE;
 
 /**
  * How many fossil taxa get a bracket.
@@ -142,7 +142,7 @@ export function laneHeight(rows: LaneRows): number {
 }
 
 /** A rank OTT actually gave the node, as opposed to the "no rank" filler. */
-export function isNamedRank(rank: string | null): boolean {
+function isNamedRank(rank: string | null): boolean {
   return Boolean(rank) && rank !== "no rank";
 }
 
@@ -165,7 +165,7 @@ export function rankIntermediates(nodes: readonly PathNode[]): PathNode[] {
   });
 }
 
-export interface SpineLabel {
+interface SpineLabel {
   idx: number;
   text: string;
   x: number;

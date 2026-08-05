@@ -114,9 +114,12 @@ function atChain(node: Container): string[] {
 export function rules(within: Container = ROOT): StyleRule[] {
   const out: StyleRule[] = [];
   within.walkRules((r) => {
+    // `endsWith` rather than `/keyframes$/`, so the vendor-prefixed forms
+    // (`-webkit-keyframes`) are caught by the same test and nothing has to
+    // read a regex to see that.
     if (
       r.parent?.type === "atrule" &&
-      /keyframes$/.test((r.parent as AtRule).name)
+      (r.parent as AtRule).name.endsWith("keyframes")
     ) {
       return;
     }

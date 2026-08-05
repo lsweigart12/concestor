@@ -174,7 +174,7 @@ function rectOf(el: Element): Rect {
  * which several callers do conditionally — returns an empty object, so a
  * caption that exists only sometimes needs no branch at the call site.
  */
-export interface TipProps {
+interface TipProps {
   onPointerEnter?: (e: React.PointerEvent) => void;
   onPointerLeave?: (e: React.PointerEvent) => void;
   onFocus?: (e: React.FocusEvent) => void;

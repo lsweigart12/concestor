@@ -93,7 +93,11 @@ describe("and hears the handler the last render gave it", () => {
     renderHook(() => useWindowKeys(onKey));
     press();
     expect(onKey.mock.calls[0]?.[0]).toBeInstanceOf(KeyboardEvent);
-    expect((onKey.mock.calls[0]?.[0] as KeyboardEvent).key).toBe("f");
+    // `!` rather than `?.`: the line above has already established there is a
+    // call to read, and an optional chain here would short-circuit to
+    // `undefined` and then read `.key` off it — the same TypeError, reported
+    // one line further from the assertion that would have explained it.
+    expect((onKey.mock.calls[0]![0] as KeyboardEvent).key).toBe("f");
   });
 
   it("stops listening once the app is gone", () => {

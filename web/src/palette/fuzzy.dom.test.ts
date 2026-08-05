@@ -25,7 +25,9 @@ const DAY = 86_400_000;
  * so `vi.resetModules()` is doing the real work here and every test has to
  * import through this helper rather than at the top of the file.
  */
-async function withStored(raw: string | null): Promise<typeof import("./fuzzy")> {
+async function withStored(
+  raw: string | null,
+): Promise<typeof import("./fuzzy")> {
   localStorage.clear();
   if (raw !== null) localStorage.setItem(KEY, raw);
   vi.resetModules();
@@ -64,7 +66,10 @@ describe("a malformed stored entry cannot poison the ranking", () => {
     ["an array entry", '{"n:5":[1,2]}'],
     ["stringified numbers", '{"n:5":{"count":"3","last":"1754300000000"}}'],
     ["a null `last`", '{"n:5":{"count":3,"last":null}}'],
-    ["a NaN that survived a round trip as null", '{"n:5":{"count":null,"last":null}}'],
+    [
+      "a NaN that survived a round trip as null",
+      '{"n:5":{"count":null,"last":null}}',
+    ],
   ];
 
   for (const [what, raw] of malformed) {
@@ -194,7 +199,10 @@ describe("recording a use", () => {
     // Same storage, fresh module: this is a reload.
     vi.resetModules();
     const second = await import("./fuzzy");
-    expect(second.sessionBoost("n:7")).toBeCloseTo(first.sessionBoost("n:7"), 6);
+    expect(second.sessionBoost("n:7")).toBeCloseTo(
+      first.sessionBoost("n:7"),
+      6,
+    );
     expect(stored()["n:7"]?.count).toBe(2);
   });
 
@@ -225,7 +233,8 @@ describe("recording a use", () => {
  */
 describe("the store is capped", () => {
   it("keeps at most MAX_USAGE_ENTRIES, in memory and in storage", async () => {
-    const { MAX_USAGE_ENTRIES, recordUse, sessionBoost } = await withStored(null);
+    const { MAX_USAGE_ENTRIES, recordUse, sessionBoost } =
+      await withStored(null);
     // A day between picks, so the boosts are strictly ordered and which entry
     // the cap drops is not a question about tie-breaking. Recorded live it is:
     // 240 calls land in one or two milliseconds, every boost ties, and the

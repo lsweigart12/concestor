@@ -61,7 +61,7 @@ export interface Drill {
   lower: number;
 }
 
-export interface SegmentState {
+interface SegmentState {
   data: SegmentResponse | null;
   error: string | null;
   loading: boolean;
@@ -436,7 +436,12 @@ function Spine({
       {/* Every tick is a real node with a real position, whether or not the
           crowding let it print a name, so every one of them answers on hover. */}
       {intermediates.map((n) => (
-        <SpineTick key={n.idx} node={n} named={named.has(n.idx)} toScreenX={toScreenX} />
+        <SpineTick
+          key={n.idx}
+          node={n}
+          named={named.has(n.idx)}
+          toScreenX={toScreenX}
+        />
       ))}
       {labels.map((l) => (
         <text

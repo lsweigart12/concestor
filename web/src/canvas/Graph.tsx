@@ -64,10 +64,14 @@ import {
   union,
   unlaidOut,
 } from "./viewport";
-import type { Induced } from "../tree/induced";
-import type { AddDelta } from "../tree/induced";
+import type { AddDelta, Induced } from "../tree/induced";
 import { isGraftIdx, type Graft } from "../tree/graft";
-import { divergenceFor, markName, UNNAMED, type LabelMode } from "../tree/naming";
+import {
+  divergenceFor,
+  markName,
+  UNNAMED,
+  type LabelMode,
+} from "../tree/naming";
 import {
   markAge,
   DIVERGENCE_META,
@@ -79,7 +83,12 @@ import {
 import { DECAY_MS, DRAW_MS, TraceEdge, type TraceEdgeData } from "./TraceEdge";
 import { TimeAxis } from "./TimeAxis";
 import { Legend, type TracePattern } from "./Legend";
-import { DrillLane, useSegment, type Drill, type LaneEndpoint } from "./DrillLane";
+import {
+  DrillLane,
+  useSegment,
+  type Drill,
+  type LaneEndpoint,
+} from "./DrillLane";
 import { laneHeight, laneRows } from "./lane";
 import { mayDrawExemplar, witnessOn } from "./witness";
 import { Water } from "./Water";
@@ -165,6 +174,18 @@ const STAGGER = 96;
  */
 const BIOLUM_AVAILABLE = BiolumRenderer.supported();
 
+/**
+ * The prop-drilling channel from `App` through `Graph` to `TimeAxis`,
+ * `DrillLane` and `NodeMark`.
+ *
+ * **Exported although no other file imports it**, which is the one exception
+ * in the sweep that made 51 of its neighbours private. This is not an accident
+ * of history like the rest of them: it is the seam between the two largest
+ * components in the repository, 27 props of which 12 are callbacks, and issue
+ * #94 names it by this name as the thing a staged refactor pulls apart. A
+ * visibility change here is a change to what that refactor starts from, and
+ * this PR changes no behaviour and settles no design.
+ */
 export interface GraphProps {
   induced: Induced;
   nodes: Map<number, PathNode>;
@@ -364,7 +385,8 @@ function Inner(props: GraphProps) {
   const describeLabel: LabelText = useCallback(
     (p) => {
       const withSil =
-        witnessOn(p) !== null || (mayDrawExemplar(p) && Boolean(p.node.phylopic_id));
+        witnessOn(p) !== null ||
+        (mayDrawExemplar(p) && Boolean(p.node.phylopic_id));
       const div = divergenceFor(p.idx, ind, nodeMap, labels);
       // The same parts NodeMark renders, or the collision pass reserves a box
       // the label does not fit. A fossil range with its glyph is materially
@@ -374,7 +396,9 @@ function Inner(props: GraphProps) {
         : null;
       const words = labels !== "off";
       return {
-        name: words ? (markName(p.node, labels)?.text ?? div?.text ?? UNNAMED) : "",
+        name: words
+          ? (markName(p.node, labels)?.text ?? div?.text ?? UNNAMED)
+          : "",
         trailing: age?.text ?? "",
         trailingGlyph: age?.glyph != null,
         // A derived name says so where a rank would otherwise go. Without it
@@ -409,7 +433,9 @@ function Inner(props: GraphProps) {
    */
   const activeDrill = useMemo(
     () =>
-      drill && ind.segments.get(drill.lower)?.anc === drill.upper ? drill : null,
+      drill && ind.segments.get(drill.lower)?.anc === drill.upper
+        ? drill
+        : null,
     [drill, ind],
   );
 
@@ -420,14 +446,17 @@ function Inner(props: GraphProps) {
   // the round trip. The response's own copies are the fallback.
   const laneIntermediates = useMemo(() => {
     if (!activeDrill) return [];
-    const byIdx = new Map(segment.data?.intermediates.map((n) => [n.idx, n]) ?? []);
+    const byIdx = new Map(
+      segment.data?.intermediates.map((n) => [n.idx, n]) ?? [],
+    );
     return (ind.segments.get(activeDrill.lower)?.suppressed ?? [])
       .map((i) => nodeMap.get(i) ?? byIdx.get(i))
       .filter((n): n is PathNode => n !== undefined);
   }, [activeDrill, ind, nodeMap, segment.data]);
 
   const laneRowsData = useMemo(
-    () => laneRows(segment.data?.fossils ?? [], segment.data?.fossils_total ?? 0),
+    () =>
+      laneRows(segment.data?.fossils ?? [], segment.data?.fossils_total ?? 0),
     [segment.data],
   );
 
@@ -572,12 +601,15 @@ function Inner(props: GraphProps) {
       canvas. The switch would leave the app wedged, once, for anyone who
       pressed it at the wrong second.
     */
-    const landAt = biolumRef.current && !reduced
-      ? window.setTimeout(
-          land,
-          T_DRAW + Math.max(0, delta.drawOrder.length - 1) * STAGGER + DRAW_MS,
-        )
-      : 0;
+    const landAt =
+      biolumRef.current && !reduced
+        ? window.setTimeout(
+            land,
+            T_DRAW +
+              Math.max(0, delta.drawOrder.length - 1) * STAGGER +
+              DRAW_MS,
+          )
+        : 0;
     const clearAt = window.setTimeout(
       () => {
         setFlaring(null);
@@ -585,7 +617,9 @@ function Inner(props: GraphProps) {
       },
       // The last wave starts latest and still has to draw and then settle, so
       // the tail is both durations plus a frame or two of slack.
-      reduced ? 60 : T_DRAW + delta.drawOrder.length * STAGGER + DRAW_MS + DECAY_MS + 100,
+      reduced
+        ? 60
+        : T_DRAW + delta.drawOrder.length * STAGGER + DRAW_MS + DECAY_MS + 100,
     );
     return () => {
       window.clearTimeout(flareAt);
@@ -660,7 +694,18 @@ function Inner(props: GraphProps) {
           height: NODE_BOX,
         };
       }),
-    [lay, focusedIdx, focusLineage, isolate, flaring, labels, ages, nodeMap, ind, biolum],
+    [
+      lay,
+      focusedIdx,
+      focusLineage,
+      isolate,
+      flaring,
+      labels,
+      ages,
+      nodeMap,
+      ind,
+      biolum,
+    ],
   );
 
   const rfEdges: Edge[] = useMemo(() => {
@@ -675,8 +720,7 @@ function Inner(props: GraphProps) {
       // only — its far end is placed toward the present rather than
       // interpolated between two known ages. It says so by fading out.
       const unbounded =
-        b.node.tier === TIER_STRUCTURAL &&
-        !hasDatedDescendant(v, ind, nodeMap);
+        b.node.tier === TIER_STRUCTURAL && !hasDatedDescendant(v, ind, nodeMap);
 
       const dim =
         (isolate && !(focusLineage.has(v) && focusLineage.has(seg.anc))) ||
@@ -717,7 +761,9 @@ function Inner(props: GraphProps) {
         tier: TIER_OCCURRENCE,
         dim:
           (isolate && !focusLineage.has(l.graft.anchor)) ||
-          (!isolate && focusedIdx !== null && focusedIdx !== l.idx &&
+          (!isolate &&
+            focusedIdx !== null &&
+            focusedIdx !== l.idx &&
             !focusLineage.has(l.graft.anchor)),
         unbounded: false,
         drilled: false,
@@ -757,7 +803,11 @@ function Inner(props: GraphProps) {
     () =>
       rfEdges.map((e) => {
         const d = e.data as unknown as TraceEdgeData;
-        return { tier: d.tier, unbounded: d.unbounded, attachment: d.attachment };
+        return {
+          tier: d.tier,
+          unbounded: d.unbounded,
+          attachment: d.attachment,
+        };
       }),
     [rfEdges],
   );
@@ -1085,7 +1135,8 @@ function Inner(props: GraphProps) {
 
   const toScreenX = useCallback(
     (age: number) =>
-      (PAD_X + plotWidth * (1 - ageFrac(age, lay.maxAge, axisMode))) * zoom + tx,
+      (PAD_X + plotWidth * (1 - ageFrac(age, lay.maxAge, axisMode))) * zoom +
+      tx,
     [lay.maxAge, zoom, tx, plotWidth, axisMode],
   );
 

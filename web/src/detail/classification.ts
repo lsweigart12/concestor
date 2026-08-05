@@ -41,7 +41,7 @@ import type { PathNode } from "../api";
  * overlapping things in the Open Tree taxonomy, because both appear and
  * dropping either loses a rung on some lineage.
  */
-export const LADDER_RANKS = [
+const LADDER_RANKS = [
   "domain",
   "kingdom",
   "phylum",
@@ -51,7 +51,7 @@ export const LADDER_RANKS = [
   "genus",
 ] as const;
 
-export type LadderRank = (typeof LADDER_RANKS)[number];
+type LadderRank = (typeof LADDER_RANKS)[number];
 
 const LADDER = new Set<string>(LADDER_RANKS);
 
@@ -68,7 +68,9 @@ const UNRANKED = new Set(["no rank", "no rank - terminal", "unranked", ""]);
 
 /** True when this rank is worth printing beside a name. */
 export function rankIsInformative(rank: string | null | undefined): boolean {
-  return rank !== null && rank !== undefined && !UNRANKED.has(rank.toLowerCase());
+  return (
+    rank !== null && rank !== undefined && !UNRANKED.has(rank.toLowerCase())
+  );
 }
 
 export interface Lineage {
@@ -136,9 +138,12 @@ export function lineageOf(
   // A rung above the highest one present is not missing, it is off the top of
   // this lineage — a fungus has no `domain` node above it in this tree and
   // saying so would be noise. Only gaps *inside* the ladder are reported.
-  const firstIdx = ladder.length > 0 ? LADDER_RANKS.indexOf(rankOf(ladder[0]!)) : -1;
+  const firstIdx =
+    ladder.length > 0 ? LADDER_RANKS.indexOf(rankOf(ladder[0]!)) : -1;
   const lastIdx =
-    ladder.length > 0 ? LADDER_RANKS.indexOf(rankOf(ladder[ladder.length - 1]!)) : -1;
+    ladder.length > 0
+      ? LADDER_RANKS.indexOf(rankOf(ladder[ladder.length - 1]!))
+      : -1;
   const inner = missing.filter((r) => {
     const i = LADDER_RANKS.indexOf(r);
     return i > firstIdx && i < lastIdx;
@@ -160,7 +165,10 @@ function rankOf(n: PathNode): LadderRank {
  * a negative one, and "no ranked order and family" reads as a complaint about a
  * pair rather than about each of them.
  */
-export function rankProse(ranks: readonly string[], conjunction = "or"): string {
+export function rankProse(
+  ranks: readonly string[],
+  conjunction = "or",
+): string {
   if (ranks.length === 0) return "";
   if (ranks.length === 1) return ranks[0]!;
   return `${ranks.slice(0, -1).join(", ")} ${conjunction} ${ranks[ranks.length - 1]}`;

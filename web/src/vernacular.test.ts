@@ -129,11 +129,9 @@ describe("displayCommonName", () => {
     // All six are real rows. The interior capitals in "Glassy-Winged Tiger"
     // survive, which is the half of sentence case this rule deliberately
     // refuses — see the table in `vernacular.ts`.
-    expect(["Dog", "dog family", "prairie dog"].map(displayCommonName)).toEqual([
-      "Dog",
-      "Dog family",
-      "Prairie dog",
-    ]);
+    expect(["Dog", "dog family", "prairie dog"].map(displayCommonName)).toEqual(
+      ["Dog", "Dog family", "Prairie dog"],
+    );
     expect(
       ["Tiger", "Glassy-Winged Tiger", "striped tiger"].map(displayCommonName),
     ).toEqual(["Tiger", "Glassy-Winged Tiger", "Striped tiger"]);
@@ -194,7 +192,9 @@ describe("displayCommonName", () => {
 
   it("is idempotent", () => {
     for (const n of SAMPLE) {
-      expect(displayCommonName(displayCommonName(n))).toBe(displayCommonName(n));
+      expect(displayCommonName(displayCommonName(n))).toBe(
+        displayCommonName(n),
+      );
     }
   });
 

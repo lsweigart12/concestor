@@ -113,7 +113,8 @@ describe("the add delta — the signature interaction's input", () => {
     expect(d.drawOrder[d.drawOrder.length - 1]).toContain(added);
     // Root-ward first: staggering in this order reads as travel.
     expect(d.drawOrder.length).toBeGreaterThan(0);
-    for (const v of d.drawOrder.flat()) expect(before.rendered).not.toContain(v);
+    for (const v of d.drawOrder.flat())
+      expect(before.rendered).not.toContain(v);
   });
 
   it("treats the very first selection as its own subject", () => {
@@ -130,7 +131,9 @@ describe("the add delta — the signature interaction's input", () => {
     const d = addDelta(null, after, fixture.selection[0]!);
     // Every rendered node but the root, which is the point the first wave
     // leaves from and has no segment above it to draw.
-    expect([...d.drawOrder.flat()].sort((a, b) => a - b)).toEqual(
+    // `.flat()` already returns a fresh array, so the in-place sort has nothing
+    // of the delta's to mutate.
+    expect(d.drawOrder.flat().sort((a, b) => a - b)).toEqual(
       after.rendered.filter((v) => v !== after.mrca),
     );
     expect(d.drawOrder.flat()).not.toContain(after.mrca);

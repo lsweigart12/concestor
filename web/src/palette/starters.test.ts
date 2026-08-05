@@ -117,10 +117,12 @@ describe("a taxon is never offered twice", () => {
     // Two rows that do the same thing under different headings reads as a bug
     // in a list whose whole job is to look considered.
     const got = bands({ suggestions: suggestions(["ott2"], ["ott1", "ott2"]) });
-    expect(got.map(([title, rows]) => [title, rows.map((h) => h.key)])).toEqual([
-      ["Recent", ["ott2"]],
-      ["Start here", ["ott1"]],
-    ]);
+    expect(got.map(([title, rows]) => [title, rows.map((h) => h.key)])).toEqual(
+      [
+        ["Recent", ["ott2"]],
+        ["Start here", ["ott1"]],
+      ],
+    );
   });
 
   it("drops the starters band entirely when it has nothing left", () => {

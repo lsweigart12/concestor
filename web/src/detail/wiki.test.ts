@@ -10,12 +10,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { lookup, resetWikiCache } from "./wiki";
 
 /** A stub that answers by URL substring, and counts what was asked. */
-function stubFetch(routes: { match: string; body: unknown; status?: number }[]) {
+function stubFetch(
+  routes: { match: string; body: unknown; status?: number }[],
+) {
   const calls: string[] = [];
   const fn = vi.fn(async (url: string) => {
     calls.push(url);
     const r = routes.find((x) => url.includes(x.match));
-    if (!r) return { ok: false, status: 404, json: async () => ({}) } as Response;
+    if (!r)
+      return { ok: false, status: 404, json: async () => ({}) } as Response;
     return {
       ok: (r.status ?? 200) < 400,
       status: r.status ?? 200,
@@ -67,14 +70,20 @@ describe("lookup by QID", () => {
     await lookup({ qid: "Q15978631", name: "Homo sapiens" });
     // Re-fetching P225 here would ask Wikidata the same question phase 6 asked
     // and would cost the largest property on the item to learn nothing.
-    expect(calls.find((u) => u.includes("wbgetentities"))).not.toContain("claims");
+    expect(calls.find((u) => u.includes("wbgetentities"))).not.toContain(
+      "claims",
+    );
   });
 
   it("survives an article that does not exist", async () => {
     stubFetch([
       {
         match: "wbgetentities",
-        body: { entities: { Q1: { id: "Q1", descriptions: { en: { value: "a clade" } } } } },
+        body: {
+          entities: {
+            Q1: { id: "Q1", descriptions: { en: { value: "a clade" } } },
+          },
+        },
       },
     ]);
     const got = await lookup({ qid: "Q1" });
@@ -96,7 +105,9 @@ describe("lookup by QID", () => {
   });
 
   it("answers null for an item Wikidata does not have", async () => {
-    stubFetch([{ match: "wbgetentities", body: { entities: { Q9: { missing: "" } } } }]);
+    stubFetch([
+      { match: "wbgetentities", body: { entities: { Q9: { missing: "" } } } },
+    ]);
     expect(await lookup({ qid: "Q9" })).toBeNull();
   });
 });
@@ -110,7 +121,13 @@ describe("lookup by name", () => {
         descriptions: { en: { value: "genus of theropod dinosaur" } },
         sitelinks: { enwiki: { title: "Tyrannosaurus" } },
         claims: {
-          P225: [{ mainsnak: { datavalue: { value: "Tyrannosaurus", type: "string" } } }],
+          P225: [
+            {
+              mainsnak: {
+                datavalue: { value: "Tyrannosaurus", type: "string" },
+              },
+            },
+          ],
         },
       },
     },
@@ -159,7 +176,13 @@ describe("lookup by name", () => {
             Q157: {
               sitelinks: { enwiki: { title: "Ivesia" } },
               claims: {
-                P225: [{ mainsnak: { datavalue: { value: "Potentilla", type: "string" } } }],
+                P225: [
+                  {
+                    mainsnak: {
+                      datavalue: { value: "Potentilla", type: "string" },
+                    },
+                  },
+                ],
               },
             },
           },
@@ -177,7 +200,11 @@ describe("lookup by name", () => {
           entities: {
             Q1: {
               sitelinks: { enwiki: { title: "X" } },
-              claims: { P225: [{ mainsnak: { datavalue: { value: " tyrannosaurus " } } }] },
+              claims: {
+                P225: [
+                  { mainsnak: { datavalue: { value: " tyrannosaurus " } } },
+                ],
+              },
             },
           },
         },
@@ -188,7 +215,9 @@ describe("lookup by name", () => {
   });
 
   it("answers null for a title with no item at all", async () => {
-    stubFetch([{ match: "wbgetentities", body: { entities: { "-1": { missing: "" } } } }]);
+    stubFetch([
+      { match: "wbgetentities", body: { entities: { "-1": { missing: "" } } } },
+    ]);
     expect(await lookup({ name: "Fakeosaurus" })).toBeNull();
   });
 
@@ -196,7 +225,10 @@ describe("lookup by name", () => {
     // Wikipedia has no article titled *Tyrannosaurus rex* — it is a redirect,
     // and sitelinks do not follow those.
     const calls = stubFetch([
-      { match: "titles=Tyrannosaurus%20rex", body: { entities: { "-1": { missing: "" } } } },
+      {
+        match: "titles=Tyrannosaurus%20rex",
+        body: { entities: { "-1": { missing: "" } } },
+      },
       { match: "titles=Tyrannosaurus&", body: ITEM_TREX },
       { match: "page/summary", body: { extract: "Tyrannosaurus is a genus." } },
     ]);
@@ -209,10 +241,16 @@ describe("lookup by name", () => {
   });
 
   it("does not invent a genus out of something that is not a binomial", async () => {
-    const calls = stubFetch([{ match: "wbgetentities", body: { entities: { "-1": {} } } }]);
+    const calls = stubFetch([
+      { match: "wbgetentities", body: { entities: { "-1": {} } } },
+    ]);
     // A vernacular, a trinomial and an informal PBDB string all reach here, and
     // none of them has a first word that is a group.
-    for (const name of ["giant ground sloth", "Homo sapiens neanderthalensis", "Bombus nr. sp"]) {
+    for (const name of [
+      "giant ground sloth",
+      "Homo sapiens neanderthalensis",
+      "Bombus nr. sp",
+    ]) {
       expect(await lookup({ name })).toBeNull();
     }
     expect(calls.length).toBe(3);
@@ -225,7 +263,10 @@ describe("caching", () => {
       { match: "wbgetentities", body: ITEM_HUMAN },
       { match: "page/summary", body: SUMMARY_HUMAN },
     ]);
-    await Promise.all([lookup({ qid: "Q15978631" }), lookup({ qid: "Q15978631" })]);
+    await Promise.all([
+      lookup({ qid: "Q15978631" }),
+      lookup({ qid: "Q15978631" }),
+    ]);
     await lookup({ qid: "Q15978631" });
     expect(calls.length).toBe(2); // the item and its summary, once each
   });
@@ -244,7 +285,9 @@ describe("caching", () => {
       { match: "wbgetentities", body: ITEM_HUMAN },
       { match: "page/summary", body: SUMMARY_HUMAN },
     ]);
-    expect((await lookup({ qid: "Q15978631" }))?.gloss).toBe("species of hominid");
+    expect((await lookup({ qid: "Q15978631" }))?.gloss).toBe(
+      "species of hominid",
+    );
   });
 
   it("has nothing to ask when it is given neither a QID nor a name", async () => {

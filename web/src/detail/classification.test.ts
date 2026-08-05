@@ -82,7 +82,9 @@ describe("lineageOf", () => {
   it("excludes the node itself — a card is not part of its own classification", () => {
     const names = lineageOf(CAT).full.map((x) => x.name);
     expect(names).not.toContain("Felidae");
-    expect(lineageOf(HUMAN).full.map((x) => x.name)).not.toContain("Homo sapiens");
+    expect(lineageOf(HUMAN).full.map((x) => x.name)).not.toContain(
+      "Homo sapiens",
+    );
   });
 
   it("drops the unnamed mrcaott nodes and keeps every named one", () => {
@@ -117,7 +119,11 @@ describe("lineageOf", () => {
   });
 
   it("does not report rungs that are off the top or bottom of the lineage", () => {
-    const bare = [n(1, "Eukaryota", "domain"), n(2, "Metazoa", "kingdom"), n(3, "X", "phylum")];
+    const bare = [
+      n(1, "Eukaryota", "domain"),
+      n(2, "Metazoa", "kingdom"),
+      n(3, "X", "phylum"),
+    ];
     // `class` through `genus` all sit below the last rung present. Absent from
     // the lineage, not missing from it.
     expect(lineageOf(bare).missing).toEqual([]);
@@ -160,7 +166,9 @@ describe("rankProse", () => {
   it("names the ranks rather than counting them", () => {
     // "or", because the sentence it lands in is "has no ranked …".
     expect(rankProse(["order", "family"])).toBe("order or family");
-    expect(rankProse(["phylum", "class", "order"])).toBe("phylum, class or order");
+    expect(rankProse(["phylum", "class", "order"])).toBe(
+      "phylum, class or order",
+    );
     expect(rankProse(["family"])).toBe("family");
     expect(rankProse([])).toBe("");
     expect(rankProse(["order", "family"], "and")).toBe("order and family");

@@ -26,7 +26,7 @@ mean something:
 ```bash
 cd pipeline && uv run ruff format src tests && uv run ruff check src tests && uv run ty check && uv run pytest
 cd server && go test ./...
-cd web && npm install && npm run build && npm test
+cd web && npm install && npm run format:check && npm run lint && npm run build && npm test
 ```
 
 All four pipeline commands must pass. `ty check` runs clean and is expected to

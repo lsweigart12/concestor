@@ -25,7 +25,11 @@ import { api, type SearchHit } from "../api";
 import { Palette, MIN_QUERY, type Command } from "./Palette";
 
 /** A node hit, with every field the row actually reads. */
-function hit(name: string, idx: number, vernacular: string | null = null): SearchHit {
+function hit(
+  name: string,
+  idx: number,
+  vernacular: string | null = null,
+): SearchHit {
   return {
     kind: "node",
     key: `n${idx}`,
@@ -110,7 +114,9 @@ describe("Palette search", () => {
     // proves anything, because a test that passes without mounting is the
     // failure mode this whole suite exists to avoid.
     expect(screen.getByLabelText("Search or command")).toBeTruthy();
-    expect(screen.getByRole("dialog", { name: "Command palette" })).toBeTruthy();
+    expect(
+      screen.getByRole("dialog", { name: "Command palette" }),
+    ).toBeTruthy();
 
     type("wolf");
     await settle();
@@ -155,7 +161,9 @@ describe("Palette search", () => {
   it("aborts a request the next keystroke has superseded", async () => {
     // Never resolves: the point is what happens to a request still in flight,
     // and a promise that settles would hide it.
-    const search = vi.spyOn(api, "search").mockReturnValue(new Promise(() => {}));
+    const search = vi
+      .spyOn(api, "search")
+      .mockReturnValue(new Promise(() => {}));
     mount();
 
     type("whale");
@@ -176,7 +184,9 @@ describe("Palette search", () => {
   });
 
   it("aborts on close, so a palette nobody is looking at holds no request", async () => {
-    const search = vi.spyOn(api, "search").mockReturnValue(new Promise(() => {}));
+    const search = vi
+      .spyOn(api, "search")
+      .mockReturnValue(new Promise(() => {}));
     const { rerender } = mount();
 
     type("whale");

@@ -34,7 +34,7 @@ import {
 /** Below this the axis is linear; above it, logarithmic. */
 export const SYMLOG_T0 = 1.0;
 /** Share of the axis given to the linear stretch. */
-export const LIN_SHARE = 0.07;
+const LIN_SHARE = 0.07;
 
 /**
  * Which scale the axis is on.
@@ -63,7 +63,7 @@ export const PAD_X = 150;
  * graft connector to decide it has nowhere on the branch to leave from but the
  * anchor itself.
  */
-export const MARK_MIN_SEP = 18;
+const MARK_MIN_SEP = 18;
 
 /**
  * Fraction of the axis for an age, present at 0 and deep time at 1.
@@ -99,7 +99,7 @@ export function fracToAge(frac: number, maxAge: number): number {
  * axis asks what age sits under screen x, and that x is routinely off the ends
  * once the view is panned.
  */
-export function linearFrac(age: number, maxAge: number): number {
+function linearFrac(age: number, maxAge: number): number {
   if (!Number.isFinite(age)) return 0;
   return age / Math.max(maxAge, SYMLOG_T0);
 }
@@ -147,7 +147,7 @@ export interface Placed {
  * is the fossil at its last. So the vertical drop is the part nobody knows and
  * the horizontal run is, where unclamped, the taxon's observed extent.
  */
-export interface GraftLink {
+interface GraftLink {
   idx: number;
   joinX: number;
   joinY: number;

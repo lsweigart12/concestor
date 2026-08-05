@@ -30,7 +30,12 @@ import {
   type FossilTaxon,
   type SearchHit,
 } from "../api";
-import { FOSSIL_BADGE, FOSSIL_BADGE_HINT, rowScore, SPECIES_PHRASE } from "../corpora";
+import {
+  FOSSIL_BADGE,
+  FOSSIL_BADGE_HINT,
+  rowScore,
+  SPECIES_PHRASE,
+} from "../corpora";
 import { AgeGlyph } from "../canvas/AgeGlyph";
 import { endedSpanLabel } from "../canvas/Bracket";
 import { Silhouette } from "../canvas/Silhouette";
@@ -235,7 +240,7 @@ const DEBOUNCE_MS = 110;
  * The two-character floor is the effect's, not this function's; both read
  * `MIN_QUERY` so the list cannot describe a search that never ran.
  */
-export type EmptyState = "prompt" | "silent" | "searching" | "no-match";
+type EmptyState = "prompt" | "silent" | "searching" | "no-match";
 
 /** Below this the palette does not search at all, and must not report on one. */
 export const MIN_QUERY = 2;
@@ -528,26 +533,28 @@ export function Palette({
     // see {@link rowScore}. The two bases used to differ, 4000 for a node and
     // 2000 for a fossil, and that gap was the pinned tail expressed as a
     // number: it outweighed every real signal by design.
-    const hitRows: Row[] = hits.map((hit, i) => {
-      if (hit.kind === "broken") return null;
-      const hay = hit.name ?? hit.key;
-      return {
-        kind: "hit" as const,
-        hit,
-        score: rowScore(hit.order, i) + sessionBoost(`n:${hit.idx}`),
-        // Show the reader why this row is here — on whichever field it is
-        // actually true of, and not at all when neither contains what they
-        // typed. That set is a **synonym or a vernacular**, and not the
-        // "synonym or an abbreviation" this said: an abbreviation always lights
-        // its epithet, `rex` on *Tyrannosaurus rex*, while a vernacular match
-        // leaves nothing lit on 18.3% of rows, because the row prints the
-        // taxon's headline name and any of its names can be what matched.
-        // {@link matchedVia} is where the whole set is written down and why
-        // only one of the two is credited.
-        ranges: litRanges(needle, hay),
-        vernRanges: hit.vernacular ? litRanges(needle, hit.vernacular) : [],
-      };
-    }).filter((r): r is Extract<Row, { kind: "hit" }> => r !== null);
+    const hitRows: Row[] = hits
+      .map((hit, i) => {
+        if (hit.kind === "broken") return null;
+        const hay = hit.name ?? hit.key;
+        return {
+          kind: "hit" as const,
+          hit,
+          score: rowScore(hit.order, i) + sessionBoost(`n:${hit.idx}`),
+          // Show the reader why this row is here — on whichever field it is
+          // actually true of, and not at all when neither contains what they
+          // typed. That set is a **synonym or a vernacular**, and not the
+          // "synonym or an abbreviation" this said: an abbreviation always lights
+          // its epithet, `rex` on *Tyrannosaurus rex*, while a vernacular match
+          // leaves nothing lit on 18.3% of rows, because the row prints the
+          // taxon's headline name and any of its names can be what matched.
+          // {@link matchedVia} is where the whole set is written down and why
+          // only one of the two is credited.
+          ranges: litRanges(needle, hay),
+          vernRanges: hit.vernacular ? litRanges(needle, hit.vernacular) : [],
+        };
+      })
+      .filter((r): r is Extract<Row, { kind: "hit" }> => r !== null);
 
     // Undated taxa are dropped here, not styled differently: a fossil with no
     // appearance interval has no position in time and cannot be drawn, so
@@ -649,7 +656,10 @@ export function Palette({
   }, [rows, filter, suggestionRows]);
 
   /** The sections flattened, which is what the arrow keys actually walk. */
-  const flat: Row[] = useMemo(() => sections.flatMap((s) => s.rows), [sections]);
+  const flat: Row[] = useMemo(
+    () => sections.flatMap((s) => s.rows),
+    [sections],
+  );
 
   const notes: BrokenHit[] = useMemo(
     () => hits.filter((h): h is BrokenHit => h.kind === "broken"),
@@ -800,7 +810,9 @@ export function Palette({
             </div>
           )}
 
-          {!failed && corrected && <SpellingNote typed={needle} used={corrected} />}
+          {!failed && corrected && (
+            <SpellingNote typed={needle} used={corrected} />
+          )}
 
           {!failed && suggested && (
             <SpellingOffer
@@ -982,11 +994,7 @@ function RowView({
       onClick={onClick}
     >
       <span className="row-icon">
-        {sil ? (
-          <Silhouette phylopicId={sil} size={20} fallback="◦" />
-        ) : (
-          "◦"
-        )}
+        {sil ? <Silhouette phylopicId={sil} size={20} fallback="◦" /> : "◦"}
       </span>
       <span className="row-body">
         <span className={`row-title${italic ? " sci-italic" : ""}`}>
@@ -1099,7 +1107,9 @@ function FossilRow({
         <span className="row-sub">
           {span && <span className="num">{span}</span>}
           {fossil.rank && <> · {fossil.rank}</>}
-          {fossil.n_occs > 0 && <> · {fossil.n_occs.toLocaleString()} occurrences</>}
+          {fossil.n_occs > 0 && (
+            <> · {fossil.n_occs.toLocaleString()} occurrences</>
+          )}
         </span>
       </span>
       <span className="row-accessory">
@@ -1222,8 +1232,8 @@ function UndatedNote({ fossils }: { fossils: FossilTaxon[] }) {
             </span>
           ))}
           {rest > 0 && ` and ${rest} more`}{" "}
-          {names.length === 1 && rest === 0 ? "is a fossil" : "are fossils"} with
-          no recorded date
+          {names.length === 1 && rest === 0 ? "is a fossil" : "are fossils"}{" "}
+          with no recorded date
         </span>
         <span className="row-sub">
           PBDB records no appearance interval for about a fifth of its taxa, so

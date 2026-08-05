@@ -1,0 +1,23 @@
+# Derived output and vendored trees. Everything else under web/ is formatted,
+# including src/styles.css, index.html, the config .ts files, wrangler.jsonc
+# and package.json — all of which were already Prettier-clean before the
+# formatter arrived, which is most of the argument for adopting its defaults.
+dist/
+node_modules/
+.wrangler/
+
+# Generated from web/public/favicon.svg by scripts/make-icons.py, and checked
+# byte for byte by `python3 scripts/make-icons.py --check` in CI. A formatter
+# reaching them would be rewriting a generator's output behind its back.
+public/favicon.ico
+public/apple-touch-icon.png
+public/og.png
+
+# package-lock.json is npm's to write.
+package-lock.json
+
+# Generated from the real baked topology arrays — the eleven species and their
+# 41-deep ancestor paths that pin `tree/induced.ts` to `render.py`. It is data
+# rather than source, and reformatting it would mean the next regeneration
+# arrives as a whole-file diff against a formatter nobody told about it.
+src/tree/__fixtures__/

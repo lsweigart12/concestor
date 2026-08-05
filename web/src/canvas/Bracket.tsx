@@ -59,14 +59,14 @@ export interface Appearance {
   lla: number | null;
 }
 
-export interface Span {
+interface Span {
   x: number;
   w: number;
 }
 
-export type Certainty = "extent" | "instant" | "overlapping" | "unrecorded";
+type Certainty = "extent" | "instant" | "overlapping" | "unrecorded";
 
-export type BracketGeom =
+type BracketGeom =
   | {
       /** No appearance interval at all. The caller owes it a treatment. */
       kind: "absent";
@@ -122,7 +122,10 @@ function span(toX: (ma: number) => number, a: number, b: number): Span {
  * the chronogram use, so a bracket in the lane is comparable with a node above
  * it. Nothing here knows about the scale beyond that.
  */
-export function bracketGeom(a: Appearance, toX: (ma: number) => number): BracketGeom {
+export function bracketGeom(
+  a: Appearance,
+  toX: (ma: number) => number,
+): BracketGeom {
   const bounds = [a.fea, a.fla, a.lea, a.lla].filter(finite);
   if (bounds.length === 0) return { kind: "absent" };
 
@@ -134,7 +137,8 @@ export function bracketGeom(a: Appearance, toX: (ma: number) => number): Bracket
   let certainty: Certainty = "unrecorded";
   let certain: Span | null = null;
   if (finite(a.fla) && finite(a.lea)) {
-    certainty = a.fla > a.lea ? "extent" : a.fla === a.lea ? "instant" : "overlapping";
+    certainty =
+      a.fla > a.lea ? "extent" : a.fla === a.lea ? "instant" : "overlapping";
     if (certainty === "extent") certain = span(toX, a.fla, a.lea);
   }
 
@@ -218,7 +222,7 @@ export function bracketTitle(name: string, b: BracketGeom): string {
   }
 }
 
-export interface BracketKeyRow {
+interface BracketKeyRow {
   id: "certain" | "envelope" | "absent";
   text: string;
 }
@@ -271,7 +275,14 @@ interface Props {
  * a capped band with nothing inside reads as a complete, deliberate mark,
  * where a bare fade reads as something that failed to render.
  */
-export function Bracket({ geom, y, height, coreRatio = 0.52, tip, className }: Props) {
+export function Bracket({
+  geom,
+  y,
+  height,
+  coreRatio = 0.52,
+  tip,
+  className,
+}: Props) {
   // A partial record's open end fades out rather than terminating at a
   // definite time, which is the vocabulary `.trace-unbounded` already uses on
   // the canvas for a position with no bound below it. Scoped per instance
