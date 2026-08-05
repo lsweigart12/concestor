@@ -86,6 +86,42 @@ describe("axis ticks", () => {
     expect(tickLabel(0)).toBe("present");
     expect(tickLabel(66)).toBe("66");
   });
+
+  /**
+   * A projection that cannot place anything must yield nothing to place.
+   *
+   * React Flow substitutes 500 for a container dimension that measures zero,
+   * so a canvas the browser has not laid out yet reports a size and gets a
+   * fit — which d3-zoom then interpolates against the real, zero-width extent
+   * and resolves to a NaN transform. Every `toScreenX` downstream of that is
+   * NaN, and this is where it used to become visible: the placement loop
+   * measures collisions with `>=`, NaN fails every comparison, so the first
+   * candidate was kept, every later one was judged to collide with it, and the
+   * survivor was drawn at `x="NaN"` — which the DOM rejects per attribute and
+   * silently replaces with zero, printing "present" against the left edge of a
+   * canvas whose present is on the right. Nothing errored and nothing looked
+   * broken enough to report.
+   */
+  it("offers no ticks at all through a projection that is not a number", () => {
+    const nan = () => NaN;
+    expect(buildTicks(0, 1315, "log", nan, 1000)).toEqual([]);
+    expect(buildTicks(0, 1315, "linear", nan, 1000)).toEqual([]);
+    // The failure it replaces: exactly one survivor, at NaN.
+    expect(buildTicks(0, 96, "linear", nan, 1000)).not.toContain(0);
+  });
+
+  it("drops only the ticks it cannot place, never the ones it can", () => {
+    // A projection finite everywhere but at the present — the guard must be a
+    // property of each tick rather than of the axis, or one bad age silences
+    // the whole rule.
+    const toX = screen(1315, "log");
+    const holed = (age: number) => (age === 0 ? NaN : toX(age));
+    const ticks = buildTicks(0, 1315, "log", holed, 1000);
+    expect(ticks).not.toContain(0);
+    expect(ticks).toContain(66);
+    expect(ticks.length).toBeGreaterThan(3);
+    for (const t of ticks) expect(Number.isFinite(holed(t))).toBe(true);
+  });
 });
 
 /**

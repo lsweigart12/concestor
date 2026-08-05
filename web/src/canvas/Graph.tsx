@@ -280,6 +280,14 @@ function Inner(props: GraphProps) {
   } = props;
 
   const rf = useReactFlow();
+  /**
+   * The canvas itself, so a fit can ask whether there is anything to fit into.
+   *
+   * React Flow's store cannot answer that: it substitutes 500 for a dimension
+   * that measures zero, so "no canvas yet" and "a 500px canvas" are the same
+   * two numbers. {@link fitTarget} has the rest.
+   */
+  const canvasRef = useRef<HTMLDivElement>(null);
   const zoom = useStore((s) => s.transform[2]);
   const tx = useStore((s) => s.transform[0]);
   const ty = useStore((s) => s.transform[1]);
@@ -769,6 +777,26 @@ function Inner(props: GraphProps) {
   const fitTarget = useCallback((): Viewport | null => {
     const c = lay.content;
     if (!c || !vw || !vh) return null;
+    // And `vw`/`vh` are not enough, because they can be a number React Flow
+    // made up. `useResizeHandler` writes `size.width || 500` into the store and
+    // logs its error 004 — so a container the browser has not laid out yet
+    // reports a square 500px canvas rather than zero, and the guard above sees
+    // a viewport worth fitting into. Two things then go wrong at once, and the
+    // second is the one that shows: the fit is computed against a size nothing
+    // on screen has, and `rf.setViewport(t, { duration })` hands it to d3-zoom,
+    // whose tween divides by the *real* extent of `.react-flow__renderer`.
+    // That is zero, so `interpolateZoom` returns NaN and the store transform
+    // becomes NaN. One value, and everything that reads it goes with it:
+    // React Flow's own background `<pattern>` and the dots inside it, the
+    // `--icon-scale` this component sets below, and every tick the axis
+    // projects through `toScreenX` — which is the whole run of
+    // `Expected length, "NaN"` the canvas used to log on load, against four
+    // kinds of element that have nothing else in common. Measuring here
+    // rather than trusting the store is the fix, and nothing is lost by
+    // refusing: a size change re-arms `owedFit` below, so the fit lands the
+    // moment there is a canvas to land it in.
+    const el = canvasRef.current;
+    if (el && (el.clientWidth === 0 || el.clientHeight === 0)) return null;
     return fitViewport({
       // The bounds already include every placed label, so the fit frames what
       // is actually drawn rather than the dots plus a guessed margin.
@@ -1097,6 +1125,7 @@ function Inner(props: GraphProps) {
 
   return (
     <div
+      ref={canvasRef}
       className={`canvas${bloomOff ? " bloom-off" : ""}${biolum ? " biolum" : ""}`}
       style={
         {
