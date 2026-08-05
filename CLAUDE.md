@@ -412,7 +412,13 @@ a command for a thing that cannot happen. **Below 620px none of it is drawn** �
 mode panel, nor the scale switch — and a 54px circle wearing the same mark sits
 bottom right above the timeline, opening the palette. That swap is only
 legitimate because of a rule the app already kept: every control has a command,
-and the palette's field searches species as well as commands. Seven things not
+and the palette's field searches species as well as commands. **That rule is
+checked now rather than read** — `step` had a key and a button and no palette
+row for its whole life, so on a phone it could not be reached at all, and it was
+the only hole in the table. `App.test.tsx` walks `bindings.ts` against the
+rendered palette, with an exemption list naming each row allowed to be missing;
+the assertion runs one way only, because `share` is the exception in the other
+direction. Seven things not
 to redo are in `docs/handoff.md` §3, chief among them that the media block
 **must sit at the foot of styles.css** (it hides `.canvas-modes`, declared two
 thousand lines lower, and at equal specificity the later rule wins — the first

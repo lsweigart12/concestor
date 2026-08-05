@@ -310,16 +310,37 @@ export function suggestionBands(s: {
 /**
  * The synonym that got this row onto the page, or null.
  *
- * **Synonyms only**, and the other three kinds are each excluded for their own
- * reason. A `name` or `vernacular` match is already printed in the row and
- * highlighted where it matched, so crediting it would caption the obvious. An
- * `abbreviation` looked like it belonged here and does not: "T. rex" returns
- * eight rows that all matched the same way, so the line repeats down the whole
- * list without distinguishing anything — and *Tyrannosaurus rex* with `rex`
- * highlighted already explains itself.
+ * **Synonyms only — but not because they are the only kind that hides the
+ * word.** That was the premise written here, and the corpus disproves it. A
+ * `vernacular` match does it too, and often: the row prints the taxon's
+ * *headline* common name and the name that matched is any of its names, so
+ * `horse` answers with Equidae labelled "equid", `mouse` with Muroidea /
+ * "muroid", `whale` with Cetacea / "Cetaceans", `duck` with Anatidae / "water
+ * fowl". Measured over forty ordinary queries, **129 of 705** vernacular rows
+ * — 18.3% — print neither the typed word nor its regular plural anywhere.
  *
- * A synonym is the one case where the typed string appears **nowhere** on the
- * row, so the answer arrives with no visible connection to the question.
+ * It is excluded anyway, and #91 is the measurement rather than the
+ * preference: the honest version of this line fires on 88 of 455 rows across
+ * 57 queries, only **four** of which are the case above — `salmon` alone
+ * captions four consecutive unrelated rows "matched *Salmon*" — and no tighter
+ * cut separates the four, because Equidae's `horse` is rank 3 and Anatidae's
+ * `duck` rank 5. The labels are also right as they stand: every word in that
+ * table carries `wiki_evidence = 'elsewhere'`, so printing the typed word in
+ * the label slot would re-assert exactly the claim phase 6b measured as false.
+ * Read #91's closing comment before reopening it — the defect it points at is
+ * upstream coverage, in `handoff.md` §7, and not this function.
+ *
+ * A `name` match is the string the row prints. An `abbreviation` looked like it
+ * belonged here and does not, for the *opposite* reason to the one recorded
+ * before: the typed string is not absent at all. {@link litRanges} lights word
+ * by word, so "T. rex" lights `rex` on *Tyrannosaurus rex*, and 0 of 115
+ * abbreviation rows over fifteen abbreviated queries hid what was typed. What
+ * rules it out is repetition — those eight rows all matched the same way, so
+ * the line runs down the whole list without distinguishing any of them.
+ *
+ * So the claim that licenses this line is narrower than "the typed string
+ * appears nowhere": a synonym is where the word is absent **and** crediting it
+ * tells one row from the next.
  */
 function matchedVia(h: SearchHit): string | null {
   if (h.matched_on !== "synonym") return null;
@@ -516,7 +537,13 @@ export function Palette({
         score: rowScore(hit.order, i) + sessionBoost(`n:${hit.idx}`),
         // Show the reader why this row is here — on whichever field it is
         // actually true of, and not at all when neither contains what they
-        // typed (a synonym or an abbreviation got them here instead).
+        // typed. That set is a **synonym or a vernacular**, and not the
+        // "synonym or an abbreviation" this said: an abbreviation always lights
+        // its epithet, `rex` on *Tyrannosaurus rex*, while a vernacular match
+        // leaves nothing lit on 18.3% of rows, because the row prints the
+        // taxon's headline name and any of its names can be what matched.
+        // {@link matchedVia} is where the whole set is written down and why
+        // only one of the two is credited.
         ranges: litRanges(needle, hay),
         vernRanges: hit.vernacular ? litRanges(needle, hit.vernacular) : [],
       };

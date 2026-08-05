@@ -20,8 +20,10 @@
  * on first import.
  */
 
+import { act } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { SOURCES } from "./canvas/bootLight";
+import { BINDINGS, type ActionId } from "./chrome/bindings";
 import {
   dismissAnswer,
   drawOpening,
@@ -210,5 +212,108 @@ describe("the empty canvas's lights find the things they light", () => {
         `${s.sel} matches nothing`,
       ).not.toBeNull();
     }
+  });
+});
+
+/**
+ * The claim the phone layout is licensed by, checked against the whole table.
+ *
+ * Below 620px the control bar is not drawn, nor the canvas-mode panel, nor the
+ * scale switch: a 54px circle replaces all three and opens the palette. What
+ * makes that a *move* rather than a removal is one rule — **every control has a
+ * command** — and the rule was being read rather than checked. `step` had a
+ * binding and a button on the bar and no palette row, so on a touch device it
+ * could not be reached at all: no key to press, no button drawn, and nothing to
+ * search for.
+ *
+ * So this walks `bindings.ts`, which is the single table by design, and asks
+ * the rendered palette whether each row's key is printed on a command. That
+ * closes the next hole as well as this one, which a row for `step` on its own
+ * would not have done.
+ *
+ * It is deliberately **not** a symmetry. `share` is the exception in the other
+ * direction — a control and a palette row and no key, because the letters that
+ * would be honest for it are the two most-used bindings in the app — so the
+ * assertion runs one way only, and the exemptions below are named one at a time
+ * with the reason each is allowed to be missing.
+ */
+const NO_COMMAND: Partial<Record<ActionId, string>> = {
+  // The surface the whole rule is about. `PaletteFab` is what opens it below
+  // 620px, which is the swap rather than a hole in it.
+  palette: "is the palette",
+  // A filter *on* the palette rather than a thing behind it: the unfiltered
+  // list already searches taxa, and `S` only puts the commands away. Reached
+  // from inside, by typing `s` then space.
+  species: "filters the palette from within it",
+  // Not a control on any bar. It activates the carousel's front card, which is
+  // drawn at every width and is a tap target already.
+  "open-opening": "activates a card that is drawn at every width",
+  // Likewise: it closes whatever is open, and every closable surface here draws
+  // its own way out.
+  escape: "closes what is open, which each surface also offers",
+  // The shifted half of `step`. The bar draws one button for the pair and so
+  // does the palette, because `stepSelection` wraps — going forward alone
+  // reaches every leaf, so `⇧N` is a shortcut round the cycle rather than the
+  // only way anywhere.
+  "step-back": "is the shifted half of step, and stepping wraps",
+};
+
+describe("every control the bar draws has a command behind it", () => {
+  /** Select a leaf, so the contextual rows are in the list too. */
+  async function selectLeaf(): Promise<void> {
+    const leaf = document.querySelector<HTMLElement>(".mark.is-leaf");
+    if (!leaf) throw new Error("the canvas is drawing no leaf to select");
+    await act(async () => {
+      leaf.click();
+      await new Promise((r) => {
+        setTimeout(r, 60);
+      });
+    });
+  }
+
+  it("prints every binding's key on a palette row, or names why it need not", async () => {
+    await renderApp();
+    await drawOpening();
+    await dismissAnswer();
+    // With a leaf selected, because three of these rows are contextual — the
+    // isolate, the fit-to and the remove all belong to a chosen node, and a
+    // reader on a phone reaches them the same way, by tapping a mark first.
+    await selectLeaf();
+    await openPalette();
+    const printed = new Set(
+      [...document.querySelectorAll(".palette .row .kbd")].map(
+        (k) => k.textContent,
+      ),
+    );
+    for (const b of BINDINGS) {
+      if (NO_COMMAND[b.id]) continue;
+      expect(
+        printed.has(b.kbd),
+        `${b.id} has the key ${b.kbd} and no command — a reader below 620px cannot reach it at all`,
+      ).toBe(true);
+    }
+  });
+
+  it("keeps the exemption list from outliving the rows it excuses", () => {
+    // An id that leaves the table takes its excuse with it. Without this the
+    // list quietly becomes somewhere a real hole can be parked.
+    for (const id of Object.keys(NO_COMMAND)) {
+      expect(
+        BINDINGS.some((b) => b.id === id),
+        `${id} is excused from a table it is no longer in`,
+      ).toBe(true);
+    }
+  });
+
+  it("keeps share the other way round — a row, and no key on it", async () => {
+    // The reason the rule above is not a symmetry, asserted so that making it
+    // one has to fail here first.
+    await renderApp();
+    await openPalette();
+    const row = [...document.querySelectorAll(".palette .row")].find((r) =>
+      /shareable link/i.test(r.textContent ?? ""),
+    );
+    expect(row, "share lost the one surface it has").toBeDefined();
+    expect(row?.querySelector(".kbd")).toBeNull();
   });
 });

@@ -29,6 +29,16 @@
  * printed on the button rather than described in a hint. The two cannot drift,
  * because the button and the handler read the same row.
  *
+ * **And a thing you can click is a thing you can search for**, which is the
+ * half of that rule the sub-620px layout stands on: down there the bar is not
+ * drawn at all and a circular button opens the palette instead, so a control
+ * with no command is a control a reader on a phone cannot reach — no key to
+ * press, no button on screen, nothing to type. `step` was exactly that for as
+ * long as it existed, on `Tab` and then on `N`. `App.test.tsx` walks this table
+ * against the rendered palette now, with an exemption list that names each row
+ * allowed to be missing and why; the assertion runs one way only, because
+ * `share` is the exception in the other direction and has a command with no key.
+ *
  * There was a `chrome` field here saying which rows the bar drew and at what
  * prominence, and it is gone rather than updated. It could never be the whole
  * answer — `App.tsx` composes the bar and always did, the bar now holds a

@@ -841,6 +841,27 @@ export default function App() {
    */
   const empty = nothingDrawn && tree.view.fossils.length === 0;
 
+  /**
+   * Walk the selection, forward or back.
+   *
+   * Sits above the command list rather than beside the other handlers because
+   * the list now holds a row for it, and a `const` referenced in a `useMemo`'s
+   * dependency array has to be initialised before that array is read. Dropping
+   * it from the deps instead would leave the row's closure holding whichever
+   * `focusedIdx` was current when the list was last rebuilt.
+   */
+  const stepSelection = useCallback(
+    (back: boolean) => {
+      const ls = tree.induced.leaves;
+      if (ls.length === 0) return;
+      const at = focusedIdx === null ? -1 : ls.indexOf(focusedIdx);
+      const next = ls[(at + (back ? -1 + ls.length : 1)) % ls.length];
+      const n = next !== undefined ? tree.nodes.get(next) : undefined;
+      if (n) tree.select(n.key);
+    },
+    [tree, focusedIdx],
+  );
+
   const commands: Command[] = useMemo(() => {
     const base: Command[] = [
       // Absent while the canvas is already showing the fit, and absent on an
@@ -1034,6 +1055,40 @@ export default function App() {
         section: "Selection",
         run: () => void randomPick(),
       },
+      // The row the sub-620px layout was already relying on. The bar is not
+      // drawn on a phone, and the licence for that is that every control on it
+      // has a command here — `step` had a key and a button and no row, so on a
+      // touch device it could not be reached at all. `App.test.tsx` walks
+      // `bindings.ts` now rather than trusting the claim.
+      //
+      // Absent rather than disabled on an empty canvas, which is the same rule
+      // `fit-all` above states: the bar can grey a button and say why in a
+      // tooltip, and a palette row has nothing beside it to read.
+      //
+      // One row, where the bar draws one button and the keyboard has two
+      // halves. `stepSelection` wraps — `% ls.length` — so going forward alone
+      // reaches every leaf, and `⇧N` is a shortcut round the cycle rather than
+      // anywhere the reader cannot otherwise get.
+      ...(tree.induced.leaves.length === 0
+        ? []
+        : [
+            {
+              id: "step",
+              title: "Go to the next species",
+              subtitle: "Opens each card in turn, and wraps at the end",
+              hint:
+                "On a crowded canvas the marks are small targets, and this reaches every one of " +
+                "them in order without asking you to hit any of them. It walks the species you " +
+                "have added, in the order they are drawn, and comes back round to the first.",
+              icon: "→",
+              keys: kbd("step"),
+              section: "Selection",
+              run: () => {
+                stepSelection(false);
+                setPaletteOpen(false);
+              },
+            },
+          ]),
       {
         id: "clear",
         title: "Clear the canvas",
@@ -1180,6 +1235,7 @@ export default function App() {
     toast,
     share,
     randomPick,
+    stepSelection,
     empty,
     viewFit,
     fullscreen,
@@ -1366,18 +1422,6 @@ export default function App() {
     settle();
     toast("Canvas cleared");
   }, [tree, toast, settle]);
-
-  const stepSelection = useCallback(
-    (back: boolean) => {
-      const ls = tree.induced.leaves;
-      if (ls.length === 0) return;
-      const at = focusedIdx === null ? -1 : ls.indexOf(focusedIdx);
-      const next = ls[(at + (back ? -1 + ls.length : 1)) % ls.length];
-      const n = next !== undefined ? tree.nodes.get(next) : undefined;
-      if (n) tree.select(n.key);
-    },
-    [tree, focusedIdx],
-  );
 
   /**
    * Full keyboard operation, on bare letters.
