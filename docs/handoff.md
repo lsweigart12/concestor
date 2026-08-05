@@ -2675,6 +2675,47 @@ Neither tool gates a cross-file dead export, and none in this ecosystem does it
 without its own config and its own opinions. The count is cheap to retake:
 every exported name, against every other file, as whole words.
 
+### A branch has a preview URL, on a Worker that can have one
+
+`docs/deployment.md` §5 is the design. What belongs here is the shape of the
+failure it fixes, because it is this repository's third instance of it:
+`deploy-web.yml` ran `wrangler versions upload --preview-alias pr-N` on every
+pull request from the day the deploy was turned on, and **every alias it minted
+pointed at nothing** — Cloudflare does not generate preview URLs for a Worker
+that implements a Durable Object, and the container class is one. No URL
+printed, `has_preview: false` on the version, error 1042 at the hostname, and a
+green step on every run. The same silence as the `release: published` trigger
+that fired zero times in ten releases and the `/healthz` probe that could not
+fail: *a step that cannot work, reporting success, because nothing looked at
+what it produced.*
+
+Five things not to redo:
+
+- **Do not re-add `--preview-alias` to `wrangler.jsonc`'s Worker**, and do not
+  "fix" it by enabling `preview_urls` there. Both were tried. With
+  `previews_enabled` turned on for `concestor-web` at the account, a fresh
+  upload still printed no URL and still reported `has_preview: false`. The
+  config now says `preview_urls: false` beside the reason so the next reader
+  does not spend the same hour.
+- **The preview Worker's entry point exports less, and that is the mechanism.**
+  `worker/preview.ts` re-uses `index.ts`'s `fetch` and does not re-export
+  `ReadApi`. Re-exporting it — or declaring the container, the Durable Object
+  binding or the migration in `wrangler.preview.jsonc` — makes that Worker
+  preview-ineligible too, which leaves the file with nothing to do.
+- **A preview cannot show a `server/` or `pipeline/` change**, because `/v1` is
+  proxied to production. Giving it its own API means a second 2.2 GB image and
+  a second `standard-1` instance, which is ~$26/month of memory to look at a
+  button.
+- **The preview beacon writes to `concestor_events_preview`.** The beacon is
+  handled before the `API_ORIGIN` branch, so a preview's events are written
+  rather than proxied — and `docs/analytics.md` counts what *readers* did. A
+  developer clicking their own branch for a fortnight must not land in those
+  numbers.
+- **The URL is read back out of wrangler's output, never composed.** The
+  hostname contains the account's workers.dev subdomain, which is not in this
+  repository — and a URL a workflow *asserts* goes on being printed long after
+  it stops being true, which is the bug this whole section is about.
+
 ---
 
 ## 4. The corrections that used to live here — applied, and gone

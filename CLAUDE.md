@@ -29,7 +29,7 @@ wrong and these docs record the corrections.
 | [docs/biolum-gpu.md](docs/biolum-gpu.md) | The bioluminescent mode on WebGL2 — rivers, marine snow, and five things that will cost you an afternoon. **Shipped** |
 | [docs/worktrees.md](docs/worktrees.md) | Why the preview works in a parallel session's worktree |
 | [docs/ci.md](docs/ci.md) | What CI checks, what a green run does *not* mean, and what can deploy on Cloudflare |
-| [docs/deployment.md](docs/deployment.md) | Where it runs: all of it on Cloudflare, the Go binary in a Container. The alternatives with numbers |
+| [docs/deployment.md](docs/deployment.md) | Where it runs: all of it on Cloudflare, the Go binary in a Container. The alternatives with numbers. §5 also has the preview Worker, and why it had to be a *second* one |
 | [docs/analytics.md](docs/analytics.md) | What readers search for, add and build. Why no server-side log can say, the three events that can, and the plan limits measured against the live account. §9.6–§9.7 are the four measurement sources and why they must not be added up |
 
 **This product is for curious people interested in evolution, not for evolutionary

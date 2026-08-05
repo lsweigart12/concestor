@@ -204,10 +204,20 @@ image first and commit the tag it prints, then set:
 
 Then a release runs `wrangler deploy` — as a job of the release run, not off a
 trigger of its own, and §4 is why that distinction cost ten releases — and a
-pull request from this repository runs `wrangler versions upload
---preview-alias pr-N`, which publishes a preview URL without moving production
-traffic. Pull requests from forks have no secrets and skip the deploy, which is
-the correct behaviour rather than a limitation to work around.
+pull request from this repository uploads a preview version and comments the URL
+onto the pull request. Pull requests from forks have no secrets and skip the
+deploy, which is the correct behaviour rather than a limitation to work around.
+
+**The preview is a version of a *second* Worker**, `concestor-preview`, and that
+is forced rather than tidy: Cloudflare does not generate preview URLs for a
+Worker that implements a Durable Object, and production's container class is one.
+This workflow ran `--preview-alias pr-N` against the production Worker from the
+day the deploy was turned on, and every alias it minted pointed at nothing —
+error 1042 at the hostname, `has_preview: false` on the version, and a green
+step, which is this page's recurring failure shape. `docs/deployment.md` §5 has
+the measurements, the second Worker's design, and what a preview consequently
+cannot show you — chiefly that `/v1` is production's, so a `server/` or
+`pipeline/` change is not in it.
 
 `CONCESTOR_API_ORIGIN` is passed with `--var`, not as a secret, deliberately:
 it is a public origin the browser already sends every request to. Leaving it
@@ -218,8 +228,9 @@ off Cloudflare.
 Locally:
 
 ```bash
-npm --prefix web run cf:check   # the same dry run CI does
-npm --prefix web run cf:dev     # wrangler dev; set API_ORIGIN at a local server
+npm --prefix web run cf:check           # the same dry run CI does
+npm --prefix web run cf:check:preview   # and the preview Worker's
+npm --prefix web run cf:dev             # wrangler dev; set API_ORIGIN at a local server
 ```
 
 `cf:dev` wants `API_ORIGIN` pointed at a running `scripts/serve.sh` rather than

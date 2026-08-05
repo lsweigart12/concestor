@@ -20,7 +20,11 @@
  */
 import { Container, getRandom } from "@cloudflare/containers";
 
-interface Env {
+/**
+ * Exported for `preview.ts`, which is this Worker minus the Durable Object and
+ * must describe the same bindings rather than a second guess at them.
+ */
+export interface Env {
   /** The read API, one Container class over the Go binary. */
   READ_API: DurableObjectNamespace<ReadApi>;
   /**
