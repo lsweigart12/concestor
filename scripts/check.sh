@@ -94,9 +94,23 @@ if wants server; then
   gate "server · go test" go test -C server ./...
 fi
 
+# --- web dependencies -------------------------------------------------------
+# Resolved once, before either half that needs it, and a failure here cancels
+# both. Every web and cloudflare check below fails on a short node_modules, so
+# running them anyway reports five broken checks where there is one unfinished
+# checkout — and the loudest of the five is vitest's `Cannot find package
+# 'jsdom'`, which names the test harness rather than the cause.
+NODE_MODULES=0
+if wants web || wants cloudflare; then
+  if concestor_ensure_node_modules; then
+    NODE_MODULES=1
+  else
+    FAILED+=("web · node_modules")
+  fi
+fi
+
 # --- web --------------------------------------------------------------------
-if wants web; then
-  concestor_ensure_node_modules
+if wants web && [ "$NODE_MODULES" = 1 ]; then
   # The .ico and the touch icon are generated from web/public/favicon.svg, and
   # the share card from the same script. `src/icons.test.ts` pins the
   # generator's geometry to the SVG and `src/meta.test.ts` pins the document's
@@ -112,8 +126,7 @@ fi
 # --- cloudflare -------------------------------------------------------------
 # The same dry run CI does: bundles the Worker and validates wrangler.jsonc
 # without credentials. Needs web/dist, so it runs after the build above.
-if wants cloudflare; then
-  concestor_ensure_node_modules
+if wants cloudflare && [ "$NODE_MODULES" = 1 ]; then
   if [ ! -f "$ROOT/web/dist/index.html" ]; then
     gate "web · build (for the dry run)" npm --prefix web run build
   fi
