@@ -18,9 +18,7 @@
  * one against 13. Both of those are recorded as *rejected*, not as todo.
  */
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
-
-const CSS = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
+import { rules as cssRules } from "./test/css";
 
 /** Every `.tsx` that renders something, as source text. */
 const SOURCES: [string, string][] = Object.entries(
@@ -36,22 +34,15 @@ const SOURCES: [string, string][] = Object.entries(
 
 // ------------------------------------------------------------- the selectors --
 
-interface Rule {
-  sel: string;
-  body: string;
-}
-
 /**
- * Flat rules, comments stripped.
+ * Every rule the stylesheet declares, from `test/css.ts`.
  *
- * Nested at-rules (`@media`) are not unwrapped — the inner rules match this
- * shape on their own and the prelude carries no class we care about.
+ * This was a regex over the file that matched a rule body as `\{([^{}]*)\}`,
+ * which is a shape no nested rule survives, and then filtered `from`, `to` and
+ * `47%` back out by hand because keyframe steps match it too. The parser knows
+ * the difference; a reformat of the stylesheet moves nothing here.
  */
-const RULES: Rule[] = [...CSS.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(
-  /(^|[};])\s*([^{}@;]+?)\s*\{([^{}]*)\}/gm,
-)]
-  .map((m) => ({ sel: m[2]!.trim(), body: m[3]! }))
-  .filter((r) => r.sel && !/^(from|to|\d+(\.\d+)?%)$/.test(r.sel));
+const RULES = cssRules();
 
 const classesIn = (s: string) =>
   [...s.matchAll(/\.(-?[_a-zA-Z][\w-]*)/g)].map((m) => m[1]!);
@@ -65,7 +56,7 @@ const classesIn = (s: string) =>
  * merged.
  */
 const COMPOUNDS: Set<string>[] = [];
-for (const { sel } of RULES) {
+for (const { selector: sel } of RULES) {
   for (const one of sel.split(",")) {
     for (const part of one.trim().split(/[\s>+~]+/)) {
       const cs = classesIn(part);
@@ -217,10 +208,10 @@ describe("the label draws no type the measurer has not been told about", () => {
   it("sets no font-size in the label column that labels.ts does not model", () => {
     const COLUMN = ["mark-label", "mark-text", "mark-name", "mark-age", "mark-meta"];
     const found = new Map<string, string>();
-    for (const { sel, body } of RULES) {
-      if (!classesIn(sel).some((c) => COLUMN.includes(c))) continue;
-      const m = /(?:^|[;{\s])font-size:\s*([^;]+)/.exec(body);
-      if (m) found.set(sel.replace(/\s+/g, " "), m[1]!.trim());
+    for (const { selector, decls } of RULES) {
+      if (!classesIn(selector).some((c) => COLUMN.includes(c))) continue;
+      const size = decls.get("font-size");
+      if (size !== undefined) found.set(selector, size);
     }
     // The three rows, and nothing above them. A fourth entry here is either a
     // new row — which owes `labels.ts` a line constant and this list an entry —

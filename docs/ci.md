@@ -27,7 +27,7 @@ pipeline is hours of work against academic APIs that, per
 Pointing a CI matrix at Open Tree would be the rudest thing this project could
 do.
 
-**`web`** — `npm ci`, then typecheck, vitest (632 tests), and `vite build`. The
+**`web`** — `npm ci`, then typecheck, vitest (745 tests), and `vite build`. The
 built `dist` is uploaded as an artifact and handed to the `cloudflare` job, so
 the thing that gets validated for deployment is the thing that was tested.
 

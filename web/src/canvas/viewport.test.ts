@@ -8,7 +8,7 @@
  * bug this whole module exists to fix, returning silently.
  */
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { cssVar, decl, narrower } from "../test/css";
 import {
   CARD_GAP,
   CARD_RESERVE,
@@ -26,46 +26,46 @@ import {
   union,
 } from "./viewport";
 
-const CSS = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
-
+/**
+ * The stylesheet is read with a parser — `test/css.ts` — rather than with the
+ * regex this used to carry. That regex matched a rule body as `\{([^{}]*)\}`,
+ * which no nested rule survives, and captured a media block with a `\n\}`
+ * terminator, which is a claim about the closing brace being at column zero.
+ * It also asserted that *exactly one* `@media (max-width:)` block in the whole
+ * file redeclares the card, which fails the day somebody adds a breakpoint for
+ * something else. The claim was always narrower than that: at the stacking
+ * width, one block moves the card.
+ */
 describe("the card's footprint is the stylesheet's", () => {
-  /** The body of the first rule whose selector is exactly `.detail`. */
-  function detailRule(within: string): string {
-    const m = /(^|[};])\s*\.detail\s*\{([^{}]*)\}/m.exec(
-      within.replace(/\/\*[\s\S]*?\*\//g, ""),
-    );
-    expect(m).not.toBeNull();
-    return m![2]!;
-  }
-
-  const decl = (body: string, prop: string) =>
-    new RegExp(`(?:^|[;{\\s])${prop}:\\s*([^;]+)`).exec(body)?.[1]?.trim();
-
   it("is 360px wide, one --s4 off the edge", () => {
-    const body = detailRule(CSS);
-    expect(decl(body, "width")).toBe(`${CARD_W}px`);
+    expect(decl(".detail", "width")).toBe(`${CARD_W}px`);
     // The card's margin from the window edge. The reserve is that twice over —
     // once for the margin the card keeps and once for the gap the tree keeps
     // from the card — so the variable has to be the one this assumes.
-    expect(decl(body, "right")).toBe("var(--s4)");
-    expect(/--s4:\s*(\d+)px/.exec(CSS)?.[1]).toBe(String(CARD_GAP));
+    expect(decl(".detail", "right")).toBe("var(--s4)");
+    expect(cssVar("--s4")).toBe(`${CARD_GAP}px`);
     expect(CARD_RESERVE).toBe(CARD_W + CARD_GAP * 2);
   });
 
   it("stacks across the top at the width and the offsets we assume", () => {
-    // The `@media` block that redeclares `.detail`, not the two others that
-    // redeclare something else at the same width.
-    const blocks = [
-      ...CSS.matchAll(/@media\s*\(max-width:\s*(\d+)px\)\s*\{([\s\S]*?)\n\}/g),
-    ].filter((m) => /\.detail\s*\{/.test(m[2]!));
-    expect(blocks).toHaveLength(1);
-    const [, width, block] = blocks[0]!;
-    expect(width).toBe(String(CARD_STACK_W));
-    const body = detailRule(block!);
-    expect(decl(body, "top")).toBe(`${CARD_STACK_TOP}px`);
-    expect(decl(body, "max-height")).toBe(`${Math.round(CARD_STACK_MAX_H * 100)}vh`);
+    // The `@media` block at the stacking width that redeclares `.detail`, not
+    // the others that redeclare something else at that same width.
+    const blocks = narrower(CARD_STACK_W).filter((b) => {
+      try {
+        return decl(".detail", "top", b) !== undefined;
+      } catch {
+        return false;
+      }
+    });
+    expect(blocks, `no @media (max-width: ${CARD_STACK_W}px) moves the card`)
+      .toHaveLength(1);
+    const block = blocks[0]!;
+    expect(decl(".detail", "top", block)).toBe(`${CARD_STACK_TOP}px`);
+    expect(decl(".detail", "max-height", block)).toBe(
+      `${Math.round(CARD_STACK_MAX_H * 100)}vh`,
+    );
     // Spanning the window is what makes the *right* reserve meaningless here.
-    expect(decl(body, "width")).toBe("auto");
+    expect(decl(".detail", "width", block)).toBe("auto");
   });
 });
 

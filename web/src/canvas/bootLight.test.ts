@@ -11,47 +11,24 @@
  * selectors resolved against markup three other files own, none of which knows
  * this one exists; rename `.carousel-art` and nothing throws, no test that
  * looks only at this module notices, and what a reader gets is the canvas
- * exactly as dark as it was before the feature was written. So the selectors
- * are matched against those files as text. It is a coarse check and it is the
- * only one available in a runner with no DOM — what it can prove is that every
- * class this file asks for is a class somebody still writes.
+ * exactly as dark as it was before the feature was written.
+ *
+ * **That half has moved to `App.test.tsx`**, which renders the empty canvas and
+ * runs every one of these selectors against the document. It used to be here,
+ * matching the class names against `className=` attributes in four files as
+ * text — a check that cannot tell a class that is applied from one that is
+ * discussed in a comment, could not see a selector's *shape* at all, and was
+ * the only one available in a runner with no DOM. There is a DOM now.
+ *
+ * What is left here is the arithmetic, and the one stylesheet declaration two
+ * thousand lines from anything else this feature touches.
  */
 
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { decl } from "../test/css";
 import { SOURCES, lightsFrom, sameLights, type LitBox } from "./bootLight";
 import { LANE_HUES } from "../tree/layout";
 import { kindle, SCREEN_KINDLE_S } from "./gl/tuning";
-
-const APP = import.meta.glob<string>("../App.tsx", {
-  query: "?raw",
-  import: "default",
-  eager: true,
-})["../App.tsx"]!;
-const CAROUSEL = import.meta.glob<string>("../chrome/OpeningCarousel.tsx", {
-  query: "?raw",
-  import: "default",
-  eager: true,
-})["../chrome/OpeningCarousel.tsx"]!;
-/**
- * Four files, because the selectors span four authors and none of them can see
- * this one. The panel and the card were always two; the command control is two
- * more, and it is the seam most worth checking — `is-command` is written by
- * `Controls.tsx` for one button out of a dozen it draws with the same
- * component, so it is a class that could plausibly be tidied away by somebody
- * who greps for it and finds only a stylesheet rule.
- */
-const CONTROLS = import.meta.glob<string>("../chrome/Controls.tsx", {
-  query: "?raw",
-  import: "default",
-  eager: true,
-})["../chrome/Controls.tsx"]!;
-const FAB = import.meta.glob<string>("../chrome/PaletteFab.tsx", {
-  query: "?raw",
-  import: "default",
-  eager: true,
-})["../chrome/PaletteFab.tsx"]!;
-const CSS = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 
 const box = (kind: LitBox["kind"], over: Partial<LitBox> = {}): LitBox => ({
   kind,
@@ -64,80 +41,27 @@ const box = (kind: LitBox["kind"], over: Partial<LitBox> = {}): LitBox => ({
 });
 
 describe("the DOM contract", () => {
-  it("is reading all four files at all", () => {
-    // Every check below is a search for a substring, so all of them pass for
-    // free on an empty string — a moved file or a changed glob option would
-    // leave this whole describe measuring nothing.
-    expect(APP.length).toBeGreaterThan(1000);
-    expect(CAROUSEL.length).toBeGreaterThan(1000);
-    expect(CONTROLS.length).toBeGreaterThan(1000);
-    expect(FAB.length).toBeGreaterThan(1000);
-  });
-
   /**
-   * Every class named in a selector is a class one of those files applies.
+   * The list is non-empty and every entry is well formed.
    *
-   * Matched against `className="…"` rather than against the bare word, because
-   * a class name that only ever appears in prose is exactly the failure mode:
-   * `.carousel-art` is discussed in three comments in this repo and applied in
-   * one place, and the discussion would keep this test green after the
-   * application had gone.
+   * Whether each selector *matches something* is `App.test.tsx`'s, which has a
+   * rendered empty canvas to run them against — and `Controls.test.tsx` holds
+   * the one that used to be hardest to see from here, that `is-command` goes on
+   * the palette's button and not on the whole lead slot. What is left is the
+   * shape: a `SOURCES` that quietly emptied, or an entry scoped to a panel that
+   * is not the one it names, would leave that test iterating over nothing and
+   * passing.
    */
-  it("names only classes those files still apply", () => {
-    const applied = new Set<string>();
-    for (const src of [APP, CAROUSEL, CONTROLS, FAB]) {
-      for (const m of src.matchAll(/className=(?:"([^"]*)"|\{`([^`]*)`\})/g)) {
-        // Quotes are separators too, and leaving them out is what this check
-        // could not see: a class applied conditionally *inside* a template —
-        // `${cond ? " is-command" : ""}` — tokenises as `is-command"` with the
-        // closing quote still on it, which fails the shape test below and is
-        // therefore invisible. Every conditional class in this repo is written
-        // that way, so the check was silently blind to all of them.
-        for (const tok of (m[1] ?? m[2] ?? "").split(/[\s${}"']+/)) {
-          if (/^[a-z][\w-]*$/.test(tok)) applied.add(tok);
-        }
-      }
+  it("names four sources, two of them inside the panel", () => {
+    expect(SOURCES).toHaveLength(4);
+    expect(SOURCES.filter((s) => s.scope === "boot")).toHaveLength(2);
+    for (const s of SOURCES) {
+      expect(s.sel.trim(), "an empty selector matches the whole document").not.toBe("");
+      // Every one is anchored on a class. `.boot-inner > h1` is the wordmark and
+      // the combinator is deliberate: the same panel renders an unreachable-API
+      // heading, which is an apology rather than an invitation and must not glow.
+      expect(s.sel.startsWith("."), `${s.sel} is not anchored on a class`).toBe(true);
     }
-    // The panel itself, which `measureBoot` scopes everything else to.
-    expect(applied.has("boot")).toBe(true);
-    for (const src of SOURCES) {
-      for (const cls of src.sel.match(/(?<=\.)[\w-]+/g) ?? []) {
-        expect(applied.has(cls), `${src.sel} names .${cls}, which nothing applies`).toBe(
-          true,
-        );
-      }
-    }
-  });
-
-  /**
-   * The one thing a selector reaches for that is not a class.
-   *
-   * `.boot-inner > h1` is the wordmark and the child combinator is deliberate —
-   * the same panel renders an unreachable-API heading, which is an apology
-   * rather than an invitation and must not glow.
-   */
-  it("reaches a wordmark", () => {
-    expect(APP).toMatch(/<h1>/);
-  });
-
-  /**
-   * **`is-command` goes on one button and not on the lead slot.**
-   *
-   * `Controls.tsx` draws every control through one function, so the obvious
-   * selector — `.controls-lead .control` — reaches three buttons, `P`, `S` and
-   * `R`, and would light the whole group. The class is conditional on the
-   * action's own id, which is the only thing that distinguishes them, and this
-   * asserts the condition rather than the class: a refactor that applied it
-   * unconditionally would leave every string in this file intact.
-   */
-  it("marks the command button alone, by its action id", () => {
-    expect(CONTROLS).toMatch(/is-command/);
-    expect(CONTROLS).toMatch(/a\.id === "palette"[^;]*is-command/s);
-  });
-
-  /** The narrow window's stand-in for it, which is a different element. */
-  it("reaches the circle that replaces it below 620px", () => {
-    expect(FAB).toContain('className={`palette-fab');
   });
 
   /**
@@ -153,10 +77,12 @@ describe("the DOM contract", () => {
    * lights never having been written.
    */
   it("makes the opening card translucent in this mode", () => {
-    const rule = CSS.match(/body\.biolum \.carousel-card \{([^}]*)\}/);
-    expect(rule, "body.biolum .carousel-card lost its rule").not.toBeNull();
-    const alpha = rule![1]!.match(/background:[^;]*\/\s*([0-9.]+)\s*\)/);
-    expect(alpha, "the card's biolum background carries no alpha").not.toBeNull();
+    const background = decl("body.biolum .carousel-card", "background");
+    const alpha = /\/\s*([0-9.]+)\s*\)/.exec(background);
+    expect(
+      alpha,
+      `the card's biolum background carries no alpha: ${background}`,
+    ).not.toBeNull();
     expect(Number(alpha![1])).toBeLessThan(1);
   });
 });

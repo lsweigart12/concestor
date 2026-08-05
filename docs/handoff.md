@@ -223,7 +223,7 @@ symptom is quietly stale answers.
 
 ```bash
 cd web && npm install && npm run build   # the server picks up web/dist
-npm test                                 # 632 tests, in two vitest projects
+npm test                                 # 745 tests, in two vitest projects
 npm test -- --project=dom                # just the ones that render components
 ```
 
@@ -1799,7 +1799,7 @@ Seven things not to redo:
   `.canvas-modes`, which is declared two thousand lines below the control bar,
   and at equal specificity the later rule wins. The first draft put the block
   with the bar and drew nothing but a permanently hidden button.
-  `chrome/Controls.test.ts` caught it and is what keeps it caught: four rules in
+  `chrome/swap.test.ts` caught it and is what keeps it caught: four rules in
   three sections of one file have to agree, and getting three of them right
   fails silently — the app just opens on a phone with no way to add a species,
   or with a floating button *and* the bar it was meant to replace.
@@ -1813,9 +1813,10 @@ Seven things not to redo:
   share's back; **that rule is gone and so is the class** — a control keeps its
   word at every width the bar is drawn at, so there is no width at which a
   keyless button could be empty, and the guarantee that share has words sits
-  entirely in the type. `Controls.test.ts` asserts both halves, because a rule
-  hiding `.control-label` is exactly the kind of thing that comes back in a
-  stylesheet without anything erroring.
+  entirely in the type. `Controls.test.tsx` renders the bar and reads the class
+  off the button, and `swap.test.ts` walks every rule in the stylesheet for one
+  hiding `.control-label`, because that is exactly the kind of thing that comes
+  back in a stylesheet without anything erroring.
 - **The `chrome` field on a binding is gone rather than updated.** It said
   which rows the bar drew and at what prominence, and it could never be the
   whole answer — `App.tsx` composes the bar and always did, the bar now holds a
@@ -1896,9 +1897,10 @@ Six things not to redo:
   say "your browser will never do this" to somebody who cannot act on it.
   `BIOLUM_AVAILABLE` already made this call. `FULLSCREEN_AVAILABLE` is asked once
   at module scope and gates the bar button and the palette row from the *same*
-  expression — `Controls.test.ts` counts the readers, because gating them apart
-  is how an iPhone (no element fullscreen at all) ends up holding a command for a
-  thing that cannot happen.
+  expression — `App.test.tsx` and `App.bare.test.tsx` render the app on a
+  browser that will and one that will not, and ask both surfaces, because gating
+  them apart is how an iPhone (no element fullscreen at all) ends up holding a
+  command for a thing that cannot happen.
 - **`:root:fullscreen` has to state the void.** `body` carries the background and
   the root has never carried anything; fullscreen paints the root. Without the
   rule the browser frames a dark instrument in its own default, which is a thing
@@ -2529,6 +2531,71 @@ the navigation half of exactly that. Five things not to redo:
   is that the press survives to reach that default. The order itself was walked
   by hand in Chrome and reads: the marks, the mode panel, the scale, the axis
   links, the detail card, the control bar.
+
+### A test that reads its subject as a string, and the one case where that is right
+
+`chrome/Controls.test.ts` read `App.tsx`, `Graph.tsx`, `Controls.tsx` and
+`PaletteFab.tsx` into strings and asserted against the characters in them — an
+exact spread expression *including its whitespace*, an identifier counted twice
+with `matchAll`, a regex anchored to end-of-line, and
+`expect(GRAPH).toMatch(/\{empty \? \(/)`. Ten of thirty-nine test files did some
+version of this. None of it can catch a behavioural regression: a component that
+renders nothing satisfies every one of those assertions, and the text they depend
+on was stabilised by nothing but habit in a repo with no formatter. It is also
+what stood between this project and Prettier.
+
+The decisions underneath were good and every one of them survived, as a
+behavioural test. `App.test.tsx` and `App.bare.test.tsx` render the whole app —
+canvas included, no mock — on a browser that has WebGL2 and fullscreen and on one
+that has neither, and ask both surfaces. `Controls.test.tsx` and
+`PaletteFab.test.tsx` render the bar and the button. `chrome/swap.test.ts` keeps
+the half a document cannot answer, because jsdom applies no stylesheet.
+
+Seven things worth not redoing:
+
+- **Do not mock the canvas in an App test.** Stubbing `canvas/Graph` is the
+  obvious way to make the app cheap to render, and it silently removes the
+  interesting half of three claims: `PaletteFab` — the *whole* of the chrome
+  below 620px — is rendered inside `Graph`, so a test that the invitation
+  reaches both surfaces would be asserting about one of them and looking
+  covered. The real canvas mounts in jsdom for the price of a `ResizeObserver`
+  stub, which is what xyflow measures its container with.
+- **`FULLSCREEN_AVAILABLE` and `BIOLUM_AVAILABLE` are `const`s at module scope**
+  — deliberately, because a control that appears halfway through a session is
+  worse than one that was never there — so a file cannot test both answers. That
+  is why there are two App test files rather than a loop, and why the capability
+  stubs sit in `vi.hoisted` at the top of each: a module graph is evaluated once
+  per test file.
+- **Clear the URL and `sessionStorage` between renders.** `state/store.ts` writes
+  the drawn tree into the address bar with `replaceState` and holds the labels,
+  ages and light in `sessionStorage`. Neither is in the document, so `cleanup`
+  does not touch them, and the second test in a file boots on the first one's
+  tree — no carousel to press, no invitation to read, and a failure with nothing
+  to do with what it was asking. `test/appHarness.tsx` does it in `renderApp`.
+- **Stub `matchMedia` to *reduce*.** `openSequenced` then draws an opening's taxa
+  in one go instead of stepping them in over several seconds. Same tree, same
+  code path, and a test that finishes.
+- **The stylesheet pins were the good idea and the regexes were the bad one.**
+  Pinning `CARD_W` to the rule that draws the card catches a genuinely silent
+  failure — the two drift and the tree just starts sliding back under the panel.
+  Six files each brought their own regex to find a rule, and every copy was
+  wrong differently: one stripped comments and another did not, one matched a
+  body as `\{([^{}]*)\}` and could not survive a nested rule, two terminated a
+  media block with `\n\}` and so depended on a closing brace at column zero, and
+  one found its rule with `indexOf("\n" + selector + " {")`. `test/css.ts` parses
+  the sheet with postcss instead. It is one module, and the numbers it reads are
+  unchanged.
+- **`viewport.test.ts` asserted that exactly one `@media (max-width:)` block in
+  the whole file redeclares the card**, which fails the day somebody adds an
+  unrelated breakpoint. The claim was always narrower: at the *stacking width*,
+  one block moves the card. Ask for that.
+- **`tip.test.ts`'s census stays source text, and it is the one that should.**
+  The question there is whether a `title` attribute is *written anywhere*, which
+  no rendered tree can answer — you cannot prove an absence by rendering the
+  components you remembered to render. It matches a token rather than a shape, so
+  nothing about it depends on where an author broke a line. That is the test for
+  telling a lint from a test that has given up: if it would be *more* correct
+  against the whole corpus than against the running app, it belongs in the text.
 
 ---
 
