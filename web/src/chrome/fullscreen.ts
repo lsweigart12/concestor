@@ -71,17 +71,41 @@ export const FULLSCREEN_AVAILABLE: boolean =
 export const FULLSCREEN_REFUSED = "This browser would not go fullscreen";
 
 /**
+ * How long the browser is given to act before silence is read as a refusal, in
+ * ms.
+ *
+ * Long enough that no honest transition is called a refusal — the promise
+ * settles before the window has finished animating, not after — and short
+ * enough that the sentence still reads as a receipt for the press that caused
+ * it rather than as a notice arriving out of nowhere.
+ */
+export const FULLSCREEN_DEADLINE_MS = 1500;
+
+/**
  * Ask for it, or give it back — whichever the document is not already doing.
  *
- * The promise is the whole reason this is not two lines at the call site.
- * `requestFullscreen` rejects rather than throws when the browser declines —
- * a spent user gesture, a permissions policy, a window manager that said no —
- * and an uncaught rejection there is a button that does nothing and reports
- * nothing. So a refusal is routed back to the caller as a sentence, which on
- * this canvas becomes a toast.
+ * The promise is the whole reason this is not two lines at the call site, and
+ * **the promise is not the honest source.** A `.catch()` on it was the first
+ * version of this and it is dead code against the failure that matters:
+ * measured in an embedded browser that declines fullscreen, a request made
+ * under a real user gesture returns a promise that **never settles** — it does
+ * not resolve, it does not reject, the window does not move, and nothing is
+ * ever called back. A rejection handler cannot fire on a promise that never
+ * ends. So the three shapes a refusal arrives in are all answered here:
+ *
+ * - a **rejected promise**, which is what the same browser does for a request
+ *   made without a user gesture, and what the spec says should happen;
+ * - a **synchronous throw**, which costs one `try` to cover and is what a
+ *   browser missing the unprefixed method would do;
+ * - and **nothing at all**, which is the one that shipped broken.
+ *
+ * The last is caught by asking the document rather than the promise, on exactly
+ * the principle the state below already keeps: `fullscreenElement` is what
+ * actually happened, and after the deadline a document that is still windowed
+ * was refused however politely.
  *
  * `exitFullscreen` is allowed to fail silently, and the asymmetry is real: the
- * only way it rejects is if the document left fullscreen between the check and
+ * only way it fails is if the document left fullscreen between the check and
  * the call, and telling a reader who is already looking at a windowed canvas
  * that we could not un-fullscreen it is noise about a thing that happened.
  */
@@ -90,13 +114,37 @@ export function toggleFullscreen(
   onRefuse: (why: string) => void,
 ): void {
   if (!doc.fullscreenEnabled) return;
-  if (doc.fullscreenElement === null) {
-    void doc.documentElement
-      .requestFullscreen()
-      .catch(() => onRefuse(FULLSCREEN_REFUSED));
-  } else {
-    void doc.exitFullscreen().catch(() => {});
+
+  if (doc.fullscreenElement !== null) {
+    try {
+      void doc.exitFullscreen().catch(() => {});
+    } catch {
+      // Silent, for the reason above.
+    }
+    return;
   }
+
+  // Said once however many of the three shapes arrive: a browser that rejects
+  // *and* stays windowed must not toast twice for one press.
+  let answered = false;
+  const refuse = (): void => {
+    if (answered) return;
+    answered = true;
+    onRefuse(FULLSCREEN_REFUSED);
+  };
+
+  try {
+    void doc.documentElement.requestFullscreen().then(() => {
+      answered = true;
+    }, refuse);
+  } catch {
+    refuse();
+    return;
+  }
+
+  setTimeout(() => {
+    if (doc.fullscreenElement === null) refuse();
+  }, FULLSCREEN_DEADLINE_MS);
 }
 
 /**

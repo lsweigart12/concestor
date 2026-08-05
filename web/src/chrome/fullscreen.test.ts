@@ -1,20 +1,24 @@
 /**
- * The fullscreen toggle, which fails in two ways that are invisible from here.
+ * The fullscreen toggle, which fails in four ways that are invisible from here.
  *
- * A browser that refuses the request *rejects a promise* rather than throwing,
- * so the version of this code without a `catch` is a button that does nothing,
- * reports nothing, and logs an unhandled rejection into a console the reader
- * does not have open. And a document that is already fullscreen has to be given
- * back rather than asked again — `requestFullscreen` on the element that is
- * already the fullscreen one resolves happily and leaves the reader stuck.
+ * A browser that refuses the request may **reject a promise**, may **throw
+ * where it stands**, or may do the thing this file was originally wrong about
+ * and **never answer at all** — return a promise that neither resolves nor
+ * rejects while the window quietly does not move. Any of the three without a
+ * handler is a button that does nothing and reports nothing, which is precisely
+ * the outcome `fullscreen.ts`'s absent-rather-than-disabled argument exists to
+ * prevent. And a document that is already fullscreen has to be given back
+ * rather than asked again — `requestFullscreen` on the element that is already
+ * the fullscreen one resolves happily and leaves the reader stuck.
  *
- * Neither shows up in a type check or a build, so both are pinned here. The
+ * None shows up in a type check or a build, so all four are pinned here. The
  * decision is testable at all because `toggleFullscreen` takes the document
  * rather than reaching for the global — the same move `matchKey` makes with the
  * keyboard event, for the same reason: this project renders into no DOM.
  */
 import { describe, expect, it, vi } from "vitest";
 import {
+  FULLSCREEN_DEADLINE_MS,
   FULLSCREEN_REFUSED,
   toggleFullscreen,
   type FullscreenDoc,
@@ -81,15 +85,114 @@ describe("toggleFullscreen", () => {
     expect(refused).toEqual([FULLSCREEN_REFUSED]);
   });
 
+  it("hands a request that throws where it stands back as the same sentence", () => {
+    // The second shape. A `.catch()` on the returned promise never runs,
+    // because there is no returned promise — the exception is already on its
+    // way up through the keydown handler that asked. One `try` covers it, and
+    // covers a `requestFullscreen` that is not a function at all along with it.
+    const refused: string[] = [];
+    toggleFullscreen(
+      doc({
+        documentElement: {
+          requestFullscreen: () => {
+            throw new TypeError("requestFullscreen is not a function");
+          },
+        },
+      }),
+      (why) => refused.push(why),
+    );
+    expect(refused).toEqual([FULLSCREEN_REFUSED]);
+  });
+
+  it("says so when the request is never answered at all", async () => {
+    // **The bug this file was wrong about**, and it is neither of the shapes
+    // above. Measured in an embedded browser that declines fullscreen: asked
+    // under a real user gesture, `requestFullscreen` returns a promise that is
+    // still pending ten seconds later, the window never moves, and no handler
+    // of any kind is called. There is nothing to catch, so the document is
+    // asked instead — it is the only witness to whether anything happened.
+    vi.useFakeTimers();
+    try {
+      const refused: string[] = [];
+      toggleFullscreen(
+        doc({
+          documentElement: { requestFullscreen: () => new Promise<void>(() => {}) },
+        }),
+        (why) => refused.push(why),
+      );
+      expect(refused).toEqual([]);
+      await vi.advanceTimersByTimeAsync(FULLSCREEN_DEADLINE_MS);
+      expect(refused).toEqual([FULLSCREEN_REFUSED]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("says nothing when the window went, whether or not it was told so", async () => {
+    // The other side of that deadline, and the reason it reads the document
+    // rather than counting unsettled promises: a browser that goes fullscreen
+    // without ever settling the promise has refused nothing, and a toast
+    // saying otherwise over a window that plainly did move is the worse error
+    // of the two. `fullscreenElement` is the honest answer in both directions.
+    vi.useFakeTimers();
+    try {
+      const said: string[] = [];
+      const went = doc({
+        documentElement: { requestFullscreen: () => new Promise<void>(() => {}) },
+      });
+      toggleFullscreen(went, (why) => said.push(why));
+      went.fullscreenElement = SOMETHING;
+      await vi.advanceTimersByTimeAsync(FULLSCREEN_DEADLINE_MS);
+      expect(said).toEqual([]);
+
+      // And a plain resolve is trusted on its own, without waiting it out.
+      toggleFullscreen(doc(), (why) => said.push(why));
+      await vi.advanceTimersByTimeAsync(FULLSCREEN_DEADLINE_MS);
+      expect(said).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("says it once when a refusal arrives in two shapes at once", async () => {
+    // A browser may both reject *and* leave the window where it was, which is
+    // one refusal of one press and must be one sentence. Two toasts for one
+    // key is the receipt lying about how many things happened.
+    vi.useFakeTimers();
+    try {
+      const refused: string[] = [];
+      toggleFullscreen(
+        doc({
+          documentElement: { requestFullscreen: () => Promise.reject(new Error("no")) },
+        }),
+        (why) => refused.push(why),
+      );
+      await vi.advanceTimersByTimeAsync(FULLSCREEN_DEADLINE_MS);
+      expect(refused).toEqual([FULLSCREEN_REFUSED]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("says nothing when leaving fails", async () => {
-    // Deliberately not symmetric. The only way `exitFullscreen` rejects is if
+    // Deliberately not symmetric. The only way `exitFullscreen` fails is if
     // the document left between the check and the call, and a warning about
     // failing to un-fullscreen a window that is already windowed is noise.
+    // Both of its shapes are silent, for the same reason.
     const said: string[] = [];
     toggleFullscreen(
       doc({
         fullscreenElement: SOMETHING,
         exitFullscreen: () => Promise.reject(new Error("no")),
+      }),
+      (why) => said.push(why),
+    );
+    toggleFullscreen(
+      doc({
+        fullscreenElement: SOMETHING,
+        exitFullscreen: () => {
+          throw new TypeError("exitFullscreen is not a function");
+        },
       }),
       (why) => said.push(why),
     );

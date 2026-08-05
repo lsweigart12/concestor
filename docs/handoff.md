@@ -1847,7 +1847,7 @@ the easiest few centimetres of it to buy back. The toggle is the first control i
 the **Canvas** group at the top right, beside clear and share, on what all three
 have in common: they act on the canvas as a whole rather than on anything
 selected in it. `chrome/fullscreen.ts` is the whole implementation and
-`chrome/fullscreen.test.ts` pins the two failures that are invisible from the
+`chrome/fullscreen.test.ts` pins the four failures that are invisible from the
 outside.
 
 Six things not to redo:
@@ -1883,14 +1883,30 @@ Six things not to redo:
   boolean flipped on each press is wrong within one keystroke: a lit button over
   a window that is not. The listener also syncs once on mount, because a reload
   inside an already-fullscreen window fires no event at all.
-- **A refused request has to reach the reader.** `requestFullscreen` *rejects*
-  rather than throws when the browser declines — a spent gesture, an iframe
-  policy, a window manager — so the version without a `catch` is a button that
-  does nothing, says nothing, and logs into a console nobody has open. It comes
-  back as a warning toast. **`exitFullscreen` is deliberately silent**: its only
-  failure is the document having left fullscreen between the check and the call,
-  and telling a reader looking at a windowed canvas that we could not unwindow it
-  is noise.
+- **A refused request has to reach the reader, and the promise is not the honest
+  source.** This bullet used to say `requestFullscreen` *rejects* rather than
+  throws, so a `.catch()` covered it. Measured, that is wrong in the case that
+  matters: in an embedded browser that declines fullscreen, a request made under
+  a **real user gesture** returns a promise that **never settles at all** — it
+  does not resolve, it does not reject, `fullscreenElement` stays null, and no
+  handler of any kind is ever called. The same page rejects properly for a
+  request made *without* a gesture, which is why the `.catch()` looked correct
+  in every test and was dead against the only press a reader ever makes. A
+  rejection handler cannot fire on a promise that never ends, so the reader got
+  a control that did nothing and said nothing — the exact outcome the
+  absent-rather-than-disabled rule below exists to prevent. Three shapes are
+  answered now: a rejected promise, a synchronous throw (one `try`, and it
+  covers a missing method for free), and silence — caught by asking the
+  **document** after `FULLSCREEN_DEADLINE_MS`, since `fullscreenElement` is the
+  only witness to whether anything happened. Two things not to redo: the
+  deadline **must read `fullscreenElement`** rather than count unsettled
+  promises, because a browser that goes fullscreen without settling has refused
+  nothing and a toast over a window that plainly moved is the worse error; and
+  the refusal is **said once**, since a browser may both reject *and* stay
+  windowed, which is one refusal of one press. **`exitFullscreen` is
+  deliberately silent** in both its shapes: its only failure is the document
+  having left fullscreen between the check and the call, and telling a reader
+  looking at a windowed canvas that we could not unwindow it is noise.
 - **No fullscreen means no control, not a greyed one** — the opposite of the
   bar's own "disabled, never hidden", and the split is capability against state.
   A greyed `fit` says "add a species and this works"; a greyed fullscreen would
