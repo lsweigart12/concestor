@@ -186,6 +186,20 @@ export function buildTicks(
   for (const t of order) {
     if (placed.some((p) => p.age === t.age)) continue;
     const x = toScreenX(t.age);
+    // A tick nobody can put anywhere is not a tick. `toScreenX` projects
+    // through the live viewport transform, and a transform that is not a
+    // number makes every x NaN — at which point this loop does something
+    // worse than draw badly, because the comparison below is a *range* test
+    // and NaN fails every comparison it is given. `Math.abs(NaN) >= gap` is
+    // false, so the first candidate is placed and every later one is judged to
+    // collide with it: the axis silently collapses to a single tick, and that
+    // tick is then drawn at `x="NaN"`, which the DOM rejects per-attribute and
+    // replaces with zero. So "present" ends up printed hard against the left
+    // edge of a canvas whose present is on the right. Refusing here rather
+    // than at the point of render is what keeps the two failures together:
+    // there is no separate rule deciding what to draw, only a list of ticks
+    // that can be placed, which for a degenerate projection is empty.
+    if (!Number.isFinite(x)) continue;
     const half = (tickLabel(t.age).length * TICK_CHAR_PX) / 2;
     const clear = placed.every(
       (p) => Math.abs(p.x - x) >= MIN_TICK_GAP_PX + p.half + half,
