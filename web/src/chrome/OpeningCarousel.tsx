@@ -9,33 +9,39 @@
  *
  * **Auto-rotation is the part that has to be done carefully**, because rotating
  * banners are usually a mistake — they move text out from under the reader and
- * they are a classic accessibility failure. Four rules keep this one honest,
+ * they are a classic accessibility failure. Five rules keep this one honest,
  * and none of them is optional:
  *
  * 1. **Hover or focus anywhere in the card stops it.** A reader who is reading
  *    is a reader who must not have the sentence taken away.
- * 2. **Any manual press stops it for good.** Once somebody has taken the wheel,
- *    an auto-advance is fighting them. It does not resume on a timer.
- * 3. **`prefers-reduced-motion` disables it entirely**, along with the fade.
- * 4. **It is never the only route.** The arrows and the dots reach every one
+ * 2. **Any manual press stops it for good** — and a *touch* counts as one,
+ *    before it has resolved into a click. Once somebody has taken the wheel, an
+ *    auto-advance is fighting them. It does not resume on a timer.
+ * 3. **It stops on its own after a few advances**, and rests. Rule 1 is the
+ *    reader's own defence on a desktop and there is no such thing on a phone:
+ *    `mouseenter` does not fire for a finger, so hover-to-pause is not a
+ *    weaker rule there, it is an absent one. `rotation.ts` is the whole of that
+ *    argument, including why a full pass through all sixteen was refused.
+ * 4. **`prefers-reduced-motion` disables it entirely**, along with the fade.
+ * 5. **It is never the only route.** The arrows and the dots reach every one
  *    directly, and the about panel — reachable at any time — carries the same
  *    carousel with rotation off. Nothing here is reachable only by waiting.
  *    The palette does *not* duplicate them: this surface and the panel are the
  *    two places an opening is offered.
  *
- * The interval is deliberately long. The reveal runs to two lines and a reader
- * who has just arrived is also looking at the silhouettes and the axis, so this
- * is paced for someone who has not started reading yet rather than for someone
- * halfway down.
+ * The interval is deliberately long, and it is no longer one interval: each
+ * question rests for as long as its own words take to read. `rotation.ts`
+ * holds the measurement and the reason — chiefly that a single constant paced
+ * "for someone who has not started reading yet" made the card's own
+ * "Explore this question" a moving target, and twice drew a different
+ * question's tree than the one that had been read.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Silhouette } from "../canvas/Silhouette";
 import { OPENINGS, type Opening } from "../openings";
 import { kbd, matchKey } from "./bindings";
-
-/** Long enough to read two lines without racing, per the note above. */
-const DWELL_MS = 7600;
+import { AUTO_ADVANCES, dwellFor } from "./rotation";
 
 /**
  * Everything the browser already activates with Enter.
@@ -89,9 +95,11 @@ export function OpeningCarousel({
   keyToOpen?: boolean;
 }) {
   const [at, setAt] = useState(0);
-  /** Set once the reader presses anything. Never cleared — see rule 2. */
+  /** Set once the reader touches anything. Never cleared — see rule 2. */
   const [taken, setTaken] = useState(false);
   const [held, setHeld] = useState(false);
+  /** How many times the clock has advanced it. Counts up to rule 3's bound. */
+  const [advances, setAdvances] = useState(0);
   const reduced = useRef(false);
 
   if (typeof window !== "undefined" && window.matchMedia) {
@@ -103,14 +111,29 @@ export function OpeningCarousel({
     setAt((i) => (i + d + OPENINGS.length) % OPENINGS.length);
   }, []);
 
+  /**
+   * The clock, and every condition that stops it.
+   *
+   * `advances` is the one that needs no gesture, so it is the one that holds on
+   * a phone. It counts rather than being cleared, because rule 3 is a budget
+   * and not a pause: once spent, the surface is still for the rest of the
+   * session.
+   *
+   * The dwell is read off the opening on show rather than from a constant —
+   * `dwellFor` — which is why `at` being in the deps is load-bearing twice
+   * over: it restarts the timer *and* re-asks how long the next one needs.
+   */
   useEffect(() => {
     if (!autoRotate || taken || held || reduced.current) return;
-    const t = window.setTimeout(
-      () => setAt((i) => (i + 1) % OPENINGS.length),
-      DWELL_MS,
-    );
+    if (advances >= AUTO_ADVANCES) return;
+    const shown = OPENINGS[at];
+    if (!shown) return;
+    const t = window.setTimeout(() => {
+      setAt((i) => (i + 1) % OPENINGS.length);
+      setAdvances((n) => n + 1);
+    }, dwellFor(shown));
     return () => window.clearTimeout(t);
-  }, [at, taken, held, autoRotate]);
+  }, [at, taken, held, advances, autoRotate]);
 
   /**
    * Enter draws whatever is on show.
@@ -156,6 +179,21 @@ export function OpeningCarousel({
       onMouseLeave={() => setHeld(false)}
       onFocusCapture={() => setHeld(true)}
       onBlurCapture={() => setHeld(false)}
+      /*
+        Hover's counterpart for a finger, and the reason it is `pointerdown`
+        rather than `click`: a tap is a press and then a click, and the whole
+        failure being fixed here is the card changing in the gap between the
+        two. Stopping on the press means the click that follows always opens
+        the question that was on screen when the finger landed — the card is
+        keyed on the opening, so an advance mid-tap does not merely swap the
+        text, it replaces the button being pressed.
+
+        It sets `taken` rather than `held`, on rule 2: a reader who put a
+        finger on this surface has taken the wheel, and there is no
+        `pointerleave` for a tap to give it back with. On a mouse it is
+        redundant with `onMouseEnter` and harmless — the hover got there first.
+      */
+      onPointerDown={() => setTaken(true)}
     >
       <button
         type="button"

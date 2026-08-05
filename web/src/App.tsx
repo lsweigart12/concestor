@@ -183,10 +183,11 @@ const TIP_LINE = "Now put something of your own beside it";
  * eyes, so "offered second" survives on prominence where it stops being true
  * on time.
  *
- * Long enough to read the reveal without racing, and no longer. The carousel's
- * own `DWELL_MS` is 7600 for two lines of the same prose, but that number is
- * paced for somebody who has not started reading yet; here the reader has been
- * reading since the tree settled.
+ * Long enough to read the reveal without racing, and no longer. The carousel
+ * spends 10.6–13.6 s on two lines of the same prose — `rotation.ts`'s
+ * `dwellFor`, which is reading time plus a reach — but that is paced for
+ * somebody who has not started reading yet; here the reader has been reading
+ * since the tree settled.
  */
 const TIP_DELAY_MS = 5000;
 
