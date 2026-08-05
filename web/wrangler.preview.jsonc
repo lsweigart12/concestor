@@ -1,0 +1,103 @@
+{
+  // The preview Worker: a branch's frontend, against production's data.
+  //
+  // `wrangler.jsonc` is the app. This is the same app with the container taken
+  // out and `/v1` pointed at production instead, and it exists because the
+  // production Worker cannot have a preview URL: Cloudflare does not generate
+  // one for a Worker that implements a Durable Object, and a container class is
+  // a Durable Object class. That is measured rather than assumed — the note in
+  // `wrangler.jsonc` beside `preview_urls` has the readings.
+  //
+  // Nothing is deployed from here on a release. `.github/workflows/deploy-web.yml`
+  // uploads a *version* of this Worker per pull request and gives it an alias, so
+  // the URL is `pr-<N>-concestor-preview.<subdomain>.workers.dev` and stays that
+  // across every push to the branch. `docs/deployment.md` §5 is the design and
+  // what it cannot show you.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "concestor-preview",
+
+  // Not `worker/index.ts`. That file exports `ReadApi`, and an exported Durable
+  // Object class is exactly what makes a Worker preview-ineligible; `preview.ts`
+  // re-uses its `fetch` and exports less. It is not a second implementation and
+  // must not become one.
+  "main": "worker/preview.ts",
+
+  // Production's, deliberately the same value. A preview whose runtime
+  // semantics differ from the thing it previews is a preview of something else,
+  // so this moves when `wrangler.jsonc` moves and never on its own.
+  "compatibility_date": "2026-06-01",
+
+  // No `routes`. This Worker has no hostname of its own and is meant not to:
+  // the deployed version exists only so that `wrangler versions upload` has a
+  // Worker to add a version to — it refuses outright on one that does not exist
+  // — and everything anybody looks at is an aliased preview URL.
+  //
+  // `workers_dev` false is what keeps that true. With it on, the tip of this
+  // Worker would answer at `concestor-preview.<subdomain>.workers.dev`: a
+  // second permanently-live copy of the app, on a URL that looks canonical,
+  // pinned to whichever branch previewed last.
+  "workers_dev": false,
+  "preview_urls": true,
+
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "single-page-application",
+    // The same reason as production's, and the same failure without it: SPA
+    // handling would answer /v1/search with index.html and a 200, and the
+    // client would try to parse the HTML shell as JSON.
+    "run_worker_first": ["/v1/*"],
+  },
+
+  // Where `/v1` goes, and the one line that makes this Worker useful.
+  //
+  // `worker/index.ts` has had this branch since the API lived off Cloudflare,
+  // where it was a development override and a documented fallback. This is its
+  // third job: a preview has no container of its own — one would be a second
+  // `standard-1` instance and a second $26/month of memory to show somebody a
+  // button — so it proxies to the real one through production's own edge.
+  //
+  // Two consequences worth knowing. A preview reads **production's dataset and
+  // production's server binary**, so a branch that changes `server/` or the
+  // pipeline is not what you are looking at; docs/deployment.md §5 says what to
+  // do instead. And `/v1` is answered from the edge cache for the popular
+  // paths, so the container is usually not woken at all — a preview is close to
+  // free, and the requests it does make are billed like any other.
+  //
+  // The deploy workflow passes `--var API_ORIGIN:…` over this, which is what
+  // keeps the origin in one place: a preview pointed at the wrong host is a
+  // preview that silently describes another build.
+  "vars": {
+    "API_ORIGIN": "https://concestor.com",
+  },
+
+  // Its own dataset, and the name is the point.
+  //
+  // `worker/index.ts` handles the beacon before the `API_ORIGIN` branch, so a
+  // preview's events are written here rather than proxied — which is correct
+  // and is also why this may not be `concestor_events`. `docs/analytics.md`
+  // counts what *readers* did, and a fortnight of a developer clicking their
+  // own branch would sit in those numbers with nothing to separate it out. This
+  // dataset is created by its first write and can be ignored or dropped.
+  "analytics_engine_datasets": [
+    { "binding": "TELEMETRY", "dataset": "concestor_events_preview" },
+  ],
+
+  // No `cache` block, unlike production. Workers Cache is keyed by Worker
+  // version and every preview upload is a new version, so it would start empty
+  // on the one request anybody makes; the hit it would serve is already served
+  // by production's edge, one hop further in. The argument for it there — one
+  // container instance behind a long-lived cache — is not an argument here.
+  //
+  // No `containers`, no `durable_objects` and no `migrations`, and their
+  // absence is the feature rather than an omission. Declaring the container
+  // class would make this Worker preview-ineligible for the same reason
+  // production is, which would leave the file with nothing to do.
+
+  // Logs on, for the reason a preview exists: a branch misbehaving on a real
+  // dataset is a thing somebody needs to read the console of. It is a separate
+  // Worker, so these lines never mix with production's.
+  "observability": {
+    "enabled": true,
+    "logs": { "invocation_logs": true, "head_sampling_rate": 1 },
+  },
+}

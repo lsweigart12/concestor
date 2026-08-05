@@ -14,6 +14,7 @@
     "format:check": "prettier --check .",
     "test": "vitest run",
     "cf:check": "wrangler deploy --dry-run --outdir .wrangler/dry-run",
+    "cf:check:preview": "wrangler deploy -c wrangler.preview.jsonc --dry-run --outdir .wrangler/dry-run-preview",
     "cf:dev": "wrangler dev"
   },
   "dependencies": {

@@ -232,3 +232,14 @@ jobs:
           # A CI job should not phone home about its own tooling.
           WRANGLER_SEND_METRICS: "false"
         run: npx wrangler deploy --dry-run --outdir "$RUNNER_TEMP/worker-bundle"
+
+      # The preview Worker gets the same check, because it is on the same deploy
+      # path and nothing else looks at it: it is only ever *uploaded* from a pull
+      # request, so a config it breaks on would break on the pull request that
+      # most needs to be looked at. It bundles worker/preview.ts rather than
+      # worker/index.ts, so this also catches the day those two stop agreeing.
+      - name: wrangler deploy --dry-run (preview Worker)
+        working-directory: web
+        env:
+          WRANGLER_SEND_METRICS: "false"
+        run: npx wrangler deploy -c wrangler.preview.jsonc --dry-run --outdir "$RUNNER_TEMP/preview-bundle"

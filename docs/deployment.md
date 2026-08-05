@@ -409,6 +409,88 @@ back — run the **Deploy web** workflow manually and give it the tag. Leaving
 the tag empty deploys the tip of whatever branch is chosen, which is rarely
 what is wanted once a release exists.
 
+### A preview is a second Worker, because this one cannot have one
+
+**Preview URLs are not generated for a Worker that implements a Durable
+Object**, and `ReadApi` is one — a container class *is* a Durable Object class,
+which is why `migrations` has to declare it. So `concestor-web` cannot have a
+preview URL at all, and the `wrangler versions upload --preview-alias pr-N` that
+`deploy-web.yml` had run on every pull request since the deploy was turned on
+produced **an alias pointing at nothing**, on every one of them.
+
+It failed the way everything else on this page fails: silently, and green. The
+upload succeeded, the alias was recorded on the version — `workers/alias:
+pr-123` is in the annotations — and the step printed no URL, which nothing was
+looking for. Measured 2026-08-05 on the live account:
+
+| | |
+|---|---|
+| `has_preview` on every version, including aliased ones | `false` |
+| `previews_enabled` on the Worker | `false` |
+| `pr-123-concestor-web.lsweigart12.workers.dev` | Cloudflare **error 1042** |
+
+Those first two lines are two explanations for one silence, and only one of them
+would have been fixable, so the setting was turned on and a fresh version
+uploaded: **no URL, `has_preview` still `false`, still 1042.** The limitation is
+real and the setting is inert here. It is now written as `preview_urls: false` in
+`web/wrangler.jsonc` beside the reason, rather than left to a default that
+happens to agree.
+
+**`web/wrangler.preview.jsonc` is the answer**: a second Worker,
+`concestor-preview`, with no container, no Durable Object and no migration — so
+Cloudflare generates its preview URLs — serving the branch's `web/dist` and
+proxying `/v1` to `https://concestor.com`. That proxy is `worker/index.ts`'s
+`API_ORIGIN` branch, which has existed since the API lived off Cloudflare and is
+here doing its third job. `worker/preview.ts` is the entry point and exists only
+to export *less*: it re-uses `index.ts`'s `fetch` and does not re-export
+`ReadApi`, which is the whole of what makes the script preview-eligible.
+
+```
+  browser ──▶ pr-42-concestor-preview.<subdomain>.workers.dev
+                 │  the branch's dist, as static assets
+                 └── /v1/* ──▶ concestor.com ──▶ the production Worker,
+                                                its edge cache, its container
+```
+
+What it costs and what it buys:
+
+- **No second container.** One would be another `standard-1` instance and
+  another $26/month of memory to show somebody a button. §6.1 is why that
+  number is the one this project watches.
+- **`/v1` is production's, cache and all.** The popular paths are answered at
+  the edge, so a preview usually does not wake the container; what it does
+  reach is billed like any other request.
+- **A preview cannot show you a `server/` or `pipeline/` change.** The API it
+  talks to is production's binary over production's dataset, pinned by the
+  image tag in `wrangler.jsonc`. To look at a server change, push an image and
+  deploy it — there is no preview path for the container, and inventing one
+  means a second 2.2 GB image and a second instance.
+- **The URLs are public.** Cloudflare Access will put an email gate in front of
+  them from the Worker's Settings → Domains & Routes, which is the knob to
+  reach for if that ever matters.
+- **The preview Worker must exist before a version can be uploaded to it.**
+  `wrangler versions upload` refuses on a Worker that has never been deployed,
+  which is the same bootstrap step production needed. It is
+  `npx wrangler deploy -c wrangler.preview.jsonc`, once, and `deploy-web.yml`
+  skips the preview with a notice rather than failing when it finds no Worker.
+  It is deployed with no routes and `workers_dev: false`, so that deployed
+  version is unreachable on purpose: everything anybody looks at is an alias.
+
+**Two ways to get one.** A pull request previews under `pr-<N>` and the URL is
+commented onto it. A branch with no pull request runs the **Deploy web**
+workflow with `preview_alias` filled in — which makes that dispatch a preview
+instead of a deploy, the one place in this repository where an input changes
+what a run *is*, and why it is a named alias rather than a checkbox. The alias
+is folded to Cloudflare's rules (lowercase, digits, dashes, leading letter, 45
+characters) so a pasted branch name works.
+
+**Version overrides were the other candidate and are not a substitute.** They
+run a chosen version on the real domain, which would have kept the container and
+the zone's settings — but they select it with a
+`Cloudflare-Workers-Version-Overrides` request header, and a header is not a
+thing anybody can open in a browser or send to somebody else. What was asked for
+is a link.
+
 ### The image is built where the dataset is, and never in CI
 
 This is the constraint that shapes everything else. The container image contains
