@@ -121,7 +121,7 @@ product is broken at its front door, not merely incomplete.
 | 1 — topology | done, **25/25 gates**, incl. 200/200 live-oracle agreement |
 | 2 — dates | **ACCEPTED and implemented**, 32/32 gates. Tiers are baked (§3) |
 | 3 — resolution | built — `resolve.py`, `xref` populated, **56/56 gates**. A disagreement sweep withdraws 17,068 cross-kingdom homonyms (§5) |
-| 4 — fossils | built — `fossils.py`, **39/39 gates**, `fossil` table populated |
+| 4 — fossils | built — `fossils.py`, **50/50 gates**, `fossil` table populated |
 | 5a — images | built — `images.py`, **39/39 gates**. Coverage is 100% and says nothing; the gate is the size of the clade a picture speaks for. Divergences carry a second silhouette, the fossil witness, now on 885 forks (§5) |
 | 5b — timescale | built — `timescale.py`, 26/26 gates, `build/timescale.json` |
 | 6 — vernaculars | built — `vernaculars.py` + `search.py`, `node_fts` live. `search.py` also builds `fossil_fts`, which ended the full scan behind `/v1/search` (§2, [fossil-grafts.md §7](fossil-grafts.md)) |
@@ -133,8 +133,15 @@ product is broken at its front door, not merely incomplete.
 Everything in `ingest.md` is now implemented. What remains is depth and polish,
 not new machinery — see §7 for the honest list of what is thin.
 
-> **The current artifact set is `67630b66a5d425ca`, and it is the first with
-> `fossil_fts` in it.** That index ended the full scan of the 523,112-row
+> **The current artifact set is `abe88f49f5eef91d`.** This line is the *only*
+> place in the documentation that claims to name the build in `build/`, and
+> `pipeline/tests/test_doc_figures.py` checks it against `build/manifest.json`.
+> Every other build id in these documents is a **citation** — the build a
+> measurement was taken on — and must not be updated when the dataset is
+> rebuilt, because updating it would falsify the measurement it dates.
+>
+> `fossil_fts` arrived in `67630b66a5d425ca` and is in every set since. That
+> index ended the full scan of the 523,112-row
 > `fossil` table behind `/v1/search` — about 90% of the endpoint, 100–117 ms
 > flat against match count, and several times worse in production than on the
 > machine it was measured on, because the container is a `standard-1` with
@@ -223,7 +230,7 @@ symptom is quietly stale answers.
 
 ```bash
 cd web && npm install && npm run build   # the server picks up web/dist
-npm test                                 # 745 tests, in two vitest projects
+npm test                                 # two vitest projects, `node` and `dom`
 npm test -- --project=dom                # just the ones that render components
 ```
 
@@ -627,7 +634,7 @@ transcription of theirs would have:
 | `measured` | our clade is exactly Duke's clade over shared tips (148,867 internal), or the node sits at the present — being extant is an observation, not an estimate | 2,441,927 | solid, age shown |
 | `interpolated` | our clade is a strict **subset** of the dated one | 95,310 | fine dash, age shown as **`≤ N Ma`** |
 | `structural` | no match, or Duke contradicts our clade | 186,312 | dashed, **no number at all** |
-| `occurrence` | extinct, and PBDB has a range for it — written by phase 4, not phase 2 | 2,133 | the double bracket, **no number at all** |
+| `occurrence` | extinct, and PBDB has a range for it — written by phase 4, not phase 2 | 2,128 | the double bracket, **no number at all** |
 
 The middle tier gained a stronger claim than the design anticipated. If our
 clade is a strict subset of Duke's, their node is the MRCA of a *superset* of
@@ -655,7 +662,7 @@ construction rather than by measurement.
 
 **The fourth tier is built.** `occurrence` is a different and weaker claim in
 the same units: not when lineages parted, but when the taxon is observed in the
-rock. 2,133 nodes carry one, *T. rex* and *Homo erectus* among them, and the
+rock. 2,128 nodes carry one, *T. rex* and *Homo erectus* among them, and the
 rule it respects is unchanged — **a stratigraphic range is not a divergence age
 and is never written into `age_ma`.** A gate checks that on the array rather
 than trusting the code that wrote it.
@@ -663,7 +670,7 @@ than trusting the code that wrote it.
 It lives in its own **table**, not its own array. handoff said array; the
 constraint is that it is not `age_ma` and cannot be reached by anything reading
 `age_ma`, and a table meets that identically. A dense `(n, 4)` float32 array
-would have been 43.6 MB to carry 2,133 useful rows, against an artifact set
+would have been 43.6 MB to carry 2,128 useful rows, against an artifact set
 already 2 GB over its estimate, and the Go reader is 1-D so it would have been
 four files. The dense array is still built in memory and every gate runs
 against *it*, because that is where a transposed column would show.
@@ -2703,6 +2710,26 @@ reader who half-remembers the old figure is exactly who the strike is for. If
 the thing you have is a *finding* rather than a pending edit, it belongs in §3
 or §7 of this file, which is what those sections are.
 
+**And a figure the build can answer is now checked against the build.**
+`pipeline/tests/test_doc_figures.py` reads `build/manifest.json` and holds the
+prose to it: the current build id, phase 4's gate count against phase 5a's
+lookalike, and the size of the occurrence tier. Applying the errata in place
+fixed twenty-two claims that were already wrong; this is what stops the next
+twenty-two, and it is the same mechanism `viewport.test.ts` and `labels.test.ts`
+already use against `styles.css` — *a comment cannot fail*. It is a dataset
+test, so it skips on a clean checkout and CI never runs it; `scripts/check.sh`
+sets `CONCESTOR_REQUIRE_BUILD=1` and turns that skip into a failure.
+
+Three things about it not to redo. It **pins three figures and refuses the
+rest**, and the refusals are argued in the module docstring rather than left to
+be guessed: a check that fires on correct prose because the sentence was
+reworded is a check somebody deletes. It **never restates a number** — every
+expected value is read out of the manifest, because a test carrying its own
+copy is one more place for the figure to drift. And **only handoff §2 may name
+the current build**; a build id anywhere else in these documents dates a
+measurement, and the test enforces that split rather than trying to tell the
+two apart by reading.
+
 ---
 
 ## 5. Things discovered while building
@@ -3610,7 +3637,7 @@ phase 4.
    moving a dated node away from its own printed figure, so the fix is upstream
    in whatever attaches a stem fossil to a crown node.
 2. ~~**Add the fourth tier, `occurrence`.**~~ **Built in the pipeline and the
-   server.** 2,133 nodes carry a range; *T. rex* reports 83.6–66 and *Homo
+   server.** 2,128 nodes carry a range; *T. rex* reports 83.6–66 and *Homo
    erectus* 5.33–0.012, and both still report no age. Written by phase 4
    alongside the layout bound, because they read the same table under the same
    rule and answering the uncertainty question twice is how the two ship
@@ -3618,7 +3645,7 @@ phase 4.
 
    All four constraints hold and three of them are gated on the arrays rather
    than trusted to the code: it **never enters `age_ma`** (0 violations of
-   2,133); every tiered node **carries at least one bound**; and no node outside
+   2,128); every tiered node **carries at least one bound**; and no node outside
    the tier carries a range. It is a **range and never a point** structurally —
    the array carries four bounds and no midpoint is computed anywhere, so there
    is no single number for a caller to reach for. **Exact attachments only.**
@@ -3631,13 +3658,14 @@ phase 4.
    only `structural` nodes are eligible, so a real divergence estimate is never
    overwritten with a stratigraphic range.
 
-   *The number that matters is not 2,133.* **1,274 of the 1,743
+   *The number that matters is not 2,128.* **1,271 of the 1,743
    extinct-flagged nodes (73%) now report a range**, which is what "does
    *T. rex* stop reading not estimated" actually asks. The remainder have no
    PBDB taxon attaching at the node itself — the Neanderthal case below. And
-   **12,785 structural nodes with a bracket were refused because their clade
-   still contains living species**, which is the largest exclusion by far and
-   deliberate: "fossils of this group are known from 60–50 Ma" is true of them,
+   **885 nodes with a bracket were refused because their clade still contains
+   living species** — the whole of the gap between the 3,013 candidates and the
+   tier, and deliberate: "fossils of this group are known from 60–50 Ma" is
+   true of them,
    but a range *ending* at 50 Ma reads as an extinction and no caption inside a
    bracket undoes that.
 

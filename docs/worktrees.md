@@ -6,7 +6,7 @@ gets all the source and none of this:
 
 | Missing in a worktree | Size | Why it is not tracked |
 |---|---|---|
-| `build/` | 2.9 GB | derived — six pipeline phases |
+| `build/` | 3.2 GB | derived — six pipeline phases |
 | `snapshot/` | 1.7 GB | pinned upstream sources |
 | `web/node_modules` | 103 MB | installed |
 | `pipeline/.venv` | 84 MB | installed |

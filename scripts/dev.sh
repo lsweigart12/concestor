@@ -61,7 +61,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 # Wait for the API before handing over to Vite, so the first page load does
-# not race the dataset opening: 2.9 GB of arrays mmap in well under a second,
+# not race the dataset opening: 3.2 GB of arrays mmap in well under a second,
 # but the SQLite open is not free.
 for _ in $(seq 1 100); do
   if (exec 3<>"/dev/tcp/127.0.0.1/${API_PORT}") 2>/dev/null; then

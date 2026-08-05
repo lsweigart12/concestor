@@ -1,6 +1,7 @@
 # Ranking common names by use
 
-**Status: shipped**, 31/31 gates, build `854cdfa42f77e78e`. Phase 6b,
+**Status: shipped**, 31/31 gates. The figures here were measured on build
+`854cdfa42f77e78e` and date from it; handoff §2 names the current one. Phase 6b,
 `concestor-build names`. §7 is the canvas scientific/common switcher, **also
 shipped** — and the reason this document exists in the shape it does. The canvas
 now opens on common names, which is what the ranking was for: without

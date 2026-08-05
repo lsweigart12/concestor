@@ -13,11 +13,12 @@ scripts/check.sh
 
 That is the run to trust. It is everything CI runs plus the tests CI cannot
 run, and the difference matters more here than in most projects: CI checks out
-a clean tree, a clean tree has no `build/`, and **82 of the 99 Go tests and 47
-of the pipeline's skip themselves and both suites still report success.**
+a clean tree, a clean tree has no `build/`, and **most of the Go suite and a
+fifth of the pipeline's skip themselves and both still report success.**
 `check.sh` finds a dataset, sets `CONCESTOR_REQUIRE_BUILD=1` so a skip becomes
 a failure, and is the only run that exercises the code against real artifacts.
-[docs/ci.md](docs/ci.md) §2 is the whole argument.
+[docs/ci.md](docs/ci.md) §2 is the whole argument, and the one place the split
+is counted.
 
 If you have no `build/` — it is a long one-time job, and the README's quick
 start builds it — say so in the pull request. The per-component suites still
