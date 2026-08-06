@@ -2051,18 +2051,25 @@ body {
 
 /* ------------------------------------------------------ sections and rows -- */
 
-.side-scroll {
+/*
+ * The taxa list takes the free height and everything under it is pinned.
+ *
+ * One scroll region over both sections is the obvious arrangement and the wrong
+ * one: the list grows without bound and the four canvas modes are a fixed set a
+ * reader wants in the same place every time, so under one scroller a tenth
+ * species pushed `LABELS` off the bottom of the panel — a control moving
+ * because of something that has nothing to do with it.
+ */
+.side-taxa {
   flex: 1 1 auto;
   min-height: 0;
-  overflow-y: auto;
-  /* The mode tracks are `white-space: nowrap`, so a narrow drawer would give
-     the whole column a horizontal scrollbar rather than letting one switch
-     be the thing that is too wide. */
-  overflow-x: hidden;
-  scrollbar-width: thin;
-  /* The list fades out under nothing in particular; the padding is what stops
-     the last row butting against the bottom of the window. */
-  padding-bottom: var(--s5);
+  display: flex;
+  flex-direction: column;
+}
+
+.side-canvas,
+.side-bottom {
+  flex: 0 0 auto;
 }
 
 .side-section {
@@ -2098,19 +2105,136 @@ body {
   color: var(--ink-4);
 }
 
+/*
+ * The one scrolling thing in the panel.
+ *
+ * `overflow-x: hidden` because a long name would otherwise give the column a
+ * horizontal scrollbar rather than letting the row that is too wide be the
+ * thing that ellipses. The bottom padding is what stops the last row butting
+ * against the section under it.
+ */
 .side-rows {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
   display: flex;
   flex-direction: column;
   gap: 1px;
+  padding-bottom: var(--s3);
 }
 
-/* --- the add row --- */
+/* --- the two doors --- */
+
+/*
+ * Large while the list is short, because the space is there and an empty column
+ * under two small buttons is the product failing to say what it is for at the
+ * one moment a reader has not decided yet.
+ *
+ * Square by construction rather than by a height: two equal columns inside the
+ * panel's own padding make each tile 116px wide at `WIDTH`, and `aspect-ratio`
+ * makes it 116 tall. A number here would have to be re-derived every time the
+ * panel's padding moved.
+ */
+.side-doors {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: var(--s3);
+}
+
+.side-door {
+  position: relative;
+  aspect-ratio: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 2px;
+  padding: 10px;
+  /* Dashed, which is the one visual difference from every row under it and says
+     the right thing without a word: this is where the list *grows*, not a thing
+     in it. The same idiom every layers panel uses for its add affordance. */
+  border: 1px dashed var(--hairline-strong);
+  border-radius: 10px;
+  background: none;
+  color: var(--ink-3);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    color 160ms ease;
+}
+
+.side-door:hover,
+.side-door:focus-visible {
+  outline: none;
+  border-style: solid;
+  border-color: hsl(var(--accent-h) 45% 48% / 0.6);
+  background: var(--void-3);
+  color: var(--ink);
+}
+
+/* Pushed to the top of the tile, away from the words, so the glyph and the
+   title read as one block and the key is an annotation on the whole thing. */
+.side-door-kbd {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  font-size: 8px;
+  padding: 0 3px;
+  min-width: 0;
+}
+
+.side-door-glyph {
+  margin-top: auto;
+  font-size: 20px;
+  line-height: 1;
+  color: var(--ink-4);
+  transition: color 160ms ease;
+}
+
+.side-door:hover .side-door-glyph,
+.side-door:focus-visible .side-door-glyph {
+  color: var(--accent);
+}
+
+.side-door-title {
+  margin-top: 6px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  transition: color 160ms ease;
+}
+
+.side-door:hover .side-door-title,
+.side-door:focus-visible .side-door-title {
+  color: var(--ink);
+}
+
+/* The line the compact row cannot carry, and the reason the large state exists:
+   "Add a taxon" says what the button does, and this says what is behind it. */
+.side-door-sub {
+  font-size: 10px;
+  line-height: 1.35;
+  color: var(--ink-4);
+}
+
+/* The die is spinning — a rotation and not a pulse, because what it reports is
+   a *draw*. It is the only motion in this panel. */
+.side-door.is-busy .side-door-die {
+  animation: side-die 900ms linear infinite;
+}
+
+/* --- the add row, once the list wants the height --- */
 
 .side-add {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 6px;
-  margin-bottom: 5px;
+  margin-bottom: var(--s2);
 }
 
 .side-add-main,
@@ -2179,14 +2303,6 @@ body {
   to {
     transform: rotate(360deg);
   }
-}
-
-.side-add-note {
-  grid-column: 1 / -1;
-  margin: 4px 4px 2px;
-  font-size: 11px;
-  line-height: 1.45;
-  color: var(--ink-4);
 }
 
 /* --- a taxon --- */

@@ -182,15 +182,77 @@ describe("a fossil row is a species the tree has no lineage for", () => {
   });
 });
 
-describe("the add row is how the list stops being empty", () => {
-  it("offers both doors, with their keys printed on them", () => {
+describe("the two doors are how the list stops being empty", () => {
+  it("offers both, with their keys printed on them", () => {
     draw();
     const add = screen.getByRole("button", { name: /Add a taxon/ });
     expect(within(add).getByText("A")).toBeTruthy();
-    const die = screen.getByRole("button", { name: /random/i });
+    const die = screen.getByRole("button", { name: /Surprise me/ });
     expect(within(die).getByText("R")).toBeTruthy();
   });
 
+  /**
+   * **Large while the list is short, and the same two controls either way.**
+   * The rule is about vertical space rather than expertise: a short list leaves
+   * the column mostly empty, and an empty column under two small buttons is the
+   * product failing to say what it is for at the one moment a reader has not
+   * decided yet. What the tiles carry that the row cannot is a line saying what
+   * is *behind* each door.
+   *
+   * Asserted from both ends, because the failure that matters is a state that
+   * never arrives — a threshold off by one would leave the tiles up forever or
+   * never draw them at all, and neither errors.
+   */
+  it("draws tiles while the list is short and a row once it is not", () => {
+    const short = render(
+      <TaxaList {...props({ nodes: [node({ idx: 1 })] })} />,
+    );
+    expect(document.querySelectorAll(".side-door")).toHaveLength(2);
+    expect(document.querySelector(".side-add")).toBeNull();
+    // The description is the whole point of the large state.
+    expect(screen.getByText(/living or fossil/)).toBeTruthy();
+    short.unmount();
+
+    render(
+      <TaxaList
+        {...props({
+          nodes: [node({ idx: 1 }), node({ idx: 2 }), node({ idx: 3 })],
+        })}
+      />,
+    );
+    expect(document.querySelectorAll(".side-door")).toHaveLength(0);
+    expect(document.querySelector(".side-add")).not.toBeNull();
+  });
+
+  /** Same two keys at both sizes, or the badges teach a press that moves. */
+  it("keeps both keys at both sizes", () => {
+    const short = render(<TaxaList {...props()} />);
+    expect(
+      within(
+        screen.getByRole("button", { name: /Add a taxon/ }).parentElement!,
+      ).getAllByText(/^[AR]$/),
+    ).toHaveLength(2);
+    short.unmount();
+    render(
+      <TaxaList
+        {...props({
+          nodes: [node({ idx: 1 }), node({ idx: 2 }), node({ idx: 3 })],
+        })}
+      />,
+    );
+    const badges = [...document.querySelectorAll(".side-add .kbd")].map(
+      (b) => b.textContent,
+    );
+    expect(badges).toEqual(["A", "R"]);
+  });
+
+  /**
+   * The cell is always drawn and its *contents* are what go at zero.
+   *
+   * `Legend.tsx` made this rule on the axis footer for the same reason: the
+   * header is a three-column grid and an absent middle cell lets the row
+   * collapse, so the count would stop being centred the moment it appeared.
+   */
   it("counts what is on the canvas, and says nothing at zero", () => {
     const { unmount } = render(
       <TaxaList
@@ -200,7 +262,7 @@ describe("the add row is how the list stops being empty", () => {
     expect(document.querySelector(".side-count")?.textContent).toBe("2");
     unmount();
     draw();
-    expect(document.querySelector(".side-count")).toBeNull();
+    expect(document.querySelector(".side-count")?.textContent).toBe("");
   });
 
   /**

@@ -285,6 +285,64 @@ sentence saying what would make it work is reachable.
 
 ## 6. The Taxa list
 
+**It is the only thing in the column that scrolls.** One scroll region over both
+sections is the obvious arrangement and the wrong one: the list grows without
+bound, and the four canvas modes are a fixed set a reader wants in the same
+place every time — so under one scroller a tenth species pushed `LABELS` off the
+bottom of the panel, a control moving because of something that has nothing to
+do with it. `.side-taxa` takes the free height and its rows scroll inside it;
+`Canvas` and the footer strip sit under it at their natural height.
+
+### The header is three cells, and the middle one is centred
+
+```
+TAXA                 6                CLEAR ⌨C
+```
+
+The count and CLEAR used to sit together at the right end and read as one
+object — a number that looked like part of the button beside it. Equal outer
+columns put the count on the row's own midline whatever the words either side
+are doing, which is the same trick the axis footer uses to centre its key.
+
+That also gives CLEAR the whole right-hand end, which is what lets it carry its
+key badge again. The badge came off while this row held *two* verbs, where a
+small box beside two words that were deliberately not boxes was the only thing
+breaking the row's register. Alone at the end of the row it is the thing that
+gives the one destructive control in the panel an identity — and `C` is a key
+nobody learns from a tooltip.
+
+**The count's cell is always rendered and its contents are what go at zero.**
+`Legend.tsx` made that rule on the axis footer for the same reason: an absent
+middle cell lets a three-column grid collapse, so the count would stop being
+centred the moment it appeared.
+
+### The two doors are drawn at one of two sizes
+
+Under `SPACIOUS_UPTO` (2) taxa they are **square tiles**: a glyph, a title, a
+line saying what is behind the door, and the key. Past it they collapse to a
+single compact row.
+
+The rule is about *vertical space* rather than about expertise. A short list
+leaves this column mostly empty, and an empty column under two small buttons is
+the product failing to say what it is for at the one moment a reader has not
+decided yet. A tile is also a target you hit without aiming, which is the half
+that matters on a first visit. Past the threshold the list is what the column is
+for, and tiles would be pushing rows off the bottom to fill space that is no
+longer empty.
+
+Two is not arbitrary: it is one short of the smallest tree this product will
+draw an argument from. `openings.ts` refuses to ship a two-taxon opening because
+*a pair draws one number, and three or more draw an argument* — so the tiles are
+up for exactly as long as the canvas cannot yet make the case for itself, and
+they collapse on the add that finally does.
+
+Both states are the same two controls with the same two keys, which is what
+makes the change a *size* rather than a reshuffle: nothing appears, nothing
+goes, and the badges do not move relative to what they label. What the tiles
+carry that the row cannot is the second line — "Add a taxon" says what the
+button does, and *any species, living or fossil* says what is behind it, which
+is the fact this app is least able to assume a reader knows.
+
 The section is **Taxa**, not **Species**: the list holds species and it also
 holds *Cetacea*, which is not one, and *Tyrannosaurus*, which is a genus.
 "Species" was accurate about the search and never about the result.

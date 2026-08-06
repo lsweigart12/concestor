@@ -552,7 +552,20 @@ its own register.
 **The Taxa list is the layers panel, and it is `Taxa` rather than `Species`**
 because it holds *Cetacea*, which is not one. Rows derive from
 `induced.leaves`, so the panel and the canvas cannot disagree about what is
-drawn. Four things not to redo: the row and its remove control are **siblings,
+drawn. **It is also the only thing in the column that scrolls** — one scroller
+over both sections meant a tenth species pushed `LABELS` off the bottom, a
+control moving because of something that has nothing to do with it, so `Canvas`
+and the footer are pinned and the list takes what is left. Its header is three
+cells with the count on the row's own midline, which is what stops the count and
+`CLEAR` reading as one object and what gives `CLEAR` the right-hand end to carry
+its `C` badge in; the count's cell is **always rendered** and its contents are
+what go at zero, on `Legend.tsx`'s rule that an absent middle cell lets a
+three-column grid collapse. And the two doors are **square tiles under
+`SPACIOUS_UPTO` (2) taxa and a compact row past it** — a rule about vertical
+space rather than expertise, since a short list leaves the column empty and an
+empty column under two small buttons is the product failing to say what it is
+for at the one moment a reader has not decided yet. Two is one short of the
+smallest tree `openings.ts` will draw an argument from. Four things not to redo: the row and its remove control are **siblings,
 never nested** (a button inside a button means pressing *remove* also selects,
 so the card opens on the taxon just removed); **`off` falls back to the
 scientific name**, because a list of blank rows is not the quieter version of

@@ -116,14 +116,28 @@ export function Sidebar(p: SidebarProps) {
         */}
         <div className="side-search-gap" aria-hidden="true" />
 
-        <div className="side-scroll">
-          <TaxaList {...p.taxa} />
+        {/*
+          The taxa list is the only thing that scrolls, and everything below it
+          is pinned.
 
-          <section className="side-section" aria-label="Canvas">
-            <h2 className="side-h">
-              <span>Canvas</span>
-            </h2>
-            {/*
+          It was one scroll region holding both sections, which is the obvious
+          arrangement and the wrong one: the list is the part that grows without
+          bound, and the four canvas modes are a fixed set that a reader wants
+          in the same place every time. Under one scroller, adding a tenth
+          species pushed `LABELS` off the bottom of the panel — a control moving
+          because of something that has nothing to do with it.
+
+          So `.side-taxa` takes the free height and its rows scroll inside it,
+          while `Canvas` and the footer strip sit under it at their natural
+          height. The list grows into the space and stops; nothing else moves.
+        */}
+        <TaxaList {...p.taxa} />
+
+        <section className="side-section side-canvas" aria-label="Canvas">
+          <h2 className="side-h">
+            <span>Canvas</span>
+          </h2>
+          {/*
               All four together for the first time, and the fourth is the
               interesting one. The time scale used to live on the axis footer,
               on the rule that a control belongs on the thing it changes — and
@@ -133,22 +147,21 @@ export function Sidebar(p: SidebarProps) {
               beside each other. Under the ruler it was a switch on its own that
               happened to wear the panel's anatomy.
             */}
-            <div className="side-modes">
-              <LabelsToggle mode={p.labels} onChange={p.onLabels} />
-              <AgesToggle on={p.ages} onChange={p.onAges} />
-              <TimeScaleToggle mode={p.axis} onChange={p.onAxis} />
-              {/*
+          <div className="side-modes">
+            <LabelsToggle mode={p.labels} onChange={p.onLabels} />
+            <AgesToggle on={p.ages} onChange={p.onAges} />
+            <TimeScaleToggle mode={p.axis} onChange={p.onAxis} />
+            {/*
                 No WebGL2, no switch. The mode is one instanced draw call and
                 six passes on the GPU; there is no software path and there is
                 not going to be one, and a switch that is offered and then turns
                 the canvas black is worse than one that is not offered.
               */}
-              {BIOLUM_AVAILABLE && (
-                <BiolumToggle on={p.biolum} onChange={p.onBiolum} />
-              )}
-            </div>
-          </section>
-        </div>
+            {BIOLUM_AVAILABLE && (
+              <BiolumToggle on={p.biolum} onChange={p.onBiolum} />
+            )}
+          </div>
+        </section>
 
         {/*
           One strip at the foot of the panel: where this came from, and how to

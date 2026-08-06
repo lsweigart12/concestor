@@ -86,47 +86,83 @@ export interface TaxaListProps {
 export function TaxaList(p: TaxaListProps) {
   const count = p.nodes.length + p.fossils.length;
   return (
-    <section className="side-section" aria-label="Taxa">
-      <h2 className="side-h">
+    <section className="side-section side-taxa" aria-label="Taxa">
+      {/*
+        Three cells, and the middle one is on the row's own midline.
+
+        The count and CLEAR used to sit together at the right end, and read as
+        one object — a number that looked like part of the button beside it. A
+        grid of `1fr auto 1fr` puts the count on the midline whatever the two
+        words either side of it are doing, which is the same trick the axis
+        footer uses to centre its key: the outer columns are equal whether or
+        not either has anything in it.
+
+        It also gives CLEAR the whole right-hand end, which is what lets it
+        carry its key badge. That badge came off when this row held *two* verbs
+        and a small box beside two words that were deliberately not boxes was
+        the only thing breaking the row's register. Alone at the end of the row,
+        with the count no longer crowding it, it is the thing that gives the one
+        destructive control in the panel an identity — and `C` is a key nobody
+        learns from a tooltip.
+
+        **Both are absent at zero, and for one reason.** "0" beside a heading
+        over an empty list says what the empty list says, louder — and a greyed
+        CLEAR over the same empty list says it a third time. That is the one
+        place this app's standing rule gives way: *disabled rather than hidden*
+        exists so a control does not move out from under a hand reaching for it,
+        and the tooltip on a greyed one says what would make it work. Neither
+        applies here. Nothing reaches for clear on an empty canvas, and the
+        sentence a tooltip would carry — "the canvas is already empty" — is the
+        list itself. The palette drops `fit-all` and `step` on the same canvas
+        for the same reason.
+      */}
+      <h2 className="side-h is-taxa">
         <span>Taxa</span>
-        {/*
-          The count, then the one action that acts on all of it.
-
-          The count is the one number worth putting in a section header: it is
-          what a reader checks after pressing random three times, and it is the
-          only way to know the list is scrolled rather than short.
-
-          **Both are absent at zero, and for one reason.** "0" beside a heading
-          over an empty list says what the empty list says, louder — and a
-          greyed CLEAR over the same empty list says it a third time. That is
-          the one place this app's standing rule gives way: *disabled rather
-          than hidden* exists so a control does not move out from under a hand
-          reaching for it, and the tooltip on a greyed one says what would make
-          it work. Neither applies here. Nothing reaches for clear on an empty
-          canvas, and the sentence a tooltip would carry — "the canvas is
-          already empty" — is the list itself. The palette drops `fit-all` and
-          `step` on the same canvas for the same reason.
-        */}
-        {count > 0 && (
-          <span className="side-h-acts">
-            <span className="side-count mono">{count}</span>
-            <HeaderAction
-              label="Clear"
-              danger
-              hint={`Take everything off the canvas — ${kbd("clear")}`}
-              onClick={p.onClear}
-            />
-          </span>
-        )}
+        <span className="side-count mono">{count > 0 ? count : ""}</span>
+        <span className="side-h-acts">
+          {count > 0 && (
+            <>
+              <HeaderAction
+                label="Clear"
+                danger
+                hint="Take everything off the canvas"
+                onClick={p.onClear}
+              />
+              <span className="kbd side-act-kbd" aria-hidden="true">
+                {kbd("clear")}
+              </span>
+            </>
+          )}
+        </span>
       </h2>
 
+      {/*
+        The two doors, pinned above the list rather than scrolling with it —
+        and drawn at one of two sizes.
+
+        `SPACIOUS_UPTO` is the whole of the rule and it is about *vertical
+        space* rather than about expertise. A short list leaves most of this
+        column empty, and an empty column below two small buttons is the
+        product failing to say what it is for at the one moment a reader has
+        not yet decided. So under that count the doors are tiles: square, big
+        enough to hit without aiming, each carrying a line saying what is behind
+        it. Past it the list is what the column is for, the tiles would be
+        pushing rows off the bottom to fill space that is no longer empty, and
+        they collapse to the row.
+
+        The two states are the same two controls with the same two keys, which
+        is what makes the change a *size* rather than a reshuffle: nothing
+        appears, nothing goes, and the badges do not move relative to what they
+        label.
+      */}
+      <AddDoors
+        onAdd={p.onAdd}
+        onRandom={p.onRandom}
+        picking={p.picking}
+        spacious={count <= SPACIOUS_UPTO}
+      />
+
       <div className="side-rows">
-        <AddRow
-          onAdd={p.onAdd}
-          onRandom={p.onRandom}
-          picking={p.picking}
-          empty={count === 0}
-        />
         {p.nodes.map((n) => (
           <NodeRow
             key={n.idx}
@@ -152,22 +188,45 @@ export function TaxaList(p: TaxaListProps) {
 }
 
 /**
- * Name one, or be given one.
+ * How short a list has to be for the doors to be drawn large.
  *
- * The empty state gets one extra line and no extra control, because what an
- * empty list needs is not more buttons — it is the sentence saying that the two
- * already there are how it stops being empty.
+ * Two, which is one short of the smallest tree this product will draw an
+ * argument from: `openings.ts` refuses to ship a two-taxon opening because *a
+ * pair draws one number, and three or more draw an argument*. So the tiles are
+ * up for exactly as long as the canvas cannot yet make the case for itself, and
+ * they collapse on the add that finally does.
  */
-function AddRow({
+const SPACIOUS_UPTO = 2;
+
+/**
+ * Name one, or be given one — at one of two sizes.
+ *
+ * **Spacious**: two squares side by side, each with a glyph, a title, a line
+ * saying what is behind it, and its key. They exist because a short list leaves
+ * this column mostly empty, and an empty column under two small buttons is the
+ * product failing to say what it is for at the one moment a reader has not
+ * decided yet. A tile is also a target you hit without aiming, which is the
+ * half that matters on a first visit.
+ *
+ * **Compact**: the row they collapse to once the list is long enough to want
+ * the height. Same two controls, same two keys, same order.
+ *
+ * The descriptions are the point of the large state and are the thing the row
+ * cannot carry. "Add a taxon" says what the button does; *any species, living
+ * or fossil* says what is behind it — which is the fact this app is least able
+ * to assume a reader knows, since one catalogue holding both is the whole of
+ * what `docs/fossil-grafts.md` §9 argued for.
+ */
+function AddDoors({
   onAdd,
   onRandom,
   picking,
-  empty,
+  spacious,
 }: {
   onAdd: () => void;
   onRandom: () => void;
   picking: boolean;
-  empty: boolean;
+  spacious: boolean;
 }) {
   const addTip = useTip(
     "Search by name — everyday or scientific, living or fossil",
@@ -175,6 +234,41 @@ function AddRow({
   const randTip = useTip(
     "Add something illustrated, picked for you. About one in five is a fossil",
   );
+
+  if (spacious) {
+    return (
+      <div className="side-doors">
+        <button type="button" className="side-door" onClick={onAdd} {...addTip}>
+          <span className="kbd side-door-kbd" aria-hidden="true">
+            {kbd("add-taxon")}
+          </span>
+          <span className="side-door-glyph" aria-hidden="true">
+            +
+          </span>
+          <span className="side-door-title">Add a taxon</span>
+          <span className="side-door-sub">Any species, living or fossil</span>
+        </button>
+        <button
+          type="button"
+          className={`side-door${picking ? " is-busy" : ""}`}
+          onClick={onRandom}
+          {...randTip}
+        >
+          <span className="kbd side-door-kbd" aria-hidden="true">
+            {kbd("random-species")}
+          </span>
+          <span className="side-door-glyph side-door-die" aria-hidden="true">
+            ✦
+          </span>
+          <span className="side-door-title">Surprise me</span>
+          <span className="side-door-sub">
+            Something illustrated, at random
+          </span>
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="side-add">
       <button
@@ -205,11 +299,6 @@ function AddRow({
           {kbd("random-species")}
         </span>
       </button>
-      {empty && (
-        <p className="side-add-note">
-          Name anything alive or extinct, or roll for one.
-        </p>
-      )}
     </div>
   );
 }
