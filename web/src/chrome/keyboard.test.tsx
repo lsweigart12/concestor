@@ -8,11 +8,12 @@
  * not move. Every button the bar draws, every segment of the canvas-mode panel
  * and every link on the detail card was unreachable without a mouse. The names
  * and the landmarks were all there — they were just behind a key the app was
- * eating.
+ * eating. The bar is a sidebar now and the panel is a mode chip's new home;
+ * what the file is checking has not moved at all.
  *
  * **The window handler is transcribed rather than imported, and that is the
  * one thing to know before trusting this file.** The behaviour under test is
- * two lines deep inside a 2,400-line `App`, downstream of a store, a canvas and
+ * two lines deep inside a 2,000-line `App`, downstream of a store, a canvas and
  * a live API, and mounting all of that to observe a `defaultPrevented` flag
  * would be testing the mock. What is transcribed is small enough to check by
  * eye against `App.tsx` — `matchKey(e)`, return on null, `preventDefault()` —
@@ -25,14 +26,15 @@
  * action for a press nobody cancelled. Neither is the app's to get wrong. What
  * is the app's is whether the press survives to reach that default, and that is
  * exactly what these assert. The order itself was walked by hand in Chrome
- * against the running app and reads: the marks on the canvas, the canvas-mode
- * panel, the time scale, the axis links, the detail card, the control bar.
+ * against the running app and reads: the panel's switch, the search pill, the
+ * sidebar's own contents top to bottom, the resize separator, the marks on the
+ * canvas, the detail card, the view cluster.
  */
 
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { BINDINGS, matchKey } from "./bindings";
-import { Controls, type ControlGroup } from "./Controls";
+import { ViewportControls, type ViewportAction } from "./CanvasChrome";
 import { ModeChip } from "./ModeChip";
 
 /**
@@ -64,17 +66,13 @@ function press(key: string, shiftKey = false): boolean {
   return e.defaultPrevented;
 }
 
-/** The Navigate group, which is where `step` lives. */
-function navigateGroup(run = vi.fn()): ControlGroup {
-  return {
-    name: "Navigate",
-    slot: "rest",
-    actions: [
-      { id: "fit", run },
-      { id: "isolate", run },
-      { id: "step", run },
-    ],
-  };
+/** The cluster in the canvas's top-right corner. */
+function viewActions(run = vi.fn()): ViewportAction[] {
+  return [
+    { id: "fit", glyph: "⤢", run },
+    { id: "isolate", glyph: "◎", run },
+    { id: "fullscreen", glyph: "⛶", run },
+  ];
 }
 
 describe("the keys the browser needs back", () => {
@@ -112,7 +110,10 @@ describe("the keys the browser needs back", () => {
       expect(press("f")).toBe(true);
       expect(press("/")).toBe(true);
       expect(press("l")).toBe(true);
+      expect(press("d")).toBe(true);
       expect(press("a")).toBe(true);
+      expect(press("s")).toBe(true);
+      expect(press("i")).toBe(true);
       expect(press("b")).toBe(true);
     } finally {
       off();
@@ -128,11 +129,11 @@ describe("the keys the browser needs back", () => {
 });
 
 describe("what Tab arrives at", () => {
-  it("gives the control bar a focusable button per action, badge and all", () => {
-    render(<Controls groups={[navigateGroup()]} idle={false} busy={false} />);
+  it("gives the view cluster a focusable button per action, badge and all", () => {
+    render(<ViewportControls actions={viewActions()} />);
     // Named from the table, so a row moving letter takes the name with it —
     // `step` printed "Tab" and "Step" here until the key moved to `n`.
-    for (const name of ["Fit", "Isolate", "Next"]) {
+    for (const name of ["Fit", "Isolate", "Fullscreen"]) {
       const b = screen.getByRole("button", { name: new RegExp(name) });
       b.focus();
       expect(document.activeElement).toBe(b);
@@ -141,23 +142,23 @@ describe("what Tab arrives at", () => {
 
   it("keeps a disabled control focusable, because its hint is the useful part", () => {
     // `aria-disabled` rather than `disabled` — a disabled button takes neither
-    // focus nor pointer events, and the five disabled controls on this bar
-    // carry the tooltips most worth reaching. `Tooltip.tsx` is the account.
+    // focus nor pointer events, and every disabled control in this app carries
+    // the one tooltip most worth reaching: the sentence saying what would make
+    // it work. `Tooltip.tsx` is the account.
     const run = vi.fn();
     render(
-      <Controls
-        groups={[
+      <ViewportControls
+        actions={[
           {
-            name: "Navigate",
-            slot: "rest",
-            actions: [{ id: "step", run, disabledBecause: "Nothing to step" }],
+            id: "isolate",
+            glyph: "◎",
+            run,
+            disabledBecause: "Select a taxon first",
           },
         ]}
-        idle={false}
-        busy={false}
       />,
     );
-    const b = screen.getByRole("button", { name: /Next/ });
+    const b = screen.getByRole("button", { name: /Isolate/ });
     expect(b.getAttribute("aria-disabled")).toBe("true");
     b.focus();
     expect(document.activeElement).toBe(b);

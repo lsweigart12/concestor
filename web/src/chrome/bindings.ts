@@ -25,27 +25,37 @@
  * or should have to decide before pressing a key.
  *
  * **A binding is a thing you can also click.** Keyboard operation is first
- * class and no longer exclusive: the control bar draws buttons, with the key
- * printed on the button rather than described in a hint. The two cannot drift,
- * because the button and the handler read the same row.
+ * class and no longer exclusive: the sidebar draws a control for every row
+ * here, with the key printed on it rather than described in a hint. The two
+ * cannot drift, because the control and the handler read the same row.
  *
  * **And a thing you can click is a thing you can search for**, which is the
- * half of that rule the sub-620px layout stands on: down there the bar is not
- * drawn at all and a circular button opens the palette instead, so a control
- * with no command is a control a reader on a phone cannot reach — no key to
- * press, no button on screen, nothing to type. `step` was exactly that for as
- * long as it existed, on `Tab` and then on `N`. `App.test.tsx` walks this table
- * against the rendered palette now, with an exemption list that names each row
- * allowed to be missing and why; the assertion runs one way only, because
- * `share` is the exception in the other direction and has a command with no key.
+ * half of that rule the collapsed sidebar and the narrow window both stand on:
+ * with the panel shut there is nothing on screen but the canvas, its two corner
+ * clusters and the timeline, so a control with no command is a control that
+ * cannot be reached at all — no key to press, no button on screen, nothing to
+ * type. `step` was exactly that for as long as it existed, on `Tab` and then on
+ * `N`. `App.test.tsx` walks this table against the rendered palette now, with
+ * an exemption list that names each row allowed to be missing and why; the
+ * assertion runs one way only, because `share` is the exception in the other
+ * direction and has a command with no key.
  *
- * There was a `chrome` field here saying which rows the bar drew and at what
+ * **One key is not a bare letter, and it is the one nobody had to be taught.**
+ * `/` opens the search, which is what `/` does in every application a reader
+ * has already used. It is the only row here whose letter was not argued for
+ * against a word — and taking it cost `isolate` nothing, because `i` names
+ * isolate exactly where `/` named nothing at all. The knock-on runs one further
+ * step: `s` went to the **sidebar** the search now lives in, and `a` to the
+ * **add** row inside it, which sent `ages` to `d` and renamed it *Dates*. Four
+ * rows moved, each to a letter that names it better than the one before.
+ *
+ * There was a `chrome` field here saying which rows the chrome drew and at what
  * prominence, and it is gone rather than updated. It could never be the whole
- * answer — `App.tsx` composes the bar and always did, the bar now holds a
+ * answer — `App.tsx` composes the layout and always did, the sidebar holds a
  * control with no row here at all (share, which has no key on purpose), and a
- * flat flag cannot say which of four captioned groups a button belongs in. A
- * field that describes the layout from a distance and is not read by it is a
- * second source of truth with no way to be wrong out loud.
+ * flat flag cannot say which section a control belongs in. A field that
+ * describes the layout from a distance and is not read by it is a second source
+ * of truth with no way to be wrong out loud.
  *
  * **A key the browser already spends is either scoped to the one surface that
  * wants it, or it is not here at all.** Enter is the scoped case: it is in the
@@ -58,9 +68,9 @@
  * **`Tab` is the other case, and it is why `step` is on `n`.** This table held
  * `Tab`/`⇧Tab` for stepping the selection, globally, and the global handler
  * prevents the default of everything it matches — so the focus ring did not
- * move in this app at all. Every button the bar draws, every segment of the
- * canvas-mode panel and every link on the detail card was unreachable to a
- * reader with a keyboard and no pointer: the app was operable by keyboard only
+ * move in this app at all. Every button the chrome drew, every segment of every
+ * mode switch and every link on the detail card was unreachable to a reader
+ * with a keyboard and no pointer: the app was operable by keyboard only
  * in the sense that its *commands* were, which is not the same claim and was
  * being made in the same breath. It is exactly the Enter failure one level up —
  * Enter would have cost keyboard *activation*, `Tab` cost keyboard
@@ -85,8 +95,9 @@ import { SPECIES_PHRASE } from "../corpora";
 
 export type ActionId =
   | "open-opening"
-  | "palette"
-  | "species"
+  | "sidebar"
+  | "search"
+  | "add-taxon"
   | "fit"
   | "fit-selection"
   | "isolate"
@@ -169,22 +180,52 @@ export const BINDINGS: readonly Binding[] = [
     hint: "Draw the question the empty canvas is showing",
   },
   {
-    id: "palette",
-    key: "p",
-    shift: false,
-    kbd: "P",
-    label: "Commands",
-    hint: "Everything this app can do, in one searchable list",
-  },
-  {
-    id: "species",
+    // **`S` for the sidebar, and it is the letter `species` used to hold.**
+    // That is the one reassignment in this table a returning reader will feel,
+    // and it is the right way round: the sidebar *contains* the species search,
+    // so a finger that remembers `S` lands on the panel holding the thing it
+    // was reaching for rather than on nothing. Searching moved to `/`, which is
+    // where every other application on the web has put it.
+    id: "sidebar",
     key: "s",
     shift: false,
     kbd: "S",
-    label: "Species",
+    label: "Sidebar",
+    hint: "Show or hide the panel — the search, your taxa and every setting are in it",
+  },
+  {
+    // **`/` for search, and it is the strongest convention this table has ever
+    // been able to follow.** Every letter here had to be argued for against a
+    // word that half-named it; this one needs no argument at all, because a
+    // reader who has used anything on the web in the last decade already knows
+    // it. It cost `isolate` the key, and that trade is free in both directions:
+    // `i` names isolate exactly, where `/` never named anything.
+    //
+    // The word moved too. This opened **Commands**, which is what a palette is
+    // called by the people who build them and not by the people who use them —
+    // and the field has always searched species as well as commands, so the
+    // narrower word was the wrong half of what it does. `P` is unbound now
+    // rather than kept as an alias: two keys for one action is two things to
+    // learn and one of them will be the one printed on nothing.
+    id: "search",
+    key: "/",
+    kbd: "/",
+    label: "Search",
+    hint: `Search ${SPECIES_PHRASE}, the fossil record, and everything this app can do — in one field`,
+  },
+  {
+    // The Taxa list's own add row, which is the species search with the
+    // commands filtered out. `a` names it, and `ages` gave the letter up for
+    // the same reason the axis once gave up `l`: the word that starts with it
+    // is now somewhere else. See the `ages` row for where that one went.
+    id: "add-taxon",
+    key: "a",
+    shift: false,
+    kbd: "A",
+    label: "Add",
     hint:
       `Search ${SPECIES_PHRASE}, in the tree and in the fossil record. ` +
-      "Also reachable from the palette by typing s then space",
+      "Also reachable from the search field by typing s then space",
   },
   {
     // No `⇧R` beside it any more, and the missing variant is the point rather
@@ -219,11 +260,14 @@ export const BINDINGS: readonly Binding[] = [
     hint: "Frame the whole tree",
   },
   {
-    // Unshifted on a US layout and shifted on several others, so this one row
-    // answers both. Nothing else claims `/`, so there is no variant to lose.
+    // `i` for isolate, which names it exactly. It was on `/` for as long as
+    // `/` was free, and gave it up the moment search wanted the key every
+    // reader already knows — a strictly better trade, since a punctuation mark
+    // taught nobody the word.
     id: "isolate",
-    key: "/",
-    kbd: "/",
+    key: "i",
+    shift: false,
+    kbd: "I",
     label: "Isolate",
     hint: "Dim every lineage except the path to the selected node",
   },
@@ -305,12 +349,24 @@ export const BINDINGS: readonly Binding[] = [
     hint: "Cycle the words on the canvas: off, scientific names, common names",
   },
   {
+    // **`D` over the word Dates, and the word moved so the letter could.** The
+    // control was `Ages` on `a`, and `a` is the only letter that names *add* —
+    // which the Taxa list needed the moment the sidebar took `s`. So this row
+    // took the same trade the axis took when the labels wanted `l`: it kept a
+    // letter that names its own control by changing which word names it.
+    //
+    // "Dates" is not a concession. What the switch prints is a mark's date, a
+    // bound or a fossil's range, and for an audience of curious people rather
+    // than systematists *date* is the ordinary word for all three — "age" is a
+    // duration in English and a position here, which is the one confusion this
+    // canvas can least afford. The store, the URL and every gate still say
+    // `ages`; that is the internal name and it has not moved.
     id: "ages",
-    key: "a",
+    key: "d",
     shift: false,
-    kbd: "A",
-    label: "Ages",
-    hint: "Show or hide the age on every mark. The axis still says when",
+    kbd: "D",
+    label: "Dates",
+    hint: "Show or hide the date on every mark. The axis still says when",
   },
   {
     // **`E` over the word Fullscreen**, which is the second row here whose
@@ -346,12 +402,12 @@ export const BINDINGS: readonly Binding[] = [
     hint: "Fill the screen with the canvas — a wide tree gets the browser's chrome back as time axis. Press again to leave, or Escape",
   },
   {
-    // On the bar beside share rather than among the rest, because both are
+    // In the sidebar beside share rather than among the rest, because both are
     // one-way: this one can destroy an hour of work and is the only action in
     // the app that asks first. It is also the one binding whose loss on a phone
     // would be felt — the reader there cannot fall back to a key — which is
-    // what the palette behind `PaletteFab` is for, and why every button here
-    // has a command as well as a letter.
+    // what the palette behind the search pill is for, and why every control
+    // here has a command as well as a letter.
     id: "clear",
     key: "c",
     shift: false,

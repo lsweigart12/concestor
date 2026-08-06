@@ -96,10 +96,6 @@ import { useBootLights } from "./bootLight";
 import type { Emitter } from "./biolum";
 import { flareOf } from "./biolum";
 import { land } from "./flow";
-import { BiolumToggle } from "../chrome/BiolumToggle";
-import { BiolumRenderer } from "./gl/renderer";
-import { AgesToggle, LabelsToggle } from "../chrome/LabelModes";
-import { PaletteFab } from "../chrome/PaletteFab";
 import { prefersReduced } from "../chrome/motion";
 
 const nodeTypes = { mark: NodeMark };
@@ -136,8 +132,18 @@ const EDGE_PAD = 26;
  * when the type gets small, so this is the only thing keeping them legible.
  */
 const MIN_PLOT_W = 340;
-/** The time axis is fixed to the bottom and would otherwise cover a lineage. */
-const AXIS_RESERVE = 104;
+/**
+ * The bottom strip the fit keeps clear, in screen px.
+ *
+ * Two occupants, not one: the time axis is pinned to the bottom of the canvas
+ * and the provenance key now sits on the shelf above it, bottom left. It was
+ * 104 while the axis carried a caption row under its ruler and the key was in
+ * that row; the row is gone, the strip is 20px shorter, and the key is a
+ * separate line above it — so the sum barely moved and the reason it is what it
+ * is has changed completely. `--axis-h` is the strip itself and
+ * `.canvas-legend` is what rides on top of it; this is both plus a margin.
+ */
+const AXIS_RESERVE = 96;
 const MAX_FIT_ZOOM = 1.4;
 
 /**
@@ -166,15 +172,6 @@ const T_DRAW = 120;
 const STAGGER = 96;
 
 /**
- * Whether this browser can draw the bioluminescent mode at all.
- *
- * Module scope: it is a property of the machine, it cannot change while the
- * page is open, and probing it per render would create and discard a WebGL
- * context on every pass.
- */
-const BIOLUM_AVAILABLE = BiolumRenderer.supported();
-
-/**
  * The prop-drilling channel from `App` through `Graph` to `TimeAxis`,
  * `DrillLane` and `NodeMark`.
  *
@@ -195,21 +192,18 @@ export interface GraphProps {
   onFocus: (idx: number | null) => void;
   isolate: boolean;
   axisMode: AxisMode;
-  /** The axis footer is a switch as well as a label. */
-  onAxisMode: (m: AxisMode) => void;
   /**
-   * Which words the marks carry, and whether they print an age.
+   * Which words the marks carry, and whether they print a date.
    *
-   * Two switches rather than one, and both are session state rather than view
-   * state — they say how one reader wants the canvas drawn, so they are not in
-   * the link. They land on the canvas rather than the control bar for the reason
-   * `BiolumToggle` states: the bottom edge holds the controls that change *how
-   * the canvas is drawn*, and the top bar the ones that change *what is on it*.
+   * Read here and switched in the sidebar — these arrive as values with no
+   * setter beside them, which is the shape every canvas-mode prop now has. The
+   * four switches were on three different edges of the canvas and are one set:
+   * *the controls that change how the canvas is drawn rather than what is on
+   * it*. `sidebar/Sidebar.tsx` is where the set finally sits together, and this
+   * component's job shrank to drawing what they say.
    */
   labels: LabelMode;
-  onLabels: (m: LabelMode) => void;
   ages: boolean;
-  onAges: (v: boolean) => void;
   intervals: TimescaleInterval[] | null;
   fitSignal: { kind: "all" | "selection"; token: number } | null;
   /** Reports whether the canvas is already showing the fit. */
@@ -220,6 +214,12 @@ export interface GraphProps {
    * The canvas cannot ask — the card is a sibling, `position: fixed`, and
    * measuring it from here would make the layout depend on the DOM it produces.
    * What it does with the answer is `canvas/viewport.ts`.
+   *
+   * `vw` is the *canvas's* width rather than the window's now that the sidebar
+   * takes its own width out of the layout, so every threshold below is measured
+   * against the strip the tree actually has. That makes `MIN_FREE_W`'s refusal
+   * sharper rather than looser: a wide panel and an open card can leave too
+   * little to reframe into, and the reserve is refused exactly there.
    */
   cardOpen: boolean;
   /** The segment whose drill-down lane is open. Lives in the URL. */
@@ -242,32 +242,6 @@ export interface GraphProps {
    * the point, for what it is not allowed to do.
    */
   biolum: boolean;
-  onBiolum: (v: boolean) => void;
-  /**
-   * Nothing is drawn, so the empty canvas's invitation is on screen.
-   *
-   * Passed rather than read off `induced`, because it is the same question the
-   * app asks to decide whether to draw that invitation at all and the two must
-   * answer alike — a panel drawn where the block is drawn is the collision this
-   * exists to prevent. `App.tsx`'s `nothingDrawn` is the one expression.
-   */
-  empty: boolean;
-  /**
-   * Open the command palette — the whole of the chrome on a narrow window.
-   *
-   * The button is here rather than beside the control bar it replaces because
-   * of one number: it rides `--axis-h + --lane-h` so an open drill lane pushes
-   * it up, and this component is the only thing that knows the lane's height.
-   * `chrome/PaletteFab.tsx` argues the swap.
-   */
-  onPalette: () => void;
-  /**
-   * The invitation after an opening, when the bar cannot carry it — and the
-   * words, not a flag. The button is unlabelled, so a pulse with nothing beside
-   * it is a light the reader cannot read. `chrome/PaletteFab.tsx` says why the
-   * sentence travels with the signal rather than beside it.
-   */
-  tip?: string;
 }
 
 function Inner(props: GraphProps) {
@@ -280,11 +254,8 @@ function Inner(props: GraphProps) {
     onFocus,
     isolate,
     axisMode,
-    onAxisMode,
     labels,
-    onLabels,
     ages,
-    onAges,
     intervals,
     fitSignal,
     onFitState,
@@ -295,10 +266,6 @@ function Inner(props: GraphProps) {
     grafts,
     holdMaxAge = null,
     biolum,
-    onBiolum,
-    empty,
-    onPalette,
-    tip,
   } = props;
 
   const rf = useReactFlow();
@@ -969,10 +936,57 @@ function Inner(props: GraphProps) {
     return scheduleFit(30, reduced ? 0 : 380);
   }, [laneH, scheduleFit, reduced]);
 
+  /**
+   * The panel moved, so the tree must not appear to.
+   *
+   * The canvas is `left: var(--sidebar-w)` and React Flow's transform is
+   * relative to the canvas, so every pixel the panel's edge moves is a pixel
+   * the whole tree slides sideways on screen. Toggling a 336px panel threw the
+   * tree a third of a window to one side under the reader's eyes, and dragging
+   * the panel's edge dragged the tree along with it.
+   *
+   * **Two answers, and which one applies is the same question the card's
+   * reserve asks.** A reader sitting on the fit is looking at *the whole tree*,
+   * and the honest response to a canvas that changed size is to frame the whole
+   * tree in the new one — so it refits, and the tree is never left behind the
+   * panel that just opened over it. A reader who has zoomed into a corner is
+   * looking at *something*, and refitting would take it away from them; there
+   * the viewport takes the opposite shift and the picture stays exactly where
+   * it was.
+   *
+   * It runs off `vw`, which is the only signal there is: a left-hand panel
+   * cannot change the canvas's offset without changing its width, and React
+   * Flow reports width from a `ResizeObserver`, so this fires on every frame of
+   * the CSS transition — the correction arrives in the same increments the
+   * slide does, and the refit is debounced by `scheduleFit` into one. A window
+   * resize changes `vw` and *not* the offset, so the delta is zero and nothing
+   * happens, which is right: that is the browser moving the canvas, not us.
+   */
+  const lastLeft = useRef<number | null>(null);
+  useEffect(() => {
+    const el = canvasRef.current;
+    if (!el || unlaidOut(el)) return;
+    const left = el.getBoundingClientRect().left;
+    const was = lastLeft.current;
+    lastLeft.current = left;
+    // The first measurement establishes the baseline and moves nothing. There
+    // is no "before" to hold still against on the frame the canvas appears.
+    if (was === null || was === left) return;
+    if (atFit) return scheduleFit(30, reduced ? 0 : 300);
+    const v = rf.getViewport();
+    rf.setViewport({ x: v.x + (was - left), y: v.y, zoom: v.zoom });
+    return;
+  }, [vw, rf, atFit, scheduleFit, reduced]);
+
   // And the card, for exactly the reason above: it is the same event on the
   // other axis. Taking the reserve has already narrowed the plot by the time
   // this runs, so the fit is being asked to frame a tree that is genuinely a
   // different shape, not the old one pushed left.
+  //
+  // The sidebar's own width is deliberately *not* in this set. Dragging it is
+  // an ordinary container resize, and a canvas that refits on one takes the
+  // view away from a reader who had zoomed into a corner — which is the same
+  // rule the reserve's lag above encodes.
   const lastReserved = useRef(reserved);
   useEffect(() => {
     if (lastReserved.current === reserved) return;
@@ -1253,104 +1267,22 @@ function Inner(props: GraphProps) {
         />
       </ReactFlow>
       {/*
-        The canvas-mode chips, stacked bottom-left above the axis. Three with a
-        tree on screen, one without.
+        The canvas-mode chips and the palette button both stood here, on the
+        bottom edge, and both are gone rather than moved twice.
 
-        One stack, because they are one set: controls that change how the canvas
-        is *drawn* rather than what is on it. The time scale is a fourth member
-        of that set and is deliberately **not** in this stack — it stays under
-        the timeline, on the axis footer, because that is the thing it changes
-        and a control that redraws the ruler belongs on the ruler. It wears the
-        same anatomy as these three, which is what says they are one family
-        without moving it away from what it does; `chrome/TimeScaleToggle.tsx`
-        carries the rest.
+        The chips were labels, dates and the light, stacked bottom left above
+        the axis, with the time scale wearing the same anatomy on the axis
+        footer — one set of four spread over two edges because each had a local
+        argument for where it sat. They are together in the sidebar now, and
+        `sidebar/Sidebar.tsx` records why the strongest of those local arguments
+        lost: a control belongs on the thing it changes, but a *set* has to be
+        beside itself or nobody reads it as one.
 
-        The reading order is the reader's — the words first, then the figure
-        that annotates them, then the light — so the two that change what a
-        label says sit above the one that changes nothing about the data at all.
-
-        **On an empty canvas it is one chip, not none**, and the difference
-        between the two that go and the one that stays is the difference between
-        annotating something and drawing something. `labels` and `ages` annotate
-        *marks*: with none on screen they are switches a reader can throw and
-        watch do nothing at all, which is the failure the bar already refuses
-        when it disables `fit`, `isolate` and `step` on the same canvas and the
-        palette refuses by dropping `fit-all` from the list. Bioluminescence has
-        never been in that set — its subject is the water and what is lit in it,
-        and the empty canvas is not empty. It carries the invitation, the
-        invitation emits, and the mode's own rule is satisfied by that rather
-        than bent for it: *the thing on the canvas is the light source*.
-        `bootLight.ts` is the argument in full and `Water.tsx`'s header is where
-        that sentence used to be written the narrower way.
-
-        All three keep their commands either way, which is the rule the narrow
-        window already stands on: `L`, `A` and `B` stay bound, the palette
-        carries all three, and the settings are held in `sessionStorage`, so a
-        reader who sets one here has it waiting on the canvas the panel comes
-        back to.
-
-        The collision this used to dodge was measured again rather than assumed.
-        The empty canvas's block is a centred column ending in three key rows,
-        and on a window roughly 620–860px wide and under about 880 tall the last
-        of them — `P` · *Everything this can do* — was drawn straight through
-        the `LABELS` chip, which is the **top** row of the three. One chip is
-        that stack's bottom row alone, some eighty pixels lower, and re-measured
-        at 640×760, 700×700 and 860×880 it clears the block at every size where
-        the block is drawn at all. What was refused then is still refused:
-        reserving this panel's shelf in `.boot`'s padding would move the
-        invitation up on every window to clear a panel that is beside it on
-        none of them.
+        The palette button was the whole of the chrome below 620px. It has no
+        job left: `sidebar/SearchEntry.tsx` is the way in at every width, and it
+        is the same object collapsed as expanded rather than a second control
+        standing in for a bar that is not drawn.
       */}
-      {empty ? (
-        /*
-          No `LabelsToggle`, no `AgesToggle`, and no caption saying why — the
-          panel is simply shorter. A disabled row is a control explaining
-          itself, and this one has nothing to explain: what a reader wants from
-          an empty canvas is a species on it.
-        */
-        /*
-          `is-lone` carries no rule of its own and is not meant to: a one-row
-          grid needs nothing a three-row one does not. It is a *name* for the
-          variant, so the narrow-window block at the foot of styles.css can say
-          which panel it is measuring against the empty canvas's block — that
-          rule is about this shape and would be wrong about the other one.
-        */
-        BIOLUM_AVAILABLE && (
-          <div className="canvas-modes is-lone">
-            <BiolumToggle on={biolum} onChange={onBiolum} />
-          </div>
-        )
-      ) : (
-        <div className="canvas-modes">
-          <LabelsToggle mode={labels} onChange={onLabels} />
-          <AgesToggle on={ages} onChange={onAges} />
-          {/*
-            No WebGL2, no switch.
-
-            The mode is one instanced draw call and six passes on the GPU; there
-            is no software path and there is not going to be one. A switch that
-            is offered and then turns the canvas black is worse than a switch
-            that is not offered, and this is an optional flourish on a canvas
-            that is complete without it. Asked once, at module scope, because
-            the answer cannot change during a session — and asked in both
-            branches above, because the empty canvas offers the same switch on
-            the same terms.
-          */}
-          {BIOLUM_AVAILABLE && <BiolumToggle on={biolum} onChange={onBiolum} />}
-        </div>
-      )}
-      {/*
-        The other side of the same shelf, and the only chrome below 620px.
-
-        This panel and the control bar are both gone at that width and this one
-        button stands in for both — the palette behind it can do everything they
-        can, which is a rule the app already kept rather than something arranged
-        for the occasion. It sits here rather than beside the bar because it
-        rides `--lane-h` exactly as the panel opposite does, so a drill lane
-        opening under it moves it instead of covering it.
-        `chrome/PaletteFab.tsx` carries the argument.
-      */}
-      <PaletteFab onOpen={onPalette} {...(tip !== undefined ? { tip } : {})} />
       {activeDrill && (
         <DrillLane
           upper={endpoint(activeDrill.upper, ind, nodeMap)}
@@ -1365,6 +1297,25 @@ function Inner(props: GraphProps) {
           onPick={onPickFossil}
         />
       )}
+      {/*
+        The key, on the canvas rather than under the ruler.
+
+        It rode a footer line below the axis for as long as that line had three
+        cells in it — the scale switch at one end, the provenance links at the
+        other, the key between them. Both ends moved into the sidebar, and what
+        was left was a 26px caption row holding the whole strip that far off the
+        bottom of the window for one centred phrase. So the strip became the
+        ruler alone and sits flush, and the key took the shelf the mode panel
+        used to have: bottom left, riding `--axis-h + --lane-h` so an open drill
+        lane pushes it up rather than swallowing it.
+
+        It is still the only thing on this edge that is about the *picture* —
+        the ticks say when, and this says how to read what is drawn between
+        them — which is why it stays down here rather than joining the panel.
+      */}
+      <div className="canvas-legend">
+        <Legend edges={patterns} />
+      </div>
       <TimeAxis
         maxAge={lay.maxAge}
         width={vw || window.innerWidth}
@@ -1372,8 +1323,6 @@ function Inner(props: GraphProps) {
         toAge={toAge}
         intervals={intervals}
         axisMode={axisMode}
-        onAxisMode={onAxisMode}
-        legend={<Legend edges={patterns} />}
       />
     </div>
   );

@@ -118,11 +118,18 @@ export function Water({
     /*
       Where this canvas sits in the window.
 
-      Zero today — `.canvas` is `position: fixed; inset: 0` — and read anyway,
-      because the empty state's lights are measured with
-      `getBoundingClientRect`, which is viewport-relative, and a renderer that
-      assumed the two origins coincide would be wrong silently and only on the
-      day somebody insets the canvas.
+      It was zero for this file's whole life — `.canvas` was `position: fixed;
+      inset: 0` — and it was read anyway, because the empty state's lights are
+      measured with `getBoundingClientRect`, which is viewport-relative, and a
+      renderer that assumed the two origins coincide would be wrong silently
+      "and only on the day somebody insets the canvas".
+
+      **That day arrived.** The canvas is `left: var(--sidebar-w)`, so this is
+      the panel's width whenever the panel is open, and every light measured off
+      a DOM element has to be brought back into canvas space through it. What
+      the note did not anticipate is the *other* half of the same change — the
+      element resizing without the window resizing — which is the `ResizeObserver`
+      below, and which is what actually broke.
     */
     let originX = 0;
     let originY = 0;
@@ -206,6 +213,28 @@ export function Water({
       resize();
       if (reduced) draw();
     };
+    /*
+      **The canvas resizes without the window resizing**, and until the sidebar
+      arrived it never did — `.canvas` was `position: fixed; inset: 0`, so its
+      box and the window's changed together and a `resize` listener caught
+      everything.
+
+      It is `left: var(--sidebar-w)` now. Toggling the panel changes this
+      element's width and its origin, the window is untouched, and the drawing
+      buffer keeps whatever size it was given last: measured, a 1020px canvas
+      still holding a 756px buffer, stretched over it by CSS. Every river was
+      drawn a fifth of a screen to the right of the branch it belongs to.
+      Nothing errors and the mode looks broken.
+
+      A `ResizeObserver` on the element is the honest signal — it is the
+      element's own box that this needs, not the window's — and it fires on
+      every frame of the panel's transition, so the buffer tracks the slide
+      rather than snapping at the end of it. The window listener stays beside
+      it: the observer reports a *size*, and `resize()` also reads the origin,
+      which a window change can move without the size changing.
+    */
+    const ro = new ResizeObserver(onResize);
+    ro.observe(cv);
     window.addEventListener("resize", onResize);
     document.addEventListener("visibilitychange", onVisibility);
 
@@ -268,6 +297,7 @@ export function Water({
       settle();
       return () => {
         window.clearInterval(poll);
+        ro.disconnect();
         window.removeEventListener("resize", onResize);
         document.removeEventListener("visibilitychange", onVisibility);
         cv.removeEventListener("webglcontextlost", onLost);
@@ -278,6 +308,7 @@ export function Water({
     start();
     return () => {
       stop();
+      ro.disconnect();
       window.removeEventListener("resize", onResize);
       document.removeEventListener("visibilitychange", onVisibility);
       cv.removeEventListener("webglcontextlost", onLost);

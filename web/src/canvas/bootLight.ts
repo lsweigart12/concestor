@@ -36,9 +36,10 @@
  * card's pool stays, so the water around them still has something in it.
  *
  * **And one piece of chrome does emit**, which is a boundary this file used to
- * draw absolutely — not the bar, not the panel, not the axis, not the palette.
- * That still holds for all of them except the control that *opens* the palette,
- * on the bar at a wide window and as `PaletteFab`'s circle at a narrow one. The
+ * draw absolutely — not the sidebar, not the axis, not the palette. That still
+ * holds for all of them except the control that *opens* the search, and only
+ * the copy of it that is genuinely over the water: the button in the left-hand
+ * cluster, which is drawn while the panel is shut. The
  * exception earns itself: everything else in the chrome acts on something that
  * is already there, so on an empty canvas it is furniture, while this is the
  * way **in** — the one control whose whole job is that nothing has happened
@@ -106,17 +107,31 @@ export const SOURCES: readonly {
    */
   scope: "boot" | "page";
 }[] = [
-  { kind: "wordmark", sel: ".boot-inner > h1", first: true, scope: "boot" },
   { kind: "card", sel: ".carousel-card", first: true, scope: "boot" },
   /*
-    Two selectors and one kind, because the same control is two elements: the
-    bar's button above 620px and the circle below it, never both. `first` on
-    each is therefore not a narrowing — there is only ever one of either — and
-    a single selector matching both would have to be an `:is()` naming the two
-    anyway, in a file that has to be greppable from the components' side.
+    The way in, and it is the *canvas's* copy of it rather than the panel's.
+
+    This is the one selector here that has to be qualified, and the reason is
+    geometry rather than taste. Every light is measured with
+    `getBoundingClientRect` and brought back into canvas space through
+    `originX`, which is the panel's width while the panel is docked and open —
+    so an element **inside** the panel resolves to a negative x and lights
+    nothing. The panel is also opaque and sits beside the canvas rather than
+    over it, so even at x = 0 there would be nothing to see.
+
+    That is why the wordmark is no longer a source at all. It was one while it
+    was the empty canvas's own `h1`, floating over the water; it moved into the
+    panel with everything else and became a light computed every frame and
+    hidden behind a wall. The `.viewport-slot.is-left` copy of the search is
+    the only chrome left that is genuinely over the water, and it is drawn only
+    while the panel is shut — which is exactly when a light there can be seen.
   */
-  { kind: "command", sel: ".control.is-command", first: true, scope: "page" },
-  { kind: "command", sel: ".palette-fab", first: true, scope: "page" },
+  {
+    kind: "command",
+    sel: ".viewport-slot.is-left button:last-child",
+    first: true,
+    scope: "page",
+  },
 ];
 
 /**

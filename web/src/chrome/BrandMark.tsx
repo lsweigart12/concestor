@@ -9,9 +9,10 @@
  * says what this is and gives you the one control that reaches everything else,
  * in that order.
  *
- * The same mark is the whole of {@link PaletteFab} on a narrow window, which is
- * the through-line that makes the swap legible: the glyph that heads the
- * commands on a desktop *is* the commands on a phone.
+ * It is set twice more in the sidebar's wordmark, standing in for both `O`s in
+ * `CONCESTOR` — which is the cheapest possible statement of what the app is
+ * about: two lineages, the same shape, with the name of the thing they share
+ * between them.
  *
  * **Two things it does not copy from `public/favicon.svg`.** It carries no
  * plate — the icon bakes a rounded black square in because a thin cyan ring is

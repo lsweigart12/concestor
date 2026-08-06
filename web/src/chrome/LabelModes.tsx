@@ -84,8 +84,14 @@ export function AgesToggle({
   return (
     <ModeChip
       className="ages-mode"
-      name="ages"
-      ariaLabel="Ages"
+      // **Dates, not ages** — the word moved so the letter could, and `d` is
+      // what names it. `bindings.ts` has the trade in full: `a` is the only
+      // letter that names *add*, which the Taxa list needed the moment the
+      // sidebar took `s`. The word is also the better one on its own merits for
+      // this audience, since "age" is a duration in ordinary English and a
+      // position here. The store, the URL and every gate still say `ages`.
+      name="dates"
+      ariaLabel="Dates"
       kbd={kbd("ages")}
       value={on}
       onChange={onChange}

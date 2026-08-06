@@ -37,10 +37,21 @@ class NoResizeObserver {
   disconnect(): void {}
 }
 
-/** A media query that says yes to reduced motion and no to everything else. */
+/**
+ * A media query that says yes to reduced motion, yes to a desktop width, and
+ * no to everything else.
+ *
+ * The width half is not a convenience. `sidebar/useSidebar.ts` asks whether the
+ * window is wide enough to *dock* the panel, and a stub answering no puts every
+ * test in this suite behind a drawer that starts shut — so a file about the
+ * chrome would be asserting against an app with none of it drawn. jsdom's
+ * window is 1024 wide, which is genuinely over `DOCK_W`, so answering `true`
+ * here is reporting the environment rather than pretending about it.
+ */
 function stubMatchMedia(): void {
   vi.stubGlobal("matchMedia", (query: string) => ({
-    matches: query.includes("prefers-reduced-motion"),
+    matches:
+      query.includes("prefers-reduced-motion") || query.includes("min-width"),
     media: query,
     onchange: null,
     addEventListener: () => {},
@@ -157,15 +168,16 @@ export async function drawOpening(): Promise<void> {
 }
 
 /**
- * Open the command palette from the bar's own button, and read its rows.
+ * Open the palette from the search pill, and read its rows.
  *
- * Through the button rather than a key, because that is the surface these tests
- * are about — and it is the one control on the bar whose row every other
- * control's row can be reached from.
+ * Through the control rather than a key, because that is the surface these
+ * tests are about — and it is the one control in the app that reaches every
+ * other one's row. It is also the one control that is drawn whether the panel
+ * is open or shut, which is what makes it the right handle here.
  */
 export async function openPalette(): Promise<string[]> {
-  const command = document.querySelector<HTMLElement>(".control.is-command");
-  if (!command) throw new Error("the bar is drawing no command button");
+  const command = document.querySelector<HTMLElement>(".side-search-btn");
+  if (!command) throw new Error("nothing is drawing the search");
   await act(async () => {
     command.click();
     await new Promise((r) => {

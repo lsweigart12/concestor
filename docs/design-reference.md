@@ -65,40 +65,52 @@ filter tween on the same element.
 
 ## Command surface
 
-- **Every binding is a bare letter, and nothing here holds a modifier.** `P`
-  opens the palette, `S` opens it filtered to species, `F` fits, `/` isolates,
-  `N` steps to the next species, `T` switches the time scale, `L` cycles the labels, `A` the ages,
-  `B` the light, `R` adds a random species, `C` clears. The four canvas modes
-  hold the letters that name them, which is why the time scale is on `T` and no
-  longer on `L`: `l` names the labels, where it only ever named one of the two
-  scales it toggled between. Shift is the *variant* of a binding and never a
-  second one, so a reader who learns `F` has already guessed `⇧F`. A variant is only earned
-  where the two halves are the same action pointed at different scopes: `⇧R`
-  drew a random *fossil* until the two corpora became one search, and it was a
-  variant of nothing — the two picks differed in which catalogue the animal was
-  filed in, which is not a thing a reader knows before pressing a key.
+- **Every binding is a bare letter with one deliberate exception, and nothing
+  here holds a modifier.** `/` opens the search, `S` toggles the sidebar, `A`
+  adds a taxon, `F` fits, `I` isolates, `N` steps to the next species, `T`
+  switches the time scale, `L` cycles the labels, `D` the dates, `B` the light,
+  `R` adds a random species, `C` clears, `E` fills the screen. The four canvas
+  modes hold the letters that name them, which is why the time scale is on `T`
+  and no longer on `L`. Shift is the *variant* of a binding and never a second
+  one, so a reader who learns `F` has already guessed `⇧F`. A variant is only
+  earned where the two halves are the same action pointed at different scopes:
+  `⇧R` drew a random *fossil* until the two corpora became one search, and it
+  was a variant of nothing.
   The rule this replaces was a running negotiation with the browser — `⌘L`
   reaches the URL bar and cannot be prevented, `⌘F` is find, `⌘R` is reload —
   and every mnemonic that survived it was shifted twice and wrong. The canvas
   has no text entry, so the letter keys are ours and the chords stay the
   browser's. `web/src/chrome/bindings.ts` is the one table; `matchKey` refuses
   any press holding ctrl, meta or alt, which is what keeps that promise.
+- **`/` is the exception, and it is the only row that needed no argument.** It
+  is what `/` does in every application a reader has already used, which no bare
+  letter here can claim. Taking it set off the one chain of reassignments this
+  table has had, and each hop landed on a better mnemonic than the one before:
+  `isolate` gave up `/`, which named nothing, for `i`, which names it exactly;
+  `s` went to the **sidebar** the search now lives in; that sent *add* to `a`
+  and `ages` to `d` under the name it always should have had, **Dates**, since
+  an age is a duration in ordinary English and a position here. `P` is unbound
+  rather than kept as an alias — two keys for one action is two things to learn
+  and one of them is printed on nothing. `docs/sidebar.md` §9 is the table.
 - **`Tab` is not a letter and is not in the table.** It held `step` until it was
   noticed that the handler prevents the default of everything it matches, which
   meant the focus ring never moved and no button in this app could be reached
   without a pointer. "Keyboard operation is first class" was true of the
   *commands* and false of the controls, and the two were being claimed in one
-  breath. Stepping is `N` now (`⇧N` back) and `Tab` walks the chrome: the marks
-  on the canvas, then the mode panel, the scale, the axis links, the detail card,
-  the control bar.
-- `P` is the root of the command surface. The empty canvas state is the
+  breath. Stepping is `N` now (`⇧N` back) and `Tab` walks the chrome: the
+  panel's switch, the search pill, the sidebar's own contents top to bottom, the
+  resize separator, the marks on the canvas, the detail card, the view cluster.
+- `/` is the root of the command surface. The empty canvas state is the
   command list, not an illustration.
-- **Every action has a command, a key, and a button.** Keyboard operation is
-  first class and not exclusive; the second half of that is new. The control
-  bar on the top edge draws the bindings as real buttons with the key printed
-  on each one — badge first, word second, because the button is how you do it
-  now and the key is how you will do it in a minute. Mouse is a convenience
-  path, never a required one, and the reverse is now also true.
+- **Every action has a command, a key, and a control.** Keyboard operation is
+  first class and not exclusive. The sidebar draws the bindings as real controls
+  with the key printed on each one — badge beside word, because the control is
+  how you do it now and the key is how you will do it in a minute. Mouse is a
+  convenience path, never a required one, and the reverse is also true. The rule
+  is checked rather than read: `App.test.tsx` walks `bindings.ts` against the
+  rendered palette with a named exemption per row, because with the panel shut
+  there is nothing on screen but the canvas, its two corner clusters and the
+  timeline — so a control with no command cannot be reached at all.
 - Palette rows follow Raycast anatomy: icon · title · subtitle ·
   right-aligned accessory metadata.
 - **A species row's icon is its silhouette**, the same one the node will wear
@@ -161,62 +173,60 @@ filter tween on the same element.
   printed two lines under the pointer, so the fallback fired on every row in the
   list to repeat text already on screen.
 - Inline keybind hints on every row, from the same table the buttons read.
-- **The control bar is on the top edge**, under the same fade-to-void the axis
-  uses, not a pill and not a panel. The two questions split by edge — the top
-  says what you can *do*, the bottom says how to *read* what you see. It
-  auto-hides with the rest of the chrome and comes back on hover, because a
-  faded control is still a control. An action that cannot run right now is
-  **disabled, never hidden**: a bar that reshuffles as the selection changes
-  costs the reader the button they were already reaching for, and the tooltip
-  on a greyed one says what would make it work.
-- **The bar's buttons are grouped, and a group wears the mode panel's
-  anatomy** — a small-caps mono caption over a recessed track. It is the same
-  argument three free-floating chips lost above the axis: a reader has to see
-  where the pressable thing starts *without reading any of the words in it*,
-  and a row of bare buttons on scrim gave them nothing to see. Four groups.
-  **Concestor** carries the app's own mark and the one door that reaches every
-  other, because a palette is not a feature and the honest caption over it is
-  the product. **Add species** holds `S` and `R` as **search** and **random** —
-  the caption is the action and the two buttons are the two ways to take it,
-  where they used to read "Species" and "Random", which spent both words on the
-  noun and neither on the difference. **Canvas** is fullscreen, clear and share,
-  opposite corner, paired on acting on the whole of it rather than on anything
-  selected in it — the two one-way members stay adjacent at the far right, and
-  `E` **fullscreen** leads because it is the reversible one and a pointer landing
-  on the near edge of that group should not find `clear` there. It is the second
-  button whose word is not the word its letter came from, after `P` **commands**:
-  a badge teaches the key, a label teaches the action, and *expand* named the
-  gesture on a canvas where expanding already means something about a clade. **Navigate** takes the second
-  row: fit, isolate, next are how you look at what you built, which is what you
-  reach for after there is something to look at.
-- **A control keeps its word at every width the bar is drawn at.** There was a
-  narrow layout once — below 720px the labels went and the badges stayed, on the
-  argument that `ADD SPECIES` over `S R` still names the group. What it shipped
-  was a row reading `S R C F / Tab`, in a window that is far more often a laptop
-  than a phone, asking a reader to know the table the bar exists to teach them.
-  Share then needed an exception to avoid being a button with nothing in it, and
-  the exception is the tell: the rule was hiding the only thing every control
-  has. The bar has **one** width rule now and it is a swap rather than a
-  shortening — see the next bullet. Between 620 and 720 it wraps to a second
-  row, which costs a row of pixels and no meaning.
-- **Below 620px there is no chrome but one round button.** The bar, the
-  canvas-mode panel and the scale switch are all gone, and a 54px circle
-  wearing the app's mark sits bottom right, above the timeline and under a
-  thumb, opening the palette. It is a swap and not a removal, and what makes it
-  one is a rule this app already kept: every control has a command, and the
-  palette's own field searches every species in the tree as well as the command list,
-  so nothing is behind two taps that was behind one. What it buys is the
-  canvas — at 375px the bar is two wrapped rows and the panel is a stack in the
-  corner, over a tree with about 500px of height to draw itself in, and every
-  one of those controls is a target sized for a mouse being hit by a thumb.
-  **One thing is genuinely lost and it is the right one**: `step` has no
-  command, because stepping a selection with no keyboard to step from is
-  meaningless. The button also carries the post-opening invitation, since the
-  bar that would otherwise pulse is not on screen. **The empty canvas's key
-  column goes at the same width and for the same reason** — three badges naming
-  presses a thumb cannot make — which leaves *Learn more about Concestor*
-  centred on its own as the last line of that screen, with no rule beside it to
-  divide it from anything.
+- **Every control lives in the sidebar**, in the order a session takes them:
+  wordmark (which is the door to the about page, as a wordmark is everywhere
+  else), then the way in, then what you have put on the canvas, then how it
+  is drawn, then the things you do once you have stopped building. That is not a
+  taxonomy of the controls, it is the sequence a reader moves through, and it is
+  why the settings sit below the taxa rather than above them. An action that
+  cannot run right now is **disabled, never hidden**: a panel that reshuffles as
+  the selection changes costs the reader the control they were already reaching
+  for, and the tooltip on a greyed one says what would make it work — which is
+  why it is `aria-disabled` and not `disabled`, since a disabled button fires no
+  pointer events and takes the explanation with it.
+- **Sections are captioned in small-caps mono**, the vocabulary this app already
+  uses for a field label. `TAXA` carries a count, because that is what a reader
+  checks after pressing random three times and the only way to know the list is
+  scrolled rather than short; it is absent at zero, where it would say what the
+  empty list already says, louder.
+- **The way in is a pill that hangs out over the canvas.** It spans the panel
+  and keeps going past its right edge, ending in a round cap centred under the
+  panel's toggle. Shut, that cap is all that is left: one element in two states
+  rather than a control and a stand-in for it. It **glows**, and it is the one
+  piece of chrome that does apart from the light — a reader who does not find it
+  has no way to reach the search, a random pick, share, clear or the light
+  itself. Steady, never breathing: a pulsing light at the edge of the eye is the
+  one thing a dark instrument may not do.
+- **It is a button styled as a field, and not a field.** A focusable input that
+  discards keystrokes and opens a dialog is a lie to anybody using a keyboard or
+  a screen reader. There is **no rotating placeholder hint** either: it is
+  transient text, auto-playing motion inside the control a reader is about to
+  use, and a changing accessible description — and the palette already opens on
+  ten pressable examples, which is the honest version of the same idea.
+- **The Taxa list is the layers panel**, borrowed from every canvas application
+  the audience has already used, and it earns its place harder here: the marks
+  are small, they move whenever a species is added, and past a dozen taxa the
+  labels start colliding. A row is a target that never moves and always says the
+  whole name. Clicking one does exactly what clicking its mark does. The add row
+  is at the top and is a row, so it shares the tab order and the vertical rhythm
+  of everything under it.
+- **Two clusters stay on the canvas, in its own corners.** Top left, the panel's
+  switch — it rides the panel's edge as it is dragged and stays put when the
+  panel goes, because a toggle inside the thing it hides has to be duplicated or
+  animated out. Top right, fit, isolate and fullscreen: none of them changes the
+  tree, they change *your view of it*, and a control that acts on the viewport
+  belongs on the viewport. The cluster fades after four still seconds and the
+  panel's switch does not, because a control that puts the whole panel back has
+  to be findable by somebody who has just realised they want it.
+- **`step` has no button any more, and that is not a demotion.** It walked the
+  selection because the marks are small targets on a crowded canvas, and the
+  panel now draws every one of them as a row you cannot miss. It keeps its key
+  and its palette row.
+- **Below `DOCK_W` (940px) the panel floats rather than docking.** An overlay
+  with a scrim, starting shut whatever the stored flag says, leaving a strip of
+  canvas showing beside it. The threshold is measured rather than picked: at the
+  panel's minimum width the canvas still has to clear `MIN_FREE_W`, the
+  narrowest strip worth reframing a tree into.
 - **The one link off the empty canvas carries an arrow.** It was a hairline, a
   line of prose and nothing else, which is the failure the openings card already
   had before it was given a border, except here there is not even a box to
@@ -263,8 +273,14 @@ filter tween on the same element.
   a quantity, and whether something is still alive is a fact about the taxon.
   That fact marks the taxon instead.
 - Dash pattern is the one thing on the canvas a reader cannot infer, and it
-  carries the provenance claim, so it is stated as a **key on the axis footer**
-  — one line, key left, scale right, flat text at the same size. A key, never
+  carries the provenance claim, so it is stated as a **key bottom-left over the
+  canvas, on the shelf above the ruler** — one line of flat text at the axis's
+  own size, riding `--axis-h` plus any open drill lane so a lane pushes it up
+  rather than swallowing it. It sat *under* the ruler for as long as that footer
+  had three cells in it; the other two moved into the sidebar and what was left
+  was a caption row holding the whole strip 26px off the bottom of the window
+  for one centred phrase, so the strip became the ruler alone and sits flush.
+  A key, never
   an explanation: the sentences belong in the node card, one click from the
   node being asked about. It names only the patterns actually drawn, so a fully
   dated tree shows no key at all. It is the narrow exception to "no onboarding
@@ -284,10 +300,13 @@ filter tween on the same element.
 
   `symlog` stays out of it — the name of a transform, not of anything on
   screen; the knee is labelled on the axis where it happens, and the tooltip
-  carries the units and the full word "logarithmic". It wears the control bar's
-  anatomy — badge, then the control — because it is the one binding not drawn
-  on the bar, and this is where the thing it changes lives. The badge sits
-  outside both segments because `L` toggles rather than selects. A first pass
+  carries the units and the full word "logarithmic". It wears the same anatomy
+  as the other three canvas modes — badge, caption, recessed track — because it
+  is one of them, and it sits beside them in the sidebar for that reason. It
+  spent a long time on the axis footer instead, on the rule that a control
+  belongs on the thing it changes; that is a good rule and it lost to a better
+  one, since a set is only legible when its members are beside each other. The
+  badge sits outside both segments because `T` toggles rather than selects. A first pass
   styled the whole thing as flat text on the "no third floating object"
   argument above; that argument is about panels, and reading as prose cost a
   small control the only job it has, which is to look pressable.
@@ -398,6 +417,29 @@ below is that one rule applied to the three things that overlap on the canvas.
 
 ## Layout
 
+- **One column on the left holds every control; the canvas gets everything
+  else.** The chrome used to sit on four edges at once and each placement had a
+  local argument — *a control belongs on the thing it changes* is why the time
+  scale was under the ruler it redraws. The sum failed: a canvas with a hole in
+  each corner asks the reader's eye somewhere different for every kind of thing
+  they might do, and the tree is the product. What is left outside the panel is
+  the canvas, the timeline flush along the bottom, the panel's toggle top-left,
+  three viewport actions top-right, and the detail card flying out from the
+  right. `docs/sidebar.md` is the account.
+- **`--sidebar-w` is the whole contract.** The canvas is inset by it, and
+  everything drawn on the canvas is positioned inside the canvas, so one `left`
+  is the whole of the reflow. It must be written before the first paint, or the
+  fit is computed against a viewport the tree is not in.
+- **The tree does not move when the panel does.** At the fit the canvas refits
+  into its new size; off the fit the viewport takes the opposite shift and the
+  picture stays exactly where it was. Same split the card reserve uses, same
+  reason: a reader who zoomed into a corner did not ask for the whole tree back.
+- **The panel is one fixed width and collapsible, and it is not draggable.** A
+  splitter was built to the full WAI-ARIA contract and removed: there is no
+  width a reader would rather be at, because every row in the panel is a name, a
+  caption or a switch rather than a document that reads better wider. What the
+  drag was really offering was a way to trade panel for canvas, and the toggle
+  already is one — instantly, reversibly, and from the keyboard.
 - Deterministic hierarchical layout. Positions computed, never simulated.
 - **No force-directed layout.** Non-deterministic, wobbles between loads,
   and destroys the reading of ancestry. Not negotiable.
@@ -441,23 +483,29 @@ below is that one rule applied to the three things that overlap on the canvas.
   So the ages switch separately from the words. The rank does not: it is what
   says a derived name is derived, and a control whose only honest setting is on
   is not a control.
-- `F` fit all · `⇧F` fit selection · `/` isolate path to root.
+- `F` fit all · `⇧F` fit selection · `I` isolate path to root.
 
 ## What a label says
 
-Three controls on the bottom-left edge, above the axis, one set: **things that
-change how the canvas is drawn rather than what is on it.** The control bar at
-the top owns the other half of that split.
+Four controls in the sidebar's **Canvas** section, one set: **things that change
+how the canvas is drawn rather than what is on it.** The Taxa list above them
+owns the other half of that split — what is *on* the canvas.
+
+They were three chips stacked bottom-left over the axis plus a fourth on the
+axis footer, and the strongest argument in the whole layout is the one that
+lost: the time scale really does belong on the ruler it redraws, but a set is
+only legible when its members are beside each other. Under the ruler it was a
+switch on its own that happened to wear the panel's anatomy.
 
 **They are drawn as one panel and not as three chips**, and the anatomy is worth
 stating because the first version got all three parts of it wrong:
 
-- **One border, and two columns the rows share.** Each control drawing its own
-  border made a set look like clutter: three widths, three left edges, and the
-  columns inside them starting at three different x positions. The rows share
-  the panel's grid through `subgrid`, so the badges and the switches line up
-  down the stack whatever the words are, and a row with no key leaves its cell
-  empty rather than sliding left.
+- **No border, and the rows line up down a column of fixed width.** Each control
+  drawing its own border made a set look like clutter: three widths, three left
+  edges, and the columns inside them starting at three different x positions.
+  The floating panel solved that with `subgrid`, so that four chips of different
+  widths shared one grid; in a column whose width the reader sets, each row
+  simply spans it and the `subgrid` went with the panel.
 - **The caption stacks above its own switch**, on a line of its own. Given a
   column instead, that column is as wide as the longest word in the *set* —
   `BIOLUMINESCENCE` setting the indent of a row that reads `AGES` — so two of
@@ -485,14 +533,13 @@ stating because the first version got all three parts of it wrong:
   whose whole principle is *the graph is the only light source*. It has no
   border and no fill now, sits at 0.9 opacity until hovered or focused, and
   the chosen option is `--ink-2` on the faintest well that still reads as a
-  container. Chrome here recedes; `.controls` along the top edge has done this
-  from the beginning.
+  container. Chrome here recedes, and has from the beginning.
 
   **The fade was 0.62 and the recession is not its job.** Four surfaces rest
-  under a container opacity — this panel, the idle control bar, the axis links,
-  the scale switch — and each was multiplying an already-quiet ink rung by a
+  under a container opacity — the idle view cluster and the axis links among
+  them — and each was multiplying an already-quiet ink rung by a
   second factor, which is what put this panel's own captions at 1.6:1 and the
-  control bar's at 1.2:1. Recession belongs to the **ink ramp**: that is what
+  chrome's at 1.2:1. Recession belongs to the **ink ramp**: that is what
   four rungs are for, and every rung now clears WCAG AA on `--void` (16.7, 9.6,
   7.6, 6.0) so that the quiet register is quiet rather than absent. The four
   fades share 0.9 because that is the deepest multiply the floor rung survives.
@@ -508,34 +555,23 @@ stating because the first version got all three parts of it wrong:
   is the only chrome that can preview the mode before a reader commits to it.
   The `modified` prop went with the rule — two of three callers were carrying a
   flag nothing read.
-- **The panel is not drawn below 620px**, and neither is the scale switch on the
-  axis footer. All four members of this set go together with the control bar,
-  replaced by the one palette button — see the command surface above. Shortening
-  a control to fit a window it is absent from is not a trade, which is why the
-  question of whether a chip can lose its caption stopped arising.
-- **Nor is it drawn while the canvas is empty**, at any width. These three
-  annotate marks, and with none on screen `labels` and `ages` are switches a
-  reader can throw and watch do nothing — the failure the bar already refuses
-  when it disables `fit`, `isolate` and `step` on that same canvas, and the
-  palette by dropping `fit-all` from the list. Bioluminescence retints the
-  chrome but its subject is the light the tree spills, and with nothing on the
-  tree the water draws none of it. It is a swap and not a removal on the rule
-  the narrow window stands on: `L`, `A` and `B` keep their rows, the palette
-  keeps all three commands, and the settings sit in `sessionStorage`, so a
-  reader who sets one has it waiting on the canvas the panel comes back to.
-  What it also fixes is a collision: the empty canvas's block is centred and
-  this panel is pinned bottom-left, so on a window roughly 620–860px wide and
-  under about 880 tall the last key row — `P` · *Everything this can do* — was
-  drawn through the `LABELS` chip. It arrived with the three-row key column and
-  is on production. Reserving the panel's shelf in that block's padding was the
-  alternative and is worse twice over — it moves the invitation up on every
-  window to clear a panel beside it on none of them, and under about 735px of
-  height the block, the bar and that shelf do not fit in the window at any
-  centring. One flag drives both surfaces (`App.tsx`'s `nothingDrawn`), because
-  a second expression meaning *nearly* "nothing is drawn" puts the badge back on
-  the chip and reports nothing; `web/src/App.test.tsx` is what holds that, by
-  rendering the app and asking whether the invitation and the panel agree.
-
+- **The set is drawn at every width**, and behind the panel's own toggle below
+  `DOCK_W`. There is no width at which two of the four are hidden and two are
+  not, which is the failure the old split made possible and did not quite make.
+- **They are drawn over an empty canvas too, and that branch is gone rather than
+  overruled.** The floating panel drew one chip on an empty canvas and not
+  three: `labels` and `ages` annotate marks, so with none on screen they were
+  switches a reader could throw and watch do nothing — the failure the bar
+  already refused when it disabled `fit`, `isolate` and `step` on that same
+  canvas. That argument was about *the corner of the canvas*, beside the
+  invitation, where the reader's eye already was; a control doing nothing there
+  was noise on the one screen that has to sell the product. In a section
+  captioned CANVAS below a list captioned TAXA, a switch a reader has not
+  reached the point of using is simply further down the panel. It also retires a
+  measured collision: the empty canvas's centred block and a panel pinned
+  bottom-left met on a window roughly 620–860 wide and under about 880 tall, and
+  the last key row was drawn through the `LABELS` chip. Neither element is where
+  it was.
 - **labels: off · common · scientific**, with **common the default** and sitting
   in the middle. The default follows from the audience and nothing else: this is
   for curious people rather than for biologists, so `Human` and `Chimpanzee`
@@ -570,10 +606,14 @@ stating because the first version got all three parts of it wrong:
   they want light drawn. A shared link would otherwise impose one person's
   habits, and in the worst case open on a canvas of unnamed dots. The time
   scale stays in the link, because it is the scale the tree was *read* on.
-- `L` cycles the labels, `A` flips the ages, `B` the light, and `T` is the time
-  scale — moved off `L` when the labels wanted the letter it named better.
-  Cycling is legible on `L` alone because the chip beside it shows where the
-  press landed and what the next one will do.
+- `L` cycles the labels, `D` flips the dates, `B` the light, and `T` is the time
+  scale. Two of the four have moved a letter and both moved the same way: the
+  letter stayed the one that names the control, by changing which word names it.
+  The axis gave `l` up when the labels arrived; `ages` gave `a` up when the Taxa
+  list needed *add*, and became **Dates**, which is the better word for this
+  audience anyway — an age is a duration in ordinary English and a position
+  here. Cycling is legible on `L` alone because the chip beside it shows where
+  the press landed and what the next one will do.
 
 ## The detail card
 
@@ -582,16 +622,27 @@ described here as "the third zoom tier" while the canvas had tiers; it never
 was one — it is opened by a click and closed by `esc`, and the zoom has nothing
 to do with it.
 
-**The card never covers what it is about.** It hangs in the top-right corner
-over a canvas that used to measure itself against the whole window, so opening a
-card on a mark near the present routinely hid that mark, its silhouette and its
-name. On a desktop window the canvas now treats the card's footprint as an edge:
+**The card never covers what it is about.** It flies out from the right-hand
+edge, opposite the sidebar, over a canvas that used to measure itself against
+the whole window — so opening a card on a mark near the present routinely hid
+that mark, its silhouette and its name. On a desktop window the canvas now
+treats the card's footprint as an edge:
 the tree reframes into what is left, timeline and all, exactly as it does when
 the window itself narrows. Where that is refused — too little canvas to draw a
 legible tree in, or a reader who has panned to a view of their own that
 reframing would destroy — the viewport instead makes the smallest pan that
 brings the subject back into the clear. `docs/handoff.md` §3 has the rules and
-the two geometries they need.
+the two geometries they need, and every number in them is measured against the
+canvas rather than the window now that the panel takes its width out of the
+layout.
+
+**It was moved into the sidebar for one iteration and reverted.** One column
+holding everything that is not the tree is the right rule for *controls*, and it
+is the wrong rule for this: a card is about one taxon *on the canvas*, and
+reading it from the same column as the list means looking left, then right, then
+left again — while the panel it covered was the list you were choosing from. The
+panel keeps the list, the card keeps the answer, and the tree stays between
+them.
 
 Its order is the design:
 
@@ -830,7 +881,7 @@ it is chrome flashing over facts the app already holds.
 
 ## The share card
 
-Every view of this app is a URL and the control bar has a button that copies
+Every view of this app is a URL and the sidebar has a button that copies
 it, so a link is how anyone arrives who did not type the domain. What that link
 unfurls into is `web/index.html`'s metadata and `web/public/og.png`, and until
 both existed a shared tree previewed as the bare word "Concestor" with no

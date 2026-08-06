@@ -4,8 +4,8 @@
  *
  * **A hook rather than a wrapper**, and that is a decision about this codebase
  * rather than a taste. `<Tip><button/></Tip>` is the friendlier API and it puts
- * an element into the tree — which here means into `.mode-chip`'s grid, into
- * `.canvas-modes`'s subgrid, into a `<g>` inside the drill lane's single SVG.
+ * an element into the tree — which here means into `.mode-chip`'s own grid and
+ * into a `<g>` inside the drill lane's single SVG.
  * `styles.test.ts` exists because a stray element in one of those fails
  * silently, in text, at a window size nobody is looking at. `useTip` returns
  * event handlers and nothing else: the DOM after this change is the DOM before

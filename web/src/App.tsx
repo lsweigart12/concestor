@@ -21,7 +21,7 @@ import {
   type RandomPool,
   type SearchHit,
 } from "./api";
-import { pickFrom, randomKind, SPECIES_PHRASE } from "./corpora";
+import { pickFrom, randomKind } from "./corpora";
 import { Graph } from "./canvas/Graph";
 import { isScientificItalic } from "./canvas/NodeMark";
 import { Detail } from "./detail/Detail";
@@ -49,7 +49,13 @@ import { forgetRecent, loadRecent, rememberRecent } from "./palette/recent";
 import { OpeningCarousel } from "./chrome/OpeningCarousel";
 import { keysOf, nextOpening, type Opening } from "./openings";
 import { Confirm } from "./chrome/Confirm";
-import { Controls, type ControlGroup, type ControlId } from "./chrome/Controls";
+import {
+  CanvasLeftControls,
+  ViewportControls,
+  type ViewportAction,
+} from "./chrome/CanvasChrome";
+import { Sidebar } from "./sidebar/Sidebar";
+import { useSidebar } from "./sidebar/useSidebar";
 import { PendingLine, usePending } from "./chrome/Pending";
 import { kbd, matchKey } from "./chrome/bindings";
 import { FULLSCREEN_AVAILABLE, useFullscreen } from "./chrome/fullscreen";
@@ -119,31 +125,28 @@ const LABEL_TURN: Record<
  */
 
 /**
- * Which controls are pointed at once an opening has finished drawing, and what
- * the tray under them says.
+ * What is pointed at once an opening has finished drawing, and what the line
+ * beside it says.
  *
- * The three ways to put something of your own on the canvas, which is exactly
- * the bar's whole `lead` slot — and it has to stay exactly that, because
- * `Controls` outlines a contiguous run of *groups* whose every action is marked
- * here. A fourth button in either group would silently take the outline off
- * both. That grouping is the claim: it is **one** invitation with three doors,
- * and three separately decorated buttons said there were three invitations.
+ * It used to be three buttons in the control bar's lead slot, wrapped in one
+ * outline, because the claim is that this is **one** invitation with three
+ * doors rather than three invitations. The bar is gone and the claim survives
+ * intact — it is now the search pill, which is the one door that reaches all of
+ * them: the field searches species and commands together, so *add a taxon* and
+ * *surprise me* are both one keystroke past it.
  *
  * The line was a sentence on the end of the answer's own toast once — "press S
  * to search, or R for a surprise" — and both halves of that were wrong. It
  * competed with the reply to the question the reader had actually asked, and it
  * named keys, when what a reader who has only ever pressed a carousel card is
- * missing is *where*. Under the buttons it needs neither: the badges are
- * directly above it, so the copy can be the invitation and nothing else.
+ * missing is *where*. Beside the pill it needs neither.
  *
- * **The line goes to two surfaces and `TIPPED` only to one.** Below 620px there
- * are no three doors — the bar is not drawn and `chrome/PaletteFab.tsx` is the
- * whole of the chrome — so the outline has nothing to go round and the sentence
- * comes out the left of that button instead. It is the same string sent the same
- * way to both, which is deliberate: an invitation worded differently depending
- * on the window is two invitations.
+ * **It goes to one surface now, which is the change worth noticing.** The
+ * sentence used to be handed to the control bar *and* to the narrow window's
+ * palette button, spread the same way to both, precisely so that two surfaces
+ * could not be made to say different things about one moment. There is one
+ * surface at every width, so the safeguard has nothing left to protect.
  */
-const TIPPED: ControlId[] = ["palette", "species", "random-species"];
 const TIP_LINE = "Now put something of your own beside it";
 
 /**
@@ -205,6 +208,15 @@ export default function App() {
    * account, and it is the only write to it from outside that hook.
    */
   const { about, setAbout, reachable, timescale, starters } = useBoot();
+  /**
+   * The panel: how wide, whether it is open, and whether it is docked.
+   *
+   * `sidebar/useSidebar.ts` owns all three and writes `--sidebar-w` to the
+   * document, which is the one number the whole layout reads — the canvas is
+   * inset by it, and the axis, the drill lane and the toasts are positioned
+   * inside the canvas, so they follow for free.
+   */
+  const sidebar = useSidebar();
   // Closed on load. The canvas is the page; the boot hint says how to open it.
   const [paletteOpen, setPaletteOpen] = useState(false);
   /** Non-null when the palette is answering about one corpus only. */
@@ -601,7 +613,7 @@ export default function App() {
    * first press is spent leaving.
    *
    * Three events cover it: a key, a pointer going down anywhere (a mark, a
-   * control-bar button, the carousel), and a wheel, which is how the canvas is
+   * sidebar control, the carousel), and a wheel, which is how the canvas is
    * panned and zoomed and reaches no handler of ours at all.
    */
   useEffect(() => {
@@ -936,8 +948,13 @@ export default function App() {
         },
       },
       {
+        // **Dates**, which is what the switch says. The internal name is still
+        // `ages` — the store, the URL and every gate use it — and this row is
+        // the reader's, so it takes the reader's word. `bindings.ts` has why
+        // the two parted: `a` went to *add* when the sidebar took `s`, and the
+        // control kept a letter that names it by changing which word names it.
         id: "ages",
-        title: tree.ages ? "Hide ages" : "Show ages",
+        title: tree.ages ? "Hide dates" : "Show dates",
         subtitle: tree.ages
           ? "Leave the dates to the axis"
           : "Print each mark's date, bound or fossil range",
@@ -1303,6 +1320,43 @@ export default function App() {
     settle();
   }, [settle]);
 
+  /**
+   * Toggle the panel, and take the focus ring with the control.
+   *
+   * The switch has two mount points — the panel's header while it is open, the
+   * canvas cluster while it is shut — and pressing one unmounts it. Left alone,
+   * a reader closing the panel from the keyboard is dropped on `body` and has
+   * to tab from the top of the document to get back to the button they were
+   * standing on.
+   *
+   * Only when the press *came from* a toggle, because the same callback is what
+   * `S` runs from anywhere on the canvas and a key press must not move the ring
+   * to somewhere the reader was not.
+   *
+   * **The move happens in an effect and not in a `requestAnimationFrame`.** The
+   * first version used a frame and it silently did nothing: React commits on a
+   * task of its own, so the frame fired while the surviving instance did not
+   * exist yet and the query matched nothing. An effect runs *after* the commit,
+   * which is the only moment both facts are true — the old button is gone and
+   * the new one is in the document.
+   */
+  const restoreToggleFocus = useRef(false);
+  const toggleSidebar = useCallback(() => {
+    restoreToggleFocus.current =
+      document.activeElement instanceof HTMLElement &&
+      document.activeElement.closest(".side-toggle, .viewport-slot.is-left") !==
+        null;
+    sidebar.toggle();
+  }, [sidebar]);
+
+  useEffect(() => {
+    if (!restoreToggleFocus.current) return;
+    restoreToggleFocus.current = false;
+    document
+      .querySelector<HTMLElement>(".side-toggle, .viewport-slot.is-left button")
+      ?.focus();
+  }, [sidebar.open]);
+
   const clearCanvas = useCallback(() => {
     tree.clear();
     setConfirmClear(false);
@@ -1367,10 +1421,13 @@ export default function App() {
       e.preventDefault();
 
       switch (action) {
-        case "palette":
+        case "sidebar":
+          toggleSidebar();
+          break;
+        case "search":
           openPalette();
           break;
-        case "species":
+        case "add-taxon":
           openSpecies();
           break;
         case "fit":
@@ -1460,6 +1517,7 @@ export default function App() {
       dismissAnswer,
       settle,
       fullscreen,
+      toggleSidebar,
     ],
   );
 
@@ -1468,156 +1526,83 @@ export default function App() {
   useWindowKeys(onKey);
 
   /**
-   * The control bar's rows, which are the bindings with their callbacks bound.
+   * The three that act on the view rather than on the tree.
    *
-   * Contextual actions stay in the bar and go grey, rather than appearing and
-   * disappearing as the selection changes: a bar that reshuffles under a
-   * reader's hand costs them the button they were reaching for, and the
-   * tooltip on a disabled one says what would make it work.
+   * They are the whole of what is left on the canvas, top right, and what they
+   * have in common is the argument for the cluster existing: none of them
+   * changes what is drawn, they change how much of it you can see. Everything
+   * else the old control bar carried is in the sidebar, where it is about a
+   * thing rather than about a look.
+   *
+   * **Disabled rather than hidden**, exactly as the bar had it: a cluster that
+   * reshuffles as the selection changes costs a reader the button they were
+   * reaching for, and a greyed button with a reason in its tooltip says more
+   * than an absent one. The single exception is fullscreen on a browser that
+   * has none, which is absent — `chrome/CanvasChrome.tsx` argues why that is
+   * the opposite call and not an inconsistency.
    */
-  const controls: ControlGroup[] = useMemo(() => {
-    const groups: ControlGroup[] = [
-      // The wordmark, and under it the one door that reaches every other. The
-      // caption is the product rather than the feature because a palette is not
-      // a feature: `Commands` is what the button does and `Concestor` is what
-      // you are in. See `BrandMark.tsx`.
+  const viewportActions: ViewportAction[] = useMemo(() => {
+    const out: ViewportAction[] = [
       {
-        name: "Concestor",
-        slot: "lead",
-        brand: true,
-        actions: [{ id: "palette", run: openPalette }],
+        id: "fit",
+        glyph: "⤢",
+        run: () => setFitSignal({ kind: "all", token: Date.now() }),
+        ...(empty
+          ? { disabledBecause: "Nothing on the canvas to frame yet" }
+          : viewFit
+            ? { disabledBecause: "The whole tree is already framed" }
+            : {}),
       },
-      // The caption is the whole action and the two buttons are the two ways to
-      // take it — which is the shape this pair actually has: `S` and `R` both
-      // put a species on the canvas and differ only in who chooses it. Naming
-      // the corpus twice, as "Species" and "Random" side by side once did,
-      // spent both words on the noun and neither on the difference.
       {
-        name: "Add species",
-        slot: "lead",
-        actions: [
-          { id: "species", label: "Search", run: openSpecies },
-          { id: "random-species", run: () => void randomPick() },
-        ],
-      },
-      // Opposite the lead group, and the pairing is what these have in common
-      // rather than what they do: every one of them acts on the canvas as a
-      // whole rather than on anything selected on it.
-      //
-      // Two of the three are also one-way — the kind of thing you reach for
-      // when you have stopped building, one to send it and one to start over —
-      // and they stay adjacent at the far right so that reading remains
-      // available. Fullscreen leads instead of joining them: it is the
-      // reversible one, and a reader whose pointer lands on the near edge of
-      // this group should not find `clear` there.
-      {
-        name: "Canvas",
-        slot: "trail",
-        actions: [
-          // Absent outright where the browser has no fullscreen — not disabled.
-          // `chrome/fullscreen.ts` is the argument, and it is the same one
-          // `BIOLUM_AVAILABLE` makes: a greyed button explaining that this
-          // browser will never do it tells the reader nothing they can act on.
-          ...(FULLSCREEN_AVAILABLE
-            ? [
-                {
-                  id: "fullscreen" as const,
-                  run: fullscreen.toggle,
-                  active: fullscreen.on,
-                },
-              ]
-            : []),
-          {
-            id: "clear",
-            run: () => setConfirmClear(true),
-            ...(empty
-              ? { disabledBecause: "The canvas is already empty" }
-              : {}),
-          },
-          {
-            // The one control with no key, so it carries its own words —
-            // `chrome/Controls.tsx` is why they are required rather than
-            // optional, and `bindings.ts` is why there is no letter to print.
-            id: "share",
-            label: "Share",
-            // **Not "every view of this app is a URL"**, which is what this
-            // said and which is the same false claim the palette row carried,
-            // in the same words, on the more visible of the two surfaces — a
-            // mouse user hovers this button, where the row needs `P` first.
-            // Fixing one and leaving the other is how a claim survives being
-            // corrected. See the palette's `share` row for what does travel.
-            hint: "Copy a link that opens on this exact tree — the labels, ages and light stay with you",
-            run: share,
-          },
-        ],
-      },
-      // The second row: not what you put on the canvas but how you look at it.
-      {
-        name: "Navigate",
-        slot: "rest",
-        actions: [
-          {
-            id: "fit",
-            run: () => setFitSignal({ kind: "all", token: Date.now() }),
-            ...(empty
-              ? { disabledBecause: "Nothing on the canvas to frame yet" }
-              : viewFit
-                ? { disabledBecause: "The whole tree is already framed" }
-                : {}),
-          },
-          {
-            id: "isolate",
-            run: () => tree.toggleIsolate(),
-            active: tree.view.isolate,
-            ...(focusedIdx === null
-              ? {
-                  disabledBecause:
-                    "Select a node first — isolate dims everything off its path",
-                }
-              : {}),
-          },
-          {
-            id: "step",
-            run: () => stepSelection(false),
-            ...(tree.induced.leaves.length === 0
-              ? {
-                  disabledBecause:
-                    "Add a species and this steps through the selection",
-                }
-              : {}),
-          },
-        ],
+        id: "isolate",
+        glyph: "◎",
+        run: () => tree.toggleIsolate(),
+        active: tree.view.isolate,
+        ...(focusedIdx === null
+          ? {
+              disabledBecause:
+                "Select a taxon first — isolate dims everything off its path",
+            }
+          : {}),
       },
     ];
-    // Pointed at once an opening's answer has been read rather than the moment
-    // it lands — `tipShown` is the whole of that timing — and read from {@link
-    // TIPPED} rather than set row by row, so the bar cannot light a button the
-    // invitation never meant. The rows themselves are untouched: the tip is a
-    // state of the moment, not of the action.
-    //
-    // This and the tray below must read the *same* value. They are the outline
-    // and the line inside it, and gating them apart draws a box around three
-    // buttons with nothing to say about why.
-    if (!tipShown) return groups;
-    return groups.map((g) => ({
-      ...g,
-      actions: g.actions.map((a) =>
-        TIPPED.includes(a.id) ? { ...a, tip: true } : a,
-      ),
-    }));
-  }, [
-    openPalette,
-    openSpecies,
-    randomPick,
-    share,
-    stepSelection,
-    tree,
-    focusedIdx,
-    empty,
-    viewFit,
-    tipShown,
-    fullscreen,
-  ]);
+    if (FULLSCREEN_AVAILABLE) {
+      out.push({
+        id: "fullscreen",
+        glyph: "⛶",
+        run: fullscreen.toggle,
+        active: fullscreen.on,
+      });
+    }
+    return out;
+  }, [tree, empty, viewFit, focusedIdx, fullscreen]);
+
+  /**
+   * The rows of the Taxa list, which are the selection with its lineages
+   * resolved.
+   *
+   * `induced.leaves` rather than `view.keys`, because it is the list the canvas
+   * actually draws and the two are not the same: a key that resolved to nothing
+   * is in the view and on no branch, and a taxon whose lineage is still in
+   * flight has a key and no node. Deriving from what is drawn means the panel
+   * and the canvas cannot disagree about what is on screen — the same reason
+   * `graftSet` is rebuilt from the induced subtree rather than stored.
+   */
+  const taxaRows = useMemo(
+    () =>
+      tree.induced.leaves
+        .map((i) => tree.nodes.get(i))
+        .filter((n): n is PathNode => n !== undefined),
+    [tree.induced.leaves, tree.nodes],
+  );
+
+  const fossilRows = useMemo(
+    () =>
+      tree.view.fossils
+        .map((n) => tree.fossils.get(n))
+        .filter((f): f is FossilTaxon => f !== undefined),
+    [tree.view.fossils, tree.fossils],
+  );
 
   /**
    * The mode, on the document as well as on the canvas.
@@ -1721,11 +1706,8 @@ export default function App() {
           }}
           isolate={tree.view.isolate}
           axisMode={tree.view.axis}
-          onAxisMode={tree.setAxis}
           labels={tree.labels}
-          onLabels={tree.setLabels}
           ages={tree.ages}
-          onAges={tree.setAges}
           intervals={timescale}
           fitSignal={fitSignal}
           onFitState={setViewFit}
@@ -1735,12 +1717,6 @@ export default function App() {
           grafts={grafts}
           holdMaxAge={tree.holdMaxAge}
           biolum={tree.biolum}
-          onBiolum={(v) => {
-            if (v !== tree.biolum) tree.toggleBiolum();
-          }}
-          // The same expression that puts the invitation on screen below, because
-          // the mode panel is not drawn under it. See `canvas/Graph.tsx`.
-          empty={nothingDrawn}
           // A lane row selects, exactly as a mark on the canvas does. Same
           // `sel=` in the URL, same card slot — see `focusedTaxonNo`. The lane
           // itself is untouched: `drill` is separate state, so the row stays
@@ -1749,14 +1725,6 @@ export default function App() {
             const taxonNo = f.pbdb_taxon_no ?? 0;
             if (taxonNo > 0) tree.select(graftKey(taxonNo));
           }}
-          // The narrow window's one control, drawn inside the canvas because that
-          // is where `--lane-h` is published — see `chrome/PaletteFab.tsx`. It
-          // takes the invitation too, since the bar that would otherwise carry it
-          // is not on screen at that width — and it takes the same `TIP_LINE`,
-          // spread the same way, so the two surfaces cannot be made to say
-          // different things about the same moment.
-          onPalette={openPalette}
-          {...(tipShown ? { tip: TIP_LINE } : {})}
         />
 
         {/*
@@ -1775,7 +1743,12 @@ export default function App() {
         {nothingDrawn && !paletteOpen && (
           <div className="boot">
             <div className="boot-inner">
-              <h1>Concestor</h1>
+              {/*
+                No wordmark here any more. The panel beside this block carries
+                it, three centimetres to the left, at the top of the same
+                screen — and an `h1` repeated twice on one view is a second
+                document heading as well as a second logo.
+              */}
               {/*
               A shared link arrives here, and used to be answered with the
               carousel.
@@ -1803,30 +1776,17 @@ export default function App() {
                   `openings.ts` refuses to ship a two-taxon opening and says why
                   in its own words: *a pair draws one number. Three or more draw
                   an argument — the nesting itself is the proof.* Every question
-                  below this line therefore has three taxa or more, and this
-                  line was inviting the reader to the weaker version of the
-                  product, directly above fifteen demonstrations of the stronger
-                  one. It said it on the shared card and in the README too.
+                  below this line therefore has three taxa or more.
 
-                  "Name" rather than "pick" because the about page's own subhead
-                  already says *name the species you care about*, and because
-                  picking is what you do from a list somebody else wrote.
+                  "Name" rather than "pick" because picking is what you do from
+                  a list somebody else wrote.
 
                   **And it opens on the payoff rather than the mechanism**,
-                  which took two tries. "See where their lineages meet, in deep
-                  time" is a description of what the canvas *does*, and this
-                  file's own predecessor was thrown out for exactly that —
-                  `openings.ts` records it: the empty canvas used to say "press
-                  S and search for two species", which "described the mechanism
-                  … rather than the payoff, and nobody wants a minimal subtree.
-                  They want to find out they are a fish." A lineage meeting
-                  another lineage is a minimal subtree wearing a nicer coat.
-
-                  So the first clause is the fact that makes the rest worth
-                  doing, and it is the one claim here big enough to be worth a
-                  stranger's next thirty seconds. The second is what they do
-                  about it. "How — and when" is the whole product in three
-                  words, and it is the question the app was built to answer.
+                  which took two tries. This file's own predecessor was thrown
+                  out for saying "press S and search for two species" — which
+                  "described the mechanism … rather than the payoff, and nobody
+                  wants a minimal subtree. They want to find out they are a
+                  fish." "How — and when" is the whole product in three words.
                 */}
                   <p className="boot-lede">
                     Everything alive is related. Name a few species and see
@@ -1837,47 +1797,27 @@ export default function App() {
                   mounted behind the about *panel* and a bare Enter would have
                   redrawn the canvas under a modal the reader was reading. The
                   panel is a page now and `main.tsx` unmounts this whole tree to
-                  show it, so there is nothing left to be behind. Every other
-                  surface that can sit on top is handled structurally by the
-                  carousel's own `OWNS_ENTER` test — the palette holds focus in
-                  an `input`, the clear dialog on a `button`, and both are in
-                  that list.
+                  show it, so there is nothing left to be behind.
                 */}
                   <OpeningCarousel onOpen={openOpening} keyToOpen />
                   {/*
-                  Two columns, because the three keys and the about link are
-                  two different offers and the sentence they used to share made
-                  them one. Run together — "or press S …, R …, or P …" — a
-                  reader has to parse the whole line to find the one way in
-                  they want, and the badges are the thing the eye lands on, so
-                  the line reads as a list that has been written out longhand.
-                  A row each puts the badge in a column of its own and the
-                  payoff beside it, which is what the palette rows already do.
+                  **The keys column is gone, and the sidebar is why.**
 
-                  The link is the second column rather than a fourth row: it
-                  goes somewhere else, and the three above it stay here. That
-                  split is also what makes the narrow window honest: below
-                  620px the keys column is **not drawn**, on the same reasoning
-                  that takes the control bar off a phone — three badges naming
-                  presses a reader has no keyboard to make. The link is the
-                  offer that survives, and it centres, so the last line of the
-                  empty canvas is the one thing on it that still works.
+                  It was three badges — `S` search, `R` random, `P` commands —
+                  under the carousel, and it existed because the control bar
+                  along the top was a row of small buttons a reader had to
+                  notice. The panel beside this block is now showing *Add a
+                  taxon* and the die as full-width controls with their letters
+                  printed on them, and the search pill above those says `/`. A
+                  column repeating all three in the middle of the canvas is the
+                  same offer made twice, two feet apart, with the second copy
+                  sitting on top of the tree.
+
+                  What survives is the one offer the panel does not make, which
+                  is the way *out* of this screen. It centres now that there is
+                  nothing beside it.
                 */}
                   <div className="boot-alt">
-                    <ul className="boot-keys">
-                      <li>
-                        <span className="kbd">{kbd("species")}</span>
-                        <span>Search {SPECIES_PHRASE}</span>
-                      </li>
-                      <li>
-                        <span className="kbd">{kbd("random-species")}</span>
-                        <span>Add one picked at random</span>
-                      </li>
-                      <li>
-                        <span className="kbd">{kbd("palette")}</span>
-                        <span>Everything this can do</span>
-                      </li>
-                    </ul>
                     {/*
                     A `button`, on `SourceLinks`'s reasoning: `goAbout` pushes
                     history and swaps the root, so an `href` would offer a
@@ -1890,20 +1830,9 @@ export default function App() {
                     >
                       Learn more about Concestor
                       {/*
-                      The one mark saying this is a door.
-
-                      It was a hairline, a line of prose and nothing else — the
-                      same failure the carousel card had before it was given a
-                      border, and here there is not even a box to notice. An
-                      arrow is what a link that goes *somewhere else* carries,
-                      and it is decoration to a screen reader, which already
-                      has the words and the button role.
-
-                      Quiet, and deliberately not the carousel's accent: that
-                      one is the lit mark on this canvas and there may only be
-                      one. This borrows the link's own colour and earns its
-                      difference from the prose around it by moving under the
-                      pointer.
+                      The one mark saying this is a door. Quiet, and
+                      deliberately not the carousel's accent: that one is the
+                      lit mark on this canvas and there may only be one.
                     */}
                       <span className="boot-more-arrow" aria-hidden="true">
                         →
@@ -1918,10 +1847,10 @@ export default function App() {
       </main>
 
       {/*
-        A placeholder rather than the last fossil's card. `fossilCardPending`
-        is already delayed, so this is only ever reached by a request that is
-        genuinely making somebody wait — see `chrome/Pending.tsx`.
-      */}
+      A placeholder rather than the last fossil's card. `fossilCardPending`
+      is already delayed, so this is only ever reached by a request that is
+      genuinely making somebody wait — see `chrome/Pending.tsx`.
+    */}
       {focusedTaxonNo !== null && fossilCardPending && (
         <CardPending>Looking up this fossil…</CardPending>
       )}
@@ -1950,11 +1879,11 @@ export default function App() {
       )}
 
       {/*
-        Gated on the payload, not on the canvas. `focusedNode` is the mark to
-        light and is absent for every taxon reached by a link, which is most of
-        them now — see `selectedNodeKey`. The hue comes from the node's own
-        index, so a lineage keeps its colour whether or not it is drawn.
-      */}
+      Gated on the payload, not on the canvas. `focusedNode` is the mark to
+      light and is absent for every taxon reached by a link, which is most of
+      them now — see `selectedNodeKey`. The hue comes from the node's own
+      index, so a lineage keeps its colour whether or not it is drawn.
+    */}
       {focusedTaxonNo === null && cardPending && (
         <CardPending>Looking up this taxon…</CardPending>
       )}
@@ -2087,33 +2016,90 @@ export default function App() {
       )}
 
       {/*
-        One signal for "something is in flight", not three. The bar is the
-        app's only always-visible chrome, so it is where a wait with no other
-        home belongs — a random pick, a graft's PBDB row — and a reader does
-        not need to be told which of them it is. `usePending` keeps the
-        instant ones out of it entirely.
+        Two clusters in the canvas's own corners, drawn by one component.
+
+        The left pair is the panel's switch and the way into the search, and it
+        is drawn **only while the panel is shut** — open, the switch is in the
+        panel's header beside the wordmark and the search is a field in the
+        column. The right three act on the view.
+
+        They fade together when nobody has moved for four seconds, except that
+        the left pair does not: chrome auto-hides because the canvas is the
+        page, and that rule was written for a bar of nine buttons — a control
+        that puts the whole panel back has to be findable by somebody who has
+        just realised they want it. `afterglow` holds even the right-hand fade
+        open, because a reader reading the answer to their question is exactly
+        the reader holding still.
       */}
+      {!sidebar.open && (
+        <CanvasLeftControls onToggle={toggleSidebar} onSearch={openPalette} />
+      )}
+      <div
+        className={`viewport-slot${idle && afterglow === null ? " idle" : ""}`}
+      >
+        <ViewportControls actions={viewportActions} />
+      </div>
+
       {/*
-        The bar does not fade while it is pointing at something.
-
-        Chrome auto-hides after four still seconds, which is right for a bar
-        nobody is looking at and wrong for the one moment it is asking to be
-        looked at — a reader reading the answer to their question is exactly the
-        reader holding still. It fades again the moment the invitation is taken
-        or dismissed.
-
-        **This stays keyed on `afterglow` and not on `tipShown`, and the two
-        are no longer the same instant.** Auto-hide is four seconds and
-        `TIP_DELAY_MS` is five, so a bar that waited for the tip before
-        refusing to idle would fade out at second four and the invitation
-        would arrive one second later on chrome nobody can see. The bar holds
-        open for the whole afterglow; only the outline inside it waits.
+        Undocked, the panel is over the canvas rather than beside it, so it
+        needs a way out that is not the toggle underneath it. A scrim is that
+        way out and is also what says the canvas is not live: without one, taps
+        land on marks the reader cannot see.
       */}
-      <Controls
-        groups={controls}
-        idle={idle && afterglow === null}
-        busy={busy}
+      {!sidebar.docked && sidebar.open && (
+        <div
+          className="side-scrim"
+          onClick={() => sidebar.setOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
+      <Sidebar
+        open={sidebar.open}
+        docked={sidebar.docked}
+        onToggle={toggleSidebar}
+        onSearch={openPalette}
         {...(tipShown ? { tip: TIP_LINE } : {})}
+        busy={busy}
+        taxa={{
+          nodes: taxaRows,
+          fossils: fossilRows,
+          selectedIdx: focusedTaxonNo === null ? focusedIdx : null,
+          selectedTaxonNo: focusedTaxonNo,
+          labels: tree.labels,
+          onSelectNode: (n) => tree.select(n.key),
+          onRemoveNode: (n) => removeNode(n as NodeDetail),
+          onSelectFossil: (f) => {
+            const no = f.pbdb_taxon_no ?? 0;
+            if (no > 0) tree.select(graftKey(no));
+          },
+          onRemoveFossil: (f) => {
+            const no = f.pbdb_taxon_no ?? 0;
+            if (no <= 0) return;
+            tree.removeFossil(no);
+            toast(
+              <>
+                Removed <strong>{f.name}</strong>
+              </>,
+            );
+          },
+          onAdd: openSpecies,
+          onRandom: () => void randomPick(),
+          onClear: () => setConfirmClear(true),
+          picking,
+        }}
+        labels={tree.labels}
+        onLabels={tree.setLabels}
+        ages={tree.ages}
+        onAges={tree.setAges}
+        axis={tree.view.axis}
+        onAxis={tree.setAxis}
+        biolum={tree.biolum}
+        onBiolum={(v) => {
+          if (v !== tree.biolum) tree.toggleBiolum();
+        }}
+        onShare={share}
+        onAbout={goAbout}
       />
     </>
   );

@@ -92,9 +92,64 @@
 
   --spring: cubic-bezier(0.22, 1, 0.28, 1);
 
-  /* The bottom strip the axis owns. The drill-down lane stacks on top of it,
-     so both need the same number and neither may guess at it. */
-  --axis-h: 84px;
+  /* The bottom strip the axis owns, which is now exactly the ruler: the epoch
+     band, the ticks and their figures, and nothing under them. It was 84 while
+     a caption row sat below the SVG, and that row held the whole strip 26px off
+     the bottom of the window for one centred phrase. The drill-down lane stacks
+     on this number and so does the key above it, so neither may guess at it. */
+  --axis-h: 60px;
+
+  /*
+   * The sidebar, and the five numbers everything else on screen reads off it.
+   *
+   * `--sidebar-w` is written to this element by `sidebar/useSidebar.ts` and is
+   * the whole layout contract: the canvas is inset by it, the panel's toggle
+   * rides it, and the search pill's width is computed from it. It is `0px` here
+   * and stays `0px` until the hook says otherwise — which is what makes the
+   * first painted frame a full-width canvas rather than a canvas with a strip
+   * of void down the side of it.
+   *
+   * The rest are the panel's own vertical rhythm — `--side-pad-t`, `--brand-h`,
+   * `--side-gap` and `--search-h`. They were also what the search pill's `top`
+   * was computed from while it lived in a fixed layer and bulged out past the
+   * panel's edge; it is an ordinary control in the column now, so the flow
+   * places it and nothing outside the panel has to know these numbers.
+   */
+  --sidebar-w: 0px;
+  /*
+   * Where the panel's right edge is on screen, which is *not* the same question
+   * as how much width it takes off the canvas — see `apply` in
+   * `sidebar/useSidebar.ts`. Floating over the canvas, the first is the drawer's
+   * width and the second is zero, and the toggle and the search pill ride this
+   * one because they have to clear a drawer they do not narrow.
+   */
+  --chrome-left: 0px;
+  --rail-pad: 12px;
+  /*
+   * The four gaps down the panel, and they scale.
+   *
+   * The column is five blocks — the wordmark, the search pill's slot, the taxa
+   * list, the canvas modes, the footer strip — and the reader should see one
+   * rhythm rather than five sections each with its own padding. One `gap` on
+   * the flex column is exactly four gaps, which is exactly the four the eye
+   * counts, and it is the only spacing between them: the sections carry no
+   * padding of their own and no rules between them, or the gap that includes a
+   * section's padding would be visibly larger than the gap that does not.
+   *
+   * `vh` rather than a flex spacer, because the taxa list is the thing that
+   * takes the slack — it is the scroller, and a spacer competing with it for
+   * free height would shrink the list on a tall window, which is backwards. So
+   * the gaps are a function of the *window* and the list absorbs whatever is
+   * left, which is what keeps them equal once the list is full and scrolling.
+   *
+   * Clamped at both ends: under about 580px tall the floor is what stops the
+   * five blocks touching, and past about 1250 the ceiling is what stops a tall
+   * screen turning the panel into five things floating a long way apart.
+   */
+  --side-gap: clamp(14px, 2.4vh, 30px);
+  --side-pad-t: 16px;
+  --brand-h: 38px;
+  --search-h: 36px;
 }
 
 * {
@@ -125,6 +180,28 @@ body {
    white frame around a dark instrument, on a surface nobody screenshots. */
 :root:fullscreen {
   background: var(--void);
+}
+
+/*
+ * Read but not seen.
+ *
+ * The one utility class in this stylesheet, and it exists for one job: the
+ * wordmark sets two ring glyphs in place of its `O`s, so its text content is
+ * `C·NCEST·R` and the product's accessible name may not be that. Clipped to a
+ * pixel rather than `display: none` or `visibility: hidden`, both of which take
+ * the text out of the accessibility tree along with the layout — which is the
+ * opposite of what this is for.
+ */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }
 
 /* All numerics are tabular-figure mono. Confident, unapologetic. This
@@ -190,9 +267,20 @@ body {
 
 /* ---------------------------------------------------------------- canvas -- */
 
+/*
+ * Inset by the panel, which is the only thing the canvas knows about it.
+ *
+ * Everything drawn on the canvas is positioned *inside* this element — the
+ * axis, the drill lane, the marks — so one `left` is the whole of the reflow.
+ * It is also what makes `canvas/viewport.ts` correct for free: React Flow
+ * measures this container, so `vw` is already the canvas's own width and there
+ * is nothing to reserve.
+ */
 .canvas {
   position: fixed;
   inset: 0;
+  left: var(--sidebar-w);
+  transition: left 220ms var(--spring);
   background:
     radial-gradient(
       ellipse 120% 90% at 62% 45%,
@@ -814,129 +902,55 @@ body {
   left: 0;
   right: 0;
   bottom: 0;
-  /* Grows upward rather than clipping. Below roughly 560px the key wraps to a
-     second row, and `AXIS_RESERVE` in Graph.tsx leaves enough slack that a
-     wrapped footer still does not reach the lowest lineage. */
+  /* The ruler alone, flush to the bottom of the window. It carried a caption
+     row under it for as long as that row had three cells; two of them moved to
+     the sidebar and the third — the key — is on the canvas now, so what is left
+     is exactly the SVG. `justify-content: flex-end` is what keeps it flush if
+     the strip is ever given slack. */
   min-height: var(--axis-h);
   display: flex;
   flex-direction: column;
+  justify-content: flex-end;
   pointer-events: none;
   z-index: 4;
   background: linear-gradient(to top, var(--void) 46%, transparent);
 }
 
 /*
- * Scale left, key centred, provenance right — one line, three cells.
+ * The key, bottom left over the canvas, above the ruler.
  *
- * The key was left-aligned for as long as this line ended in a *control*: a
- * switch and a caption on the same baseline are two different kinds of thing,
- * and centring one against the other reads as a failed alignment rather than as
- * a composition. The switch is still here — it redraws this ruler, so it stays
- * on it — but it now holds the left cell against the links on the right, and a
- * line with a weight at each end has a middle worth putting something in. The
- * key takes it, directly under the ruler it explains.
+ * It is on the shelf `.canvas-modes` used to hold, and it rides the same
+ * expression for the same reason: the drill-down lane stacks on the axis and
+ * can be several rows tall, so anything pinned to `--axis-h` alone slides
+ * underneath one the moment a reader opens it. `Graph.tsx` publishes the live
+ * lane height because it is the only thing that knows it.
  *
- * The outer two columns are equal `1fr` whether or not either has anything in
- * it — that equality is the whole of the centring, and it is why the key stays
- * on the viewport's midline rather than on the midline of whatever is left
- * over. `minmax(0, 1fr)` rather than a bare `1fr`, which floors at the column's
- * content width and would let the wider end push the key off centre instead of
- * the key simply wrapping.
+ * Quiet until it is looked at, on the argument the mode panel made from this
+ * same corner: the reader is here for the tree, so a caption they have not
+ * asked for sits below the canvas's own contrast until a pointer arrives. 0.9
+ * rather than lower because that is the deepest multiply `--ink-4` survives —
+ * see the note on the ink ramp.
  */
-.axis-foot {
-  flex: 1;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-  align-items: center;
-  gap: 2px var(--s3);
-  padding: 3px var(--s4) 9px;
+.canvas-legend {
+  position: absolute;
+  left: var(--s4);
+  /* Clear of the epoch band, not resting on it — the same 16px the mode panel
+     needed from this corner, for the same reason: a caption a hair off the
+     band's top edge reads as one stack rather than as a note over a chart. */
+  bottom: calc(var(--axis-h) + var(--lane-h, 0px) + 16px);
+  z-index: 6;
+  max-width: min(52ch, calc(100% - var(--s5)));
   font-size: 10.5px;
   color: var(--ink-4);
-}
-
-.axis-foot > .legend {
-  justify-content: center;
-  text-align: center;
-}
-
-/*
- * The scale switch, wearing the canvas-mode panel's anatomy on one line.
- *
- * `.mode-chip` stacks its caption above its switch and lays both out on the
- * *panel's* grid through `subgrid`, which is right for four rows that have to
- * align with each other and wrong for a lone control on a horizontal strip:
- * there is no column here to line up with, so stacking buys nothing and costs
- * the axis about 18px of height it does not have — `--axis-h` is 84 against
- * `AXIS_RESERVE`'s 104, and the drill lane and the toasts both stack on that
- * number. So the three cells go back on one line and the chip is a flex row.
- *
- * What it keeps is everything that makes it recognisably one of the four: the
- * same badge, the same recessed track, the same raised segment, the same
- * small-caps mono caption. The grid declarations the children carry for the
- * panel — `grid-column`, `justify-self` — are simply ignored inside a flex
- * container, so none of them needs undoing here.
- */
-.axis-foot > .scale-mode {
-  grid-column: 1;
-  justify-self: start;
-  pointer-events: auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin: 0;
-  padding: 0;
-  /* Quiet until it is looked at, exactly like `.canvas-modes` and the links
-     opposite — and at their number, for the reason recorded on the ink ramp:
-     0.9 is the deepest fade `--ink-4` survives, and this is the third of the
-     three surfaces that rest under one. */
+  pointer-events: none;
   opacity: 0.9;
-  transition: opacity 200ms ease;
+  transition:
+    opacity 200ms ease,
+    bottom 240ms var(--spring);
 }
 
-.axis-foot > .scale-mode:hover,
-.axis-foot > .scale-mode:focus-within {
+.canvas-legend:hover {
   opacity: 1;
-}
-
-/*
- * Under about 620px the three columns stop fitting on one line: the key alone
- * can run to four rows there, and squeezing it into a third of the width turns
- * the footer into a paragraph. So centring is what gives way, not legibility.
- *
- * **Two rows, not three**, and the row count is the constraint rather than the
- * aesthetic. The axis grows upward, and everything that stacks on it — the
- * mode panel, the toasts, the drill lane — is pinned to `--axis-h` plus a pad.
- * A third row put the footer at 63px and the whole strip at 121, which is past
- * the 110 the mode panel sits at: the bioluminescence switch landed on top of
- * the epoch band. So the two small things share the top row, at opposite ends
- * where they already were, and the key takes the width below them. `--axis-h`
- * still rises to cover the rest of the difference.
- */
-@media (max-width: 620px) {
-  :root {
-    /* The strip really is taller here, and this is the number every element
-       above it reads. Left at 84 the pads below it are measured against a
-       height the axis has not had since the footer started wrapping. */
-    --axis-h: 96px;
-  }
-  .axis-foot {
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-  .axis-foot > .scale-mode {
-    grid-column: 1;
-    grid-row: 1;
-  }
-  .axis-links {
-    grid-column: 2;
-    grid-row: 1;
-    justify-self: end;
-  }
-  .axis-foot > .legend {
-    grid-column: 1 / -1;
-    grid-row: 2;
-    justify-content: flex-start;
-    text-align: left;
-  }
 }
 
 /*
@@ -952,7 +966,7 @@ body {
  * with the lineages above it. Hovering either half lights both, because the
  * object is what the pointer found.
  */
-.axis-links {
+.side-links {
   pointer-events: auto;
   justify-self: end;
   display: inline-flex;
@@ -962,12 +976,12 @@ body {
   transition: opacity 200ms ease;
 }
 
-.axis-links:hover,
-.axis-links:focus-within {
+.side-links:hover,
+.side-links:focus-within {
   opacity: 1;
 }
 
-.axis-link {
+.side-link {
   appearance: none;
   display: inline-flex;
   align-items: center;
@@ -983,11 +997,11 @@ body {
   transition: color 140ms ease;
 }
 
-.axis-link:hover {
+.side-link:hover {
   color: var(--ink-2);
 }
 
-.axis-link:focus-visible {
+.side-link:focus-visible {
   outline: none;
   color: var(--ink);
   text-decoration: underline;
@@ -1002,7 +1016,7 @@ body {
   opacity: 0.9;
 }
 
-.axis-link-rule {
+.side-link-rule {
   width: 1px;
   height: 9px;
   background: var(--hairline-strong);
@@ -1012,7 +1026,7 @@ body {
    than the pair is worth — the mark alone is unambiguous and keeps its label
    in `aria-label` and its tooltip. */
 @media (max-width: 400px) {
-  .axis-link-word {
+  .side-link-word {
     display: none;
   }
 }
@@ -1685,445 +1699,986 @@ body {
   color: var(--ink);
 }
 
+/* ---------------------------------------------------------------- sidebar -- */
+
 /*
- * The control bar, on the top edge.
+ * One column on the left, and the canvas gets everything else.
  *
- * It replaces a hint bar that named four chords and could not be clicked. The
- * split by edge is unchanged and is why this is at the top — it says what you
- * can *do*, and the axis at the bottom says how to *read* what you see.
+ * `--sidebar-w` is the whole of the layout contract. `sidebar/useSidebar.ts`
+ * writes it to the document element and every rule that has to know about the
+ * panel reads it — the canvas is `left: var(--sidebar-w)`, and because the
+ * axis, the drill lane and the mode marks are all positioned *inside* the
+ * canvas they follow for free. It is `0px` when the panel is shut and `0px`
+ * whenever the panel is floating over the canvas rather than docked beside it,
+ * which is what stops a drawer leaving a strip of void down the side of the
+ * tree it is covering.
  *
- * What changed first is that the row became controls. Each is a key badge
- * followed by a word, in that order and at that emphasis: the badge is what a
- * reader will be using in a minute, so it leads and the label explains it.
- * That ordering is the whole design — a toolbar with the keys hidden in
- * tooltips teaches nobody anything, and a hint bar that cannot be clicked
- * strands the reader who has not learned them yet.
- *
- * **What changed second is that the buttons are grouped, and a group wears the
- * canvas-mode panel's anatomy**: a small-caps mono caption over a recessed
- * track holding the pressable things. Eight bare buttons on a strip of scrim
- * had the problem `.canvas-modes` had before it became a panel — a reader has
- * to be able to see where the pressable thing starts *without reading any of
- * the words in it*, and there was nothing to see. The well is that boundary,
- * and it is the same well, at the same radius, in the same fill, as the one
- * above the axis: this app has one switch idiom and the top edge now uses it.
- *
- * Two rows, and the split is what each group is *for*. Building the tree leads
- * at the top left; the two one-way actions on the canvas as a whole — clear and
- * share — hold the opposite corner; how you *look* at what you have built takes
- * the second row, because framing and stepping are what you reach for after
- * there is something to frame.
- *
- * It keeps the axis's treatment rather than taking a panel of its own: a fade
- * to void that guarantees legibility over a trace, and no object outline. The
- * strip itself is click-through — only the tracks take a press, so a drag that
- * starts on a lineage under the fade still pans the canvas.
- *
- * **None of it is drawn below 620px.** The swap is at the foot of this file
- * under `narrow window`, and it is down there rather than here for a reason
- * worth knowing: it has to hide `.canvas-modes` too, which is declared two
- * thousand lines below this, and at equal specificity the later rule wins. The
- * first draft of that block sat here and drew nothing but a hidden button.
- * `chrome/swap.test.ts` is what caught it and what keeps it caught.
+ * The panel's own width is a constant here rather than the variable, and the
+ * two are deliberately not the same declaration: the variable is what the panel
+ * *costs the canvas* and goes to `0px` the moment it shuts, while the panel
+ * itself keeps its width and slides out on a transform. Reading the variable
+ * here would collapse the panel to nothing before it had finished leaving.
  */
-.controls {
+.sidebar {
   position: fixed;
   top: 0;
+  bottom: 0;
   left: 0;
-  right: 0;
-  z-index: 20;
-  /* Three columns and two rows: lead, the gap that pushes them apart, trail —
-     then the second row under both. The middle column is what holds the two
-     corners apart rather than a margin on either, so neither corner has to know
-     how wide the other one is. */
-  display: grid;
-  grid-template-columns: auto minmax(var(--s3), 1fr) auto;
-  align-items: start;
-  row-gap: 5px;
-  padding: var(--s2) var(--s3) var(--s3);
-  background: linear-gradient(to bottom, var(--void) 46%, transparent);
-  pointer-events: none;
-  transition: opacity 400ms ease;
-}
-
-.controls-lead,
-.controls-trail,
-.controls-rest {
+  /* One width, and there is no handle to change it — and it is the *narrowest*
+     the contents read at rather than a comfortable one. `sidebar/useSidebar.ts`
+     records both: why the drag was built to the full window-splitter contract
+     and then removed, and why this dropped from 336 to 264 when the detail card
+     moved out to the right-hand edge and took the only argument for the extra
+     72px with it. `layout.test.ts` holds this against the module's constant. */
+  width: 264px;
+  z-index: 30;
   display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  gap: var(--s3);
-  min-width: 0;
-}
-.controls-lead {
-  grid-area: 1 / 1;
-}
-.controls-trail {
-  grid-area: 1 / 3;
-  justify-self: end;
-}
-/* Under both corners rather than under the lead alone: the row is the bar's
-   own second line, and a reader scanning down the left edge should not find it
-   indented under one group. */
-.controls-rest {
-  grid-area: 2 / 1 / 2 / -1;
-  align-items: baseline;
+  background: var(--void-2);
+  border-right: 1px solid var(--hairline);
+  /* Shut. `transform` rather than `left`, so the slide is compositor-only —
+     and `inert` on the element is what takes it out of the tab order, because
+     a panel that is merely off-screen is an off-screen focus trap. */
+  transform: translateX(-100%);
+  transition:
+    transform 160ms ease-in-out,
+    opacity 120ms ease;
+  opacity: 0;
 }
 
-/* Chrome auto-hides. The canvas is the page — but a control that has faded is
-   still a control, so pointing at it brings it back rather than making the
-   reader wiggle the mouse first.
-   *
-   * **A third of itself was not a fade, it was a hide.** At 0.34 the bar's own
-   * labels landed at 1.5:1 and its captions at 1.2:1 — the reader could not
-   * find the control to point at it, which is the one thing the rule above
-   * promises they can do.
-   *
-   * 0.9 is the number the ink ramp allows, not a taste: `--ink-4` is 6.0:1 and
-   * a deeper multiply walks the bar's captions down toward 4.5. The recession the
-   * old value was reaching for belongs to the *ramp* — that is what four rungs
-   * are for — and stacking a fade on top of an already-quiet rung was dimming
-   * the same thing twice. */
-.controls.idle {
-  opacity: 0.9;
-}
-.controls:hover,
-.controls:focus-within {
+.sidebar.is-open {
+  transform: none;
   opacity: 1;
+  /* Asymmetric on purpose: opening is the state a reader asked for and gets a
+     touch longer to arrive, closing is the one they want out of the way. */
+  transition:
+    transform 220ms var(--spring),
+    opacity 160ms ease;
+}
+
+/* Floating over the canvas rather than docked beside it, under `DOCK_W`. */
+.sidebar.is-floating {
+  box-shadow: 0 0 40px rgba(0, 0, 0, 0.55);
+  /* A drawer may not be wider than the window it is over, whatever the stored
+     width says — and it leaves a strip of canvas showing, so a reader can see
+     what they are standing in front of. */
+  max-width: calc(100vw - 56px);
+}
+
+.side-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 29;
+  background: rgba(6, 6, 8, 0.5);
+}
+
+.side-inner {
+  flex: 1 1 auto;
+  min-width: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: var(--side-pad-t) var(--rail-pad) var(--s4);
+  /* The whole vertical rhythm. See `--side-gap`. */
+  gap: var(--side-gap);
 }
 
 /*
- * One group: a caption on its own line, then the track under it.
+ * The wordmark, and the room the search pill needs under it.
  *
- * Deliberately *not* `.mode-chip`'s subgrid. There the four rows have to align
- * their badges with each other down a column; here the groups sit side by side
- * on a row, so there is no column to line up with and each group is as wide as
- * its own track.
+ * A fixed height rather than one the content decides, because the pill is in a
+ * fixed layer of its own — it has to survive the panel closing — and `--search-top`
+ * is measured from the top of the window. Two heights that have to agree and
+ * only one of them can be read from the DOM, so both are constants and this is
+ * where they meet.
  */
-.control-group {
-  display: grid;
-  justify-items: start;
-  row-gap: 3px;
+/*
+ * The wordmark, and the panel's own switch at the far end of the same row.
+ *
+ * The switch was a bordered, backdrop-blurred tile floating on the canvas at
+ * the panel's edge. Open, that is a control announcing a thing the reader is
+ * already looking at, and it was the loudest object on the screen. In the
+ * header of the thing it closes it needs no border at all: it has a heading to
+ * sit against and a whole row to itself.
+ */
+.side-head {
+  position: relative;
+  flex: 0 0 auto;
+  height: var(--brand-h);
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
 }
 
-/* The trailing corner reads inward from the right edge, so its caption hangs
-   off the same edge its track does. */
-.controls-trail .control-group {
-  justify-items: end;
+.side-brand {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+}
+
+.side-wordmark {
+  margin: 0;
+  display: flex;
+  align-items: center;
 }
 
 /*
- * The caption, in this app's existing vocabulary for a field label: small-caps
- * mono, the way `.mark-meta` prints a taxon's rank and `.mode-name` captions a
- * switch. It is a different *typeface* from the words in the track rather than
- * a different shade of the same one, which is the part that survives a glance
- * and is what stops `SPECIES add random` reading as three options.
+ * The mark, and the door.
+ *
+ * A `button` reset back to type, because everything that says *pressable* here
+ * would say it wrongly: a border would make the product's own name look like a
+ * control, and a background would make it a card. What says it instead is the
+ * thing already in the mark — the two glyphs standing in for the `O`s light to
+ * the accent under the pointer, which is the app telling you where its own
+ * colour lives.
  */
-.control-name {
+.side-wordmark-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  min-width: 0;
+  margin: 0 -6px;
+  padding: 3px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 160ms ease;
+}
+
+.side-wordmark-btn:hover,
+.side-wordmark-btn:focus-visible {
+  outline: none;
+  background: var(--void-3);
+}
+
+.side-mark {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 0 3px;
+  font-size: 15px;
+  font-weight: var(--w-med);
+  /* The only place in this app type is tracked out this far, and it is what
+     makes the run read as a mark rather than as a heading: the glyph has to sit
+     in the line at the size of a capital, and at normal tracking a circle
+     between two letters reads as a mistake. */
+  letter-spacing: 0.22em;
+  color: var(--ink-2);
+  transition: color 160ms ease;
+}
+
+.side-wordmark-btn:hover .side-mark,
+.side-wordmark-btn:focus-visible .side-mark {
+  color: var(--ink);
+}
+
+/* The glyph standing in for each `O`. It carries the tracking on both sides
+   like a letter would, and drops to the ink of the letters around it. */
+.side-mark .brand-mark {
+  margin: 0 0.1em 0 0.02em;
+  color: var(--accent-dim);
+  transition: color 220ms ease;
+}
+
+.side-wordmark-btn:hover .brand-mark,
+.side-wordmark-btn:focus-visible .brand-mark {
+  color: var(--accent);
+}
+
+.side-tagline {
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  color: var(--ink-4);
+  transition: color 160ms ease;
+}
+
+.side-wordmark-btn:hover .side-tagline,
+.side-wordmark-btn:focus-visible .side-tagline {
+  color: var(--ink-3);
+}
+
+.side-busy {
+  position: absolute;
+  top: 10px;
+  right: var(--rail-pad);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  color: var(--ink-4);
+}
+
+/* --------------------------------------------------------- the way in -- */
+
+/*
+ * A field in the column, at the column's own inset.
+ *
+ * It was a pill in a fixed layer that spanned the panel and kept going past its
+ * right edge, ending in a round cap that was all that remained when the panel
+ * shut — one element in two states, the collapsed diameter falling out of
+ * `--search-out − --rail-pad = --search-h`. The arithmetic worked and it read
+ * as a bulge: a lozenge poking out of a straight edge is the one shape in this
+ * layout that nothing else explains, and it drew the eye to the panel's border
+ * rather than to the field. `sidebar/SearchEntry.tsx` records the trade.
+ *
+ * What is left is an ordinary control the flow places, so nothing outside the
+ * panel has to know where it is.
+ */
+.side-search {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.side-search-btn {
+  width: 100%;
+  height: var(--search-h);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 10px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--void-3);
+  color: var(--ink-3);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  white-space: nowrap;
+  /*
+   * **No glow.** It had one, on the argument that it is the way in and a reader
+   * who does not find it has no way to reach the search, a random pick, share
+   * or the light. That argument was made when the control was a lit pill
+   * floating half over the canvas and there was nothing else to find it by.
+   * Inside a column, under the app's own name, above a section captioned TAXA,
+   * a field that looks like a field is found — and the standing rule is that
+   * the graph is the only light source, with the bioluminescence switch as the
+   * single exception, because glowing is what *it* does.
+   */
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    color 160ms ease;
+}
+
+.side-search-btn:hover,
+.side-search-btn:focus-visible {
+  outline: none;
+  border-color: var(--hairline-strong);
+  background: var(--void-2);
+  color: var(--ink);
+}
+
+.side-search-glyph {
+  flex: 0 0 auto;
+  opacity: 0.85;
+}
+
+.side-search-words {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.side-search-kbd {
+  flex: 0 0 auto;
+}
+
+/*
+ * The invitation, after an opening has answered its question.
+ *
+ * Same ring and the same withdrawal as every layout before it: it goes out the
+ * moment any door is used. What it is drawn round is the one door that reaches
+ * all of them.
+ */
+.side-search.is-tip .side-search-btn {
+  border-color: hsl(var(--accent-h) 45% 50% / 0.7);
+  animation: side-tip 2400ms ease-in-out infinite;
+}
+
+@keyframes side-tip {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 hsl(var(--accent-h) 90% 60% / 0.22);
+  }
+  50% {
+    box-shadow: 0 0 0 4px hsl(var(--accent-h) 90% 60% / 0.11);
+  }
+}
+
+/*
+ * The words the ring cannot say, under the field rather than beside it.
+ *
+ * A caption and never a target — the same rule every version of this line has
+ * kept. In the column the reading order and the visual order are the same, so
+ * nothing has to be reordered for a screen reader the way the fixed layer's
+ * version did.
+ */
+.side-search-tip {
+  margin: 0;
+  padding: 0 2px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--ink-3);
+  pointer-events: none;
+  animation: side-tip-in 320ms var(--spring);
+}
+
+@keyframes side-tip-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ------------------------------------------------------ sections and rows -- */
+
+/*
+ * The taxa list takes the free height and everything under it is pinned.
+ *
+ * One scroll region over both sections is the obvious arrangement and the wrong
+ * one: the list grows without bound and the four canvas modes are a fixed set a
+ * reader wants in the same place every time, so under one scroller a tenth
+ * species pushed `LABELS` off the bottom of the panel — a control moving
+ * because of something that has nothing to do with it.
+ */
+.side-taxa {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.side-canvas,
+.side-bottom {
+  flex: 0 0 auto;
+}
+
+/*
+ * No padding and no rules between them — the column's `gap` is the only
+ * spacing there is.
+ *
+ * Each section used to carry `var(--s3)` above and `var(--s2)` below, plus a
+ * hairline between neighbours. Under one shared gap that is what makes the four
+ * gaps *unequal*: the two around the search pill's slot would be the gap alone
+ * and the two around the sections would be the gap plus two paddings, which is
+ * the thing this rhythm exists to avoid. The captions are the section markers
+ * and at this much whitespace they are enough.
+ */
+.side-section {
+  padding: 0;
+}
+
+/*
+ * The caption over a section, in the vocabulary this app already uses for a
+ * field label: small-caps mono, the way `.mark-meta` prints a rank and the way
+ * the old control bar captioned a group.
+ */
+.side-h {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s2);
+  margin: 0 0 var(--s2);
+  padding: 0 4px;
   font-family: var(--mono);
-  font-size: 9px;
-  letter-spacing: 0.11em;
+  font-size: 9.5px;
+  font-weight: var(--w-reg);
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--ink-4);
+}
+
+.side-count {
+  font-size: 10px;
+  color: var(--ink-4);
+}
+
+/*
+ * The one scrolling thing in the panel.
+ *
+ * `overflow-x: hidden` because a long name would otherwise give the column a
+ * horizontal scrollbar rather than letting the row that is too wide be the
+ * thing that ellipses. The bottom padding is what stops the last row butting
+ * against the section under it.
+ */
+.side-rows {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+/* --- the two doors --- */
+
+/*
+ * Large while the list is short, because the space is there and an empty column
+ * under two small buttons is the product failing to say what it is for at the
+ * one moment a reader has not decided yet.
+ *
+ * Square by construction rather than by a height: two equal columns inside the
+ * panel's own padding make each tile 116px wide at `WIDTH`, and `aspect-ratio`
+ * makes it 116 tall. A number here would have to be re-derived every time the
+ * panel's padding moved.
+ */
+.side-doors {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: var(--s3);
+}
+
+.side-door {
+  position: relative;
+  aspect-ratio: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 2px;
+  padding: 10px;
+  /* Dashed, which is the one visual difference from every row under it and says
+     the right thing without a word: this is where the list *grows*, not a thing
+     in it. The same idiom every layers panel uses for its add affordance. */
+  border: 1px dashed var(--hairline-strong);
+  border-radius: 10px;
+  background: none;
+  color: var(--ink-3);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    color 160ms ease;
+}
+
+.side-door:hover,
+.side-door:focus-visible {
+  outline: none;
+  border-style: solid;
+  border-color: hsl(var(--accent-h) 45% 48% / 0.6);
+  background: var(--void-3);
+  color: var(--ink);
+}
+
+/* Pushed to the top of the tile, away from the words, so the glyph and the
+   title read as one block and the key is an annotation on the whole thing. */
+.side-door-kbd {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  font-size: 8px;
+  padding: 0 3px;
+  min-width: 0;
+}
+
+.side-door-glyph {
+  margin-top: auto;
+  font-size: 20px;
+  line-height: 1;
+  color: var(--ink-4);
+  transition: color 160ms ease;
+}
+
+.side-door:hover .side-door-glyph,
+.side-door:focus-visible .side-door-glyph {
+  color: var(--accent);
+}
+
+.side-door-title {
+  margin-top: 6px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  transition: color 160ms ease;
+}
+
+.side-door:hover .side-door-title,
+.side-door:focus-visible .side-door-title {
+  color: var(--ink);
+}
+
+/* The line the compact row cannot carry, and the reason the large state exists:
+   "Add a taxon" says what the button does, and this says what is behind it. */
+.side-door-sub {
+  font-size: 10px;
+  line-height: 1.35;
+  color: var(--ink-4);
+}
+
+/* The die is spinning — a rotation and not a pulse, because what it reports is
+   a *draw*. It is the only motion in this panel. */
+.side-door.is-busy .side-door-die {
+  animation: side-die 900ms linear infinite;
+}
+
+/* --- the add row, once the list wants the height --- */
+
+.side-add {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  margin-bottom: var(--s2);
+}
+
+.side-add-main,
+.side-add-die {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px dashed var(--hairline-strong);
+  border-radius: var(--radius);
+  background: none;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition:
+    border-color 140ms ease,
+    background 140ms ease,
+    color 140ms ease;
+}
+
+/* Dashed, which is the one visual difference from every row under it and says
+   the right thing without a word: this is where the list *grows*, not a thing
+   in it. The same idiom every layers panel uses for its add affordance. */
+.side-add-main:hover,
+.side-add-die:hover,
+.side-add-main:focus-visible,
+.side-add-die:focus-visible {
+  border-style: solid;
+  border-color: hsl(var(--accent-h) 45% 48% / 0.6);
+  background: var(--void-3);
+  color: var(--ink);
+}
+
+.side-add-plus {
+  font-size: 15px;
+  line-height: 1;
+  color: var(--ink-3);
+}
+
+.side-add-word {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/*
- * The app's mark, at the head of the one group that carries the wordmark.
- *
- * It takes the accent because it is the MRCA's own colour and the icon's, and
- * because this is the one place in the chrome that is *identity* rather than a
- * control — the rule it would otherwise break, "the graph is the only light
- * source", is about controls announcing their state. It still recedes: the bar
- * fades with everything else, and this sits under full brightness until the
- * reader is actually here.
- */
-.brand-mark {
-  flex: none;
-  color: var(--accent);
-  opacity: 0.72;
-  transition: opacity 140ms ease;
-}
-.controls:hover .brand-mark {
-  opacity: 1;
+.side-add-die {
+  padding: 0 8px;
 }
 
-/*
- * The track: a recessed well holding the buttons.
- *
- * The same fill, radius and padding as `.mode-track` above the axis, and the
- * same reason — an inset well with a raised active thing in it is the one
- * convention that says *pressable* at this size without a border round every
- * button. It is also the only part of this bar that takes a pointer, so the
- * scrim around it stays click-through.
- */
-.control-track {
-  pointer-events: auto;
+.side-add-die-glyph {
+  font-size: 12px;
+  line-height: 1;
+}
+
+/* The die is spinning. A rotation and not a pulse, because the thing it is
+   reporting is a *draw* — and it is the only motion in this panel. */
+.side-add-die.is-busy .side-add-die-glyph {
+  animation: side-die 900ms linear infinite;
+}
+
+@keyframes side-die {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* --- a taxon --- */
+
+.side-row {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  border-radius: 6px;
+}
+
+.side-row-main {
+  flex: 1 1 auto;
+  min-width: 0;
   display: flex;
   align-items: center;
-  gap: 1px;
-  padding: 2px;
-  border-radius: 7px;
-  background: rgba(150, 200, 210, 0.045);
-}
-
-.control {
-  appearance: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 8px 3px 6px;
-  border: 1px solid transparent;
-  border-radius: 5px;
-  background: transparent;
-  font-family: var(--sans);
-  font-size: 11.5px;
-  font-weight: var(--w-reg);
-  color: var(--ink-3);
-  cursor: pointer;
-  transition:
-    background 120ms ease,
-    color 120ms ease,
-    border-color 120ms ease;
-}
-
-/* Lower case, because the caption above it is the noun and the button is the
-   verb: `SPECIES` / add, random. The words stay title case in `bindings.ts`,
-   where they are also a tooltip and a palette row. */
-.control-label {
-  text-transform: lowercase;
-}
-
-/*
- * Hover raises the button out of the well, at exactly the figures
- * `.mode-seg.is-on` uses to raise a chosen segment. That equivalence is the
- * point: on the mode panel the raised thing is where you *are*, and here it is
- * where you would land — one language, two tenses.
- */
-.control:hover:not([aria-disabled="true"]) {
-  background: var(--void-2);
-  border-color: var(--hairline);
-  color: var(--ink);
-}
-.control:hover:not([aria-disabled="true"]) .kbd {
-  border-color: var(--hairline-strong);
-  color: var(--accent);
-}
-
-/* Keyboard focus is a real state here and must not borrow hover's look — a
-   reader tabbing the bar needs to see where they are. */
-.control:focus-visible {
-  outline: none;
-  border-color: var(--accent-dim);
-  color: var(--ink);
-}
-
-/*
- * Held state, for the one control on this bar that has one — isolate.
- *
- * It is raised like a hovered button *and* takes the accent, which is the
- * opposite of the rule the canvas-mode panel follows. The two are consistent
- * on what they are actually about: a switch above the axis reports a *setting*
- * and gets no colour for it, while this reports that a view of the tree is
- * currently being suppressed, which is a thing the reader has done to the data
- * and has to be able to see from the canvas.
- */
-.control.on {
-  background: var(--void-2);
-  border-color: var(--hairline);
-  color: var(--accent);
-}
-.control.on .kbd {
-  border-color: var(--accent-dim);
-  color: var(--accent);
-}
-
-/* Disabled rather than hidden, so the bar never reshuffles under a hand that
-   is already moving. The tooltip carries what would make it work.
-   *
-   * This **multiplies** with the idle fade above, and that product is the
-   * number that matters: 0.38 under the old 0.34 put the whole Navigate group
-   * at 0.13, which is not a disabled control but an invisible one — and on
-   * first load, before anything is selected, that group is the entire second
-   * row. Under the fade this now rests at 0.72 — about 4:1, against the 6.6 of
-   * an enabled neighbour. That ratio between the two is what says *disabled*;
-   * the old one said *absent*. 1.4.3 exempts an inactive control from the 4.5
-   * floor, which is why this is the one number here allowed to sit near it, and
-   * not a licence to go back under. */
-.control[aria-disabled="true"] {
-  opacity: 0.8;
-  cursor: default;
-}
-
-/* The badge, at the mode panel's weight rather than the palette's. `.kbd` is
-   filled and bordered for a row in a list, which inside a recessed well reads
-   as a second raised object beside the label; here it is the outline alone,
-   exactly like `.mode-key`. */
-.control .kbd {
-  padding: 1px 4px;
-  font-size: 10px;
+  gap: 9px;
+  /* Two lines of content, so taller than the 32px a single-line layers row
+     takes — and comfortably past the 24px WCAG target floor either way. */
+  min-height: 40px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 6px;
   background: none;
-  border-color: var(--hairline);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.side-row:hover .side-row-main,
+.side-row-main:focus-visible {
+  background: var(--void-3);
+}
+
+.side-row.is-on .side-row-main {
+  background: hsl(var(--accent-h) 30% 20% / 0.45);
+}
+
+.side-row.is-on .side-row-name {
+  color: var(--ink);
+}
+
+.side-row-art {
+  flex: 0 0 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-3);
+}
+
+.side-row.is-on .side-row-art {
+  color: var(--accent);
+}
+
+.side-row-dot {
+  font-size: 12px;
+  opacity: 0.6;
+}
+
+.side-row-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.side-row-name {
+  font-size: 12.5px;
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.side-row-meta {
+  font-size: 9.5px;
+  letter-spacing: 0.03em;
+  color: var(--ink-4);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The one thing a reader is asked to hold about the second corpus: a fossil row
+   is a species the tree has no lineage for. Not "extinct" — that would be wrong
+   about *T. rex*, which is in the tree. */
+.side-row-badge {
+  display: inline-block;
+  padding: 0 4px;
+  border: 1px solid var(--hairline);
+  border-radius: 3px;
+  font-size: 8.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   color: var(--ink-4);
 }
 
-/* The pending line rides the second row's baseline rather than a track of its
-   own — it is a note about the app, not a thing to press. */
-.controls-busy {
-  padding-bottom: 4px;
+/*
+ * Take it off the canvas.
+ *
+ * Hidden until the row is looked at, which is what keeps a list of twenty rows
+ * from being a list of twenty buttons — and revealed by `:focus-within` as well
+ * as `:hover`, because a control that only a pointer can summon is unreachable
+ * from a keyboard. The `@media (hover: none)` block below is the third case:
+ * a thumb has no hover at all, so there it is simply always there.
+ */
+.side-row-remove {
+  flex: 0 0 auto;
+  width: 26px;
+  align-self: center;
+  height: 26px;
+  margin-right: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--ink-4);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity 120ms ease,
+    color 120ms ease,
+    background 120ms ease;
 }
 
+.side-row:hover .side-row-remove,
+.side-row:focus-within .side-row-remove,
+.side-row-remove:focus-visible {
+  opacity: 1;
+}
+
+.side-row-remove:hover {
+  background: hsl(0 40% 24% / 0.5);
+  color: hsl(0 60% 76%);
+}
+
+@media (hover: none) {
+  .side-row-remove {
+    opacity: 1;
+  }
+}
+
+/* --- what you do when you have stopped building --- */
+
 /*
- * Pointed at: one outline round the two groups that are the ways to make this
- * tree yours, and a tray of copy under it.
+ * Two verbs in the caption's own row, and in the caption's own face.
  *
- * Set only in the moments after an opening finishes drawing. It replaced a
- * sentence on the end of the answer's own toast, and the trade is the point —
- * prose over there taught the *key* and competed with the reply to the question
- * the reader asked; a box up here says *where*, and the badges inside it are
- * already printing the keys, so the line under it can be the invitation and
- * nothing else.
+ * This was two bordered buttons under a caption — glyph, word, key badge — and
+ * it was the loudest object in a panel whose whole register is quiet, spent on
+ * the two actions a reader reaches for least. In the caption's row the whole
+ * line reads as one phrase, **this tree · share · clear**, and the section stops
+ * needing a body at all.
  *
- * **One outline, not three marks.** An earlier draft pulsed a dot on each
- * button, and three breathing objects along the top edge of a canvas whose
- * whole argument is that the graph is the only thing worth looking at read as
- * three separate demands. It is one offer with three doors.
- *
- * The padding is cancelled by an equal negative margin, so the box is drawn
- * around the groups without moving them or anything after them: the bar looks
- * identical the instant before and after this appears, and only the outline is
- * new.
+ * The anatomy is `SourceLinks`'s, which has sat at the foot of this panel
+ * saying `about | source` in exactly this voice from the beginning. Nothing
+ * about that pair has ever needed a box, which is the evidence this row needed
+ * none either.
  */
-.control-tip {
-  /* The containing block for the tray, which comes out of this outline's right
-     edge — see the rule below for why that is anchored here and not on the bar. */
-  position: relative;
+.side-h-acts {
   display: inline-flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
+  align-items: baseline;
+  /* Wide enough that the count and the verb beside it never read as one token,
+     and wide enough that a pointer aimed at the number cannot land on `clear`. */
   gap: var(--s3);
-  padding: 3px 6px;
-  margin: -3px -6px;
-  border: 1px solid var(--accent-dim);
-  border-radius: 10px;
-  animation: tip-breathe 2600ms ease-in-out infinite;
 }
 
-/*
- * The tray, coming out of the right-hand edge of the outline.
- *
- * Absolutely positioned, so it is outside the bar's flow — a line that pushed
- * its own row would move the buttons it is pointing at, on the one frame they
- * must not move.
- *
- * **It comes out sideways, and that is what lets it hang off the outline
- * itself.** It used to drop from `top: 100%` of `.controls`, which was the
- * right answer to the wrong question: anchored to the outline a *downward*
- * tray landed on the bar's second row, under `NAVIGATE` and over three
- * buttons, so it was moved to the foot of the whole bar to get clear of them.
- * Sideways there is nothing to get clear of — the lead run ends and the rest of
- * that line is empty as far as the canvas group at the far end — so the line
- * can start where the outline stops and touch the thing it is about. A caption
- * two rows under a box is a caption the reader has to connect to it.
- *
- * `top: 50%` with a half-height shift rather than `top: 0`, so it sits on the
- * outline's midline at one line of copy and at three. That is the same centring
- * `.palette-fab-tip` uses on the other layout, which is the point: one
- * invitation, coming out of the side of whatever is carrying it.
- *
- * It is not pressable and takes no pointer: the buttons are the target, and a
- * caption that swallowed a click aimed past it would cost the reader the very
- * press it is asking for.
- */
-.control-tip-tray {
-  position: absolute;
-  top: 50%;
-  left: 100%;
-  /* Clear of the outline's own glow, which breathes 3px out from that edge. */
-  margin-left: 12px;
-  /*
-   * `width` and not `max-width` alone, which is the one trap in anchoring to
-   * the outline instead of to the bar. An absolutely positioned box with `left`
-   * set and `right` auto is shrink-to-fit against the room left inside its
-   * *containing block* — and `left: 100%` leaves exactly none of it, so the
-   * line collapsed to its longest word and stood five rows tall under a
-   * `max-width` of 300 it could not reach. `max-content` asks for the sentence
-   * unbroken and the cap is then a cap.
-   *
-   * Narrower than the 340px it had under the bar, because this room is shared
-   * with the canvas group at the other end of the line rather than empty.
-   */
-  width: max-content;
-  max-width: min(300px, 30vw);
-  padding: 4px 9px;
-  border: 1px solid var(--hairline);
-  border-radius: 6px;
-  background: rgba(14, 14, 17, 0.94);
-  font-family: var(--sans);
-  font-size: 11.5px;
-  line-height: 1.4;
+.side-act {
+  padding: 0;
+  border: 0;
+  background: none;
+  /* The caption's own face, stated rather than inherited: the caption is on the
+     `h2` and this is a descendant, so `font: inherit` would take whatever a
+     future rule leaves on the parent instead of this. */
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: var(--w-reg);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+  cursor: pointer;
+  transition: color 140ms ease;
+}
+
+.side-act:hover,
+.side-act:focus-visible {
   color: var(--ink-2);
-  white-space: normal;
-  pointer-events: none;
-  transform: translateY(-50%);
-  animation: tip-tray-out 420ms var(--spring) both;
+}
+
+/* Removal is not destructive — the back button restores it — and clearing is.
+   This is the only warm colour in the panel, and it appears only under a
+   pointer that has already arrived on the one action that asks before it acts. */
+.side-act.is-danger:hover,
+.side-act.is-danger:focus-visible {
+  color: hsl(0 62% 74%);
+}
+
+/* An underline rather than a colour: the resting and hovered states are already
+   the only two colours this row has, and a third would have to be told apart
+   from both at 9.5px. */
+.side-act:focus-visible {
+  outline: none;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.side-act[aria-disabled="true"] {
+  opacity: 0.4;
+  cursor: default;
 }
 
 /*
- * The breath is a glow and never the border, and the base state is the lit
- * outline rather than a bare one. That ordering is what makes reduced motion
- * correct for free: the global block at the foot of this file cuts the
- * animation to 1ms and one iteration, and with the default `fill-mode: none`
- * the group then sits at its base style — a static accent outline, which is the
- * right still substitute for a pulse. The tray keeps `both`, so it holds its
- * finished state instead of snapping back to squashed and invisible.
+ * Pinned below the scroll: where this came from, and the licence.
+ *
+ * `flex: 0 0 auto` beside the scroller's `1 1 auto`, with a hairline above it,
+ * so the list fades under a footer rather than butting against the bottom of
+ * the window. It holds one object — `SourceLinks` — since the `About Concestor`
+ * row that used to sit over it went to the same place as that object's own
+ * first link.
  */
-@keyframes tip-breathe {
-  0%,
-  100% {
-    box-shadow: 0 0 0 0 transparent;
-  }
-  50% {
-    box-shadow:
-      0 0 0 3px hsl(var(--accent-h) 80% 60% / 0.09),
-      0 0 16px 0 hsl(var(--accent-h) 80% 60% / 0.2);
-  }
+.side-bottom {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  /* Two groups, not three links. The gap between them is the whole of what
+     says the left pair answers *where did this come from* and the right one
+     sends it on. */
+  justify-content: space-between;
+  gap: var(--s3);
+  padding: 0 4px;
+  font-size: 11px;
 }
 
-/* Out of the outline's edge rather than in from nowhere, which is what says the
-   two are one object. The y half of the transform is the centring on the rule
-   above and has to be restated here, or the first frame drops it and the line
-   jumps into place on arrival. */
-@keyframes tip-tray-out {
-  from {
-    opacity: 0;
-    transform: translate(-14px, -50%);
-  }
+/* ------------------------------------------------------- canvas clusters -- */
+
+/*
+ * The panel's switch, in the panel's header.
+ *
+ * No border, no background, no backdrop filter — the glyph and its badge, with
+ * a track under the pointer. Everything the floating version had was there to
+ * make it an object on the canvas; in a row under the app's own name it is a
+ * control beside a heading, and a box round it would be the only box in the
+ * header.
+ */
+.side-toggle {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--ink-4);
+  cursor: pointer;
+  transition:
+    background 140ms ease,
+    color 140ms ease;
+}
+
+.side-toggle:hover,
+.side-toggle:focus-visible {
+  outline: none;
+  background: var(--void-3);
+  color: var(--ink-2);
+}
+
+.side-toggle .kbd {
+  font-size: 8px;
+  padding: 0 3px;
+  min-width: 0;
+}
+
+.side-toggle-glyph {
+  opacity: 0.9;
 }
 
 /*
- * **A control keeps its word at every width the bar is drawn at.** There is no
- * narrow variant of this bar, and that is deliberate.
+ * The three that act on the view, top right.
  *
- * There used to be one: below 720px the labels went and the badges stayed, on
- * the argument that `ADD SPECIES` over `S R` still names the group. What that
- * actually shipped was a bar whose buttons read `S` `R` `C` `F` `/` — a row of
- * bare letters, in a window that is very often a laptop rather than a phone,
- * asking the reader to already know the table the bar exists to teach them.
- * Share, which has no badge, then needed an exception to avoid being an empty
- * button, and an exception is the tell: the rule was hiding the only thing on
- * a control that every control has.
- *
- * There is exactly one width rule now, and it is a swap rather than a
- * shortening — below 620px the whole bar goes and `.palette-fab` stands in its
- * place, with the palette behind it carrying every command in words. Between
- * 620 and 720 the bar simply wraps to a second row, which costs a row of
- * pixels and no meaning at all.
+ * The slot fades when nobody has moved for four seconds, on the rule the
+ * control bar kept — chrome auto-hides, the canvas is the page — and the
+ * panel's own switch deliberately does not join it, because a control that
+ * puts the whole panel back has to be findable by somebody who has just
+ * realised they want it.
  */
+.viewport-slot {
+  position: fixed;
+  right: var(--s4);
+  top: 14px;
+  z-index: 20;
+  transition: opacity 400ms ease;
+}
+
+/*
+ * The pair top left, drawn only while the panel is shut.
+ *
+ * Same offset from its corner as the trio on the right, same anatomy, same
+ * badges — which is the whole point of drawing them with one component. It is
+ * deliberately **not** in the idle fade: chrome auto-hides because the canvas
+ * is the page, and a control that puts the whole panel back has to be findable
+ * by somebody who has just realised they want it.
+ */
+.viewport-slot.is-left {
+  right: auto;
+  left: var(--s4);
+}
+
+.viewport-slot.idle {
+  opacity: 0.3;
+}
+
+.viewport-slot:hover,
+.viewport-slot:focus-within {
+  opacity: 1;
+}
+
+.viewport-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  background: hsl(240 5% 7% / 0.82);
+  backdrop-filter: blur(6px);
+}
+
+.viewport-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--ink-3);
+  font: inherit;
+  cursor: pointer;
+  transition:
+    background 140ms ease,
+    color 140ms ease;
+}
+
+.viewport-btn:hover:not([aria-disabled="true"]),
+.viewport-btn:focus-visible {
+  background: var(--void-3);
+  color: var(--ink);
+}
+
+.viewport-btn.on {
+  background: hsl(var(--accent-h) 30% 20% / 0.55);
+  color: var(--accent);
+}
+
+.viewport-btn[aria-disabled="true"] {
+  opacity: 0.38;
+  cursor: default;
+}
+
+.viewport-glyph {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.viewport-btn .kbd {
+  font-size: 8px;
+  padding: 0 3px;
+}
 
 /* ------------------------------------------------------------------ modal -- */
 
@@ -2290,21 +2845,21 @@ body {
  */
 .toasts {
   position: fixed;
-  left: 50%;
+  /* Centred on the *canvas*, not the window — see `.boot`. */
+  left: calc(var(--sidebar-w) + (100vw - var(--sidebar-w)) / 2);
   transform: translateX(-50%);
   /* Above the axis, not across it. A toast is a report about a view; the strip
      along the bottom is what tells the reader how to read that view, and one
      covering the other loses the more useful of the two. `--axis-h` is the same
-     number the drill lane stacks on, so the three keep one column — but the
-     axis grows upward when its footer wraps, so the gap has to be at least the
-     slack `AXIS_RESERVE` in Graph.tsx allows for that. 84 + 24 cleared its 104.
+     number the drill lane stacks on, so the three keep one column.
 
-     It is 48 now, not 24, because the bottom edge grew a second occupant: the
-     bioluminescence switch sits at `--axis-h + 12` and stands about 25px, and a
-     toast is up to 88vw wide, so on a narrow window the two shared pixels and
-     the toast — z-index 45 against the switch's 6 — won. Clearing the switch
-     outright costs a toast 24px of height it was not using; overlapping it
-     costs the reader a control they can see and cannot press. */
+     48 rather than a hairline, because the bottom edge has a second occupant:
+     the provenance key sits at `--axis-h + 16` and stands about 15px, and a
+     toast is up to 88vw wide, so on a narrow window the two would share pixels
+     and the toast — z-index 45 against the key's 6 — would win. That occupant
+     used to be the bioluminescence switch, which was worse: overlapping a
+     control a reader can see and cannot press costs more than overlapping a
+     caption. The clearance outlived the switch because the shelf did. */
   bottom: calc(var(--axis-h) + 48px);
   z-index: 45;
   display: flex;
@@ -2684,15 +3239,31 @@ body {
 
 /* ------------------------------------------------------------ detail card -- */
 
+/*
+ * It flies out from the right, opposite the panel.
+ *
+ * `canvas/viewport.ts` is what makes that safe rather than a collision: the fit
+ * is computed against the canvas minus this card's footprint, so the tree
+ * reframes into the strip between the panel and the card instead of sliding
+ * under either — and where there is too little canvas left to reframe into, the
+ * reserve is refused and the smallest pan that clears the subject happens
+ * instead.
+ *
+ * `top` clears the viewport cluster in the same corner. 58 rather than 16,
+ * because that cluster is 34px tall at 14 from the top and a card starting at
+ * the window's own margin lands on it — the two things in this corner are the
+ * three view actions and the answer to what you just clicked, and they stack.
+ */
 .detail {
   position: fixed;
-  top: var(--s4);
+  top: 58px;
   right: var(--s4);
+  animation: detail-in 220ms var(--spring);
   /* 30px wider than it was. The card stopped being a caption the moment it
      carried a paragraph of prose and a classification ladder, and a measure
      this narrow was already making the ladder's rank column wrap. */
   width: 360px;
-  max-height: calc(100vh - 130px);
+  max-height: calc(100vh - 172px);
   overflow-y: auto;
   z-index: 25;
   background: rgba(14, 14, 17, 0.9);
@@ -2701,6 +3272,22 @@ body {
   padding: var(--s4);
   backdrop-filter: blur(8px);
   scrollbar-width: thin;
+}
+
+/*
+ * Out of the right-hand edge rather than in from nowhere, which is what says
+ * the card belongs to that side of the screen — the same reading the panel's
+ * own slide gives the left.
+ */
+@keyframes detail-in {
+  from {
+    opacity: 0;
+    transform: translateX(22px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 /*
@@ -3210,6 +3797,10 @@ body {
 .boot {
   position: fixed;
   inset: 0;
+  /* Inset like the canvas it sits over, so the centred column centres in the
+     canvas rather than in the window — otherwise the panel pushes the whole
+     invitation off to the right of the tree it is inviting you to draw. */
+  left: var(--sidebar-w);
   display: grid;
   place-items: center;
   text-align: center;
@@ -3254,56 +3845,62 @@ body {
    between them sits beside the words instead of out at the panel's margin. The
    rows inside are left-aligned — the panel above is centred, but a column of
    badges that is centred has no column in it. */
+/*
+ * One offer, centred, where there were two columns.
+ *
+ * The left column was three key badges — `S` search, `R` random, `P` commands —
+ * and the rule that separated it from the link was a `border-left` on the link.
+ * Both are gone: the sidebar draws those three as full-width controls with
+ * their letters on them, three centimetres to the left of this block, and a
+ * column repeating them in the middle of the canvas is the same offer made
+ * twice with the second copy sitting on the tree. What survives is the one
+ * offer the panel does not make, which is the way *out* of this screen.
+ */
 .boot-alt {
   display: grid;
-  grid-template-columns: auto auto;
-  align-items: center;
   justify-content: center;
-  column-gap: var(--s5);
+  justify-items: center;
   color: var(--ink-4);
   font-size: 12.5px;
-  text-align: left;
-}
-.boot-keys {
-  display: grid;
-  gap: var(--s2);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.boot-keys li {
-  display: flex;
-  align-items: center;
-  gap: var(--s3);
-}
-/* The badges are one letter each today, so they align by accident. `min-width`
-   is what keeps the words in a column the day one of them is not. */
-.boot-keys .kbd {
-  min-width: 1.9em;
-  text-align: center;
 }
 /* `.boot` is `pointer-events: none` so the empty canvas does not swallow
    presses aimed at the axis behind it; this takes it back, as `.carousel`
-   does. The hairline is the whole of the division between the columns — a
-   second surface here would be a card on a panel that is deliberately not
-   one. */
+   does. No border and no card: it is the last line of a panel that is
+   deliberately not a surface, and there is nothing beside it to be divided
+   from any more. */
 .boot-more {
   pointer-events: auto;
   align-self: center;
   display: inline-flex;
   align-items: center;
   gap: var(--s2);
-  padding: var(--s1) 0 var(--s1) var(--s5);
+  padding: var(--s2) var(--s4);
   border: 0;
-  border-left: 1px solid var(--hairline);
-  border-radius: 0;
+  border-radius: 999px;
   background: none;
   font: inherit;
-  color: var(--ink-4);
+  /*
+   * A rung brighter than it was, because this is now the *only* place a
+   * first-time reader is pointed at the about page — the sidebar's footer keeps
+   * a quiet `about` and the wordmark is a door, and neither of those is
+   * something a stranger finds in their first thirty seconds. This is: it is
+   * the last line of the one screen they are certainly looking at, directly
+   * under the question that just persuaded them.
+   *
+   * It is still not the carousel's accent. That is the lit mark on this canvas
+   * and there may only be one; what this gets instead is the ink rung above the
+   * captions and a track that appears under the pointer.
+   */
+  color: var(--ink-3);
   text-align: left;
   cursor: pointer;
   transition: color 140ms ease;
 }
+.boot-more:hover,
+.boot-more:focus-visible {
+  background: var(--void-3);
+}
+
 .boot-more:hover {
   color: var(--ink-2);
 }
@@ -4296,97 +4893,6 @@ body {
   margin-left: auto;
 }
 
-/* ------------------------------------------------------- the way in -- */
-
-/*
- * **The command button glows, and it is the one piece of chrome that does.**
- *
- * The standing rule is that the graph is the only light source, and every
- * control on this canvas obeys it: `ModeChip` states its position and stops,
- * the panel gave up its accent for exactly this reason, and the note over
- * `.biolum-mode.is-lit` records that bioluminescence is the single exception
- * *because glowing is what it does*.
- *
- * This is the second exception and it is a different argument. The palette is
- * the way in — `P` is the root of the command surface, the empty canvas is a
- * command list, and on a phone this button is the entire chrome. A reader who
- * does not find it has no way to reach the search, a random pick, share, clear
- * or the light itself. Everything else in the bar acts on
- * something already drawn and can afford to wait to be looked for; this one
- * cannot. It is lit at rest and brighter under the pointer.
- *
- * Both elements, because they are the same control at two widths: the bar's
- * button above 620px and `PaletteFab`'s circle below it. `Controls.tsx` marks
- * the first with `is-command`, which the lead slot's own class cannot do — that
- * slot is three buttons.
- *
- * **Steady, not breathing.** `.btn-glow` on the about page animates, and this
- * deliberately does not: that one is a preview of the mode and its motion is
- * the preview, while this sits in the corner of a canvas a reader is trying to
- * read. A pulsing light at the edge of the eye is the one thing a dark
- * instrument may not do.
- */
-.control.is-command {
-  border-color: hsl(var(--accent-h) 40% 42% / 0.5);
-  box-shadow:
-    0 0 10px hsl(var(--accent-h) 90% 60% / 0.13),
-    inset 0 0 8px hsl(var(--accent-h) 90% 60% / 0.05);
-}
-
-.control.is-command:hover:not([aria-disabled="true"]),
-.control.is-command:focus-visible {
-  border-color: hsl(var(--accent-h) 55% 55% / 0.75);
-  box-shadow:
-    0 0 16px hsl(var(--accent-h) 90% 60% / 0.24),
-    inset 0 0 10px hsl(var(--accent-h) 90% 60% / 0.08);
-}
-
-/*
- * The circle's own glow lives with the circle, further down, and not here.
- * `chrome/swap.test.ts` reads the **first** `.palette-fab` rule in this file and
- * asserts the narrow-window geometry on it — `display: none`, and a bottom off
- * `--axis-h` — so a second base rule declared up here silently becomes the one
- * that test measures, and it measures a rule with no geometry in it at all.
- */
-
-/*
- * In the mode, the same control is lit by the water instead.
- *
- * `canvas/bootLight.ts` measures both of these and hands the renderer a real
- * `ScreenLight`, so the halo a reader sees here is drawn *into the same HDR
- * buffer as the rivers* — the vicinity field picks it up, the marine snow
- * drifting past it catches it and takes its hue, and the bloom and tone map
- * treat it exactly as they treat a branch. That is the whole difference
- * between this and the CSS above, and it is why the CSS below does less rather
- * than more: it only has to keep the border reading as an edge against light
- * that is now coming from behind the element.
- *
- * 186 rather than `--accent-h`, because in this mode every light on the canvas
- * is the mode's cyan and a control lit in the app's hue would be the one thing
- * on screen disagreeing with the water underneath it.
- */
-.palette-fab:hover,
-.palette-fab:focus-visible {
-  border-color: hsl(var(--accent-h) 55% 56% / 0.8);
-  box-shadow:
-    0 0 20px hsl(var(--accent-h) 90% 60% / 0.28),
-    inset 0 0 12px hsl(var(--accent-h) 90% 60% / 0.09);
-}
-
-body.biolum .control.is-command,
-body.biolum .palette-fab {
-  border-color: hsl(186 70% 58% / 0.42);
-  box-shadow: inset 0 0 10px hsl(186 100% 62% / 0.07);
-}
-
-body.biolum .control.is-command:hover:not([aria-disabled="true"]),
-body.biolum .control.is-command:focus-visible,
-body.biolum .palette-fab:hover,
-body.biolum .palette-fab:focus-visible {
-  border-color: hsl(186 80% 64% / 0.7);
-  box-shadow: inset 0 0 12px hsl(186 100% 62% / 0.12);
-}
-
 /* ----------------------------------------------------- bioluminescence -- */
 
 /*
@@ -4611,20 +5117,39 @@ body.biolum .palette-fab:focus-visible {
 }
 
 /* The one rule the document-level class exists for. `--void` is the neutral
-   instrument's black and reads as a pale band against the water. */
-body.biolum .controls {
-  background: linear-gradient(to bottom, #02060a 46%, transparent);
-}
-body.biolum .control:hover:not([aria-disabled="true"]),
-body.biolum .control.on {
-  background: hsl(200 45% 9%);
+   instrument's black and reads as a pale band against the water — which is
+   what the sidebar and both canvas clusters would be, since none of them is
+   inside `.canvas` and so none of them inherits the mode from it. */
+body.biolum .sidebar,
+body.biolum .side-search-btn,
+body.biolum .side-toggle,
+body.biolum .viewport-btn {
+  background: hsl(200 45% 6% / 0.94);
   border-color: hsl(188 60% 55% / 0.22);
 }
-/* The one button that floats over the water rather than over a scrim, so it is
-   the one that would still be the instrument's black in the deep sea. */
-body.biolum .palette-fab {
-  background: hsl(200 45% 7% / 0.94);
-  border-color: hsl(188 60% 55% / 0.28);
+/* `.side-act` is deliberately absent from this group. It has no background and
+   no border to retint — it is two words in the caption's face, and what it
+   changes on hover is ink, which the mode does not touch. */
+body.biolum .side-toggle:hover,
+body.biolum .viewport-btn:hover:not([aria-disabled="true"]),
+body.biolum .viewport-btn.on {
+  background: hsl(200 45% 9%);
+  border-color: hsl(188 60% 55% / 0.34);
+}
+/* The way in floats over the water rather than over a scrim, and in this mode
+   it is lit by the water — `canvas/bootLight.ts` measures it and hands the
+   renderer a real light, so the halo is drawn into the same HDR buffer as the
+   rivers. 186 rather than `--accent-h`, because every light on this canvas is
+   the mode's cyan and a control in the app's hue would be the one thing on
+   screen disagreeing with the water behind it. */
+body.biolum .side-search-btn {
+  border-color: hsl(186 70% 58% / 0.42);
+  box-shadow: inset 0 0 10px hsl(186 100% 62% / 0.07);
+}
+body.biolum .side-search-btn:hover,
+body.biolum .side-search-btn:focus-visible {
+  border-color: hsl(186 80% 64% / 0.7);
+  box-shadow: inset 0 0 12px hsl(186 100% 62% / 0.12);
 }
 
 /*
@@ -4663,93 +5188,67 @@ body.biolum .carousel-card:focus-visible {
 }
 
 /*
- * The canvas-mode chips, bottom left, above the axis.
+ * The four canvas modes, in the sidebar.
  *
- * Three of them — labels, ages, bioluminescence — in one column, because they
- * are one set: the controls that change how the canvas is *drawn* rather than
- * what is on it. The control bar at the top owns the other half of that split.
+ * They were three chips stacked bottom left over the axis, plus a fourth on
+ * the axis footer, and `sidebar/Sidebar.tsx` records why one set on two edges
+ * was worse than one set in one place. What survives untouched is the chip's
+ * own anatomy below — the badge, the caption, the recessed track, the raised
+ * segment — because that was never what was wrong with it.
  *
- * There is a fourth member of that set and it is **not** in this column. The
- * time-scale switch wears this panel's anatomy — same badge, same track, same
- * raised segment — on the axis footer below, because a control belongs on the
- * thing it changes and that one redraws the ruler.
- * `chrome/TimeScaleToggle.tsx` is where the pull in both directions is argued
- * out; `.axis-foot > .scale-mode` is the one line of styling that differs.
- *
- * The column is pinned by its bottom edge and grows upward, so the light stays
- * where it has always been and the two switches added since arrived above it
- * rather than pushing it. Top to bottom that reads: the words, the figure that
- * annotates them, then the light — which is also the order of how much each one
- * changes.
- *
- * `--lane-h` is why the offset is a `calc` rather than a constant. The
- * drill-down lane stacks on the axis and can be several rows tall, and a stack
- * pinned to `--axis-h` alone would slide underneath it the moment a reader
- * opened one. `Graph.tsx` publishes the live height because it is the only
- * thing that knows it.
+ * The container's job shrank to a stack with a gap. There is no `subgrid` any
+ * more: it existed so that four chips of different widths lined their badges
+ * and switches up in a floating panel as wide as its widest member, and in a
+ * column of fixed width each row simply spans it.
  */
-.canvas-modes {
-  position: absolute;
-  left: var(--s4);
-  /* Clear of the epoch band, not resting on it. 12px put the bottom chip's
-     border a hair off the band's top edge, which reads as one stack rather
-     than as a control floating over a chart. */
-  bottom: calc(var(--axis-h) + var(--lane-h, 0px) + 26px);
-  z-index: 6;
-  pointer-events: auto;
-
-  /*
-   * Two columns for the whole panel — key · switch — shared by every row through
-   * `subgrid` below, with each caption stacked *above* its own switch.
-   *
-   * The caption used to be a third column, and its width was set by the longest
-   * word in the set: `BIOLUMINESCENCE`. That is 15 characters deciding the
-   * indent of a row that says `AGES`, so two of the three rows carried a run of
-   * dead space and the panel was half caption. Stacked, the caption costs a line
-   * instead of a column, the panel is as wide as its widest *switch*, and the
-   * two columns left are the two that actually have to line up.
-   *
-   * The panel owns the border; the rows own nothing but their own lit state.
-   */
-  display: grid;
-  grid-template-columns: auto auto;
-  gap: 7px 7px;
-  padding: 6px 8px;
-  border-radius: 8px;
+.side-modes {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 10px;
   font-family: var(--sans);
   font-size: 11px;
   letter-spacing: 0.04em;
   white-space: nowrap;
   color: var(--ink-3);
-
-  /*
-   * No border and no card. The panel had both and was the brightest object on
-   * screen — a lit rectangle in the corner of a canvas whose whole design is
-   * *the graph is the only light source*, drawing the eye away from the tree it
-   * annotates. Chrome here recedes: `.controls` along the top edge is
-   * `background: none` on a gradient scrim at `--ink-3`, and fades to a third
-   * of itself when the reader stops using it. This is the same instrument.
-   *
-   * The grid still aligns the rows — that was never what made it loud.
-   */
-  background: none;
-  transition:
-    opacity 200ms ease,
-    bottom 240ms var(--spring);
 }
 
 /*
- * Quiet until it is looked at, which is what earns it the bottom-left corner.
- * The reader is here for the tree; these three answer a question they have not
- * asked yet, so they sit below the canvas's own contrast until a pointer
- * arrives — and `:focus-within` is what keeps that true for a keyboard.
+ * Two rows: the badge and the caption share the first, the switch takes the
+ * second across both columns.
+ *
+ * The chip's own children still carry the `grid-column` declarations the old
+ * floating panel's `subgrid` needed, so each one is placed explicitly here
+ * rather than left to flow — the caption in particular carried `1 / -1`, which
+ * in this grid would push the badge onto a line of its own above it.
  */
-.canvas-modes {
-  opacity: 0.9;
+.side-modes .mode-chip {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 5px 7px;
 }
-.canvas-modes:hover,
-.canvas-modes:focus-within {
-  opacity: 1;
+.side-modes .mode-chip .mode-key:not(:empty) {
+  grid-column: 1;
+  grid-row: 1;
+}
+/* No badge on a chip is still a first column, so the caption does not shuffle
+   left on one row and not the others. */
+.side-modes .mode-chip .mode-name {
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: start;
+}
+.side-modes .mode-chip .mode-track {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  width: 100%;
+}
+/* Equal thirds, so the raised segment is a position in a track rather than a
+   word that happens to be lit — which is the whole of what a switch says. */
+.side-modes .mode-seg {
+  flex: 1 1 0;
+  text-align: center;
 }
 
 /*
@@ -4771,24 +5270,6 @@ body.biolum .carousel-card:focus-visible {
   transition:
     background 140ms ease,
     box-shadow 140ms ease;
-}
-
-/* Without subgrid the declaration is dropped and each row collapses to one
-   column — three cells stacked vertically, which is a worse layout than the one
-   this replaced. A flex row is the honest fallback: the columns stop aligning,
-   but the control still reads. */
-@supports not (grid-template-columns: subgrid) {
-  .canvas-modes {
-    display: flex;
-    flex-direction: column;
-    align-items: stretch;
-  }
-  .mode-chip {
-    display: block;
-  }
-  .mode-key:not(:empty) {
-    margin-right: 7px;
-  }
 }
 
 /* The badge cell. Always present, empty where a chip has no key, because a
@@ -5067,216 +5548,20 @@ body.biolum .carousel-card:focus-visible {
 /* -------------------------------------------------------- narrow window -- */
 
 /*
- * The one button, and it is not drawn at all on a window wide enough for the
- * bar: two ways to reach the same palette, one of them a circle floating over
- * the tree, is exactly the clutter the swap exists to remove.
+ * There is no palette button here any more, and no media block hiding a bar.
  *
- * It rides the same shelf as `.canvas-modes` on the opposite side —
- * `--axis-h` plus any open drill lane — so it clears the epoch band by the same
- * measure and a lane opening under it moves it rather than covering it. That is
- * why it is rendered inside the canvas: `--lane-h` is published there.
+ * Below 620px the control bar, the canvas-mode panel and the scale switch were
+ * all hidden and one round `.palette-fab` stood in for the lot of them. That
+ * was a good swap for the layout it was made in and it has nothing left to
+ * swap: the bar and the panel are gone at every width, the search pill is the
+ * same object collapsed as expanded, and the sidebar it opens is a drawer down
+ * here rather than a column.
  *
- * Solid rather than the recessed well the bar uses, because there is no set for
- * it to belong to and nothing beside it to be raised out of. It is the one
- * object on the canvas that is not the tree, so it says so.
+ * What survives of that argument is the sidebar's own `DOCK_W`, which is the
+ * width below which the panel floats over the canvas instead of taking width
+ * out of it. `sidebar/useSidebar.ts` records why that number is measured rather
+ * than picked.
  */
-.palette-fab {
-  position: absolute;
-  right: var(--s4);
-  bottom: calc(var(--axis-h) + var(--lane-h, 0px) + 26px);
-  z-index: 6;
-  display: none;
-  align-items: center;
-  justify-content: center;
-  width: 54px;
-  height: 54px;
-  padding: 0;
-  /* Lit at rest, on the reasoning over `.control.is-command`: below 620px this
-     circle is the whole of the chrome, so the way in cannot afford to wait to
-     be looked for. */
-  border: 1px solid hsl(var(--accent-h) 40% 44% / 0.55);
-  border-radius: 50%;
-  background: rgba(14, 14, 17, 0.94);
-  box-shadow:
-    0 0 14px hsl(var(--accent-h) 90% 60% / 0.16),
-    inset 0 0 10px hsl(var(--accent-h) 90% 60% / 0.05);
-  color: var(--ink);
-  cursor: pointer;
-  pointer-events: auto;
-  transition:
-    background 140ms ease,
-    border-color 140ms ease,
-    bottom 240ms var(--spring);
-}
-
-.palette-fab:active {
-  background: var(--void-3);
-  border-color: var(--accent-dim);
-}
-.palette-fab:focus-visible {
-  outline: none;
-  border-color: var(--accent-dim);
-}
-
-/* Full brightness on the mark here, unlike in the bar: this is the only thing
-   on screen asking to be pressed, and there is no caption beside it to carry
-   the invitation. */
-.palette-fab .brand-mark {
-  opacity: 1;
-}
-
-/* The invitation, when the bar that would normally carry it is not drawn. Same
-   pulse as `.control-tip`, on the door it is pointing at. */
-.palette-fab.is-tip {
-  border-color: var(--accent-dim);
-  animation: tip-breathe 2600ms ease-in-out infinite;
-}
-
-/*
- * The invitation's words, out the left of the button.
- *
- * On the bar the outline goes round three buttons that already print `S`, `R`
- * and `P`, and the tray beneath only has to supply the sentence. Here the
- * outline is a ring on a 54px circle with a mark in it and no word anywhere, so
- * the pulse on its own is a light with nothing saying what it is for — which is
- * the one thing this moment cannot afford, because the reader it is aimed at
- * has pressed exactly one thing in this app and it was a card on a screen they
- * can no longer see.
- *
- * **Left is the only side left.** Above the button is canvas the tree is drawn
- * on and where the answer's own card stands; below it is the timeline, which
- * `--axis-h` exists to keep clear; to the right is the window edge. A line
- * starting a hairline off the circle points at it without needing a tail.
- *
- * It reads the same shelf expression as the button — `--axis-h` plus any open
- * lane — so a drill lane moves the pair together, and the extra 27px puts its
- * *bottom* on the circle's midline while `translateY(50%)` drops its own centre
- * onto that line. That is what keeps it level with the button at one line of
- * copy and at three, which a fixed offset cannot.
- *
- * Not pressable, and for the reason `.control-tip-tray` is not: the button is
- * the target, it is 54px because it is being hit by a thumb, and a caption
- * lying beside it that swallowed a press aimed slightly wide would cost the
- * reader the exact action it is asking for.
- */
-.palette-fab-tip {
-  position: absolute;
-  right: calc(var(--s4) + 54px + 10px);
-  bottom: calc(var(--axis-h) + var(--lane-h, 0px) + 53px);
-  z-index: 6;
-  display: none;
-  /* Wide enough for the line to break in three rather than five, and never
-     wider than the room left beside a 54px circle with a margin either side. */
-  max-width: min(200px, calc(100vw - 110px));
-  margin: 0;
-  padding: 5px 9px;
-  border: 1px solid var(--hairline);
-  border-radius: 6px;
-  background: rgba(14, 14, 17, 0.94);
-  font-family: var(--sans);
-  font-size: 11.5px;
-  line-height: 1.4;
-  color: var(--ink-2);
-  pointer-events: none;
-  transform: translateY(50%);
-  transition: bottom 240ms var(--spring);
-  animation: fab-tip-out 420ms var(--spring) both;
-}
-
-/* Out of the button rather than in from nowhere, which is what says the two
-   are one object. The y half of the transform is the centring above and has to
-   be restated here, or the first frame drops it and the line jumps on arrival. */
-@keyframes fab-tip-out {
-  from {
-    opacity: 0;
-    transform: translate(14px, 50%);
-  }
-}
-
-/*
- * Below 620px there is no chrome on the canvas but one round button.
- *
- * The bar goes, and so does the canvas-mode panel and the scale switch on the
- * axis footer — all of it replaced by `.palette-fab`, bottom right, above the
- * timeline and under a thumb. `chrome/PaletteFab.tsx` is the argument, and the
- * short version is that the palette behind that button can already do
- * everything the hidden controls can, so this is a swap and not a removal.
- *
- * What it buys is the canvas. At 375px the bar is two wrapped rows and the
- * panel is a stack in the corner, over a tree with about 500px of height to
- * draw itself in, and every one of those controls is a target sized for a
- * mouse being hit by a thumb.
- */
-@media (max-width: 620px) {
-  .controls,
-  .canvas-modes,
-  .axis-foot > .scale-mode {
-    display: none;
-  }
-  .palette-fab {
-    display: inline-flex;
-  }
-  /* And its caption, which exists only for this width: above it the bar is
-     drawn and `.control-tip-tray` is where the same sentence lands. */
-  .palette-fab-tip {
-    display: block;
-  }
-}
-
-/*
- * The empty canvas loses a column rather than folding into two rows.
- *
- * Below 620px, because the badges were the first thing under the carousel on a
- * device with no keyboard to press them with — the same offer that width
- * already takes off the canvas when it hides the control bar, made twice. What
- * is left is the one way out of this screen that a thumb can take, and with
- * nothing beside it there is no rule to draw and no reason to sit off the
- * centre line.
- *
- * And in one small band above it, for a different reason that lands on the same
- * answer: **this is where the empty canvas's own switch would be drawn through
- * the keys column.** `.canvas-modes.is-lone` is one chip pinned above the axis
- * at the left, so its box is fixed at about 128px wide and 52px tall ending
- * some 110px off the bottom, while the block is centred in the whole viewport
- * and its last row is the keys. Measured, they meet when the block's own bottom
- * passes the chip's top and the keys column's left edge passes the chip's right
- * — `vh` under about 694 and `vw` under about 678 — and at 628×600 the caption
- * ran under the `R` badge and the switch under the `P`.
- *
- * The bounds below carry about forty pixels of slack over both measurements,
- * and the slack is the point rather than timidity: the keys column's left edge
- * is `vw/2` minus half the width of a row of copy this file does not own, so a
- * longer phrase in `App.tsx` walks it leftward into the switch. Forty pixels is
- * roughly eighty characters' worth of growth. What the slack costs is the
- * column being dropped on a window where it would have cleared by an inch,
- * which is a window that is *both* under 740 wide and under 740 tall.
- *
- * The keys column is what gives way rather than the switch, and it costs
- * nothing here: at any width in this band the **control bar is drawn**, and it
- * is already offering `P commands`, `S search` and `R random` as buttons at the
- * top of the same screen. Below 620px it is not, which is why that width takes
- * the column away for the opposite reason. `Graph.tsx` has the rest of the
- * argument, including why reserving a shelf in `.boot`'s padding was refused
- * again: at 628×600 the bar, the block, the shelf and the axis fit the window
- * exactly and only a top-aligned block finds that layout, which would move the
- * invitation on every window to rescue one.
- */
-@media (max-width: 620px), (max-width: 740px) and (max-height: 740px) {
-  .boot-keys {
-    display: none;
-  }
-  .boot-alt {
-    grid-template-columns: minmax(0, 1fr);
-    justify-content: stretch;
-    justify-items: center;
-    text-align: center;
-  }
-  .boot-more {
-    padding: 0;
-    border-left: 0;
-    text-align: center;
-  }
-}
 
 /* ------------------------------------------------------------- reduced -- */
 

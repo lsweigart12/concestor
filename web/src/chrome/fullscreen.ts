@@ -26,7 +26,7 @@
  * honest source, and this subscribes to it.
  *
  * **A browser with no fullscreen at all is offered nothing**, rather than a
- * disabled button. That is deliberately the *opposite* of what `Controls.tsx`
+ * disabled button. That is deliberately the *opposite* of what the view cluster
  * does with `fit` on an empty canvas, and the split is capability against state:
  * a greyed `fit` says "add a species and this works", which is true and useful,
  * where a greyed fullscreen would say "your browser will never do this" to
