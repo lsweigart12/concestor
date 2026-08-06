@@ -619,6 +619,42 @@ everything inside it.** Half a name is a mutable tag wearing an immutable
 one's clothes, and it fails silently by construction — the registry cannot warn
 about a collision it cannot see.
 
+**It then happened again with the tag doing its job, which is the part worth
+reading.** `/v1/hits` shipped with the palette's *Start here* band; the dataset
+did not move, so no image was pushed, and the container stayed pinned at
+`1dffa98` — a commit that predates the endpoint. Production asked for its ten
+curated species on every page load and got a **404**, and the band was empty
+from the day it shipped until 2026-08-06.
+
+The difference from #51 is that this time the tag *said so*:
+`abe88f49f5eef91d-1dffa98` names the commit, and the answer was one
+`git grep '/v1/hits' 1dffa98 -- server` away. **Naming is not detecting.**
+Nothing compares the pinned commit against the server the frontend was written
+for, so the tag sat there being accurate at anybody who thought to look, and
+nobody did — the deploy is a `wrangler deploy` that reports success, and a 404
+on one endpoint is not something a Worker deploy has an opinion about.
+
+What hid it, again, was that everything around it was working. `/v1/hits` is
+designed to skip unknown keys so a forwarded OTT id costs one row rather than
+the whole band — so the client is built to tolerate a thin answer, and it
+tolerates a missing one the same way: an empty band, no error, no console
+warning that isn't a bare `404`. **Graceful degradation and a silent failure
+are the same code path seen from two sides**, and the more carefully an empty
+state is handled the longer a dead endpoint survives behind it.
+
+The cheap check is a diff rather than a probe, and it is exact: **if `server/`
+changed between the pinned commit and the commit being deployed, the image is
+stale.**
+
+```bash
+git diff --quiet <pinned-commit> HEAD -- server/ || echo "the pinned image predates a server change"
+```
+
+That is one command, it needs no account and no network, and it would have
+fired on the pull request that added the endpoint. Add it to the deploy path
+before adding a smoke test that fetches every URL the client knows: the diff
+answers *before* the deploy and the probe only answers after it.
+
 ### Bootstrap order, once there is an account
 
 Nothing here is configured, and per `docs/ci.md` §3 that costs nothing: every
