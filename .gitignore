@@ -34,7 +34,15 @@ __pycache__/
 /web/.vite/
 
 # wrangler's local state and the `--dry-run` bundle. wrangler.jsonc IS tracked.
-/web/.wrangler/
+#
+# Unanchored, unlike most rules here, because wrangler is run from the
+# repository root as well as from web/ — `docs/deployment.md`'s deploy path is
+# a root invocation. That writes `.wrangler/cache/wrangler-account.json`, which
+# holds the Cloudflare account id and name. `/web/.wrangler/` matched it
+# nowhere, so it sat untracked *and* unignored, one `git add -A` away from
+# being published. No secret is in there — wrangler keeps credentials in
+# ~/.config/.wrangler — but an account id is not ours to hand out either.
+.wrangler/
 
 # Go
 /server/concestor-serve
