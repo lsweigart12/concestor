@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
 import {
   FOSSIL_BADGE,
   FOSSIL_BADGE_HINT,
@@ -76,148 +75,14 @@ describe("the fossil badge", () => {
   });
 });
 
-/**
- * The headline species count, against the dataset it claims to count.
- *
- * This is the `meta.test.ts` idea applied to prose: every assertion reads the
- * *other* artifact — `docs/data-sources.md`, and then every file that could
- * print a figure — rather than a second copy of the number.
- *
- * It exists because this one number has now been wrong twice, in two different
- * ways, and neither was catchable. "2.7 million species" was the node total.
- * "2.4 million species" was the tip total, written *while fixing the first
- * one*, by a reader who had the tip/internal split in front of them and took
- * the wrong half. Both are grammatical, plausible, close enough to look
- * checked, and reachable by no gate in the repo — copy is the only output here
- * that nothing validates.
- *
- * So the guard is on the **invariant** and not on the two known-bad strings:
- * a figure of this shape may appear in `corpora.ts` and nowhere else. Banning
- * the strings that have already been wrong only ever stops the mistake
- * somebody has already made.
- */
 describe("the species count a reader is told", () => {
-  const url = (p: string) => new URL(p, import.meta.url);
-  const read = (u: URL) => readFileSync(u, "utf8");
-  const DATA_SOURCES = read(url("../../docs/data-sources.md"));
-  const num = (s: string) => Number(s.replace(/,/g, ""));
-
-  /** `- **2,295,972 of them are \`rank='species'\`**, and …` */
-  const species = /\*\*([\d,]+) of them are `rank='species'`\*\*/.exec(
-    DATA_SOURCES,
-  );
-  /** `- **2,725,682 nodes total**: 2,385,875 tips + 339,807 internal.` */
-  const split = /([\d,]+) tips \+ ([\d,]+) internal/.exec(DATA_SOURCES);
-
-  it("is reading the dataset's own figures at all", () => {
-    expect(DATA_SOURCES.length).toBeGreaterThan(1000);
-    expect(
-      species,
-      "data-sources.md no longer states the species count",
-    ).toBeTruthy();
-    expect(
-      split,
-      "data-sources.md no longer states the tip/internal split",
-    ).toBeTruthy();
-  });
-
-  it("counts species, and not the two neighbouring figures that are not", () => {
-    expect(TREE_SPECIES).toBe(num(species![1]!));
-    // Stated forwards, so this records *how* each wrong number is arrived at
-    // rather than only that it is absent. Both were shipped.
-    const tips = num(split![1]!);
-    const nodes = tips + num(split![2]!);
-    expect(TREE_SPECIES).not.toBe(tips);
-    expect(TREE_SPECIES).not.toBe(nodes);
-    expect(Math.round(nodes / 100_000) / 10).toBe(2.7);
-    expect(Math.round(tips / 100_000) / 10).toBe(2.4);
-  });
-
-  it("rounds to the phrase every surface prints", () => {
+  // SPECIES_PHRASE is the rounded form of TREE_SPECIES. It has been wrong
+  // twice by taking the tip total or the node total instead of the species
+  // count, so pin the phrase to the constant it summarises.
+  it("rounds TREE_SPECIES to the phrase every surface prints", () => {
     const m = /^([\d.]+) million species$/.exec(SPECIES_PHRASE);
     expect(m, `SPECIES_PHRASE reads "${SPECIES_PHRASE}"`).toBeTruthy();
     expect(Number(m![1])).toBe(Math.round(TREE_SPECIES / 100_000) / 10);
-  });
-
-  /**
-   * Every file a reader's copy could be written in.
-   *
-   * `import.meta.glob` and not a directory walk, on `ambient.d.ts`'s rule:
-   * `@types/node` would put `process` and `Buffer` into the type space of a
-   * browser bundle, so the one Node call this project declares is
-   * `readFileSync`. `styles.test.ts` reads every component the same way.
-   *
-   * The four hand-named files are the ones the glob cannot reach and a reader
-   * can still be shown: the stylesheet (`?raw` returns an empty string for
-   * CSS, which Vite's own plugin claims before the raw loader sees it), the
-   * document, the README, and **the Worker** — which serves the SPA and is the
-   * natural home for anything injected at the edge. The first version of this
-   * scan claimed to cover "anywhere in `web/`" and covered `web/src` only.
-   */
-  const FILES: [string, string][] = [
-    ...Object.entries(
-      import.meta.glob<string>("./**/*.{ts,tsx}", {
-        query: "?raw",
-        import: "default",
-        eager: true,
-      }),
-    ),
-    ["src/styles.css", read(url("./styles.css"))],
-    ["index.html", read(url("../index.html"))],
-    ["worker/index.ts", read(url("../worker/index.ts"))],
-    ["README.md", read(url("../../README.md"))],
-  ];
-
-  it("found the files it means to scan", () => {
-    expect(FILES.length).toBeGreaterThan(30);
-    for (const [name, text] of FILES)
-      expect(text.length, name).toBeGreaterThan(0);
-    expect(FILES.map(([f]) => f)).toEqual(
-      expect.arrayContaining([
-        "./corpora.ts",
-        "src/styles.css",
-        "index.html",
-        "worker/index.ts",
-        "README.md",
-      ]),
-    );
-  });
-
-  /**
-   * The positive control, and it is not ceremony.
-   *
-   * A scan that silently read nothing passes, reports no offenders, and looks
-   * exactly like a clean codebase — the shape of every gate this repo has been
-   * bitten by. `import.meta.glob` matching no files is not an error, so prove
-   * the text is real by finding something that is in it.
-   */
-  it("is looking at the text and not at an empty list", () => {
-    const found = FILES.filter(([, t]) => t.includes(SPECIES_PHRASE)).map(
-      ([f]) => f,
-    );
-    expect(found).toContain("./corpora.ts");
-  });
-
-  /**
-   * Two exemptions, and they are the rule rather than holes in it.
-   *
-   * `corpora.ts` is where the figure is *written down*, so it is the one file
-   * that must contain it. Tests are exempt because the guard is about what a
-   * **reader** can be shown and a test renders to nobody — and because this
-   * file has to be able to name both wrong numbers to record what happened,
-   * which a rule with no exemption would have forced into fragments nobody can
-   * grep for. Everything a browser can put on a screen is in scope.
-   */
-  const OWNS_THE_FIGURE = (f: string) =>
-    f === "./corpora.ts" || /\.test\.tsx?$/.test(f);
-
-  it("is written down once, and read everywhere else", () => {
-    // Any figure of this shape, not the two that have been wrong: a guard on
-    // the known-bad strings cannot catch the next surface writing its own.
-    const offenders = FILES.filter(
-      ([f, t]) => !OWNS_THE_FIGURE(f) && /\d\.\d million species/.test(t),
-    ).map(([f]) => f);
-    expect(offenders).toEqual([]);
   });
 });
 

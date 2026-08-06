@@ -1,41 +1,20 @@
 /**
- * What to call a divergence the taxonomy has no name for.
- *
- * Most internal nodes of the Open Tree synthesis are unnamed. Their keys look
- * like `mrcaott83926ott84217`, they carry no `name` and no `rank`, and until now
- * every one of them rendered as the literal string "unnamed divergence" — so a
- * four-species hominin view showed two identical grey labels where its two most
- * interesting events are. That is not a data gap we can fill: the synthesis
- * genuinely has no label for that node, because the taxon a reader would name it
- * after (Hominini) has a different membership in the taxonomy than the node has
- * in the tree, and asserting the name would be asserting the identity.
- *
- * What we *can* say without asserting anything is what the node separates. It is
- * the last common ancestor of its branches by construction, so naming it after
- * the nearest named clade down each branch is true for the same reason the node
- * exists. `mrcaott83926ott84217` becomes **Homo / Pan**, which is what a reader
- * wanted from "Hominini" anyway.
- *
- * The named clades are usually already in memory and already thrown away:
- * `Homo` and `Pan` are both degree-2 nodes on the suppressed runs either side of
- * that divergence. This module reads them back out.
- *
- * Nothing here invents a rank, an age or an identity. A derived name is marked
- * as derived everywhere it appears — `DIVERGENCE` on the canvas, an explicit
- * note on the detail card — because a reader who sees "Homo / Pan" in the same
- * position where every other node shows a taxon name is owed the difference.
+ * What to call a divergence the taxonomy has no name for. Most internal Open
+ * Tree nodes are unnamed (`mrcaott83926ott84217`), and naming one after the
+ * taxon a reader expects (Hominini) would assert an identity the tree does not
+ * have. What can be said without asserting anything is what the node separates:
+ * the nearest named clade down each branch, so it becomes **Homo / Pan**. A
+ * derived name is marked as derived everywhere (`DIVERGENCE` on the canvas, a
+ * note on the card).
  */
 
 import type { PathNode } from "../api";
 import type { Induced } from "./induced";
 
 /**
- * One run of a derived name.
- *
- * Punctuation is a part like any other so the renderer can map straight over
- * the list, and each taxon run carries the rank it came from rather than a
- * boolean, because italicisation is the caller's rule (`isScientificItalic`)
- * and importing it here would point `tree/` back at `canvas/`.
+ * One run of a derived name. Punctuation is a part like any other; each taxon
+ * run carries its rank rather than a boolean, so the caller's italicisation rule
+ * need not be imported here (which would point `tree/` back at `canvas/`).
  */
 interface NamePart {
   text: string;
@@ -61,38 +40,23 @@ const SEP = " / ";
 export const UNNAMED = "unnamed divergence";
 
 /**
- * What the canvas puts on a label: nothing, the scientific name, or the name
- * people use.
- *
- * `off` is a real state and not an absence of one. A tree read for its *shape*
- * — where the forks are, how far apart, what the pictures look like — is a
- * different reading from a tree read for its names, and the words are what make
- * the first one hard to see. It is also what the old semantic-zoom tiering was
- * reaching for and never delivered: that made the choice on the reader's behalf
- * from how far they had zoomed, so pulling back to see the whole tree took the
- * names with it and reading one name meant zooming into it.
+ * What the canvas puts on a label: nothing, the scientific name, or the common
+ * name. `off` is a real state — a tree read for its shape is a different reading
+ * from one read for its names, and the words make the first hard to see.
  */
 export type LabelMode = "off" | "scientific" | "common";
 
 /**
- * The ranks a common name may be drawn for, matching the server's own filter.
- *
- * A duplicate of `api.vernacularRanks`, and the duplication is not the usual
- * mistake: the server refuses to *send* a name outside these ranks and this
- * refuses to *draw* one, so a build whose payload predates the restriction
- * cannot leak "animals" onto Metazoa. Neither is load-bearing alone; both being
- * the same three words is what the tests check.
+ * The ranks a common name may be drawn for, matching the server's own filter
+ * (deliberately duplicated, so a payload predating the restriction cannot leak
+ * "animals" onto Metazoa).
  */
 const COMMON_RANKS = new Set(["genus", "species", "subspecies"]);
 
 /**
- * A name and the rank to italicise it by — null where the string is not a
- * scientific name and so must be set roman.
- *
- * `rank: null` is the same signal {@link NamePart} carries for punctuation,
- * which is what lets a derived name mix the two: `Human / Pan` sets one run
- * roman and the other italic, from one rule, in both the canvas's renderer and
- * the card's.
+ * A name and the rank to italicise it by — null where the string is roman. Same
+ * signal {@link NamePart} carries for punctuation, so a derived name can mix the
+ * two from one rule.
  */
 interface MarkName {
   text: string;
@@ -100,31 +64,11 @@ interface MarkName {
 }
 
 /**
- * The one string a mark may show, and the one place that decides it.
- *
- * Two callers, and they have to agree exactly: `describeLabel` measures the
- * label to reserve space for it, and `NodeMark` draws it. A name measured at
- * one width and drawn at another collides exactly as badly as no placement pass
- * at all — `labels.ts` says so about fonts, and a switch that changes every
- * string on the canvas is the same failure with a bigger lever.
- *
- * The common name is used where three things hold, and the fallback is the
- * scientific name in every other case:
- *
- *   - the node is a genus, species or subspecies. Above that a common name
- *     names a group rather than a kind of thing, and the group's word usually
- *     belongs to something else — `bug`, `man`, `moth`;
- *   - the ranking put a name first. Where nothing was ranked there is no claim
- *     that any of the strings is *the* name, and a canvas that swapped the
- *     scientific name for an unranked one would be trading a name that is never
- *     wrong for one that might be;
- *   - it is not the scientific name over again, which PBDB's ColDP rows
- *     routinely are.
- *
- * Falling back is silent on purpose. A tree drawn in common names is going to
- * be mixed — 110,794 nodes carry an English name against 2.7M — so a marker on
- * every fallback would decorate most of the canvas to say what the italics
- * already say.
+ * The one string a mark may show, decided in one place so `describeLabel` (which
+ * measures it) and `NodeMark` (which draws it) cannot disagree. The common name
+ * is used where all three hold, else the scientific name silently: the node is a
+ * genus/species/subspecies, the ranking put a name first, and it is not the
+ * scientific name repeated (as PBDB's ColDP rows routinely are).
  */
 export function markName(
   node: Pick<PathNode, "name" | "rank" | "vernacular"> | null | undefined,
@@ -249,13 +193,10 @@ function childrenOf(ind: Induced): Map<number, number[]> {
 }
 
 /**
- * The first named node walking from a divergence down one of its branches.
- *
- * Order matters and it is not the obvious one: the suppressed run comes first,
- * root-ward end first, *then* the rendered child. Those suppressed degree-2
- * nodes are where the useful names live — `Homo` and `Pan` are both suppressed
- * in the four-species hominin view — and taking the child first would answer
- * "Homo sapiens / Pan troglodytes" for a node that separates the whole genera.
+ * The first named node walking from a divergence down one branch. The suppressed
+ * run comes before the rendered child, root-ward end first: those degree-2 nodes
+ * hold the useful names (`Homo`, `Pan`), and taking the child first would name a
+ * genus-level fork after two species.
  */
 function firstNamed(
   child: number,
@@ -281,16 +222,8 @@ function firstNamed(
 
 /**
  * `["Homo sapiens", "Homo erectus"]` → `["Homo sapiens", "H. erectus"]`.
- *
- * Standard scientific style, and here it is also the difference between a label
- * that fits beside its node and one that wraps to three rows: the divergences
- * worth looking at are usually the ones inside a single genus, which is exactly
- * when both halves of the name repeat the same word.
- *
- * It is a convention of *scientific* names and applies to nothing else, so a
- * common name neither gets abbreviated nor contributes a genus to abbreviate
- * against — "Human" beside "Homo erectus" would otherwise abbreviate neither
- * and "Bottlenose dolphin" would become "B. dolphin".
+ * Scientific-name style only (a `rank: null` common name is skipped), or
+ * "Bottlenose dolphin" would become "B. dolphin".
  */
 function abbreviateRepeatedGenus(names: readonly MarkName[]): string[] {
   const seen = new Set<string>();

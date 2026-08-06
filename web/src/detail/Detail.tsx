@@ -178,14 +178,10 @@ export function Detail({
     detail.tier === TIER_OCCURRENCE && detail.occurrence
       ? bracketGeom(detail.occurrence, () => 0)
       : null;
-  // The card must show what the canvas shows, and by the same rule, or the two
-  // disagree about what a node looks like. A divergence draws its witness or
-  // nothing; only a clade the reader chose draws its group's exemplar. The
-  // ordinary silhouette is therefore not shown *or credited* on a fork, since
-  // it is not on screen and crediting an image nobody can see is noise.
-  // Hooks run unconditionally, so the words are computed here even on the
-  // cards that draw no fossil row. `useTip(undefined)` is the resting state and
-  // returns nothing to spread.
+  // The card shows what the canvas shows: a divergence draws its witness or
+  // nothing, only a chosen clade draws its group's exemplar. Hooks run
+  // unconditionally, so `useTip(undefined)` is the resting state on cards with
+  // no fossil row.
   const fossilTip = useTip(
     occurrence
       ? bracketTitle(detail.name ?? "This taxon", occurrence)
@@ -195,18 +191,12 @@ export function Detail({
   const witness = witnessOn(place);
   const witnessCredit = witness ? (detail.divergence_silhouette ?? null) : null;
   const sil = mayDrawExemplar(place) ? detail.silhouette : null;
-  // A picture that is not of this node is a picture of something inside the
-  // clade, and the card is where that gets said in full rather than in a
-  // tooltip. `clade_name` is null for the unnamed `mrcaott…` nodes, and there
-  // is nothing useful to name in that case.
+  // A picture whose source_idx is not this node depicts something inside the
+  // clade. `clade_name` is null for unnamed `mrcaott…` nodes.
   const borrowed = sil && sil.source_idx !== detail.idx ? sil : null;
-  // What the watermark says. Normally the clade, because how far the
-  // resemblance is being claimed to reach is the thing a reader needs. But an
-  // unillustrated group's clade is itself — nobody drew Elminae, somebody drew
-  // a riffle beetle inside it — and stamping ELMINAE across the picture on the
-  // Elminae card repeats the heading instead of adding to it. There the
-  // drawing's own subject is the new fact, and the credit line below carries
-  // the group in full either way.
+  // The watermark names the clade the resemblance is claimed across, except
+  // where that clade is the node itself (an unillustrated group), when the
+  // drawing's own subject is named instead.
   const watermark = borrowed
     ? borrowed.clade_name && borrowed.clade_name !== detail.name
       ? borrowed.clade_name
@@ -261,7 +251,7 @@ export function Detail({
                     : null
                 }
                 onSelect={onSelect}
-                tip={`What this drawing is of. Not ${detail.name ?? "this node"} itself — a fossil taxon from somewhere below it, dated to about this split.`}
+                tip={`The fossil this drawing depicts, from below ${detail.name ?? "this node"} and dated to about this split — not ${detail.name ?? "this node"} itself.`}
               >
                 {witness.name}
               </TaxonLink>

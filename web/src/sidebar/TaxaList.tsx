@@ -1,46 +1,13 @@
 /**
- * What is on the canvas, as a list you can point at.
+ * What is on the canvas, as a list you can point at — the layers panel every
+ * canvas app puts down the left, earning its place here because the marks are
+ * small and move as species are added. A row is a fixed target that says the
+ * whole name; clicking one is the same call as clicking its mark.
  *
- * ## It is the layers panel, and that is the right borrowed idea
- *
- * Every canvas application the audience has already used puts a list of the
- * things on the canvas down the left: Figma's layers, Photoshop's, tldraw's,
- * Framer's. It earns its place for a reason that is sharper here than in any of
- * them — the marks on this canvas are *small*, they move whenever a species is
- * added, and past about a dozen taxa the labels start colliding. A row is a
- * target that never moves, is never too small, and always says the whole name.
- *
- * Clicking one selects it, which lights its mark, dims the lineages off its
- * path if isolate is on, and opens its card — the same thing clicking the mark
- * does, because it is the same call.
- *
- * ## The section is **Taxa**, not **Species**
- *
- * The list holds species and it also holds *Cetacea*, which is not one, and
- * *Tyrannosaurus*, which is a genus. "Species" was accurate about the search
- * and never about the result: a reader is free to put a whole clade on the
- * canvas and routinely does, because that is what the openings do. `Taxa` is
- * the word that covers everything a row can be, and the search underneath is
- * still allowed to say "species" because that is genuinely what it looks
- * through.
- *
- * ## Two kinds of row, and the badge is the only difference
- *
- * A node is a lineage in the tree. A **fossil** is a species the tree has no
- * lineage for — `docs/fossil-grafts.md` §9 has the sentence and the reason the
- * badge reads *on a branch* rather than *extinct*, which would be wrong about
- * *T. rex*. Anything else about the two is identical here: same anatomy, same
- * hit target, same remove control, one list. Filing them apart would restate a
- * split the product spent a whole change removing.
- *
- * ## The add row is at the top and it is a row
- *
- * `+` at the top of a layers panel is where every one of those applications
- * puts it, and making it a row rather than a button in the section header means
- * it is in the same tab order and the same vertical rhythm as everything under
- * it. Two ways to fill the list, side by side: name one, or be given one. They
- * are the two doors the old control bar's `Add species` group held, and they
- * have not changed — only the letter has, since `s` went to the sidebar.
+ * The section is "Taxa", not "Species", because a row can be a clade or a genus.
+ * Two kinds of row differing only by badge — a node, and a fossil (a species the
+ * tree has no lineage for, badged "on a branch" not "extinct"). The add row sits
+ * at the top and is a row, so it shares the tab order and rhythm.
  */
 
 import type { FossilTaxon, PathNode } from "../api";
@@ -199,23 +166,10 @@ export function TaxaList(p: TaxaListProps) {
 const SPACIOUS_UPTO = 2;
 
 /**
- * Name one, or be given one — at one of two sizes.
- *
- * **Spacious**: two squares side by side, each with a glyph, a title, a line
- * saying what is behind it, and its key. They exist because a short list leaves
- * this column mostly empty, and an empty column under two small buttons is the
- * product failing to say what it is for at the one moment a reader has not
- * decided yet. A tile is also a target you hit without aiming, which is the
- * half that matters on a first visit.
- *
- * **Compact**: the row they collapse to once the list is long enough to want
- * the height. Same two controls, same two keys, same order.
- *
- * The descriptions are the point of the large state and are the thing the row
- * cannot carry. "Add a taxon" says what the button does; *any species, living
- * or fossil* says what is behind it — which is the fact this app is least able
- * to assume a reader knows, since one catalogue holding both is the whole of
- * what `docs/fossil-grafts.md` §9 argued for.
+ * Name one, or be given one, at two sizes. Spacious: two captioned tiles, shown
+ * while the list is short so the empty column says what it is for. Compact: the
+ * row they collapse to once the list wants the height. The captions carry the
+ * one fact a reader may not know — that a species can be living or fossil.
  */
 function AddDoors({
   onAdd,

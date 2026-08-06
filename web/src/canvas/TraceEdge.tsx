@@ -1,18 +1,11 @@
 /**
- * A trace: 1–2px luminous core plus a soft halo, drawn on from the MRCA
- * outward.
+ * A trace: 1–2px luminous core plus a soft halo, drawn on from the MRCA outward
+ * via `getTotalLength()` and `stroke-dashoffset` (which keeps edges as real SVG
+ * paths). Decay is a separate opacity tween, so flare and settle are independent.
  *
- * The draw-on is `getTotalLength()` with `stroke-dasharray` /
- * `stroke-dashoffset`, exactly as design-reference.md specifies, which is the
- * reason edges stay real SVG paths rather than becoming WebGL geometry. Decay
- * is a separate opacity tween on the same element, so the flare and the settle
- * are independent and either can be interrupted.
- *
- * The one subtlety: age provenance already uses `stroke-dasharray` to mark
- * inferred structure. During the draw the dash pattern is commandeered for the
- * animation, then handed back to the stylesheet when it finishes — so a
- * structural trace draws solid and *becomes* dashed as it settles, which reads
- * as the line resolving into what it actually is.
+ * Subtlety: `stroke-dasharray` also marks inferred structure, so it is
+ * commandeered during the draw and handed back to the stylesheet after — a
+ * structural trace draws solid and becomes dashed as it settles.
  */
 
 import { useCallback, useEffect, useRef } from "react";

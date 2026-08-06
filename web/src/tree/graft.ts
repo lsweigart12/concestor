@@ -1,58 +1,25 @@
 /**
  * Fossils, placed in the tree.
  *
- * A PBDB taxon is not a node. It has no position in the synthesis topology, no
- * sister group and no ancestor path — `phase3-pbdb-path.md` is the measurement,
- * and the whole of what phase 4 recovers is *this taxon belongs somewhere below
- * node X*. `attach_walk` says how loose even that is. So a fossil cannot be a
- * tip, and grafting one into the baked arrays would put a crown age on the
- * resulting MRCA and call it a divergence.
+ * A PBDB taxon is not a node: no topology position, no ancestor path, only
+ * *belongs somewhere below node X* (`attach_walk` says how loosely). It cannot
+ * be a tip, and grafting one into the baked arrays would put a crown age on the
+ * resulting MRCA. It can still be drawn, because on this canvas x is time and a
+ * fossil is the one thing that carries its own date. A graft is:
  *
- * It can still be **drawn**, and one property makes the placement fall out
- * rather than have to be invented: on this canvas **x is time**, and a fossil
- * is the one thing in the corpus that carries its own date. Every node here has
- * to be *estimated* onto the axis; a fossil is simply observed there.
+ *   x    its own `lla`, the latest end of the last appearance (the end phase 4
+ *        trusts).
+ *   y    a row of its own beneath the lineage it hangs from.
+ *   join its own first appearance — the youngest the split can be — clamped to
+ *        the branch (a fossil can be older than the branch it hangs on).
  *
- * So a graft is:
+ * Where the join is unclamped, the connector's horizontal run is the fossil's
+ * observed extent; the vertical drop is the unknown attachment, so the caption
+ * says "somewhere below". Both dashed.
  *
- *   x    its own `lla`, the latest end of the last appearance — the only end
- *        phase 4 trusts and the only one its layout clamp reads. No new
- *        judgement is made here, and none is available to make.
- *   y    a row of its own, directly beneath the lineage it hangs from, so it
- *        reads as attached rather than as a sibling of anything.
- *   join its own **first appearance**, clamped to the branch it hangs on.
- *
- * The join is the part that had to stop being arbitrary. It used to sit at the
- * attach node's `age_layout`, and `age_layout` is documented as "x-position
- * only — never a label": for genus *Homo* it is 3.37 with an `age_ma` of NaN,
- * so the connector left the lineage at a *synthesized* coordinate. The fossil's
- * own first appearance is measured instead, and it is the right measurement:
- * a lineage that was already a distinct taxon at time T parted from its
- * neighbours **at or before T**, so the first appearance is the youngest the
- * split can possibly be. Drawing the join there claims the least the data
- * allows rather than a number nobody estimated.
- *
- * It is clamped to the drawn branch because a fossil can be older than the
- * branch it hangs on — *Dimetrodon* first appears at 298.9 Ma below Amniota,
- * which is drawn at 323 — and there the honest join is the top of the branch,
- * which is exactly what the clamp gives.
- *
- * One consequence worth knowing: the connector's horizontal run then spans
- * first appearance to last, so where it is unclamped **that run is the fossil's
- * observed extent**. The vertical drop is the part nobody knows. Both are drawn
- * dashed, which understates the horizontal half rather than overstating it.
- *
- * The caption says "somewhere below", because the *one* thing we do not know is
- * where along that branch it joins. That is the paleontological figure
- * convention and it is also the literal truth of the data: a stub off a lineage
- * at a known date, with an unresolved attachment.
- *
- * **What a graft may never become is a divergence.** It is not in `Induced`, it
- * never enters an MRCA computation, and nothing may address the tree with its
- * index — which is negative for exactly that reason: `-(pbdb_taxon_no)` cannot
- * be confused with an `idx` by anything that forgets to check, because every
- * real node index is non-negative and every array lookup with a negative one
- * fails loudly instead of returning a neighbour.
+ * A graft may never become a divergence: it is not in `Induced`, never enters an
+ * MRCA, and its index is negative (`-(pbdb_taxon_no)`) so any array lookup that
+ * mistakes it for a node fails loudly rather than answering about a neighbour.
  */
 
 import {
@@ -75,13 +42,8 @@ export function parseGraftKey(key: string): number | null {
 }
 
 /**
- * A graft's canvas index: negative, derived, and never an array subscript.
- *
- * See the module note. The negation is a type-level trick done in the value
- * domain, and it is worth the ugliness: `nodeMap.get(graft.idx)` misses,
- * `Arrays.parent[graft.idx]` is undefined, and `IsAncestor(graft.idx, …)`
- * refuses — so the failure of any code path that mistakes one for a node is
- * immediate rather than a silently wrong answer about a neighbouring taxon.
+ * A graft's canvas index: `-(pbdb_taxon_no)`, negative so any code that mistakes
+ * it for a node index fails loudly on the array lookup. See the module note.
  */
 export function graftIdx(taxonNo: number): number {
   return -taxonNo;
@@ -137,35 +99,21 @@ export interface Graft {
    */
   joinAge: number;
   /**
-   * Which of three things `joinAge` actually is.
+   * Which of three things `joinAge` is — the two clamped ends point in opposite
+   * directions, so a boolean would put a false sentence on screen:
    *
-   * A boolean was wrong here, and wrong in a way that put a false sentence on
-   * screen. The clamp has two ends and they mean opposite things:
-   *
-   *   first-appearance  unclamped. The join is the fossil's own datum and the
-   *                     horizontal run is its observed extent. The split is at
-   *                     or before this point.
-   *   anchor            the first appearance is *younger* than the anchor, so
-   *                     the taxon sits below it and the split is not on the
-   *                     drawn branch at all — it is somewhere further down.
-   *                     *Dimetrodon* at 299–267 Ma below Amniota at 323.
-   *   branch-top        the first appearance is *older* than the whole branch,
-   *                     so the split is earlier than anything drawn here.
-   *
-   * `anchor` and `branch-top` both mean "clamped" and point in opposite
-   * directions. Saying "parted somewhere earlier" for the first of them —
-   * which is what a single boolean bought — is the exact reverse of the truth.
+   *   first-appearance  unclamped; the split is at or before the join.
+   *   anchor            first appearance younger than the anchor; the split is
+   *                     further down, off the drawn branch.
+   *   branch-top        first appearance older than the whole branch; the split
+   *                     is earlier than anything drawn.
    */
   joinAt: "first-appearance" | "anchor" | "branch-top";
 }
 
 /**
  * The oldest and youngest ends of a fossil's brackets, or null if it has none.
- *
- * Both brackets, uncollapsed, reduced only to their extremes — the same
- * treatment `witnessFor` gives a witness. No midpoint is computed here or
- * anywhere: a midpoint is a fabricated estimate wearing an observation's
- * clothes.
+ * No midpoint is computed — that would be a fabricated estimate.
  */
 export function fossilSpan(
   f: Pick<FossilTaxon, "fea" | "fla" | "lea" | "lla">,
@@ -178,19 +126,10 @@ export function fossilSpan(
 }
 
 /**
- * Where the glyph goes: the young end, corrected where PBDB's own is not one
- * any identified member reaches.
- *
- * `fossilSpan` still describes the *bracket*, which is PBDB's and stays whole.
- * This is the *position*, and the two differ on 7,802 rows. The case is
- * *Stegosaurus*: PBDB stops the genus at 93.9 Ma on the strength of one
- * occurrence catalogued `Stegosaurus sp.` in the Mussentuchit Member, while
- * every named species ends at 143.1. Drawn at 93.9 the animal sits in the
- * Cenomanian, 50 Myr after it lived, beside things it never met.
- *
- * Phase 4 holds `lla <= lla_drawn <= fea`, so this can never leave the
- * bracket; the clamp against `span` is belt-and-braces for a build whose
- * columns disagree, and costs nothing.
+ * Where the glyph goes: `lla_drawn`, PBDB's young end corrected where it rests
+ * on material identified no finer than the taxon (differs from the bracket on
+ * 7,802 rows — *Stegosaurus* would otherwise draw 50 Myr after it lived).
+ * Clamped against `span` for safety.
  */
 export function graftYoungest(
   f: Pick<FossilTaxon, "fea" | "fla" | "lea" | "lla" | "lla_drawn">,
@@ -203,13 +142,9 @@ export function graftYoungest(
 }
 
 /**
- * Where a fossil's attach node sits relative to what is currently drawn.
- *
- * Three cases and no fourth. A node is either rendered, or suppressed inside
- * exactly one segment, or not in the induced subtree at all — and the last is
- * a refusal rather than a fallback, because the nearest *drawn* thing to an
- * off-tree attach node is an ancestor several ranks up, and hanging a fossil
- * there would make a much larger claim than the data supports.
+ * Where a fossil's attach node sits relative to what is drawn: rendered,
+ * suppressed inside one segment, or off-tree (a refusal — the nearest drawn
+ * thing would be an ancestor several ranks up).
  */
 export function locateAttachment(
   attachIdx: number,
@@ -226,13 +161,7 @@ export function locateAttachment(
   return null;
 }
 
-/**
- * Build the graft for a fossil, or say why not.
- *
- * `nodes` supplies the attach node's `age_layout`, which is where the connector
- * leaves the branch. Suppressed nodes arrive with every path, so the map holds
- * it whenever the attachment resolved at all.
- */
+/** Build the graft for a fossil, or say why not. */
 export function makeGraft(
   fossil: FossilTaxon,
   ind: Induced,
@@ -285,29 +214,18 @@ export function makeGraft(
       // guarding structural guards this too, and `markAge` prints the range
       // behind the fossil glyph rather than an age.
       age_ma: null,
-      // The bounds as they may be *drawn*. `[lea, lla]` is corrected together
-      // where the young end is one no identified member reaches, because both
-      // its ends come from the same occurrences: pairing a corrected 143.1
-      // with Stegosaurus' own `lea` of 100.5 would rebuild the bracket out of
-      // the very record being refused, and the bar would still run into the
-      // Cretaceous under a glyph sitting in the Jurassic. `fea`/`fla` are
-      // untouched — they are wide for a different reason. The card prints
-      // PBDB's own numbers beside this and says where the two differ.
+      // The bounds as they may be drawn: `[lea, lla]` corrected together (they
+      // share occurrences), `fea`/`fla` untouched. The card prints PBDB's own
+      // numbers beside this.
       occurrence: drawnBounds(fossil),
-      // The young end alone, matching phase 4's clamp. `fea` is junk-wide —
-      // measured, the first-appearance bracket *widens* with occurrence count
-      // — and the latest end is the one that holds throughout. `graftYoungest`
-      // is where that end is *corrected* when PBDB's own is one no identified
-      // member of the taxon reaches.
+      // The corrected young end alone, matching phase 4's clamp.
       age_layout: graftYoungest(fossil, span),
       tier: TIER_OCCURRENCE,
       tip_count: 1,
       depth: 0,
       phylopic_id: fossil.phylopic_id ?? null,
-      // Its own picture, so `mayDrawExemplar` lets it through. A fossil has no
-      // clade to borrow from — `node_image` cannot reach a thing that is not a
-      // node — so this is the one case where the drawing is always a portrait
-      // and the borrowed-image caption would be a lie in the other direction.
+      // Its own picture, so `mayDrawExemplar` lets it through: a fossil has no
+      // clade to borrow from, so the drawing is always a portrait.
       silhouette_source_idx: idx,
       silhouette_clade_idx: null,
       silhouette_clade_tips: null,
@@ -317,12 +235,8 @@ export function makeGraft(
 }
 
 /**
- * Build every graft that can be placed, keeping the refusals.
- *
- * Refusals are returned rather than dropped because the reader asked for each
- * of these by name. A fossil that silently fails to appear is indistinguishable
- * from a broken canvas, which is the same reasoning `store.ts` applies to a
- * selection key that resolves to nothing.
+ * Build every graft that can be placed, keeping the refusals — the reader asked
+ * for each by name, so a silent failure to appear reads as a broken canvas.
  */
 export interface GraftSet {
   grafts: Graft[];
@@ -341,13 +255,9 @@ export function buildGrafts(
     if (typeof g === "string") refused.push({ fossil: f, reason: g });
     else grafts.push(g);
   }
-  // Deterministic, and not by insertion order: the same URL must draw the same
-  // picture whichever order the fossils happened to resolve in. Oldest first
-  // within an anchor, so a stack of grafts on one branch reads down the axis.
-  //
-  // This is the *base* order, not the drawn one. Row order within a slot is a
-  // layout question — it is what decides whether two connectors cross — and
-  // `graftOrder` in `layout.ts` settles it, stably, on top of this.
+  // Deterministic, not by insertion order, so a URL draws the same picture
+  // whatever order fossils resolved in. The base order; `graftOrder` in
+  // `layout.ts` settles drawn row order on top of it.
   grafts.sort(
     (a, b) =>
       a.anchor - b.anchor ||

@@ -74,17 +74,8 @@ import { divergenceFor, nestedSelections } from "./tree/naming";
 
 /**
  * What the label command switches to next, and how each state describes itself.
- *
- * A table rather than a chain of ternaries, because three states in one row
- * means the title, the subtitle and the destination all have to agree about
- * where the press lands — and the palette prints the first two while the
- * handler follows the third. Written once, they cannot disagree.
- *
- * The order is the chip's own, left to right: **off → common → scientific →
- * off**. Pressing `L` walks the segments the way they are drawn, so the control
- * is a picture of what the key does rather than a second thing to learn — and
- * with the default sitting in the middle, no state is more than two presses
- * from home whichever way the reader went.
+ * A table, not ternaries, so the title, subtitle and destination cannot
+ * disagree. Order is the chip's own: off → common → scientific → off.
  */
 const LABEL_TURN: Record<
   LabelMode,
@@ -108,91 +99,23 @@ const LABEL_TURN: Record<
 };
 
 /**
- * There is no `RANDOM_CANDIDATES` any more, and what it was for is now free.
- *
- * A random pick used to ask the server for twelve and use one. The extras
- * bought the one thing a single server-side pick could not have — the certainty
- * that the confirmation is true, because adding a species already on the canvas
- * changes nothing and a toast reading "Added Pallas's cat" over an unchanged
- * canvas is worse than no command at all — and they bought it by guessing that
- * twelve would be enough.
- *
- * The guess is gone rather than widened. The pool is here now, so the filter
- * runs over all 13,918 before anything is chosen: a pick is drawn from what is
- * *not* on the canvas, so it cannot be a no-op, and there is no number to get
- * wrong. That is the whole reason the draw belongs on this side — which taxa
- * are already drawn is a fact about this canvas that no request ever carried.
- */
-
-/**
- * What is pointed at once an opening has finished drawing, and what the line
- * beside it says.
- *
- * It used to be three buttons in the control bar's lead slot, wrapped in one
- * outline, because the claim is that this is **one** invitation with three
- * doors rather than three invitations. The bar is gone and the claim survives
- * intact — it is now the search pill, which is the one door that reaches all of
- * them: the field searches species and commands together, so *add a taxon* and
- * *surprise me* are both one keystroke past it.
- *
- * The line was a sentence on the end of the answer's own toast once — "press S
- * to search, or R for a surprise" — and both halves of that were wrong. It
- * competed with the reply to the question the reader had actually asked, and it
- * named keys, when what a reader who has only ever pressed a carousel card is
- * missing is *where*. Beside the pill it needs neither.
- *
- * **It goes to one surface now, which is the change worth noticing.** The
- * sentence used to be handed to the control bar *and* to the narrow window's
- * palette button, spread the same way to both, precisely so that two surfaces
- * could not be made to say different things about one moment. There is one
- * surface at every width, so the safeguard has nothing left to protect.
+ * The line beside the search pill once an opening has finished drawing — one
+ * invitation to put something of the reader's own beside the answer, next to the
+ * one door that reaches everything.
  */
 const TIP_LINE = "Now put something of your own beside it";
 
 /**
- * How long the invitation waits before it is made.
- *
- * It used to arrive on the same frame as the answer, at the top of a screen
- * whose bottom had just been given two lines of prose the reader had *asked
- * for*, above a tree that had just finished moving. Everything worth looking
- * at was somewhere else, so the one moment the outline was new — the only
- * moment a pulse actually reads as new — was spent while nobody was looking at
- * it. By the time they were, it had been breathing long enough to have become
- * part of the furniture.
- *
- * So it waits for the reader to be done with the answer, and **the two ways of
- * being done both count** — see `tipShown`. The timer is the one for a reader
- * who is still reading; dismissing the answer is the one for a reader who has
- * finished early and has told us so.
- *
- * The dismissal clause is not just a courtesy to fast readers: without it this
- * offer could land *after* the flyout's, and `Afterglow` above is why that
- * order matters. With it the two arrive together at worst, and the flyout is
- * small and in a corner while this is a pulsing outline under the reader's
- * eyes, so "offered second" survives on prominence where it stops being true
- * on time.
- *
- * Long enough to read the reveal without racing, and no longer. The carousel
- * spends 10.6–13.6 s on two lines of the same prose — `rotation.ts`'s
- * `dwellFor`, which is reading time plus a reach — but that is paced for
- * somebody who has not started reading yet; here the reader has been reading
- * since the tree settled.
+ * How long the invitation waits before it is made: long enough for the reader to
+ * finish the answer, so the pulse reads as new when they look at it. The two ways
+ * of being done both count — the timer, and dismissing the answer (see `tipShown`).
  */
 const TIP_DELAY_MS = 5000;
 
 /**
- * What is being offered after an opening, and which one it was about.
- *
- * Two beats rather than one, and they never overlap: `reveal` is the answer to
- * the question, pinned until the reader is done with it, and `next` is the
- * offer of another question, which is only made once they are. Asking somebody
- * what to do next while they are still reading what just happened is how a
- * conversion moment becomes an interruption.
- *
- * The controls are tipped through both, because the invitation this holds is
- * not the one the flyout makes: `next` offers another of ours, the tips offer
- * the reader their own, and the second stands whether or not they want the
- * first.
+ * What is being offered after an opening, and which one. Two non-overlapping
+ * beats: `reveal` is the answer, pinned until the reader is done, and `next`
+ * offers another question, made only once they are.
  */
 type Afterglow = { at: "reveal" | "next"; opening: Opening };
 
@@ -234,28 +157,14 @@ export default function App() {
    * if the graph never mounts.
    */
   const [viewFit, setViewFit] = useState(false);
-  /**
-   * A random pick is out.
-   *
-   * This used to be the app's one guaranteed wait: `/v1/random` was fetched
-   * `no-store` — or every press would have returned the first press's answer —
-   * so it was the single request that could never be memoised, and measured
-   * against production it cost **1.2 s**. Both halves of that are gone. The
-   * pool is fetched once and cached like everything else, and the lookup after
-   * a draw is an immutable URL the edge can answer.
-   *
-   * The state stays, because the first press of a session still pays for the
-   * pool and a fossil roll still pays for `drawFossil`. A press that is usually
-   * instant and occasionally not is exactly the case a pending flag is for.
-   */
+  // A random pick is out. Usually instant (the pool is cached and the lookup is
+  // an immutable URL), but the first press of a session pays for the pool and a
+  // fossil roll pays for `drawFossil` — the case a pending flag is for.
   const [picking, setPicking] = useState(false);
 
   /**
-   * The focused fossil, when `sel` names one.
-   *
-   * A graft is selectable exactly like a node — same click, same `sel=` in the
-   * URL, same card slot — and the key namespaces keep the two apart without a
-   * second parameter: `pbdb108454` cannot collide with an OTT id or a node key.
+   * The focused fossil, when `sel` names one. A graft selects exactly like a
+   * node; `pbdb108454` cannot collide with an OTT id or node key.
    */
   const focusedTaxonNo = useMemo(
     () => (tree.view.selected ? parseGraftKey(tree.view.selected) : null),
@@ -269,10 +178,8 @@ export default function App() {
     // walks the topology can act on it.
     if (focusedTaxonNo !== null) return graftIdx(focusedTaxonNo);
     const k = tree.view.selected;
-    // `idx:N` is what a link into a node we hold no key for produces. It is a
-    // real key the API answers, and resolving it here is what keeps a link into
-    // something already on the canvas from opening the card while leaving every
-    // mark unlit — which reads as the click having half worked.
+    // `idx:N` is a real key for a node we hold no key for; resolving it here
+    // keeps a link to an on-canvas node from opening the card with no mark lit.
     const byIdx = idxFromKey(k);
     if (byIdx !== null) return tree.nodes.has(byIdx) ? byIdx : null;
     const direct = tree.idxOf.get(k) ?? tree.idxOf.get(`ott${k}`);
@@ -283,21 +190,9 @@ export default function App() {
     return n?.idx ?? null;
   }, [tree.view.selected, focusedTaxonNo, tree.idxOf, tree.nodes]);
 
-  /**
-   * The key the node card is about — which is the selection itself, and no
-   * longer whatever the canvas managed to resolve it to.
-   *
-   * The card used to be fetched through `focusedIdx`, so it could only open on
-   * something already in `tree.nodes` — something drawn, or on the path of
-   * something drawn. That was invisible while the only way to select was to
-   * click a mark. It is the whole question now that a classification rung is a
-   * link: *Carnivora* is three rungs above *Felidae* and is not on the canvas,
-   * and under the old rule clicking it changed the URL and nothing else.
-   *
-   * So the two are decoupled. `focusedIdx` still means "which mark to light",
-   * and is null for a taxon that has none; this means "which card to show", and
-   * asks the API directly.
-   */
+  // The key the node card is about — the selection itself, decoupled from
+  // `focusedIdx` (which mark to light) so a card can open on a taxon not on the
+  // canvas, like a classification rung the reader clicked.
   const selectedNodeKey = focusedTaxonNo === null ? tree.view.selected : null;
 
   /**
@@ -402,17 +297,8 @@ export default function App() {
     [tree, toast, about?.build_id],
   );
 
-  /**
-   * What an empty species palette offers.
-   *
-   * Recomputed when the palette *opens* rather than held in state, because the
-   * recents change underneath it: a reader adds a species, closes the palette
-   * and reopens it, and the row they just picked has to be at the top. Reading
-   * `localStorage` is cheap enough to do on a keypress and is the only way to
-   * be right without a second copy of the list living in React state.
-   *
-   * Null while closed so nothing is computed for a panel nobody is looking at.
-   */
+  // What an empty species palette offers, recomputed on open (not held in state)
+  // so a just-added recent is current. Null while closed.
   const suggestions = useMemo<Suggestions | null>(
     () =>
       paletteOpen
@@ -506,26 +392,10 @@ export default function App() {
   const settle = useCallback(() => setAfterglow(null), []);
 
   /**
-   * Draw an opening, and get out of its way.
-   *
-   * Both surfaces that offer one — the empty canvas and the about panel — close
-   * on the press, and the toast names the claim rather than the taxa. "Added
-   * Human, Gombessa, Great White Shark" is a list of what was pressed; the
-   * reader pressed it to find out whether they are a fish.
-   *
-   * **Which sentence, and when, is decided by whether the taxa arrive in
-   * sequence.** Drawn all at once there is nothing to wait for, so the reveal
-   * goes up with the tree exactly as it always did. Drawn one at a time the
-   * reveal would be answering the question before the canvas does — and the
-   * canvas stating the claim itself is the whole of `state/sequence.ts`'s
-   * argument — so the question goes up instead and the answer is held until the
-   * last taxon has landed.
-   *
-   * Per-step copy is a different and much larger piece of work: fifteen
-   * openings times three to five beats, every line still bound by
-   * `openings.ts`'s rule that the copy claims relationships and never dates.
-   * The `sequence` / `sequence-cut` causes in the beacon exist to settle
-   * whether it is worth writing.
+   * Draw an opening. Both surfaces close on the press and the toast names the
+   * claim, not the taxa. Drawn all at once, the reveal goes up with the tree;
+   * drawn in sequence, the question goes up and the answer is held until the
+   * last taxon lands, so the canvas states the claim first.
    */
   const openOpening = useCallback(
     (o: Opening) => {
@@ -543,15 +413,8 @@ export default function App() {
     [tree, toast],
   );
 
-  /**
-   * The sequence has ended: pay the answer.
-   *
-   * The falling edge rather than a completion callback, because a sequence ends
-   * two ways and both owe the reader the answer — one that ran to the end, and
-   * one they interrupted, which was interrupted in the *telling* and still
-   * finished the tree. Withholding it from the second would punish somebody for
-   * taking the wheel.
-   */
+  // The sequence has ended: pay the answer. The falling edge, not a completion
+  // callback, so an interrupted sequence (which still finished the tree) is paid too.
   const wasSequencing = useRef(false);
   useEffect(() => {
     if (wasSequencing.current && !tree.sequencing) {
@@ -562,21 +425,9 @@ export default function App() {
     wasSequencing.current = tree.sequencing;
   }, [tree.sequencing]);
 
-  /**
-   * Done reading the answer — so offer another question.
-   *
-   * The answer is **pinned and not timed**, which is the one thing about it
-   * worth arguing over. Every other toast in this app reports something the
-   * reader did and can be missed without cost: they pressed add, the thing was
-   * added, the canvas says so. This one is the *reply* to a question they asked
-   * and it is the only place the reply is written down — a five-second window on
-   * two lines of prose, arriving at the exact moment a reader is looking at a
-   * tree that has just finished moving, is a reply nobody reads.
-   *
-   * So it stays until it is dismissed, and dismissing it is what says the reader
-   * is ready for something else. That is the whole reason the flyout waits for
-   * this rather than arriving with it.
-   */
+  // Done reading the answer, so offer another question. The answer is pinned,
+  // not timed — it is the only place the reply to the reader's question is
+  // written down — and dismissing it is what says they are ready for more.
   const dismissAnswer = useCallback(() => {
     setAfterglow((a) => {
       if (a?.at !== "reveal") return a;
@@ -585,36 +436,18 @@ export default function App() {
     });
   }, []);
 
-  /**
-   * When the control bar makes its offer — see {@link TIP_DELAY_MS}.
-   *
-   * Two clocks, whichever finishes first, because "the reader is done with the
-   * answer" has two tells and only one of them is a timer. `at: "next"` means
-   * they dismissed it, which is the tell they gave us themselves; the delay is
-   * for everyone who is still reading and has told us nothing.
-   *
-   * `usePending` is borrowed here for its contract rather than its subject —
-   * *held true continuously for this long* — and the borrowed half that
-   * matters is the **reset on the falling edge**. A reader who draws a second
-   * opening while the first tip is still pending gets the new tree's clock and
-   * not the leftover of the tree they replaced, which is exactly the bug the
-   * hook's own doc describes for two round trips in a row.
-   */
+  // When the tip is offered (see {@link TIP_DELAY_MS}): whichever of two tells
+  // comes first — dismissing the answer (`at: "next"`), or the delay for a
+  // reader still reading. `usePending` resets on the falling edge, so a second
+  // opening gets its own clock.
   const tipDue = usePending(afterglow !== null, TIP_DELAY_MS);
   const tipShown = afterglow !== null && (tipDue || afterglow.at === "next");
 
   /**
-   * Rule 2: any interaction ends the sequence, at the finished tree.
-   *
-   * Capture phase and on `window`, so this runs before the handler the press
-   * was actually for — a reader pressing `S` mid-sequence gets the palette
-   * *and* the rest of their tree, rather than one of the two. The press is
-   * never swallowed: aborting is a side effect of interacting, not a mode the
-   * first press is spent leaving.
-   *
-   * Three events cover it: a key, a pointer going down anywhere (a mark, a
-   * sidebar control, the carousel), and a wheel, which is how the canvas is
-   * panned and zoomed and reaches no handler of ours at all.
+   * Any interaction ends the sequence at the finished tree. Capture phase on
+   * `window`, so it runs before the press's own handler and is never swallowed.
+   * Three events: a key, a pointerdown anywhere, and a wheel (the canvas pan/zoom
+   * that reaches no handler of ours).
    */
   useEffect(() => {
     if (!tree.sequencing) return;
@@ -656,17 +489,9 @@ export default function App() {
   );
 
   /**
-   * A fossil chosen from the palette.
-   *
-   * Draws it, and adds the clade it hangs below when that clade is not on the
-   * canvas — because otherwise the one thing the reader asked for produces no
-   * visible change and a notice explaining why. Searching a fossil by name is a
-   * statement that you want to see it; the branch it needs to hang from is
-   * machinery, and making the reader work that out for themselves would be
-   * offering a puzzle instead of an answer.
-   *
-   * Adding the host is a real change to the selection, so it is named in the
-   * toast rather than done silently.
+   * A fossil chosen from the palette. Draws it, and adds the clade it hangs
+   * below when that clade is not on the canvas, or the pick produces no visible
+   * change. Adding the host is a real change, so the toast names it.
    */
   const drawFossil = useCallback(
     async (f: FossilTaxon) => {
@@ -718,51 +543,22 @@ export default function App() {
   );
 
   /**
-   * Put something on the canvas without being asked what.
-   *
-   * The empty canvas is a command list, and every other command on it assumes
-   * you have already thought of a species. Nobody browses millions of them,
-   * and for an audience of curious people rather than systematists the first
-   * move is the hard one — so there has to be an action that answers "show me
-   * *something*".
-   *
-   * The pool holds only taxa that carry their own drawing. That filter is the
-   * whole design: a uniform draw over the corpus returns an unnamed `mrcaott…`
-   * clade or an undescribed mite, and a surprise that is mostly nothing to look
-   * at is one a reader stops pressing. `store/random.go` has the two node
-   * filters, the five fossil ones, and the counts.
-   *
-   * **The draw is here and not on the server**, and the reason is `present`.
-   * Which taxa are on this canvas is a fact no request ever carried, so a
-   * server-side pick had to over-ask twelve candidates and hope one was unused.
-   * With the pool in hand the exclusion happens before the choice, so a pick is
-   * always usable and always exactly one lookup. It also deleted the API's only
-   * uncacheable response — `store/random.go` is the account.
-   *
-   * **One command, two corpora**, weighted by {@link RANDOM_FOSSIL_CHANCE}.
-   * There is no second key and no second row in the palette, because the thing
-   * a second key would let the reader choose — which catalogue the animal is
-   * filed in — is not something they can know in advance and not something they
-   * asked about. A fossil roll that comes back with nothing falls through to a
-   * species rather than reporting a failure: the reader pressed *surprise me*,
-   * and "the pool you did not pick was empty" is an answer to a question they
-   * never asked.
+   * Put something on the canvas without being asked what — the first move is the
+   * hard one. The pool holds only taxa with their own drawing, or a surprise is
+   * mostly nothing to look at (`store/random.go`). The draw is here, not on the
+   * server, because `present` — which taxa are drawn — is a fact no request
+   * carried, so the exclusion happens before the choice. One command over two
+   * corpora ({@link RANDOM_FOSSIL_CHANCE}); an empty fossil roll falls through to
+   * a species rather than reporting a failure.
    */
   const randomPick = useCallback(async () => {
     setPaletteOpen(false);
     settle();
     setPicking(true);
     try {
-      // `about` has landed by the time a human can press this, but not by
-      // construction — and `api.about()` is memoised, so the fallback joins the
-      // boot request already in flight rather than making a second one.
-      //
-      // The retry is for the one case that cannot be recovered from by asking
-      // the same question twice: a deploy landing mid-session. `build_id` was
-      // read once at boot and remembered, the pool for that build is no longer
-      // served, and the 404 says so — so the id is re-read past the memo before
-      // asking again, and a reader who left a tab open across a release gets a
-      // pick rather than an error they can only clear by reloading.
+      // Memoised, so the fallback joins the boot request rather than making a
+      // second one. The 404 retry handles a deploy landing mid-session: the
+      // remembered `build_id` is stale, so re-read it past the memo and re-ask.
       let build = about ?? (await api.about());
       let pool: RandomPool;
       try {
@@ -781,19 +577,13 @@ export default function App() {
           Math.random(),
         );
         if (no !== null) {
-          // `/v1/fossil` returns a `FossilDetail`, which *is* a `FossilTaxon`
-          // with the card's extras on top — so this is the graft's own input
-          // and needs no conversion. `drawFossil` does the rest, including
-          // adding the clade the fossil hangs below when it is not on the
-          // canvas. That is not an extra, it is the whole of the pick: a fossil
-          // the tree does not contain almost always attaches to a branch nobody
-          // has drawn yet, so without it the usual outcome would be a refusal
-          // for something never chosen by name.
+          // `drawFossil` adds the clade the fossil hangs below when it is not on
+          // the canvas — the whole of the pick, since a random fossil almost
+          // always attaches to a branch nobody has drawn yet.
           await drawFossil(await api.fossil(no));
           return;
         }
-        // Fall through to a species. Nothing is said about the roll — the
-        // reader asked for something to look at, not for a report on a corpus.
+        // Fall through to a species; nothing is said about the roll.
       }
 
       if (pool.nodes.length === 0) {
@@ -833,30 +623,14 @@ export default function App() {
     }
   }, [tree, toast, about, present, presentFossils, drawFossil, settle]);
 
-  /**
-   * Nothing is drawn, which is the condition the empty canvas answers.
-   *
-   * Two surfaces read it and they may not disagree: this decides whether the
-   * invitation is on screen, and it is handed to the canvas to decide whether
-   * the mode panel is. The panel sits bottom-left and the invitation is a
-   * centred column, and on a short window the two were drawn through each
-   * other — so a second expression saying nearly this would not error, it would
-   * put a key badge back on top of the `LABELS` chip. `canvas/Graph.tsx` has
-   * the rest of why the panel is the one that goes.
-   */
+  // Nothing is drawn, the condition the empty canvas answers. Read by two
+  // surfaces (the invitation and the mode panel) that may not disagree.
   const nothingDrawn = tree.induced.rendered.length === 0;
 
   /**
-   * Nothing on the canvas at all.
-   *
-   * Declared here rather than beside its other user further down, because the
-   * command list needs it too and two copies of "is the canvas empty" is how
-   * the two surfaces start disagreeing.
-   *
-   * A stricter question than `nothingDrawn`: a graft hangs off a drawn branch,
-   * so the two only ever part while a fossil add is in flight — and the command
-   * list would rather be a beat late offering `clear` than offer it over
-   * nothing.
+   * Nothing on the canvas at all — stricter than `nothingDrawn`, since a graft
+   * hangs off a drawn branch, so the two only part while a fossil add is in
+   * flight. Declared here so both users share one definition.
    */
   const empty = nothingDrawn && tree.view.fossils.length === 0;
 
@@ -1321,24 +1095,10 @@ export default function App() {
   }, [settle]);
 
   /**
-   * Toggle the panel, and take the focus ring with the control.
-   *
-   * The switch has two mount points — the panel's header while it is open, the
-   * canvas cluster while it is shut — and pressing one unmounts it. Left alone,
-   * a reader closing the panel from the keyboard is dropped on `body` and has
-   * to tab from the top of the document to get back to the button they were
-   * standing on.
-   *
-   * Only when the press *came from* a toggle, because the same callback is what
-   * `S` runs from anywhere on the canvas and a key press must not move the ring
-   * to somewhere the reader was not.
-   *
-   * **The move happens in an effect and not in a `requestAnimationFrame`.** The
-   * first version used a frame and it silently did nothing: React commits on a
-   * task of its own, so the frame fired while the surviving instance did not
-   * exist yet and the query matched nothing. An effect runs *after* the commit,
-   * which is the only moment both facts are true — the old button is gone and
-   * the new one is in the document.
+   * Toggle the panel, moving the focus ring to the control's surviving mount
+   * point (the switch unmounts on toggle, else the reader is dropped on `body`).
+   * Only when the press came from a toggle, not from `S`. In an effect, not a
+   * frame, since the new button exists only after React commits.
    */
   const restoreToggleFocus = useRef(false);
   const toggleSidebar = useCallback(() => {
@@ -1365,20 +1125,10 @@ export default function App() {
   }, [tree, toast, settle]);
 
   /**
-   * Full keyboard operation, on bare letters.
-   *
-   * Three guards come before any binding is matched, and each is answering a
-   * real failure rather than being defensive. Typing in a field must never
-   * reach here, or every search box would fire commands as it was filled. An
-   * open palette owns the keyboard even when focus has slipped out of its input
-   * — clicking the scrim used to leave the list up and the letters live under
-   * it. And an open dialog owns it outright: the whole point of asking is that
-   * the next keystroke is an answer to the question, not another command.
-   *
-   * This is rebuilt as often as its dependencies like, and that costs nothing:
-   * `useWindowKeys` subscribes **once** and calls through a ref. That split is
-   * the fix for a real bug rather than tidiness, and `chrome/keys.ts` is the
-   * account of it.
+   * Full keyboard operation on bare letters. Three guards before any binding
+   * matches: a text field, an open palette, and an open dialog each own the
+   * keyboard. Rebuilt freely — `useWindowKeys` subscribes once and calls through
+   * a ref (see `chrome/keys.ts`).
    */
   const onKey = useCallback(
     (e: KeyboardEvent) => {
@@ -1406,18 +1156,11 @@ export default function App() {
         return;
       }
 
-      // Global scope, which is what makes the `preventDefault` below safe.
-      // Enter is in the table too and is deliberately not visible here: this
-      // handler prevents the default of everything it matches, and doing that
-      // to Enter would take keyboard activation off every button in the app.
-      // `bindings.ts`'s `Scope` is the whole of that argument, and `Tab` — which
-      // this line used to match, and so used to prevent — is the rest of it:
-      // nothing in the table claims it any more, so the focus ring moves.
+      // Global scope: this prevents the default of everything it matches, which
+      // is why Enter and Tab are not in it (see `bindings.ts`'s `Scope`).
       const action = matchKey(e);
       if (action === null) return;
-      // Everything below is ours, so nothing below reaches the browser. `/`
-      // opens quick-find in Firefox, which is the reason this line survives a
-      // table holding nothing but bare letters.
+      // `/` opens quick-find in Firefox, so even a bare-letter table needs this.
       e.preventDefault();
 
       switch (action) {
@@ -1434,9 +1177,7 @@ export default function App() {
           setFitSignal({ kind: "all", token: Date.now() });
           break;
         case "fit-selection":
-          // Falls back to framing everything rather than doing nothing: the
-          // reader asked to be shown something, and with no selection the
-          // whole tree is the honest answer to "here".
+          // Falls back to framing everything when there is no selection.
           setFitSignal({
             kind: focusedIdx === null ? "all" : "selection",
             token: Date.now(),
@@ -1526,20 +1267,10 @@ export default function App() {
   useWindowKeys(onKey);
 
   /**
-   * The three that act on the view rather than on the tree.
-   *
-   * They are the whole of what is left on the canvas, top right, and what they
-   * have in common is the argument for the cluster existing: none of them
-   * changes what is drawn, they change how much of it you can see. Everything
-   * else the old control bar carried is in the sidebar, where it is about a
-   * thing rather than about a look.
-   *
-   * **Disabled rather than hidden**, exactly as the bar had it: a cluster that
-   * reshuffles as the selection changes costs a reader the button they were
-   * reaching for, and a greyed button with a reason in its tooltip says more
-   * than an absent one. The single exception is fullscreen on a browser that
-   * has none, which is absent — `chrome/CanvasChrome.tsx` argues why that is
-   * the opposite call and not an inconsistency.
+   * The three that act on the view (how much you see) rather than the tree, top
+   * right. Disabled rather than hidden, so the cluster does not reshuffle under a
+   * reader's reach — except fullscreen on a browser without it, which is absent
+   * (see `chrome/CanvasChrome.tsx`).
    */
   const viewportActions: ViewportAction[] = useMemo(() => {
     const out: ViewportAction[] = [
@@ -1577,17 +1308,8 @@ export default function App() {
     return out;
   }, [tree, empty, viewFit, focusedIdx, fullscreen]);
 
-  /**
-   * The rows of the Taxa list, which are the selection with its lineages
-   * resolved.
-   *
-   * `induced.leaves` rather than `view.keys`, because it is the list the canvas
-   * actually draws and the two are not the same: a key that resolved to nothing
-   * is in the view and on no branch, and a taxon whose lineage is still in
-   * flight has a key and no node. Deriving from what is drawn means the panel
-   * and the canvas cannot disagree about what is on screen — the same reason
-   * `graftSet` is rebuilt from the induced subtree rather than stored.
-   */
+  // The Taxa list's rows: `induced.leaves` (what the canvas draws), not
+  // `view.keys`, so the panel and canvas cannot disagree about what is on screen.
   const taxaRows = useMemo(
     () =>
       tree.induced.leaves
@@ -1604,20 +1326,8 @@ export default function App() {
     [tree.view.fossils, tree.fossils],
   );
 
-  /**
-   * The mode, on the document as well as on the canvas.
-   *
-   * The canvas carries its own class and always will — it is the element the
-   * effect is *about*, and it has to be right on the first painted frame. This
-   * exists for the chrome that is not inside it: the control bar is `position:
-   * fixed` on the top edge and fades to `--void`, which is the neutral
-   * instrument's black and a visibly lighter grey than the water. Left alone it
-   * drew a pale band across the top of the abyss.
-   *
-   * One class, read by one rule. It is not a second source of truth — nothing
-   * branches on it, and it cannot disagree with the canvas because both are
-   * written from the same boolean on the same render.
-   */
+  // The mode on the document body, for the chrome outside the canvas (which
+  // carries its own class). Written from the same boolean, so they cannot disagree.
   useEffect(() => {
     document.body.classList.toggle("biolum", tree.biolum);
     return () => document.body.classList.remove("biolum");

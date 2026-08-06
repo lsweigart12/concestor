@@ -1,15 +1,10 @@
 /**
  * Typed client for the read API (the Go binary in ../server).
  *
- * Everything the API serves is immutable within a build, so a response is
- * cached in-process once it has been fetched. That is not an optimisation
- * detail: it is what lets the signature interaction fire in the same frame as
- * the click. Architecture §2 — once a leaf's ancestor path is in memory, the
- * MRCA, the reflow and the drill-down are all set operations over data we
- * already hold, with no round trip.
- *
- * How *long* it is kept is a question about the URL rather than about the
- * response, and there are two answers. See {@link get}.
+ * Everything the API serves is immutable within a build, so a response is cached
+ * in-process once fetched — which is what lets the MRCA, reflow and drill-down
+ * fire in the same frame as the click (architecture §2). How long it is kept is
+ * a question about the URL; see {@link get}.
  */
 
 import { displayCommonName, displayCommonNameOrNull } from "./vernacular";
@@ -19,15 +14,10 @@ export const TIER_MEASURED = 0;
 export const TIER_INTERPOLATED = 1;
 export const TIER_STRUCTURAL = 2;
 /**
- * Extinct, and the rock has something to say. Written by phase 4, not phase 2.
- *
- * Not a fourth grade of divergence estimate. The other three all answer "when
- * did these lineages part", from a chronogram of extant species, and an
- * extinct taxon has no counterpart there — which is why 1,742 of the 1,743
- * extinct-flagged nodes are structural by construction rather than by
- * measurement. This answers a weaker question in the same units: when the
- * taxon is observed in the rock. It therefore carries **no `age_ma`**, exactly
- * like structural, and everything that guards structural must guard it too.
+ * Extinct, and the rock has something to say (written by phase 4). Not a fourth
+ * grade of divergence estimate but a weaker question in the same units — when
+ * the taxon is observed in the rock — so it carries no `age_ma`, like
+ * structural, and everything guarding structural must guard it too.
  */
 export const TIER_OCCURRENCE = 3;
 export type Tier = 0 | 1 | 2 | 3;
@@ -44,15 +34,10 @@ export interface PathNode {
   name: string | null;
   rank: string | null;
   /**
-   * The name this taxon goes by, when the canvas is drawing common names.
-   *
-   * Server-side it is the name ranked **first** by use and it is served only
-   * for genus, species and subspecies — both restrictions live in
-   * `api.Entry.Vernacular`, and neither may be worked around from here. Absent
-   * is the ordinary case: 110,794 nodes of 2,725,682 carry an English name at
-   * all, so most of a deep tree has none and falls back to the scientific name.
-   * That mixture is the design rather than a gap, and italics are what tell the
-   * reader which they are looking at — see `markName`.
+   * The name this taxon goes by when the canvas draws common names: the name
+   * ranked first by use, served only for genus, species and subspecies (both in
+   * `api.Entry.Vernacular`). Usually absent — most of a deep tree falls back to
+   * the scientific name, and italics tell the reader which they see (`markName`).
    */
   vernacular?: string | null;
   /**
@@ -83,37 +68,22 @@ export interface PathNode {
   /** The node the silhouette is actually a drawing of. Often a relative. */
   silhouette_source_idx: number | null;
   /**
-   * The smallest clade containing both this node and that drawing, which is
-   * the whole of what the picture claims: *something in here looks like this*.
-   * Its `tip_count` is how big a claim that is, and it is the number the
-   * caption has to carry. Null on an older build that predates the field.
+   * The smallest clade holding both this node and that drawing — the whole claim
+   * the picture makes. Its `tip_count` is how big a claim, and what the caption
+   * carries. Null on an older build.
    */
   silhouette_clade_idx?: number | null;
   silhouette_clade_tips?: number | null;
   silhouette_clade_name?: string | null;
   /**
-   * The divergence witness: a second silhouette, of a **fossil taxon from
-   * somewhere below this fork** whose stratigraphic bracket puts it at the
-   * split.
-   *
-   * It answers a different question from `phylopic_id`, which is why both
-   * exist. `phylopic_id` prefers the most inclusive drawing beneath a node, so
-   * at a split it is always a crown group — the human–chimp split drew *Homo*,
-   * the whale–hippo split drew a dolphin. Neither existed when the lineages
-   * parted. This is what did: *Acanthostega gunnari*, *Eohippus*, *Pakicetus*.
-   *
-   * **The claim is weaker than a silhouette's and the wording must be too.** A
-   * witness used to be a node inside the clade, so the picture could say "a
-   * member of this group". It is now a PBDB taxon that is not in the tree at
-   * all, and the honest phrasing is architecture §3.4's: *this taxon belongs
-   * somewhere below this node, and existed between these dates.* Not *this
-   * taxon is the sister of that one.* `divergence_attach_walk` is how loose
-   * the placement is.
-   *
-   * Which one to draw is the client's call and depends on how the reader
-   * reached the node: a species they chose wants its group's exemplar, a
-   * divergence they arrived at wants the witness. Absent wherever the fork
-   * carries its own drawing, or nothing drawn, dated and extinct hangs below it.
+   * The divergence witness: a second silhouette, of a fossil taxon from
+   * somewhere below this fork whose stratigraphic bracket puts it at the split.
+   * `phylopic_id` prefers the most inclusive drawing, so at a split it is a crown
+   * group that postdates the parting; this is a taxon that existed at it
+   * (*Acanthostega*, *Eohippus*, *Pakicetus*). The claim is weaker — *belongs
+   * somewhere below this node* (architecture §3.4), `divergence_attach_walk` says
+   * how loose. Which to draw is the client's call. Absent where the fork carries
+   * its own drawing.
    */
   divergence_phylopic_id?: string | null;
   /** A `fossil.pbdb_taxon_no`. **Not** a node index — nothing may address the tree with it. */
@@ -123,20 +93,16 @@ export interface PathNode {
   /** The deepest node the fossil is known to sit below. */
   divergence_attach_idx?: number | null;
   /**
-   * How many PBDB `parent_no` hops it took to find that node, and therefore how
-   * loose the placement is. Zero means PBDB's own taxon is in the synthesis
-   * tree and the fossil sits exactly there; eleven means the claim is about a
-   * family rather than a lineage. The caption has to say which.
+   * PBDB `parent_no` hops to that node, i.e. how loose the placement is. Zero
+   * means the taxon is itself in the tree; large means the claim is about a
+   * family rather than a lineage.
    */
   divergence_attach_walk?: number | null;
   /** Ma from the split to that taxon's range. 0 means the range spans it. */
   divergence_gap_ma?: number | null;
   /**
-   * The witness taxon's own fossil bracket, and not optional in practice: it
-   * is what makes the picture legible. A range, never a point, exactly like
-   * `occurrence` — no midpoint may be computed from it. Only `fea` and `lla`
-   * arrive: the witness is chosen by a containment test on the outer bracket,
-   * so the inner pair never entered the decision.
+   * The witness taxon's own fossil bracket — what makes the picture legible. A
+   * range, never a point, like `occurrence`. Only `fea` and `lla` arrive.
    */
   divergence_range?: {
     fea: number | null;
@@ -158,13 +124,9 @@ export interface Witness {
   /** True when that range contains the split rather than merely nearing it. */
   spans: boolean;
   /**
-   * Ma from the split to the nearer end of the range, 0 when it spans.
-   *
-   * Carried rather than left implicit because rounding makes a true statement
-   * read as a false one: Perissodactyla is dated 56.26 Ma and *Eohippus* tops
-   * out at 56.0, so the card shows "56 Ma" and "56–51 Ma" and then says the
-   * range does not reach the split. Both figures are right and the reader can
-   * see only a contradiction. The gap is what resolves it.
+   * Ma from the split to the nearer end of the range, 0 when it spans. Carried
+   * because rounding can make two right figures ("56 Ma", "56–51 Ma") look
+   * contradictory when the range does not quite reach the split.
    */
   gapMa: number | null;
   /**
@@ -270,19 +232,10 @@ interface HitBase {
    */
   matched_name?: string | null;
   /**
-   * Where this row sits in the one ranking that covers both corpora.
-   *
-   * `/v1/search` answers with two arrays because a node and a PBDB taxon are
-   * different shapes, not because they are different qualities of answer, and
-   * this integer is what lets the palette draw them as the single list they
-   * are. Absent on a broken taxon, which renders as a note rather than a row,
-   * and absent from every other endpoint — a segment listing and a random pick
-   * are not answers to a query and have no position in one.
-   *
-   * **Sorting by it is not re-ranking.** The rule in `handoff.md` is that
-   * `web/` must not re-sort `/v1/search`, and this is the server handing over
-   * an order rather than the client computing one — the distinction that the
-   * old client-side fuzzy score got wrong.
+   * Where this row sits in the one ranking covering both corpora. `/v1/search`
+   * answers with two arrays (a node and a PBDB taxon are different shapes) and
+   * this integer merges them into one list. The client sorts by it but must not
+   * re-rank. Absent on a broken taxon and on non-query endpoints.
    */
   order?: number | null;
   /** Present when the server resolved a silhouette for this hit. */
@@ -295,15 +248,9 @@ interface HitBase {
 }
 
 /**
- * A hit that is a node — something that can actually go on the canvas.
- *
- * The union below is not decoration. `idx` and `tip_count` are null for a
- * broken taxon because it is *not in the tree*, and typing them as `number`
- * let `n:${hit.idx}` become the string `"n:null"` for all 9,839 of them: one
- * shared identity, so the session ranking learnt from one click applied to
- * every broken taxon at once, and one React key, so a list containing two of
- * them reconciled wrongly and left rows stranded on screen through every
- * subsequent query. Narrowing on `kind` is what makes both unrepresentable.
+ * A hit that is a node — something that can go on the canvas. `idx` and
+ * `tip_count` are null for a broken taxon (not in the tree); narrowing on `kind`
+ * keeps a `"n:null"` shared key/identity unrepresentable.
  */
 export interface SearchHit extends HitBase {
   kind: "node";
@@ -328,15 +275,9 @@ export interface NodeDetail extends PathNode {
   synonyms: string[];
   vernaculars: string[];
   /**
-   * The Wikidata item this node *is*, on the 108,293 nodes the vernacular crawl
-   * reached — which are close to exactly the ones a reader has heard of.
-   *
-   * An identifier, not a name, and that is the whole of its value: a link built
-   * from it lands on an article about this taxon, where a link built from a
-   * name lands on an article about whatever else is called that. It is absent
-   * on the other 2.6M nodes and on every build predating the field, and
-   * `detail/wiki.ts` falls back to a *checked* name lookup rather than an
-   * unchecked one.
+   * The Wikidata item this node is, where the vernacular crawl reached it. An
+   * identifier, not a name, so a link from it lands on the right article; absent
+   * elsewhere, where `detail/wiki.ts` falls back to a checked name lookup.
    */
   wikidata_qid?: string | null;
   silhouette: {
@@ -344,7 +285,7 @@ export interface NodeDetail extends PathNode {
     license_url: string;
     /** The original creator. Renders as the credit. */
     attribution: string | null;
-    /** The uploader. Differs from the creator 50% of the time (handoff §4). */
+    /** The uploader. Differs from the creator about half the time. */
     contributor: string | null;
     /** The node the drawing is of. Usually a relative, rarely this node. */
     source_idx: number;
@@ -390,17 +331,9 @@ interface LayoutBound {
 }
 
 /**
- * What an undated node's position was derived from.
- *
- * **`below` is null on 97.2% of structural nodes and that is a fact, not a
- * gap.** Every age in the dataset comes from a chronogram of *extant* species,
- * so a dated descendant is nearly always a tip sitting at the present; only
- * 5,168 of 186,317 have one older than zero. Where it is null the lower end of
- * the span is the present, and the copy has to say that rather than trail off.
- *
- * `above` is never null on the shipped build (zero of 186,317 lack a dated
- * ancestor) but is typed nullable because a partially dated build could
- * produce one.
+ * What an undated node's position was derived from. `below` is null on most
+ * structural nodes — the dated descendant is a tip at the present, so the lower
+ * end of the span is the present. `above` is nullable only for a partial build.
  */
 export interface LayoutSpread {
   above: LayoutBound | null;
@@ -408,58 +341,29 @@ export interface LayoutSpread {
 }
 
 /**
- * When may a node draw an image it did not earn?
- *
- * Resolution finds a node's closest drawn relative and records the smallest
- * clade containing both. That clade is the entire claim the picture makes —
- * *something in here looks like this* — so its size is the only thing worth
- * judging. A drawing shared with 987 other riffle beetles is a fact about the
- * beetle; one shared with 1.2M arthropods is a fact about nothing.
- *
- * The knob used to be `maxSourceTips`, the size of the clade the image was
- * *attached* to, and it was measuring the wrong object: under the old
- * nearest-seeded-ancestor rule the attached clade was usually a superphylum
- * even when a perfectly good cousin sat two hops away. Judging the shared
- * clade instead makes the question answerable, and the answer changed —
- * see below.
+ * When may a node draw an image it did not earn? The size of the smallest clade
+ * holding both the node and the drawing is the whole claim the picture makes, so
+ * it is what the threshold would judge.
  */
 export interface SilhouettePolicy {
   maxCladeTips: number;
 }
 
 /**
- * **Draw everything.** Every node with a resolved image draws it.
- *
- * Superseded in one place, and the exception is not about clade size at all: a
- * *divergence* draws its witness or nothing, never a borrow. See
- * `Graph.mayDrawExemplar`. This policy governs only the nodes still eligible
- * for a borrow — the clades a reader chose — and the threshold below is what
- * would catch a misinforming one among those.
- *
- * This was an uneasy experiment when the alternative was a `cellular
- * organisms` blob on two thirds of the tree; it is now simply what the data
- * supports. Measured on the built corpus after the resolution change: the
- * median silhouette speaks for a clade of 3,153 tips, p90 is 46,221, **no
- * node at all** borrows from a clade of over a million, and exactly one node
- * — the root — has the whole tree as its clade. There is no longer a
- * population of misinforming pictures for a threshold to catch.
- *
- * It holds together because the borrow is labelled wherever it appears: the
- * canvas tooltip and the detail card both name the drawing's subject *and*
- * the clade it speaks for. If that labelling ever weakens, this becomes the
- * misinformation architecture §7 warns about, and the knob is here to turn.
+ * Draw everything: every node with a resolved image draws it. Measured on the
+ * built corpus, no borrow reaches a clade of over a million, so there is no
+ * misinforming population for a threshold to catch — and each borrow is labelled
+ * in the tooltip and card. The knob is here in case that labelling weakens.
+ * (Superseded for a divergence, which draws its witness or nothing — see
+ * `Graph.mayDrawExemplar`.)
  */
 export const SILHOUETTE_POLICY: SilhouettePolicy = {
   maxCladeTips: Number.POSITIVE_INFINITY,
 };
 
 /**
- * Whether to draw a node's silhouette at all.
- *
- * `cladeTips` is the size of the smallest clade containing the node and the
- * drawing. It is undefined against a build that predates the field, in which
- * case there is nothing to judge and the image is drawn — the same choice the
- * permissive policy makes anyway.
+ * Whether to draw a node's silhouette at all. `cladeTips` is the smallest clade
+ * holding node and drawing; undefined on an older build, where it is drawn.
  */
 export function silhouetteIsInformative(
   node: Pick<PathNode, "phylopic_id">,
@@ -538,48 +442,29 @@ export interface FossilTaxon {
   lea: number | null;
   lla: number | null;
   /**
-   * The young end of the last-appearance bracket, read for what it is worth.
-   * `lla` above is PBDB's own number and is never overwritten.
-   *
-   * `lla_identified` is the youngest last appearance an *identified* member of
-   * this taxon reaches. When it is **older** than `lla`, the taxon's own young
-   * end rests on material catalogued no finer than the taxon itself — a
-   * `Stegosaurus sp.` — and says nothing about where the named animal's record
-   * ends. PBDB aggregates upward, so that comparison is exact rather than a
-   * heuristic: a young end below every descendant's cannot come from an
-   * identified one.
-   *
-   * `lla_drawn` is where the taxon may be **drawn**, and it is the only one of
-   * the three a position may read. It equals `lla` except on the taxa whose
-   * alternative is corroborated enough to act on, and phase 4 holds
-   * `lla <= lla_drawn <= fea` for every row.
-   *
-   * All three are absent on a build predating them, which every reader here
-   * falls back from rather than works around.
+   * The last-appearance bracket read for what it is worth; `lla` above is PBDB's
+   * own and never overwritten. `lla_identified` is the youngest last appearance
+   * an *identified* member reaches — older than `lla` means the young end rests
+   * on `Stegosaurus sp.`-grade material (exact, since PBDB aggregates upward).
+   * `lla_drawn` is the only one a position may read; phase 4 holds
+   * `lla <= lla_drawn <= fea`. All absent on an older build.
    */
   lla_identified?: number | null;
   young_end_occs?: number | null;
   lla_drawn?: number | null;
   /**
-   * The other end of the same last-appearance bracket, moved with `lla_drawn`.
-   * `[lea, lla]` is one bracket and both ends come from the same occurrences,
-   * so pairing a corrected `lla_drawn` with PBDB's own `lea` would assemble a
-   * bracket out of two different records — for *Stegosaurus*, a corrected
-   * 143.1 against a 100.5 that is the very occurrence being refused.
+   * The other end of the same bracket, moved with `lla_drawn`: pairing a
+   * corrected `lla_drawn` with PBDB's own `lea` would assemble a bracket from two
+   * different records.
    */
   lea_drawn?: number | null;
 }
 
 /**
- * The four bounds as they may be *drawn*: PBDB's first-appearance bracket
- * unchanged, and the last-appearance bracket corrected where its own young end
- * is one no identified member reaches.
- *
- * `fea`/`fla` are never touched here. They are wide for a different reason —
- * stratigraphic resolution, not misidentification — and that width is what the
- * faded envelope honestly means. *Stegosaurus* reaches 161.5 Ma because one of
- * its 86 occurrences is logged only as "Late Jurassic", an epoch whose base is
- * 161.5; no specimen is dated there.
+ * The four bounds as they may be drawn: `fea`/`fla` unchanged, the
+ * last-appearance bracket corrected where its young end is one no identified
+ * member reaches. `fea`/`fla` are wide for a different reason (stratigraphic
+ * resolution), which the faded envelope honestly means.
  */
 export function drawnBounds(f: FossilTaxon): {
   fea: number | null;
@@ -601,11 +486,8 @@ export function drawnBounds(f: FossilTaxon): {
 }
 
 /**
- * Whether a fossil's own young end is one no identified member of it reaches.
- *
- * The card says so and the position avoids it. Both need the same test, and it
- * is a comparison rather than a flag so that a build without the columns
- * simply answers `false` instead of throwing.
+ * Whether a fossil's young end is one no identified member reaches. A comparison
+ * rather than a flag, so a build without the columns answers `false`.
  */
 export function youngEndIsIndeterminate(
   f: Pick<FossilTaxon, "lla" | "lla_identified">,
@@ -618,11 +500,9 @@ export function youngEndIsIndeterminate(
 }
 
 /**
- * A fossil with the two things a card needs beyond the row itself.
- *
- * `silhouette` is **not** optional in spirit: a graft puts that drawing on the
- * canvas and CC-BY applies to whatever is on screen, so the card is where the
- * credit has to appear. It is absent only when the taxon has no drawing at all.
+ * A fossil with the two things a card needs beyond the row. `silhouette` is
+ * absent only when the taxon has no drawing; where present it carries the credit
+ * for the image a graft puts on the canvas.
  */
 export interface FossilDetail extends FossilTaxon {
   silhouette?: {
@@ -696,15 +576,9 @@ export class ApiError extends Error {
 }
 
 /**
- * Normalise the wire format at the boundary.
- *
- * The server writes `tier` as a word and the silhouette credit as
- * `creator`/`uploader`, both of which read better in a JSON payload than the
- * numeric tier and the `attribution`/`contributor` names the pipeline uses
- * internally. Rather than push either side to match the other, translate once
- * here — the numeric tier is what the rendering compares against, and having
- * exactly one place that knows both vocabularies is cheaper than having the
- * whole component tree tolerate two.
+ * Normalise the wire format at the boundary: the server writes `tier` as a word
+ * and the credit as `creator`/`uploader`, translated once here to the numeric
+ * tier and `attribution`/`contributor` the components use.
  */
 const TIER_BY_NAME: Record<string, Tier> = {
   measured: TIER_MEASURED,
@@ -726,20 +600,13 @@ function normNode(raw: Record<string, unknown>): PathNode {
   return {
     ...(raw as unknown as PathNode),
     tier,
-    // How a common name is cased is this client's decision and not the
-    // server's; `vernacular.ts` is the whole rule and the reasoning. Applied
-    // here rather than at the canvas label, the card subtitle and the four
-    // other places that print one, because a seventh costs one line to write.
-    // `?? null` rather than passing `undefined` through, because
-    // `exactOptionalPropertyTypes` will not let an optional property be
-    // *assigned* undefined. Absent and null already mean one thing to every
-    // reader of this field — `commonName` reaches both through `?.` — and the
-    // server sends the key on every entry-shaped body regardless.
+    // Common-name casing is the client's decision (`vernacular.ts`), applied
+    // once here. `?? null` because `exactOptionalPropertyTypes` forbids assigning
+    // undefined to an optional property.
     vernacular:
       displayCommonNameOrNull(raw.vernacular as string | null | undefined) ??
       null,
-    // Belt and braces on the hard requirement: even if a future server build
-    // sends a number alongside a structural tier, it does not reach the UI.
+    // Belt and braces: a number alongside a non-age tier must not reach the UI.
     age_ma:
       !tierHasAge(tier) || typeof age !== "number" || !Number.isFinite(age)
         ? null
@@ -748,20 +615,9 @@ function normNode(raw: Record<string, unknown>): PathNode {
 }
 
 /**
- * Accept either a list of strings or a list of `{name, preferred}` records,
- * and **keep the server's order**.
- *
- * This used to take a `preferredFirst` flag and sort on the boolean. That was
- * harmless only while the boolean was the entire ranking; the server now
- * orders by `usage_rank` — a taxon's names in the order people use them,
- * measured against English Wikipedia's title and redirect graph — and a
- * client-side sort on one flag would flatten every distinction below the
- * headline back into whatever order the rows happened to arrive in.
- *
- * The rule is the one `docs/handoff.md` already records for `/v1/search`, for
- * the same reason and after the same bug: ranking is the server's, the client
- * highlights. A re-sort here cannot see the evidence the rank was built from,
- * so it can only ever lose information.
+ * Accept a list of strings or of `{name, preferred}` records, keeping the
+ * server's order. The server ranks by `usage_rank`; the client must not re-sort,
+ * since it cannot see the evidence the rank was built from.
  */
 function toStrings(v: unknown): string[] {
   if (!Array.isArray(v)) return [];
@@ -779,11 +635,7 @@ function toStrings(v: unknown): string[] {
   return [...new Set(names)];
 }
 
-/**
- * Exported for `api.test.ts` only. The order a name list arrives in is now
- * load-bearing and is decided three layers away, in the pipeline — so the one
- * boundary that could quietly permute it needs a test that says so.
- */
+/** Exported for `api.test.ts` only: name-list order is load-bearing here. */
 export function normalise(url: string, body: unknown): unknown {
   if (!body || typeof body !== "object") return body;
   const b = body as Record<string, unknown>;
@@ -801,12 +653,8 @@ export function normalise(url: string, body: unknown): unknown {
       normNode,
     );
   }
-  // `/v1/search` and `/v1/hits` are the same row shape and the palette's
-  // subtitle is the most-read common name in the app — it is the list a reader
-  // scans to choose a species, and it is where one word arriving in two cases
-  // is most obvious. Cased here so `litRanges` highlights the string that is
-  // actually printed; the rule cannot move a character, only change one, so
-  // the ranges it computes are unaffected either way.
+  // Case the vernacular here so `litRanges` highlights the printed string; the
+  // rule only changes a character, never moves one, so the ranges are unaffected.
   if (Array.isArray(b.results)) {
     for (const r of b.results as Record<string, unknown>[]) {
       if (r && typeof r === "object") {
@@ -825,10 +673,8 @@ export function normalise(url: string, body: unknown): unknown {
       sil.source_idx = sil.source_idx ?? b.silhouette_source_idx ?? b.idx;
       sil.source_name = sil.source_name ?? null;
     }
-    // The witness credit is the same shape and needs the same translation. It
-    // is not optional politeness: the canvas draws this image, several of them
-    // are CC-BY-SA, and a credit line that silently reads an absent field says
-    // "creator not recorded" about an artist the payload names.
+    // The witness credit is the same shape and needs the same translation:
+    // several of these images are CC-BY-SA and their artist must be credited.
     const wit = b.divergence_silhouette as
       Record<string, unknown> | null | undefined;
     if (wit) {
@@ -836,27 +682,13 @@ export function normalise(url: string, body: unknown): unknown {
       wit.source_name = wit.source_name ?? b.divergence_source_name ?? null;
     }
     b.synonyms = toStrings(b.synonyms);
-    // The server sends `{name, lang, preferred}` objects, which is the more
-    // useful shape and one the UI never templated for — "Also known as [object
-    // Object]" shipped. Flatten at the boundary and change nothing else: the
-    // list arrives most-used first and the card reads it positionally.
-    // The card's subtitle is `[0]` and "Also called" is the rest, so one map
-    // cases both. Deduped *after* rather than relying on `toStrings`: casing
-    // can newly collide two names the server sent as two rows, and "Aardvark ·
-    // Aardvark" under one card would be a duplicate this rule invented. No node
-    // in the current build collides — 0 of 110,794 — so this removes nothing
-    // today; it is here because the rule is what makes it possible at all.
-    // Order still comes from the server, first occurrence winning, because the
-    // card reads this list positionally and `usage_rank` is what put it in it.
+    // Cased, then deduped *after* casing (which can newly collide two rows). The
+    // server's order is kept — the card reads this list positionally.
     b.vernaculars = [
       ...new Set(toStrings(b.vernaculars).map(displayCommonName)),
     ];
   }
-  // A fossil card draws a PhyloPic image too, so it needs the same translation
-  // — and this is the third place that has needed it, which is why it is one
-  // helper now. The failure is silent by construction: reading an absent field
-  // yields a credit line that says "creator not recorded" about an artist the
-  // payload names by a different key.
+  // A fossil card draws a PhyloPic image too, so it needs the same credit rename.
   if (url.startsWith("/v1/fossil/")) {
     creditFields(b.silhouette as Record<string, unknown> | null | undefined);
   }
@@ -876,11 +708,8 @@ function creditFields(sil: Record<string, unknown> | null | undefined): void {
 }
 
 /**
- * A set of remembered answers, with a rule for how many.
- *
- * `limit` of 0 means never evict. Anything above it is a least-recently-used
- * bound, and `Map`'s own insertion order is the recency: reading an entry
- * re-inserts it, so the oldest key is always the one at the front.
+ * A set of remembered answers. `limit` 0 never evicts; above it is an LRU bound,
+ * with `Map` insertion order as the recency (a read re-inserts).
  */
 interface Memo {
   entries: Map<string, Promise<unknown>>;
@@ -888,37 +717,18 @@ interface Memo {
 }
 
 /**
- * The memo for every URL the *dataset* bounds.
- *
- * `/v1/node`, `/v1/path`, `/v1/paths`, `/v1/hits`, `/v1/segment`,
- * `/v1/fossil`, `/v1/timescale`, `/v1/about`, the random pool. Each is a key
- * the build assigned, or a list built from such keys, so the space a session
- * can reach is a function of the data and of how many taxa a reader can
- * actually click — and every response is immutable within the build. Keeping
- * all of them for the life of the tab is the whole of architecture §2.
+ * The memo for every URL the dataset bounds — `/v1/node`, `/v1/path`,
+ * `/v1/paths`, `/v1/hits`, `/v1/segment`, `/v1/fossil`, `/v1/timescale`,
+ * `/v1/about`, the random pool. Each is a build-assigned key with an immutable
+ * response, so all are kept for the tab's life (architecture §2).
  */
 const forever: Memo = { entries: new Map(), limit: 0 };
 
 /**
- * How many `/v1/search` answers are kept.
- *
- * `/v1/search` is the one URL in this module built from a string the reader
- * *typed*, and with typeahead every prefix of every query is its own key. The
- * rule that is right for the rest of the API — remember forever — turns this
- * one into a log of everything anybody searched for, each entry holding up to
- * 24 nodes and 24 fossils, held until the tab closes. So it is bounded, and
- * **the distinction is the endpoint rather than the mechanism**: nothing else
- * here takes free text, and the day something does it belongs on this side of
- * {@link memoFor} rather than getting a third rule.
- *
- * 64 is chosen against what the memo is actually for. A reader typing one
- * query past the palette's three-character floor produces one entry per
- * keystroke, and the hit that has to land is the *backspace* — deleting a
- * character must not cost a round trip on the half-vCPU container. 64 covers
- * several whole queries and every backspace inside them; past that the entries
- * are questions the reader has moved on from. Exported because `api.test.ts`
- * asserts against the bound, and a test carrying its own copy of a tuning
- * number is a test that passes after the number changes.
+ * How many `/v1/search` answers are kept. It is the one URL built from typed
+ * text, so with typeahead every prefix is a key and "keep forever" would be a
+ * log of every search. Bounded instead; 64 covers several whole queries and
+ * every backspace inside them. Exported because `api.test.ts` asserts the bound.
  */
 export const SEARCH_MEMO_LIMIT = 64;
 
@@ -952,32 +762,16 @@ function memoSet(m: Memo, url: string, p: Promise<unknown>): void {
 }
 
 /**
- * Fetch once per URL and remember the answer — for the life of the tab where
- * the dataset bounds the URL, and for the last {@link SEARCH_MEMO_LIMIT}
- * answers where the reader's typing does.
+ * Fetch once per URL and remember the answer — for the tab's life where the
+ * dataset bounds the URL, for the last {@link SEARCH_MEMO_LIMIT} where typing
+ * does.
  *
- * **`signal` cancels the request, and a joiner inherits that cancellation.** A
- * second caller for the same URL is handed the first caller's promise, so when
- * the originator aborts, everything waiting on it gets the `AbortError` —
- * including a caller that passed no signal at all and asked for none of this.
- *
- * That is the opposite of what these lines used to assert, and the *comment* is
- * what was wrong. Making the assertion true needs a subscriber ledger and an
- * internal controller — one promise per caller, the fetch aborted only when the
- * last subscriber gives up — to serve a case that cannot presently arise:
- * `Palette` is the only caller that passes a signal, it aborts the previous
- * request in the cleanup that starts the next, and no two of its queries share
- * a URL. Machinery guarding an unreachable case is untested machinery, which is
- * how the next latent trap gets written; a comment asserting a safety property
- * nothing has is worse than no comment at all. `api.test.ts` pins what actually
- * happens, so the second signal-passing caller arrives to a test telling them
- * what they inherit rather than to a sentence telling them wrong.
- *
- * Cancelling matters more than it looks. `/v1/search` is served by a *single*
- * container instance with half a vCPU, so an abandoned request is not free — it
- * is a full search's worth of the only CPU there is, taken from the keystroke
- * the reader is actually waiting on. Typing past the debounce used to leave
- * every one of those in flight to completion, with their answers thrown away.
+ * `signal` cancels the request, and a joiner inherits that cancellation: a
+ * second caller for the same URL is handed the first's promise. That is safe
+ * only because `Palette` is the sole signal-passing caller and no two of its
+ * queries share a URL; `api.test.ts` pins the behaviour. Cancelling matters
+ * because `/v1/search` is one half-vCPU container, so an abandoned request is a
+ * full search taken from the keystroke the reader is waiting on.
  */
 async function get<T>(url: string, signal?: AbortSignal): Promise<T> {
   const memo = memoFor(url);
@@ -986,9 +780,7 @@ async function get<T>(url: string, signal?: AbortSignal): Promise<T> {
   const p = (async () => {
     const res = await fetch(url, {
       headers: { accept: "application/json" },
-      // `null` rather than `undefined`: under `exactOptionalPropertyTypes` the
-      // two are not interchangeable, and `RequestInit.signal` accepts the one
-      // that means "no signal" explicitly.
+      // `null`, not `undefined`, under `exactOptionalPropertyTypes`.
       signal: signal ?? null,
     });
     if (!res.ok) {
@@ -999,19 +791,9 @@ async function get<T>(url: string, signal?: AbortSignal): Promise<T> {
     }
     return normalise(url, await res.json());
   })();
-  // A failed request must not poison the memo — the palette retries on the
-  // next keystroke and a stuck rejection would look like a dead search box.
-  // This is also what makes an abort safe to remember nothing about: the entry
-  // is gone before the debounce on the next keystroke has even elapsed, so
-  // backspacing to a query that was cancelled asks again rather than
-  // rediscovering its cancellation.
-  //
-  // It deletes *this* promise and not merely this URL, which the unbounded
-  // memo never had to care about: an in-flight entry could not be displaced,
-  // because a second caller for the same URL joined it rather than starting
-  // one. Eviction breaks that. A slow request pushed out by 64 later searches,
-  // then asked for again and answered, would on its own rejection delete the
-  // *newer* entry — a cache that quietly forgets the answer it just got.
+  // A failed or aborted request must not poison the memo. Deletes *this* promise
+  // and not merely this URL, or an evicted-then-re-fetched entry's late
+  // rejection would delete the newer one.
   p.catch(() => {
     if (memo.entries.get(url) === p) memo.entries.delete(url);
   });
@@ -1019,37 +801,14 @@ async function get<T>(url: string, signal?: AbortSignal): Promise<T> {
   return p as Promise<T>;
 }
 
-/**
- * There is no `getFresh` any more, and its absence is the point.
- *
- * `get` memoises on the URL, which is exactly right for an immutable API and
- * was exactly wrong for one endpoint: `/v1/random` would have answered every
- * press of the command with the first press's pick for the lifetime of the
- * tab, so it was fetched `no-store` here and served `no-store` one layer down.
- * That exception is gone with the endpoint — the draw happens here now, from a
- * pool that *is* a function of the build, so every request this module makes
- * goes through a memo above by the same rule. The bound on `/v1/search` is not
- * a second exception to it: those answers are as immutable as the rest, and
- * what is bounded is only how many of them a tab is asked to hold.
- */
-
 /** Which corpus a random pick is drawn from. Never both. */
 export type RandomKind = "species" | "fossil";
 
 /**
- * The taxa a random pick may draw from, as bare identifiers.
- *
- * Two lists rather than decorated rows, and the ratio is the argument: 13,918
- * node indices are 34 KB over the wire where the same rows carrying names,
- * ranks and ages would be several hundred, to spend one of them. A draw is
- * followed by a lookup for the one taxon chosen — `/v1/node/idx:N` or
- * `/v1/fossil/{id}`, both immutable and both memoised above — so the
- * decoration is fetched exactly where it is used, and a taxon drawn twice
- * costs one request.
- *
- * An empty `nodes` is not "no luck": it means this build cannot tell an own
- * drawing from a borrowed one, so there is no pool at all. The caller says so
- * rather than picking something worse.
+ * The taxa a random pick may draw from, as bare identifiers rather than rows:
+ * the draw is followed by an immutable, memoised lookup for the one taxon chosen,
+ * so the decoration is fetched where it is used. Empty `nodes` means the build
+ * has no pool at all (it cannot tell an own drawing from a borrowed one).
  */
 export interface RandomPool {
   build_id: string;
@@ -1060,15 +819,8 @@ export interface RandomPool {
 export const api = {
   /**
    * What is running: the release, the commit and the dataset's build id.
-   *
-   * `refresh` drops the memoised answer first, and it exists for exactly one
-   * caller. `/v1/about` is `max-age=60, must-revalidate` rather than immutable
-   * because it is the endpoint whose whole job is to be asked again — but the
-   * memo above is forever, so within one tab it is asked precisely once. That
-   * is right for the boot probe and wrong after a deploy lands mid-session,
-   * which is the only moment `randomPool` can 404: the pool it is asking for
-   * belongs to a build that is no longer served, and asking again with the same
-   * remembered id would fail identically until the reader reloaded.
+   * `refresh` drops the memoised answer, for the one caller that must re-read it
+   * after a deploy lands mid-session (when `randomPool` 404s on a stale build id).
    */
   about: (refresh = false) => {
     if (refresh) forever.entries.delete("/v1/about");
@@ -1076,29 +828,16 @@ export const api = {
   },
 
   /**
-   * The pools a random pick is drawn from, for one build.
-   *
-   * **The build id is in the path and that is not decoration.** A node index is
-   * only meaningful within the build that assigned it, and this response is
-   * held for a year at the edge — a reader who kept one pool across a deploy
-   * and drew from it would be handed a different, entirely plausible animal
-   * with nothing on screen to say so. The server refuses a stale id rather than
-   * answering with the current pool, so a mismatch is a 404 and the caller
-   * re-reads `/v1/about`.
-   *
-   * Memoised by `get` like everything else, which is the whole reason the
-   * caller needs no cache of its own: the second press of the command reuses
-   * this promise, and so does the twentieth.
+   * The pools a random pick is drawn from, for one build. The build id is in the
+   * path because a node index means nothing across builds and this is held a year
+   * at the edge; a stale id 404s and the caller re-reads `/v1/about`.
    */
   randomPool: (buildId: string) =>
     get<RandomPool>(`/v1/random-pool/${encodeURIComponent(buildId)}`),
 
   /**
-   * The one endpoint whose URL the reader writes.
-   *
-   * Which is why its answers live in the bounded memo rather than the one that
-   * keeps everything — {@link SEARCH_MEMO_LIMIT} is the rule and the reasoning.
-   * `signal` is the palette's, and {@link get} says what a joiner inherits.
+   * The one endpoint whose URL the reader writes, so its answers live in the
+   * bounded memo ({@link SEARCH_MEMO_LIMIT}). `signal` is the palette's.
    */
   search: (q: string, limit = 20, signal?: AbortSignal) =>
     get<{
@@ -1109,58 +848,25 @@ export const api = {
       fossils?: FossilTaxon[];
       fossils_available?: boolean;
       /**
-       * The spelling these results are actually for.
-       *
-       * Present only when the typed string returned nothing *and* a corrected
-       * one returned something — so it is both a fact about the answer and the
-       * only signal that the answer is to a different question. The palette
-       * must render it. A search that silently answers something other than
-       * what was typed is the same mistake as a confident date on an undated
-       * node, which is the one thing this project does not do.
-       *
-       * Absent for every query that worked, and absent for `hard maple`, which
-       * is a real common name for *Acer saccharum* the corpus does not carry —
-       * a coverage gap, deliberately not papered over with a guess.
+       * The spelling these results are actually for: present only when the typed
+       * string returned nothing and a corrected one returned something. The
+       * palette must render it — a search that silently answers a different
+       * question is the mistake this project does not make.
        */
       corrected?: string | null;
       /**
-       * A spelling that answers better than the typed one — and the rows here
-       * are still the typed one's.
-       *
-       * The counterpart to `corrected` and never sent with it. `corrected`
-       * arrives when the typed string had nothing to lose; this arrives when it
-       * had a row or two of accidental substring matches, which is what almost
-       * every real typo produces against 2.3M names. `elefant` finds one
-       * ciliate, on its synonym *Paradileptus elefantinus*.
-       *
-       * So the palette must offer it and must not perform it: the reader keeps
-       * what they asked for, and the better spelling is a door rather than a
-       * substitution. Mid-typing this can be wrong — "sahelan" is offered
-       * "sahelian" while the reader is three letters from *Sahelanthropus* —
-       * and that is survivable precisely because their own rows are still on
-       * screen.
+       * A spelling that answers better than the typed one, whose rows are still
+       * the typed one's. The counterpart to `corrected`, never sent with it, for
+       * when the typed string had a row or two of accidental matches. The palette
+       * offers it but must not perform it — the reader keeps what they asked for.
        */
       suggested?: string | null;
     }>(`/v1/search?q=${encodeURIComponent(q)}&limit=${limit}`, signal),
 
   /**
-   * Palette rows for taxa chosen ahead of time rather than matched.
-   *
-   * What the species palette shows before anything is typed. The keys are
-   * curated in `palette/starters.ts`; everything that makes them a *row* —
-   * name, rank, tip count, resolved silhouette — is a fact about the deployed
-   * build and comes from here, which is the split `hits.go` exists to keep.
-   *
-   * Goes through the memoising `get`, and the memo is the point rather than an
-   * incidental: the key list is fixed, so the URL is fixed, so a session pays
-   * for this once however many times the palette is opened. Upstream of that,
-   * the response carries the ordinary long-lived `Cache-Control`, so the edge
-   * answers it and the half-vCPU container sees roughly one request per Worker
-   * version. Prefetched on boot in `App.tsx` — by the time anyone presses `S`
-   * it is a cache hit and the list draws on the first frame.
-   *
-   * Unknown keys come back missing rather than erroring the response, so the
-   * caller must not assume it gets as many rows as it asked for.
+   * Palette rows for taxa curated in `palette/starters.ts`. The keys are fixed,
+   * so the URL is fixed and a session pays once; prefetched on boot in `App.tsx`.
+   * Unknown keys come back missing rather than erroring the response.
    */
   hits: (keys: string[]) =>
     get<{ results: SearchHit[] }>(
@@ -1179,13 +885,7 @@ export const api = {
   segment: (upper: number, lower: number) =>
     get<SegmentResponse>(`/v1/segment/${upper}/${lower}`),
 
-  /**
-   * One PBDB taxon by its own key.
-   *
-   * The segment listing is how a reader normally meets a fossil, and it is
-   * keyed on the branch. A graft is view state, so it survives in the URL, so a
-   * cold load arrives holding an id and no lane to have found it in.
-   */
+  /** One PBDB taxon by its own key, for a graft that survives in the URL. */
   fossil: (taxonNo: number) => get<FossilDetail>(`/v1/fossil/${taxonNo}`),
 
   timescale: () => get<{ intervals: TimescaleInterval[] }>("/v1/timescale"),
@@ -1194,22 +894,8 @@ export const api = {
 };
 
 /**
- * There is no reachability probe here, and `/v1/about` is why.
- *
- * There used to be a `ping()` that fetched `/healthz` and read `res.ok`. That
- * path is registered on the Go mux alone, and nothing routes it to the Go mux
- * anywhere the app actually runs: in production `run_worker_first` covers
- * `/v1/*` and `not_found_handling: single-page-application` answers every
- * other unmatched path with `index.html`, and under `scripts/dev.sh` vite's
- * fallback does the same. So the probe fetched the app's own HTML shell,
- * `res.ok` was true, and it reported the API healthy whether or not the API
- * was running — measured against production, which answered `/healthz` with
- * `200` and `content-type: text/html`. It worked only in the mode it was
- * written in, the Go binary serving both halves on one origin.
- *
- * `about()` is the honest probe and the boot sequence was already fetching it.
- * It is on `/v1`, so it reaches the container by the same route as every real
- * query, and it is deliberately not immutable — see `writeShortLivedJSON` —
- * which makes it the request that wakes a sleeping container. A probe that is
- * also the warm-up and also the build report is one request rather than two.
+ * There is no reachability probe here: `about()` is it. A former `ping()` on
+ * `/healthz` read the SPA fallback's HTML shell and reported healthy whether or
+ * not the API was up. `about()` is on `/v1`, so it reaches the container by the
+ * real route, and being non-immutable it also wakes a sleeping one.
  */
