@@ -1,23 +1,10 @@
 /**
- * The command surface. `P` is the root and `S` opens the same list filtered to
- * species; the palette *is* the interface, not an accessory to it, and the
- * empty canvas state is the command list rather than an illustration.
+ * The command surface. `S` opens the same list filtered to species. Row anatomy
+ * follows Raycast: icon · title · subtitle · accessory, with a keybind hint.
  *
- * Row anatomy follows Raycast: icon · title · subtitle · right-aligned
- * accessory metadata, with an inline keybind hint on every row.
- *
- * Two things make this load-bearing rather than convenient:
- *
- * 1. **Vernacular names.** OTT carries no common names, so a palette backed by
- *    scientific names alone returns nothing for "dog", "T. rex" or "shark" —
- *    broken at the front door, not merely incomplete. The search endpoint
- *    covers vernaculars; this component surfaces them as the subtitle so you
- *    can see *why* a row matched.
- *
- * 2. **Broken taxa.** 9,839 taxa are non-monophyletic and are rejected from
- *    synthesis outright. Searching one must explain that, not silently answer
- *    about a substituted MRCA the way the live Open Tree API does. It must not
- *    do it *as a result*, though — see {@link BrokenNote}.
+ * Vernacular names ride in the subtitle so a row shows why it matched (OTT alone
+ * returns nothing for "dog"). Broken taxa are explained rather than silently
+ * answered about with a substituted MRCA — see {@link BrokenNote}.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -48,36 +35,14 @@ export interface Command {
   title: string;
   subtitle?: string;
   icon: string;
-  /**
-   * The hover tooltip, when a row needs more than a subtitle can hold.
-   *
-   * The subtitle is a *line* — it sits under the title in a fixed-height row
-   * and has to stay short enough not to wrap. Some commands have a caveat worth
-   * a sentence: what a random pick is drawn from, what it will do to the
-   * selection as a side effect. Those belong somewhere a reader can go looking
-   * for them and nowhere they have to read past.
-   *
-   * Falls back to the subtitle, so every command has a tooltip without being
-   * given one — the same string, which is the honest default when there is
-   * nothing more to say.
-   */
+  /** The hover tooltip, for a caveat too long for the subtitle. Falls back to it. */
   hint?: string;
   keys?: string;
   section: string;
   run: () => void;
 }
 
-/**
- * The palette is answering about taxa only, with the commands put away.
- *
- * It used to mean *this corpus and not the others*, with fossils as the obvious
- * second value — and that was the split this whole surface no longer makes.
- * There is one corpus of living things: taxa. Some are nodes in the synthesis
- * tree, some are only in the fossil record, and which of those a name falls
- * under is not a thing a reader knows before typing it. So `S` now removes the
- * *commands*, which is what a reader pressing a key labelled "Species" was
- * always after: a list where every row is an animal.
- */
+/** The palette answering about taxa only, with the commands put away (`S`). */
 export type PaletteFilter = "species";
 
 /** What a reader types to enter a filter, and what the chip then says. */
@@ -100,13 +65,7 @@ interface Props {
   presentFossils: Set<number>;
   /**
    * What to offer before anything is typed, or null while the prefetch is out.
-   *
-   * Owned by `App` rather than fetched here, and that is what makes it instant:
-   * the request goes out on boot beside `/v1/about`, so it is a settled memo
-   * long before `S` is pressed. Fetching it on open would put a round trip
-   * between the keypress and the first useful thing on screen, which is the one
-   * thing an empty state cannot afford — it is the state a reader looks at
-   * while deciding whether this app is worth their time.
+   * Owned by `App` and requested on boot, so it is a settled memo before `S`.
    */
   suggestions: Suggestions | null;
 }
@@ -138,64 +97,32 @@ interface Section {
 /**
  * The one section both corpora go in.
  *
- * There used to be a second, "Fossils", pinned near the tail however well a
- * fossil name matched — on the argument that a species is a node you can build
- * a tree from and a fossil is an observation that hangs off one. That is a true
- * statement about *plumbing* and a poor one about the reader: they are all
- * species, and typing "triceratops" got every species that nearly matches the
- * word before the animal itself, which the tree has never heard of.
- *
- * The two lists are now merged in the order the server ranked them across both,
- * and what used to be a section heading is a badge on the row — see
- * {@link FossilRow}. `docs/handoff.md` §7's rule is unchanged and now covers the
- * merge as well: `web/` sorts on the server's `order` and computes nothing.
+ * Nodes and fossils are merged into one list in the server's `order`; what was a
+ * "Fossils" section is now a badge on the row (see {@link FossilRow}). `web/`
+ * sorts on `order` and computes nothing.
  */
 const SPECIES_SECTION = "Species";
 
 /**
- * Credits, provenance and the ranking reset. Pinned dead last.
- *
- * Without this it *climbs*, and climbs precisely because it is useful once:
- * every section floats on its best row's score and {@link sessionBoost} adds to
- * whatever the reader has pressed before, so opening the about panel twice
- * parks it above Fit and Species for the rest of the session. These two rows
- * answer a question nobody is in the middle of asking — they belong at the
- * bottom of a list, the way an About menu item does everywhere else.
- *
- * They stay findable: type "about" and every other section stops matching, so
- * the only section left is at the top by default.
+ * Credits, provenance and the ranking reset, pinned dead last: otherwise
+ * `sessionBoost` lets it climb above Species once the about panel is opened.
+ * Still findable — type "about" and it is the only section left.
  */
 export const ABOUT_SECTION = "About";
 
-/**
- * The two bands of an empty species list, in the order they are shown.
- *
- * Recents first because on every visit after the first they are the likeliest
- * thing wanted, and starters below because on the first visit they are the only
- * thing there is. Neither is a search result and neither may be scored against
- * one: they exist precisely when there is nothing to score.
- */
+/** The two bands of an empty species list: recents first, then starters. */
 const RECENT_SECTION = "Recent";
 const STARTERS_SECTION = "Start here";
 
 /**
- * Sections whose position is fixed, head and tail, with everything unlisted
- * floating in between on its best row's score.
- *
- * The suggestion bands have to be pinned rather than scored because every row
- * in them ties — there is no query, so `litRanges` lights nothing and every
- * fuzzy score is the same number. Left to float they would order on whichever
- * band happened to be built first, which is a real bug of the quiet kind: the
- * list would look deliberate and be arbitrary.
+ * Sections pinned head and tail, everything else floating on its best row's
+ * score. The suggestion bands must be pinned because every row in them ties
+ * (no query), so left to float they would order arbitrarily.
  */
 const HEAD_SECTIONS: readonly string[] = [RECENT_SECTION, STARTERS_SECTION];
 const TAIL_SECTIONS: readonly string[] = [ABOUT_SECTION];
 
-/**
- * Where a section sits: negative is pinned to the head, positive to the tail,
- * zero floats. One function rather than two so a title cannot be listed in both
- * and get a different answer depending on which was asked first.
- */
+/** Where a section sits: negative pins to the head, positive to the tail, zero floats. */
 const sectionRank = (title: string): number => {
   const h = HEAD_SECTIONS.indexOf(title);
   if (h >= 0) return h - HEAD_SECTIONS.length;
@@ -206,30 +133,14 @@ const sectionRank = (title: string): number => {
 const DEBOUNCE_MS = 110;
 
 /**
- * What the list says when it has no rows to show.
+ * What the list says when it has no rows. A pure function, and "nothing matched"
+ * is reachable only from a settled search — otherwise it flashes "Nothing
+ * matched dog" during the round trip, before anything was asked. Four states:
  *
- * A pure function because the wrong answer here was shipping: with a query of
- * two or more characters and no hits yet, the list said **"Nothing matched
- * dog"** — for the whole of the debounce and the whole of the round trip,
- * before anything had been asked, let alone answered. On a warm local build
- * that is a flash. Against a cold container it is a flat statement that the
- * corpus does not contain the dog, sitting on screen for as long as the reader
- * cares to look at it, and then quietly replaced by eight rows about dogs.
- *
- * So "nothing matched" is now reachable only from a *settled* search, and the
- * four states are kept apart:
- *
- * - `prompt` — nothing typed yet, or one character. Say what this box is for.
- * - `silent` — a search is out and has not yet earned an indicator. Render
- *   nothing: the answer is arriving inside the time it would take to read a
- *   word about it, and a notice that outlives its own subject is worse than
- *   the wait it describes.
- * - `searching` — the search is genuinely slow. Say so, and say what is being
- *   searched, because the size of the corpus is the reason for the wait.
+ * - `prompt` — nothing typed yet, or one character.
+ * - `silent` — a search is out but too young for an indicator; render nothing.
+ * - `searching` — the search is genuinely slow; say what is being searched.
  * - `no-match` — the search came back empty. The only state entitled to say so.
- *
- * The two-character floor is the effect's, not this function's; both read
- * `MIN_QUERY` so the list cannot describe a search that never ran.
  */
 type EmptyState = "prompt" | "silent" | "searching" | "no-match";
 
@@ -258,33 +169,11 @@ export interface Suggestions {
 }
 
 /**
- * The titled bands an empty species list shows, or none.
- *
- * Pure, and separated from the component because the interesting part is
- * entirely a matter of *when* rather than of rendering — and every one of the
- * conditions below is a rule that would be invisible if it were an `&&` inside
- * some JSX.
- *
- * Three refusals, in the order they bite:
- *
- * 1. **Only under the species filter.** The root palette already opens on the
- *    full command list, which is a useful empty state and the one this surface
- *    was modelled on; ten species pushed above it would bury the commands to
- *    fix a problem the root palette does not have. `S` is the surface that
- *    opened on one grey line, and it is also the only one where every row being
- *    an animal is already the promise.
- *
- * 2. **Only below {@link MIN_QUERY}.** The same floor the search itself uses,
- *    read from the same constant. A suggestion is what fills the space where an
- *    answer is not; the moment a search can run, the answer owns the list, and
- *    a band left standing beside real results would be competing with them.
- *
- * 3. **Never both lists holding the same taxon.** A starter the reader has
- *    already picked is in both, and drawn twice it is two rows that do the same
- *    thing with different headings — which reads as a bug in a list whose whole
- *    job is to look considered. Recents win, because a row the reader chose
- *    outranks a row somebody curated for them, and because dropping the *later*
- *    band is what keeps the curated order intact in the one that survives.
+ * The titled bands an empty species list shows, or none. Three refusals: only
+ * under the species filter (the root palette's command list is its own empty
+ * state), only below {@link MIN_QUERY} (once a search can run it owns the list),
+ * and never both bands holding the same taxon (recents win, keeping the curated
+ * order intact in the survivor).
  */
 export function suggestionBands(s: {
   filter: PaletteFilter | null;
@@ -306,37 +195,11 @@ export function suggestionBands(s: {
 /**
  * The synonym that got this row onto the page, or null.
  *
- * **Synonyms only — but not because they are the only kind that hides the
- * word.** That was the premise written here, and the corpus disproves it. A
- * `vernacular` match does it too, and often: the row prints the taxon's
- * *headline* common name and the name that matched is any of its names, so
- * `horse` answers with Equidae labelled "equid", `mouse` with Muroidea /
- * "muroid", `whale` with Cetacea / "Cetaceans", `duck` with Anatidae / "water
- * fowl". Measured over forty ordinary queries, **129 of 705** vernacular rows
- * — 18.3% — print neither the typed word nor its regular plural anywhere.
- *
- * It is excluded anyway, and #91 is the measurement rather than the
- * preference: the honest version of this line fires on 88 of 455 rows across
- * 57 queries, only **four** of which are the case above — `salmon` alone
- * captions four consecutive unrelated rows "matched *Salmon*" — and no tighter
- * cut separates the four, because Equidae's `horse` is rank 3 and Anatidae's
- * `duck` rank 5. The labels are also right as they stand: every word in that
- * table carries `wiki_evidence = 'elsewhere'`, so printing the typed word in
- * the label slot would re-assert exactly the claim phase 6b measured as false.
- * Read #91's closing comment before reopening it — the defect it points at is
- * upstream coverage, in `handoff.md` §7, and not this function.
- *
- * A `name` match is the string the row prints. An `abbreviation` looked like it
- * belonged here and does not, for the *opposite* reason to the one recorded
- * before: the typed string is not absent at all. {@link litRanges} lights word
- * by word, so "T. rex" lights `rex` on *Tyrannosaurus rex*, and 0 of 115
- * abbreviation rows over fifteen abbreviated queries hid what was typed. What
- * rules it out is repetition — those eight rows all matched the same way, so
- * the line runs down the whole list without distinguishing any of them.
- *
- * So the claim that licenses this line is narrower than "the typed string
- * appears nowhere": a synonym is where the word is absent **and** crediting it
- * tells one row from the next.
+ * Synonyms only. A `vernacular` match can also hide the typed word, but crediting
+ * it re-asserts an `elsewhere` claim phase 6b measured as false. A `name` match
+ * is the string the row prints; an `abbreviation` is lit word-by-word by
+ * {@link litRanges} and repeats identically down every row. A synonym is where
+ * the word is absent *and* crediting it tells one row from the next.
  */
 function matchedVia(h: SearchHit): string | null {
   if (h.matched_on !== "synonym") return null;
@@ -564,21 +427,10 @@ export function Palette({
     return { cmdRows, hitRows, fossilRows };
   }, [q, commands, hits, fossils]);
 
-  /**
-   * The empty state's bands, as rows the list can already draw.
-   *
-   * They go through the same {@link RowView} as a search result and carry no
-   * highlight ranges, because nothing was typed for anything to be highlighted
-   * against — which is also what makes them look like results rather than like
-   * an advertisement for results.
-   *
-   * The score counts *down* from the band's length so the curated order
-   * survives the `b.score - a.score` sort every section gets. Ranking these on
-   * `sessionBoost`, as a real hit row does, was tried and is wrong twice: it
-   * would reorder a considered list by which row the reader last pressed, and
-   * it would do it *between* openings of the palette, so the list would look
-   * different every time for reasons nobody could see.
-   */
+  // The empty state's bands as rows, through the same {@link RowView} with no
+  // highlight ranges. Score counts down from the band's length so the curated
+  // order survives the section's `b.score - a.score` sort; `sessionBoost` is not
+  // used, or the list would reorder between openings.
   const suggestionRows = useMemo(
     () =>
       suggestionBands({ filter, query: needle, suggestions }).map(
@@ -596,15 +448,8 @@ export function Palette({
     [filter, needle, suggestions],
   );
 
-  /**
-   * Rows grouped into titled sections, Raycast-style.
-   *
-   * Sections float on their best row's score so the thing that best matches
-   * what was typed leads — except those in {@link TAIL_SECTIONS}, which hold
-   * the bottom whatever they score. `Command.section` has carried the grouping
-   * the whole time and nothing rendered it; this is where it starts meaning
-   * something.
-   */
+  // Rows grouped into titled sections, floating on their best row's score
+  // except {@link TAIL_SECTIONS}, which hold the bottom.
   const sections: Section[] = useMemo(() => {
     const byTitle = new Map<string, Row[]>();
     const push = (title: string, row: Row) => {
@@ -618,14 +463,11 @@ export function Palette({
     for (const [title, list] of suggestionRows) {
       for (const r of list) push(title, r);
     }
-    // One section for every taxon, whichever catalogue found it. The rows sort
-    // on `score` below, which is the server's merged `order`, so a fossil sits
-    // exactly where the ranking put it rather than under a heading of its own.
+    // One section for both catalogues; the rows sort on `score` (the server's
+    // merged `order`), so a fossil sits where the ranking put it.
     for (const r of rows.hitRows) push(SPECIES_SECTION, r);
     for (const r of rows.fossilRows) push(SPECIES_SECTION, r);
-    // The filter removes the *commands* and nothing else. The reader pressed a
-    // key labelled "Species"; leaving a command row above the answer would make
-    // that a suggestion.
+    // The filter removes the commands and nothing else.
     if (filter === null) {
       for (const r of rows.cmdRows) {
         if (r.kind === "cmd") push(r.cmd.section, r);
@@ -735,7 +577,7 @@ export function Palette({
         e.currentTarget.selectionStart === 0 &&
         e.currentTarget.selectionEnd === 0
       ) {
-        // Backspace at position zero pops the chip, per design-reference.md.
+        // Backspace at position zero pops the filter chip.
         // The filter is the only one there is: a fossil row used to push a
         // scope of its own here, and it opens its card now instead.
         e.preventDefault();
@@ -991,19 +833,10 @@ function RowView({
           {h.tip_count.toLocaleString()} species
         </span>
         {/*
-          Why this row is here, when nothing else on it says so.
-
-          A synonym or an abbreviation is the only field containing what was
-          typed, and the row cannot otherwise show it — so the answer arrives
-          looking like the search misheard. OTT files *Homo floresiensis* as a
-          synonym of *Homo sapiens*, which makes the unexplained version an
-          unexplained answer about a **different species**: the reader types a
-          real hominin and is silently handed us.
-
-          Stated as the taxonomy's filing rather than as a fact about the
-          animal. "Also known as" is the wording a Wikidata bug once put on this
-          exact pair, and it would be no more true coming from OTT — a
-          deprecated name is not an alias.
+          Why this row matched, when the synonym that got it here appears nowhere
+          else on it — otherwise the reader types *Homo floresiensis* and is
+          silently handed *Homo sapiens*. Stated as the taxonomy's filing, not an
+          alias.
         */}
         {matchedVia(h) && (
           <span className="row-via">
@@ -1021,17 +854,9 @@ function RowView({
 }
 
 /**
- * A fossil row.
- *
- * Deliberately shaped like a species row and deliberately not identical to one.
- * Same anatomy — icon, title, subtitle, accessory — because it is the same kind
- * of list item and Raycast's grammar should not change halfway down, and
- * because it now sits *among* the species rows rather than under a heading that
- * separated them. But the icon is the ammonite the canvas uses for a graft
- * rather than a silhouette dot, the subtitle leads with the range instead of a
- * species count, it carries {@link FOSSIL_BADGE}, and the accessory says *draw*
- * rather than *add* — a different verb, because a species joins the tree and
- * this is drawn against it.
+ * A fossil row: shaped like a species row (it sits among them) but the icon is
+ * the graft ammonite, the subtitle leads with the range, it carries
+ * {@link FOSSIL_BADGE}, and the accessory says *draw* rather than *add*.
  */
 function FossilRow({
   fossil,
@@ -1106,28 +931,12 @@ function FossilRow({
 }
 
 /**
- * The rows below this are for a different spelling than the one typed.
- *
- * Shown rather than performed, which is the whole of what this component is
- * for. The server only substitutes for a query that returned **nothing** and
- * only when the corrected one returns something, so the alternative here was
- * never "the right answer without a caption" — it was an empty list. A typed
- * string that did find a row or two keeps them and gets {@link SpellingOffer}
- * instead. But a search that quietly answers a different question than the one
- * asked is the same mistake as putting a confident number on an undated node,
- * and this app does not make that one: `age_tier` exists so that a taxon nobody
- * has dated renders without a figure rather than with a plausible guess.
- *
- * So both strings are on screen and neither is hidden. The typed one is named
- * explicitly — not implied by its absence — because the reader needs to see
- * *what* was misread in order to judge whether the answer below is theirs. That
- * is also why it says "nothing matched" for the literal rather than offering it
- * as a link: the literal is reachable, it is simply empty, and a link promising
- * results that do not exist would be a second wrong answer.
- *
- * It leads the list rather than following it, unlike {@link BrokenNote} and
- * {@link UndatedNote}. Those two are footnotes about rows that are *not* there;
- * this one qualifies every row that is.
+ * The rows below this are for a different spelling than the one typed. Shown,
+ * never performed: the server corrects only a query that returned nothing, and a
+ * silent substitution would be the same mistake as a confident date on an
+ * undated node. Both strings are on screen — the typed one named, so the reader
+ * can judge whether the answer is theirs. Leads the list, since it qualifies
+ * every row below it.
  */
 function SpellingNote({ typed, used }: { typed: string; used: string }) {
   return (
@@ -1147,25 +956,11 @@ function SpellingNote({ typed, used }: { typed: string; used: string }) {
 }
 
 /**
- * A better spelling, offered beside the rows the reader actually asked for.
- *
- * {@link SpellingNote}'s counterpart, and the two are never on screen together.
- * That one captions rows belonging to a string nobody typed, which is only
- * honest when the typed string had no rows of its own. This one captions
- * nothing: the rows below it are the answer to what was asked, and the better
- * spelling is a door.
- *
- * The distinction exists because a typo almost never returns *nothing* against
- * 2.3M names — `elefant` finds one ciliate whose synonym is *Paradileptus
- * elefantinus* — and because from one prefix a misspelling and an unfinished
- * word are indistinguishable. A reader three letters into *Sahelanthropus* can
- * be offered "sahelian" here, and that is survivable only because their own
- * rows never moved. Substituting would have taken away the thing they were
- * typing towards.
- *
- * So it is a **button and not a link**: pressing it types the word into the
- * field, which re-runs the ordinary search and leaves the reader somewhere they
- * can edit and back out of. Nothing here navigates and nothing is destroyed.
+ * A better spelling, offered beside the rows the reader asked for.
+ * {@link SpellingNote}'s counterpart, never on screen with it: this one captions
+ * nothing, since the rows below are the answer to what was asked and the better
+ * spelling is a door. A button, not a link — pressing it types the word into the
+ * field and re-runs the search, so nothing navigates or is destroyed.
  */
 function SpellingOffer({
   better,

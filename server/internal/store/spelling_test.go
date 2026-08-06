@@ -352,16 +352,9 @@ func TestJunkAnswersAreWeakAndTypeaheadIsNot(t *testing.T) {
 	}
 }
 
-// `mamal` reaches the gate and stops at the matcher, and that is the right
-// answer rather than a gap this change should have closed.
-//
-// Five characters is under {@link minCorrectedWord}, which is where all the
-// precision in this subsystem lives — it takes the false-correction rate on
-// random junk from 25.3% to 0.5%, and every false correction measured came from
-// a short word one legal edit from another. Widening the *gate* is this issue's
-// business; lowering that floor is relaxing the matcher, which is the one thing
-// `docs/handoff.md` §3 says not to do. So the reader who types `mamal` gets a
-// fruit fly and no suggestion, and the fix for that is phase 6 coverage.
+// `mamal` is five characters, under minCorrectedWord, where the subsystem's
+// precision lives. Lowering that floor is relaxing the matcher, which is not
+// done; the fix for `mamal` getting no suggestion is phase 6 coverage.
 func TestMamalIsRefusedByTheLengthFloorAndNotByTheGate(t *testing.T) {
 	st := requireSpelling(t)
 	got, err := st.Suggest(t.Context(), "mamal")

@@ -149,9 +149,8 @@ func TestResolveForwardIntoBrokenTaxon(t *testing.T) {
 	}
 }
 
-// Dinosauria is non-monophyletic in the synthesis tree and so is not a node at
-// all. The live Open Tree API silently answers about the substituted MRCA; we
-// have to explain instead (management.md).
+// Dinosauria is non-monophyletic and so is not a node. The live Open Tree API
+// silently answers about the substituted MRCA; we explain instead.
 func TestResolveBrokenTaxonDinosauria(t *testing.T) {
 	st := open(t)
 	r, err := st.Resolve(t.Context(), "ott90215")

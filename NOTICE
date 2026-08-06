@@ -126,30 +126,21 @@ Two consequences worth stating plainly:
 
   * 745 images (5.8%) are NonCommercial. The build pipeline deliberately
     applies no NonCommercial filter — see `pipeline/src/concestor_build/
-    images.py` and `docs/handoff.md` §1 — because the project is not
-    commercial. ANY COMMERCIAL USE OF THIS DATASET MUST FILTER THEM OUT
-    FIRST, and that includes advertising or sponsorship on an otherwise free
-    hosted instance. The `license_url` column carries everything needed.
+    images.py` — because the project is not commercial. ANY COMMERCIAL USE OF
+    THIS DATASET MUST FILTER THEM OUT FIRST, and that includes advertising or
+    sponsorship on an otherwise free hosted instance. The `license_url` column
+    carries everything needed.
 
-    Measured against build b48553b2b8a4a2ed, what filtering costs:
-
-        357 NC images are actually in use
-        128,719 nodes (4.7%) currently resolve to one
-        88 of 885 divergence witnesses (9.9%), across 38 distinct taxa
-
-    Coverage does not fall — `node_image` borrows the closest drawn relative,
-    so every node keeps a picture. What rises is `clade_idx`: the affected
-    nodes silently begin claiming more than they do today. Per
-    `docs/handoff.md` §5 that number, not coverage, is the one to gate on.
-    The best-known witnesses are unaffected — Acanthostega gunnari is BY-SA
-    3.0, Pakicetus BY 3.0, Sahelanthropus tchadensis CC0.
+    Coverage does not fall if they are filtered — `node_image` borrows the
+    closest drawn relative, so every node keeps a picture. What rises is
+    `clade_idx`: the affected nodes silently begin claiming more than they do
+    today, and that number, not coverage, is the one to gate on.
 
   * 1,521 images (11.8%) are ShareAlike. Because they are displayed
     unmodified and are not combined into a new work, ShareAlike imposes no
     obligation on this repository's own code. Tracing, recolouring or
     otherwise adapting a ShareAlike silhouette would change that, and the
-    resulting work would inherit BY-SA. See `docs/phase5c-decision.md` §9,
-    which settles this for the deferred outline-generation phase.
+    resulting work would inherit BY-SA.
 
 
 ================================================================================

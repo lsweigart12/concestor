@@ -27,19 +27,10 @@ import type { Encyclopedia } from "./wiki";
 export type SelectTaxon = (target: LinkTarget) => void;
 
 /**
- * A name on a card that opens that thing's own card.
- *
- * **Degrades to plain text when there is nothing to point at**, and that is the
- * whole reason this is a component rather than an inline `<button>`. Half the
- * link targets on a card are optional fields — a silhouette's clade is null for
- * the unnamed `mrcaott…` nodes, a witness on an older build carries no PBDB
- * number — and a control that looks clickable and is not is worse than a word.
- *
- * A `<button>` rather than an `<a href>` because there is no document to fetch:
- * this is a selection change, the same one a click on the canvas makes, and it
- * belongs in the same history entry mechanism. The two real anchors on this
- * card (Wikipedia, the licence) leave the app, and looking different from these
- * is correct.
+ * A name on a card that opens that thing's own card. Degrades to plain text when
+ * there is no target (many are optional fields), so a word that cannot be
+ * clicked is not drawn as a control. A `<button>`, not an `<a>`: it is a
+ * selection change, not a document fetch.
  */
 export function TaxonLink({
   target,
@@ -79,18 +70,10 @@ export function TaxonLink({
 }
 
 /**
- * The card's own controls: put this on the canvas, or take it off.
- *
- * Directly under the name, above everything a reader might scroll past. The
- * card is reachable from a link now, so it is frequently open on something that
- * is **not drawn** — the whole point of a lineage you can click through is
- * arriving somewhere you have not been — and "add it" is then the only thing
- * the reader wants and the one thing the canvas cannot offer, because there is
- * no mark on it to click.
- *
- * One button, not two. Add and remove are the same question asked of a
- * different state, and a pair with one greyed out spends twice the width to say
- * half as much.
+ * The card's own controls: put this on the canvas, or take it off. Under the
+ * name, because a card reached from a link is often open on an undrawn taxon
+ * whose only useful action is "add". One button, not two — add and remove are
+ * one question asked of a different state.
  */
 export function CardActions({
   present,
@@ -138,26 +121,14 @@ export function CardActions({
 }
 
 /**
- * The card, before the card.
- *
- * The alternative it replaces was not a blank panel — it was the *previous*
- * taxon's card, left standing because the fetch that would replace it had not
- * come back yet. A link on a card mostly points at something the app has never
- * asked about (a classification rung three levels above anything drawn, the
- * fossil behind a witness), so this is the ordinary path rather than an edge
- * case, and the failure it produced was the quiet kind: a complete, plausible,
- * confidently-numbered card about the wrong animal.
- *
- * Empty except for the line, and deliberately. A skeleton of grey bars would
- * predict a shape this cannot know — the card has an image or it has not, a
- * description or none, five ranks or twenty — and every one of those guesses
- * would be wrong often enough to read as the layout settling.
+ * The card, before the card. Shown instead of leaving the previous taxon's card
+ * standing while the next resolves — which would be a plausible card about the
+ * wrong animal, since a link often points at something never fetched. Empty but
+ * for the line: a skeleton would predict a shape this cannot know.
  */
 export function CardPending({ children }: { children: React.ReactNode }) {
   return (
-    // Named like the two real cards, and named the same in all three states —
-    // the landmark is the *slot*, and one that renamed itself as the fetch
-    // landed would move under anybody navigating by landmark.
+    // Named the same in all three states, since the landmark is the slot.
     <aside className="detail detail-pending" aria-label="Selection">
       <PendingLine>{children}</PendingLine>
     </aside>
@@ -165,18 +136,10 @@ export function CardPending({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * The description, and the way out to the article.
- *
- * Three states, drawn three ways. Pending is a dim line rather than nothing,
- * because the alternative is a card that silently grows a paragraph a second
- * after the reader started reading it. Absent is nothing at all: "no
- * description available" is a row that says only that a row could have been
- * here.
- *
- * The text is Wikipedia's and is credited as Wikipedia's. That is a licence
- * condition — the extract is CC BY-SA — and it is also the honest framing:
- * everything else on this card is a claim the build makes and this is a claim
- * somebody else makes.
+ * The description, and the way out to the article. Three states: pending is a
+ * dim line (not a paragraph that appears a second later), absent is nothing. The
+ * text is Wikipedia's and is credited as such — a CC BY-SA condition, and the
+ * honest framing for the one claim on the card the build does not make.
  */
 export function EncyclopediaBlock({
   entry,
@@ -186,15 +149,8 @@ export function EncyclopediaBlock({
   entry: Pending<Encyclopedia>;
   subject: string | null;
 }) {
-  /**
-   * Clamped to seven lines until asked otherwise.
-   *
-   * Not a length preference. Wikipedia's lead on a well-worked article runs to
-   * a thousand characters — the one on *Homo sapiens* is six sentences — and at
-   * full height it pushed the classification, the ages and the species count
-   * off the bottom of the card. The description is why the card was rebuilt and
-   * it still may not evict everything the card already answered.
-   */
+  // Clamped to seven lines until asked otherwise, or a long lead pushes the
+  // classification and ages off the bottom of the card.
   const [expanded, setExpanded] = useState(false);
   if (entry === undefined) {
     return (
@@ -258,22 +214,10 @@ export function EncyclopediaBlock({
 }
 
 /**
- * Where this sits in the classification.
- *
- * The ladder is the answer to the question people actually ask, and the full
- * lineage is folded away beneath it — the reverse of what is interesting, and
- * the right way round for what is *looked up*. A reader who wants to know the
- * family wants six rows; a reader who wants to know that they are an
- * opisthokont will open a disclosure to find out.
- *
- * **Every rung is a link**, and the objection that used to stand against that
- * has been answered rather than waived. Most of these ancestors are suppressed
- * from the drawn subtree, so selecting one opens a card for something with no
- * mark on the canvas to highlight — which was a dead end while the card was
- * only a description, and is now the ordinary way to get somewhere: the card
- * carries its own "add to canvas", so a lineage you can click through is a
- * lineage you can walk up and pull from. Selection no longer requires the thing
- * to be drawn.
+ * Where this sits in the classification: the ladder up front, the full lineage
+ * folded away beneath. Every rung is a link — most ancestors are undrawn, but
+ * the card carries its own "add to canvas", so selection no longer requires a
+ * mark to highlight.
  */
 export function ClassificationBlock({
   lineage,
@@ -285,14 +229,7 @@ export function ClassificationBlock({
    */
   caveat,
 }: {
-  /**
-   * Three states, not two, for the same reason the encyclopaedia block has
-   * three: `undefined` is *still coming* and `null` is *there is no answer*,
-   * and collapsing them makes the heading appear a beat after the card does,
-   * pushing everything below it down under the reader's eye. A broken taxon has
-   * no single path — that is what broken means — and it must not spend the
-   * session claiming one is on the way.
-   */
+  /** `undefined` is still coming, `null` is no answer (a broken taxon). */
   lineage: Pending<Lineage>;
   onSelect?: SelectTaxon | undefined;
   heading?: string;
@@ -376,53 +313,16 @@ export function ClassificationBlock({
 }
 
 /**
- * The other names this thing goes by, on the face of the card.
- *
- * **This is a ranked list and it is presented as one.** It used to be an 11.5px
- * comma-run in a `.note`, filed at the bottom beside the scientific synonyms —
- * which was the right place while the order was arbitrary and the content was
- * therefore trivia. It is not arbitrary now: `usage_rank` orders these by how
- * the name is actually used, measured against English Wikipedia's title and
- * redirect graph, so *"what else do people call this"* is an answer rather than
- * a bag of strings. Answers go above the fold.
- *
- * It sits **above the description** for the same reason the description sits
- * above the provenance: a reader who clicked a badger wants to know what a
- * badger is called before they read four sentences about badgers, and this is
- * the one block on the card that is short enough to be read at a glance.
- *
- * Names are separated by a dot rather than a comma because several of them
- * contain commas of their own, and rendered as discrete items so the list reads
- * as *names* rather than as prose. No brightness ramp down the list, tempting
- * as it is with a ranking in hand: the design language reserves luminance for
- * selection, and order already carries the ranking.
- *
- * **One row, then "+N more".** Carnivora carries eight of these and *Cavia
- * porcellus* five, so left to wrap freely the block costs three lines above the
- * description — which is the space the promotion was supposed to buy for the
- * description in the first place. One row is the compromise the ranking earns:
- * the names that fit are the ones the evidence put first, and the rest are one
- * press away.
- *
- * How many fit is **measured, not guessed**. The card is 360px on desktop and
- * full-width on narrow, and these strings run from `cat` to
- * `Artiodactylamorpha`, so any fixed count is wrong on one of them.
- * `fitOneRow` does the arithmetic and is tested; this component only feeds it
- * boxes.
+ * The other names this thing goes by, a ranked list on the face of the card
+ * (`usage_rank` order, so it is an answer rather than a bag). Above the
+ * description, since it reads at a glance. Names dot-separated (several contain
+ * commas), no brightness ramp (luminance is reserved for selection). One row
+ * then "+N more"; how many fit is measured by `fitOneRow`, not guessed.
  */
 export function AlsoCalledBlock({
   vernaculars,
 }: {
-  /**
-   * **Most used first**, and the order is the pipeline's — `usage_rank`,
-   * measured against English Wikipedia's title and redirect graph. Read
-   * positionally and never re-sorted: `[0]` is already the card's subtitle, so
-   * it is dropped here, and what follows is a ranking rather than a bag.
-   *
-   * That is why `man` and `men` come last on *Homo sapiens* rather than second
-   * and third. Both are names for humans and neither is removed, but the
-   * article `Man` is not the article this taxon sits at, so both are demoted.
-   */
+  /** Most used first (`usage_rank`), read positionally; `[0]` is the subtitle. */
   vernaculars: readonly string[];
 }) {
   const others = vernaculars.slice(1, 9);
@@ -442,10 +342,8 @@ export function AlsoCalledBlock({
     const nodes = [...el.querySelectorAll<HTMLElement>(".also-called-item")];
     const more = el.querySelector<HTMLElement>(".also-called-more");
     if (nodes.length === 0) return;
-    // Differenced against the first item rather than read raw: `offsetLeft`
-    // and `offsetTop` are relative to the offset parent, which is the
-    // positioned card, so absolute values would carry the card's own padding
-    // and position into the arithmetic.
+    // Differenced against the first item: offsets are relative to the positioned
+    // card, so raw values would carry its padding into the arithmetic.
     const originLeft = nodes[0]!.offsetLeft;
     const originTop = nodes[0]!.offsetTop;
     const boxes = nodes.map((n) => ({
@@ -453,10 +351,7 @@ export function AlsoCalledBlock({
       top: n.offsetTop - originTop,
       width: n.offsetWidth,
     }));
-    // The gap is folded into the reserve because `fitOneRow` deliberately
-    // knows nothing about the layout's spacing. The measured control carries
-    // the **widest** label it could ever end up with, so the reserve can only
-    // be generous and the row can never overflow.
+    // The gap is folded into the reserve; `fitOneRow` knows nothing of spacing.
     const gap = parseFloat(getComputedStyle(el).columnGap) || 0;
     const reserve = (more?.offsetWidth ?? 0) + gap;
     setFit(fitOneRow(boxes, reserve, el.clientWidth));
@@ -547,15 +442,9 @@ export function AlsoCalledBlock({
 }
 
 /**
- * The scientific names this thing is *filed* under, which is a different
- * question and stays where it was.
- *
- * A synonym block is not decoration on a taxonomy browser: the Open Tree files
- * *Homo floresiensis* as a synonym of *Homo sapiens*, and a reader who searched
- * for one and is looking at the other deserves to see the string that connected
- * them rather than to conclude the search misheard. But it answers *why did I
- * land here*, not *what is this* — so it belongs down with the provenance,
- * unlike the common names it used to share a block with.
+ * The scientific names this thing is filed under. Answers "why did I land here"
+ * (OTT files *Homo floresiensis* as a synonym of *Homo sapiens*), so it sits
+ * down with the provenance rather than with the common names.
  */
 export function NamesBlock({ synonyms }: { synonyms: readonly string[] }) {
   if (synonyms.length === 0) return null;
@@ -570,18 +459,9 @@ export function NamesBlock({ synonyms }: { synonyms: readonly string[] }) {
 }
 
 /**
- * The provenance notes, folded away.
- *
- * Everything in here was on the face of the card and is now one disclosure
- * below the facts. It is not less true and it has not been shortened — a tier
- * that shows no number still has to say why, and a picture of a different taxon
- * still has to say so. What changed is the order: a reader who clicked a badger
- * wants to know what a badger is first, and *how confident the axis is about
- * when badgers began* second.
- *
- * The one thing that stays outside is a divergence's derived name, because for
- * an unnamed node that sentence is not provenance — it is the only identity the
- * node has.
+ * The provenance notes, folded away below the facts — the caveats about tier and
+ * placement, moved but not shortened. A divergence's derived name stays outside,
+ * being the node's only identity rather than provenance.
  */
 export function WhyBlock({
   children,

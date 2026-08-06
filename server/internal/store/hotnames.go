@@ -6,21 +6,11 @@ import (
 	"strings"
 )
 
-// The command palette fires a query per keystroke, and the first keystroke is
-// the worst case: "a" matches 268,281 names. Reading them all out of SQLite to
-// rank them costs ~50 ms even index-only, because it is half a million driver
-// round trips.
-//
-// But a short prefix is only ever answered with big clades — the ranking is
-// tip_count descending — so the answer for those queries lives entirely inside
-// the globally largest subtrees. Those are held in memory, folded and sorted,
-// and searched with a binary search. When the hot set alone fills a page, no
-// node outside it can outrank what it returned, so the database is not touched
-// at all.
-//
-// This is ~4 MB and one pass over the tip_count array at startup. It exists
-// only until node_fts lands, at which point FTS5 becomes the candidate
-// generator (architecture §4) and this can go.
+// A short-prefix query (worst case "a", 268,281 names) is only ever answered
+// with big clades (ranking is tip_count descending), so those answers live
+// inside the globally largest subtrees. Those are held in memory, folded and
+// sorted; when the hot set alone fills a page, no node outside it can outrank it
+// and the database is not touched. ~4 MB and one pass over tip_count at startup.
 
 // hotNameCount is how many of the largest subtrees are held in memory.
 const hotNameCount = 50_000

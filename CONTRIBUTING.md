@@ -54,9 +54,11 @@ enforced in none of them, and wrong in all three.
   every problem at once and then refuses to write its output. Counting rows is
   not the same as checking them: add a content gate whenever a column starts
   carrying something a downstream consumer depends on.
-- **The reasoning, written where the next reader will find it.** The documents
-  in `docs/` are the specification, not a summary of the code. A decision that
-  lives only in a commit message is a decision the next person will re-litigate.
+- **The current design, in `docs/` — and only what is current.** The documents
+  in `docs/` are the specification: what the system does now, stated tersely. The
+  *why* and the alternatives you rejected belong in the commit message and the
+  pull request, where they stay searchable without becoming ongoing baggage. Do
+  not narrate the journey in the docs; state the destination.
 - **A test at the seam, if you touched one.** `web/src/tree/induced.ts` and its
   Go counterpart are both ports of `render.py`'s `induced_subtree`, each pinned
   to the Python reference by a test built from the real baked arrays. Change

@@ -87,23 +87,13 @@ func (s *Store) Images(ctx context.Context, idxs []int) (map[int]ImageRef, error
 }
 
 // WitnessRef is the second silhouette a divergence may carry: a fossil taxon
-// from below the fork whose stratigraphic bracket puts it at that divergence.
-//
-// It is **not a node**, which is the difference from ImageRef and from what
-// this type used to be. A witness names a `fossil.pbdb_taxon_no`, and the
-// claim it makes is correspondingly weaker: not *this taxon is inside the
-// group* but *this taxon belongs somewhere below this fork* (architecture
-// §3.4). AttachIdx is the deepest node it is known to sit below and AttachWalk
-// is how many PBDB `parent_no` hops it took to get there — zero means PBDB's
-// own taxon is in the synthesis tree, eleven means the placement is a statement
-// about a family. A caller must not present the two alike.
-//
-// Name, Oldest and Youngest travel with the row rather than being joined for.
-// The dates are the entire difference between a witness and an unlabelled
-// shape, so there is no way to read the picture without them.
-//
-// SourceIdx is set only by a build predating the rename, where the witness was
-// a node index and the fossil fields are empty.
+// from below the fork whose bracket puts it at that divergence. Not a node: it
+// names a `fossil.pbdb_taxon_no`, so the claim is weaker (this taxon belongs
+// somewhere below this fork). AttachWalk says how loose the placement is (PBDB
+// `parent_no` hops; zero means PBDB's own taxon is in the tree). Name, Oldest
+// and Youngest travel with the row, since a witness cannot render without its
+// dates. SourceIdx is set only by a pre-rename build (node index, fossil fields
+// empty).
 type WitnessRef struct {
 	PhylopicID  string
 	PbdbTaxonNo int
@@ -249,17 +239,10 @@ type Vernacular struct {
 
 // Vernaculars returns every common name for one node, most used first.
 //
-// The order is the pipeline's and this does not recompute it. `usage_rank` is
-// measured against English Wikipedia's title and redirect graph — the name that
-// is the taxon's article title, then the names that reach it, then the ones it
-// is merely filed under — and the client is told not to re-sort it either. A
-// consumer that re-ranks a ranking silently overrides evidence it does not
-// have; that already cost this project once on /v1/search, where a fuzzy score
-// in the browser outweighed four server ranks.
-//
-// Without the column — a build older than the `names` phase — this falls back
-// to the boolean, which puts the headline first and says nothing about the
-// rest. That is worse but not wrong, and it is why the column is optional.
+// The order is the pipeline's `usage_rank` (measured against English Wikipedia's
+// title and redirect graph); this does not recompute it, and the client is told
+// not to either. Without the column (a build older than the `names` phase) it
+// falls back to the boolean, which puts the headline first — worse but not wrong.
 func (s *Store) Vernaculars(ctx context.Context, idx int) ([]Vernacular, error) {
 	out := []Vernacular{}
 	v := s.Schema.Vernacular
@@ -313,33 +296,18 @@ func (s *Store) Vernaculars(ctx context.Context, idx int) ([]Vernacular, error) 
 }
 
 // WikidataQID returns the Wikidata item this node is, or "" if none is known.
-//
-// It is read off the vernacular crawl because that is where it was gathered,
-// and it is worth more than the names it arrived with: it is a *stable
-// identifier for the taxon*, so a link built from it lands on an article about
-// this node rather than on a search for its name. The difference matters
-// exactly where a reader is most likely to be misled — *Ivesia* is both an
-// Ediacaran rangeomorph and a rose-family plant, and a name-shaped link cannot
-// tell them apart.
-//
-// The claim it carries is only as strong as the crawl's own check, and that
-// check is the strongest one available: phase 6 refuses any item whose own
-// `wdt:P225` names a different taxon from OTT's. Items carrying no P225 at all
-// are kept, there and here, because absent evidence of a bad claim is not
-// evidence of one — and re-testing that at request time would query the same
-// missing triple and learn nothing.
-//
-// Rows are ordered so a node claimed by more than one item (six of 108,293)
-// answers the same way on every request rather than at the whim of the query
-// planner.
+// Read off the vernacular crawl, it is a stable identifier for the taxon, so a
+// link built from it lands on the right article rather than a name search (which
+// cannot tell *Ivesia* the rangeomorph from *Ivesia* the plant). Phase 6 already
+// refused any item whose `wdt:P225` disagrees with OTT. Rows are ordered so a
+// node claimed by more than one item answers the same way every request.
 func (s *Store) WikidataQID(ctx context.Context, idx int) (string, error) {
 	v := s.Schema.Vernacular
 	if v == nil || v.SourceID == "" {
 		return "", nil
 	}
-	// A source column is not required — a table carrying only Wikidata rows
-	// needs no filter — but where it exists it is what keeps PBDB's `txn:N`
-	// identifiers out. The `Q%` test does that unaided, and both run.
+	// A source filter where the column exists, keeping PBDB's `txn:N` ids out;
+	// the `Q%` test does that unaided too, and both run.
 	src := "1=1"
 	if v.Source != "" {
 		src = fmt.Sprintf("%q LIKE 'wikidata%%'", v.Source)
@@ -427,27 +395,16 @@ func (s *Store) BestVernaculars(ctx context.Context, idxs []int) (map[int]string
 	return out, rows.Err()
 }
 
-// HeadlineVernaculars returns, per node, the name ranked first by use — and
-// nothing at all where no name was ranked.
+// HeadlineVernaculars returns, per node, the name ranked first by use, and
+// nothing where no name was ranked.
 //
-// It is the canvas's question rather than the card's, and the difference is the
-// missing fallback. BestVernaculars degrades to `is_primary` and then to
-// whatever row the planner yielded first, which is right for a caption sitting
-// beside the scientific name it is captioning: some name is better than none
-// there, because the reader can see what it belongs to. On the canvas the
-// common name *replaces* the scientific one, so an unranked guess is not a
-// weaker answer but a different taxon's word in the only slot that says which
-// taxon this is. Where the ranking has nothing to say, the canvas draws the
-// scientific name, which is never wrong.
-//
-// A build predating the `names` phase therefore returns an empty map and every
-// label stays scientific. That is the intended degradation and not an outage:
-// `docs/name-ranking.md` §3 is what makes rank 1 mean "the name English
-// Wikipedia's own title and redirect graph puts first", and without that column
-// there is no such claim to make.
-//
-// Restricting *which* nodes to ask about is the caller's business — see
-// api.entries, which asks only for genus, species and subspecies.
+// The canvas's question, unlike BestVernaculars (the card's), has no fallback:
+// on the canvas the common name replaces the scientific one, so an unranked
+// guess would be a different taxon's word in the slot that says which taxon this
+// is. Where the ranking is silent, the canvas draws the scientific name. A build
+// predating the `names` phase returns an empty map — intended degradation.
+// Which nodes to ask about is the caller's business (api.entries asks only for
+// genus, species and subspecies).
 func (s *Store) HeadlineVernaculars(ctx context.Context, idxs []int) (map[int]string, error) {
 	out := map[int]string{}
 	v := s.Schema.Vernacular
@@ -679,21 +636,12 @@ func (s *Store) allVernacularNames(ctx context.Context, idxs []int) (map[int][]V
 	return out, nil
 }
 
-// Occurrence is the fossil range shown for a node in the `occurrence` age
-// tier. It is not an age and must never be rendered as one.
-//
-// All four bounds travel, uncollapsed. The *envelope* is Fea→Lla, the maximal
-// possible extent; the *certain extent* is Fla→Lea. Two things a caller must
-// know before drawing it:
-//
-//   - There is no midpoint and none may be computed. A single number would be
-//     a fabricated estimate wearing an observation's clothes, which is the one
-//     thing this tier exists not to produce.
-//   - **Fla >= Lea does not hold.** It is true of only 39.6% of PBDB taxa,
-//     because a taxon known from one stratigraphic interval has both of its
-//     appearances inside it and the two cross. For the other 60.4% the certain
-//     extent is empty and the solid bar must be left undrawn rather than drawn
-//     zero-width — a hairline at one date reads as precision.
+// Occurrence is the fossil range shown for a node in the `occurrence` age tier.
+// Not an age; never render it as one. All four bounds travel uncollapsed: the
+// envelope is Fea→Lla, the certain extent Fla→Lea. No midpoint may be computed.
+// Fla >= Lea holds for only ~40% of taxa (a taxon from one interval has both
+// appearances inside it), so where it fails the solid bar is left undrawn, not
+// zero-width.
 type Occurrence struct {
 	Fea *float64 `json:"fea"`
 	Fla *float64 `json:"fla"`

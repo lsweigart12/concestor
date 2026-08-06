@@ -1,107 +1,58 @@
 """Phase 5a — mirror the PhyloPic corpus and resolve every node to a silhouette.
 
-Silhouettes are priority-one work (handoff.md §1): for a curious non-specialist
-an image is what makes a clade mean anything, and unlike a photograph a
-silhouette legitimately represents a *clade* rather than one member of it.
+## Crawl the index, not per-node
 
-## Why this does not do what ingest.md phase 5 step 2 says
+Resolving each of 2.7M nodes with one API call would DoS a small volunteer
+service. The corpus is only ~12,863 images, so crawl the index instead:
 
-Step 2 reads "resolve each node to an image", and the obvious implementation is
-one `primaryImage` or `/resolve/opentreeoflife.org/taxonomy/{ott_id}` call per
-node. There are **2,725,682 nodes**. That is not a crawl, it is a denial of
-service against a small volunteer-run service, and every operational note in
-data-sources.md says to pace requests to exactly this kind of host.
+1. Page `/images?embed_items=true&embed_specificNode=true` (~268 requests). Each
+   page carries every image's licence, attribution and contributor and its
+   node's `/resolve/.../{ott_id}` link, yielding the whole `image → ott_id` map.
+2. Propagate locally in numpy with zero further calls: seed the mapped nodes,
+   then give every other node the picture of its closest drawn relative. Preorder
+   (`parent[i] < i`) makes this a sweep. See `propagate`.
 
-The corpus is 12,863 images against 2.7M nodes, so the index is two orders of
-magnitude smaller than the thing being resolved. Crawl the index instead:
+## `clade_idx`, not `climb`
 
-1. Page `/images?embed_items=true&embed_specificNode=true`, 48 items a page,
-   ~268 requests. Each page carries every image's licence, attribution and
-   contributor *and* its specific node's `_links.external`, which includes
-   `/resolve/opentreeoflife.org/taxonomy/{ott_id}`. That yields the whole
-   `image → ott_id` mapping from the index alone.
-2. Propagate locally in numpy with **zero further API calls**: seed the mapped
-   OTT nodes, then give every other node the picture of its closest drawn
-   relative. See `propagate`.
+Giving a node the image of its nearest seeded ancestor resolves everything (100%
+coverage) but is worthless — the nearest seed is usually a superphylum, so most
+of the tree draws as Ecdysozoa. A borrowed picture claims "this node and this
+drawing are both inside clade C"; `clade_idx` is the smallest such C and its
+`tip_count` is the size of that claim. That is what the UI renders and the gates
+check; `climb` is just how far up C sat.
 
-Preorder numbering (`parent[i] < i`) is what makes step 2 a sweep rather than a
-traversal, and the same interval property gives the content gate its check.
+## The witness — a second answer for a divergence
 
-## The number that matters is `clade_idx`, not `climb`
+`node_image` prefers the most inclusive drawing beneath a node, which at a split
+is nearly always a crown group (the human–chimp split drew generic *Homo*). So
+internal nodes get a second, independent resolution — the witness, in
+`node_divergence_witness` — a drawn, dated, extinct taxon from below the fork
+whose fossil record puts it at the split (*Acanthostega* for fish/tetrapod,
+*Pakicetus* for whale–hippo). The two tables stay apart: a chosen node shows its
+group; a node arrived at by splitting shows what stood at the fork.
 
-The first version of step 2 gave a node the image of its nearest
-ancestor-or-self that had one. That resolves every node in the tree, which is
-why this phase used to report 100% coverage — and 100% was worthless, because
-with 7,470 seeds over 2.7M nodes the nearest *seeded* ancestor is usually a
-superphylum. Two thirds of the tree was drawn as Ecdysozoa, `cellular
-organisms` or Opisthokonta, so a screen full of arthropods showed one shape
-repeated and told a reader nothing.
+A witness is a fossil, not a node — only ~0.5% of extinct OTT taxa are in
+synthesis, so requiring a node capped the layer at ~2,552 forks. Phase 4's
+`attach_idx` reaches the stem forms: a fossil attached at `a` may witness `a`
+and every ancestor of `a`. The claim weakens with the reach (`attach_walk`).
+Four refusals do the work:
 
-What a borrowed picture claims is "this node and this drawing are both inside
-clade C". `clade_idx` is that C — the *smallest* one, which is the nearest
-ancestor-or-self of the node with any seed beneath it, cousins included — and
-its `tip_count` is the size of the claim. That is what the UI must render and
-what the gates are written against; `climb` is now just how far up C sat.
-
-## A divergence is a different question, and gets a second answer
-
-`node_image` answers "what does something in this clade look like". An internal
-node is also a *split*, and there the interesting question is a different one:
-what was alive around the time these lineages parted. The two answers disagree
-almost everywhere, because the first rule prefers the most inclusive drawing
-beneath a node and that is nearly always a crown group. The human–chimp split
-drew the generic *Homo*; Whippomorpha, the whale–hippo split, drew the Cetacea
-dolphin. Both are pictures of the wrong end of the branch.
-
-So internal nodes get a second, independent resolution — the **witness** — in
-`node_divergence_witness`, and `node_image` is left exactly as it was. A witness
-is a drawn, dated, extinct taxon from *below* the fork whose fossil record puts
-it at the split: *Acanthostega gunnari* for the fish/tetrapod split, *Eohippus*
-for horse/rhino, *Sahelanthropus* for human–chimp, *Pakicetus* for whale–hippo.
-Keeping the two tables apart is the same discipline as `age_ma` / `age_layout`:
-a node the reader *chose* should still show what its group looks like, and only
-a node they arrived at by splitting should show what stood at the fork.
-
-**A witness is a fossil, not a node**, and that distinction is the whole of the
-layer's reach. It used to have to be a node — in the synthesis tree, drawn, and
-dated — and only 0.5% of OTT taxa flagged extinct are in synthesis at all
-(architecture §3.4), so the design capped out around 2,552 forks however many
-images anyone sourced. The taxa most worth drawing at a fork are the stem forms
-that actually sat near it, and those are overwhelmingly not nodes. Phase 4's
-`attach_idx` reaches them: the deepest node that is an ancestor-or-self of a
-PBDB taxon, so a fossil attached at `a` may witness `a` and every ancestor of
-`a`. The claim weakens with the reach — *somewhere below this fork*, not *inside
-this group* — and `attach_walk` is the number that says how loose it is.
-
-Four restrictions do the honest work, all of them refusals:
-
-- **A witness needs a dated split.** `age_ma` first, falling back to
-  `age_layout` where nobody has dated the fork — used to *choose* a picture and
-  never rendered as an age.
-- **A witness needs a bracket**, both `fea` and `lla`, read only as the two
-  ends of a containment test.
-- **A witness must be extinct.** PBDB carries *Mammalia* at 239.5–0 Ma, and a
-  range running to the present spans every split inside it, so without this the
-  biggest forks take the crown group again wearing a fossil's label.
-- **Exactness still wins.** A node with its own image keeps it and gets no
-  witness, so Mammalia is Mammalia and never a Cretaceous monotreme.
+- A dated split (`age_ma`, else `age_layout`, used only to choose, never shown).
+- A bracket (`fea` and `lla`), read only as a containment test.
+- Extinct: a range running to the present spans every split inside it, so
+  otherwise the biggest forks take the crown group wearing a fossil's label.
+- Exactness wins: a node with its own image keeps it and gets no witness.
 
 `NEAR_FRACTION` is where the judgement sits; see the constant.
 
 ## Mirroring
 
-Stale `build` values return **410 Gone, not a redirect**, with the current build
-in the error body; `_ApiClient` re-derives from that body rather than hard-coding
-a number. Mirroring the SVGs removes both the runtime dependency and the
-build-number churn. The fetch is ordered by the `tip_count` of the node an image
-resolves, so an interrupted crawl has already stored the images people actually
-see, and it is resumable by checksum rather than by presence.
-
-This is not a commercial project (handoff.md §1), so there is no NonCommercial
-filtering and no `--commercial-safe` flag. Attribution still applies: CC-BY
-requires it for any redistribution and the artists deserve credit. It is a
-two-field problem — `attribution` is the original creator, the contributor is
-the uploader, and they differ 31% of the time — so both are stored separately.
+Stale `build` values return 410 Gone with the current build in the body;
+`_ApiClient` re-derives from that rather than hard-coding a number. Mirroring the
+SVGs removes the runtime dependency; the fetch is ordered by `tip_count` so an
+interrupted crawl has the most-seen images, and is resumable by checksum.
+Attribution is a two-field problem — `attribution` is the creator, the
+contributor the uploader, differing ~31% of the time — so both are stored.
 """
 
 from __future__ import annotations
@@ -251,11 +202,8 @@ MAX_JUMPS = 16
 ATTRIBUTION_REQUIRED_MARKER = "/licenses/by"
 
 # The one-hop lift's ceiling, in tips of the node being lifted onto — see
-# `seed_nodes`. Measured on the real corpus: 211 lifts at 10 tips, 317 at 100,
-# 410 at 1,000, so the curve is already flat here and every extra lift past
-# this point is a broader claim for less. At 100 the widest target is Felidae
-# (91 tips), and Amphibia (10,018), Echinodermata (8,729), Cnidaria (15,451)
-# and Sauropsida (32,043) are all excluded, which is the whole point.
+# `seed_nodes`. Excludes phylum-scale targets (Amphibia, Cnidaria) while
+# admitting a genus for a species image.
 LIFT_MAX_TIPS = 100
 
 MIRROR_WORKERS = 6
@@ -268,12 +216,7 @@ class PhylopicError(RuntimeError):
 
 
 def _log(msg: str) -> None:
-    """Unbuffered, because the mirror runs for a quarter of an hour.
-
-    `print` buffers when stdout is not a terminal, which is exactly when the
-    progress lines are wanted — a redirected log that stays empty for ten
-    minutes is indistinguishable from a hang.
-    """
+    """Unbuffered: a redirected log that stays empty looks like a hang."""
     print(msg, flush=True)
 
 
@@ -369,10 +312,8 @@ def record_from_item(item: JsonDict) -> ImageRecord:
 class _ApiClient:
     """Paced GET against the PhyloPic API, re-deriving the build on 410.
 
-    A stale `build` returns 410 Gone rather than a redirect, and the current
-    build is in the error body. Hard-coding a build number would therefore
-    break this phase at PhyloPic's next release, so it is read from the service
-    and re-read whenever the service says it has moved on.
+    A stale `build` returns 410 Gone with the current build in the error body,
+    so the build is read from the service rather than hard-coded.
     """
 
     def __init__(self, client: httpx.Client, log: Log) -> None:
@@ -381,23 +322,16 @@ class _ApiClient:
         self.requests = 0
         head = self._collection_head()
         self.build: int = head["build"]
-        # The service's own count, so the crawl can be gated on completeness
-        # rather than on a constant that goes stale with the next upload.
+        # The service's own count, so the crawl can be gated on completeness.
         self.total_items: int | None = head.get("totalItems")
         self.items_per_page: int | None = head.get("itemsPerPage")
 
     def _collection_head(self) -> JsonDict:
         """Ask the service what build it is on, rather than hard-coding one.
 
-        `/images` with *no* parameters 307s to the current build; `?page=0`
-        without a build is a 400 rather than a redirect ("Cannot pass `page`
-        without also specifying a build"). The unpaged collection is worth the
-        extra request anyway: it carries `totalItems` and `itemsPerPage`, which
-        is what turns "did the crawl finish" into a checkable question.
-
-        Responses are `application/vnd.phylopic.v2+json`, not `application/json`,
-        so there is nothing to be gained by sniffing the content type. Every
-        payload including the error bodies carries `build` at the top level.
+        `/images` with no parameters 307s to the current build and carries
+        `totalItems`/`itemsPerPage`, which makes "did the crawl finish"
+        checkable. Every payload, including error bodies, carries `build`.
         """
         r = self.client.get(f"{API}/images")
         self.requests += 1
@@ -694,39 +628,20 @@ def seed_nodes(
 
     Five passes, in decreasing strength:
 
-    1. **Direct.** The cited OTT id is a node. 6,976 of 9,461 offered ids.
-    2. **Forwarded.** OTT id forwarding is silent, so a direct miss is not the
-       same as an id absent from the tree; phase 1's `forward` table already
-       chased the chains transitively.
-    3. **Lifted one hop.** 2,485 cited ids are in `taxonomy.tsv` but not in the
-       synthesis tree, and they are overwhelmingly *extinct* taxa — only 0.5%
-       of OTT taxa flagged extinct appear in synthesis at all (architecture
-       §3.4). Walking those up an unbounded parent chain is not a win, it is
-       the "mole for Mammalia" failure with extra steps: it would seed Amphibia
-       with a Devonian stem tetrapod, Cnidaria with an Ediacaran frond and
-       Sauropsida with a marine reptile. So the lift is bounded on both ends —
-       exactly one hop, and only onto a node narrow enough that the image is
-       still broadly representative of it. That admits `Homo sapiens sapiens →
-       Homo sapiens`, `Panthera gombaszoegensis → Panthera` and 315 more, and
-       refuses every fossil-onto-phylum case.
-    4. **Named.** 1,783 images declare no OTT id at all — their specific node
-       resolves only in GBIF or PBDB namespaces — so passes 1–3 cannot reach
-       them however hard they try. But every image *names* its node, and that
-       name is an OTT name: match `node_title` against `taxonomy.tsv` and the
-       id comes back. This is an exact claim about the taxon, so it carries no
-       tip bound. `Chlamydiae`'s silhouette really is of Chlamydiae.
-    5. **Named, truncated.** A title that names no node may still name one once
-       the trailing epithet comes off: `Equus quagga chapmani → Equus quagga →
-       Equus`, `Phoca caspica → Phoca`. Bounded by `lift_max_tips` for exactly
-       the reason pass 3 is — a genus is a defensible target for a species
-       image, a family is not.
+    1. Direct: the cited OTT id is a node.
+    2. Forwarded: OTT forwarding is silent, so a direct miss may just be a
+       forwarded id; phase 1's `forward` table already chased the chains.
+    3. Lifted one hop: cited ids in `taxonomy.tsv` but not in synthesis are
+       mostly extinct. Bounded to exactly one hop and onto a node narrow enough
+       (`lift_max_tips`) to stay representative, refusing every fossil-onto-
+       phylum case (admits `Homo sapiens sapiens → Homo sapiens`).
+    4. Named: images with no OTT id still name their node; match `node_title`
+       against `taxonomy.tsv`. An exact claim, so no tip bound.
+    5. Named, truncated: a title naming no node may once the trailing epithet
+       comes off (`Equus quagga chapmani → Equus`). Bounded like pass 3.
 
-    Passes 4 and 5 refuse a name that resolves to more than one node. OTT
-    carries homonyms across kingdoms and nothing in the title says which
-    `Prunella` PhyloPic drew, so the honest answer is no image.
-
-    A direct hit always beats a lifted one for the same node, and an OTT id
-    always beats a name.
+    Passes 4 and 5 refuse a name resolving to more than one node (cross-kingdom
+    homonyms). A direct hit beats a lifted one; an OTT id beats a name.
     """
     order = np.argsort(ott_id, kind="stable")
     order = order[ott_id[order] != NO_OTT]
@@ -782,16 +697,10 @@ def seed_nodes(
     )
 
     seed = np.full(ott_id.size, NO_IMAGE, dtype=np.int64)
-    # Two OTT ids can land on one node when a forward collapses a synonym onto
-    # its accepted id. Last write wins, deterministically: `wanted` comes out of
-    # an insertion-ordered dict built from a stable record list, and the name
-    # passes walk `titles` in record order. Weakest evidence goes down first so
-    # that a stronger pass overwrites it.
-    #
-    # `tier` records which pass a node's seed *survived* from, which is the only
-    # honest way to credit one. Most name matches land on a node an OTT id also
-    # reaches, so counting matches would report thousands of "recoveries" that
-    # changed nothing — the flattering-gate failure this project keeps hitting.
+    # Two OTT ids can land on one node (a forward collapsing a synonym). Last
+    # write wins deterministically, so weakest evidence goes down first and a
+    # stronger pass overwrites it. `tier` records which pass a node's seed
+    # survived from, which is the only honest way to credit one.
     tier = np.zeros(ott_id.size, dtype=np.uint8)
     for node, record in by_name.truncated:
         seed[node], tier[node] = record, T_NAME_TRUNCATED
@@ -835,19 +744,13 @@ def exemplars(
     """For each node, the best-drawn taxon anywhere in its subtree.
 
     "Best" is the most inclusive: the seeded node with the largest `tip_count`,
-    tie-broken by shallower depth and then by index so the choice is
-    deterministic. That ordering is not a matter of taste. A contributor who
-    attaches a drawing to a large clade is saying the drawing stands for the
-    group, and a contributor who attaches one to a species is saying it stands
-    for that species — so preferring the inclusive seed picks the image whose
-    author intended it as an exemplar. Measured on the real corpus it is also
-    the difference between showing a boa constrictor for Serpentes and showing
-    a blind snake, and between a mushroom for Fungi and a mould.
+    tie-broken by shallower depth then index. Preferring the inclusive seed
+    picks the image whose author intended it as an exemplar (a boa for Serpentes,
+    not a blind snake).
 
-    Only 7,470 nodes are seeded, so this walks each seed's ancestor chain
-    best-first and stops at the first ancestor a better seed already claimed —
-    everything above it is claimed too. Total work is bounded by the 30,982
-    nodes that have any seed beneath them, not by the 2.7M in the tree.
+    Walks each seed's ancestor chain best-first, stopping at the first ancestor a
+    better seed already claimed, so work is bounded by the nodes with any seed
+    beneath them, not by the whole tree.
     """
     n = parent.size
     best = np.full(n, NO_IMAGE, dtype=np.int64)
@@ -876,30 +779,11 @@ def propagate(
 ) -> Assignment:
     """Give every node the picture of its closest drawn relative.
 
-    The rule this replaced was "the nearest ancestor that is *itself* seeded",
-    and it resolved every node in the tree — which is why phase 5a reported
-    100% coverage and why that number told nobody anything. With 7,470 seeds
-    over 2.7M nodes the nearest seeded ancestor is usually enormous: measured,
-    65.3% of the tree borrowed from a clade of more than a million tips, and
-    three sources — Ecdysozoa, `cellular organisms`, Opisthokonta — served
-    1.79M nodes between them. A riffle beetle was drawn as the Ecdysozoa blob;
-    so was every other arthropod on screen, so the canvas carried no
-    information at all.
-
-    The claim a borrowed picture actually makes is "this node and this drawing
-    are both inside clade C, and here is what something in C looks like". What
-    matters is therefore the size of **C**, not how many hops the search took —
-    and the honest choice of C is the *smallest* clade containing both, which
-    is the nearest ancestor-or-self of the node with any seed beneath it. For
-    that beetle C is Elminae (987 tips) rather than Ecdysozoa (1,208,417), and
-    the median across the tree falls from 1,208,417 tips to 3,153.
-
-    Exactness still wins: a node with its own image keeps it, so Mammalia is
-    still drawn as Mammalia and never as one mole inside it. architecture §7's
-    warning survives intact — it is about a *specific* node wearing a clade's
-    picture, and `clade` is exactly the number that says how big a claim that
-    is. The UI must render it; a picture from a 987-tip family is a fact about
-    the beetle, and one from a 1.2M-tip superphylum is not.
+    A borrowed picture claims "this node and this drawing are both inside clade
+    C". C is the smallest such clade — the nearest ancestor-or-self with any seed
+    beneath it — and `clade`/its tip_count is the size of that claim, which the UI
+    must render. (The old "nearest seeded ancestor" rule drew most of the tree as
+    a superphylum blob.) Exactness still wins: a seeded node draws itself.
     """
     n = parent.size
     if not depth.size == subtree_out.size == seed.size == tip_count.size == n:
@@ -929,9 +813,8 @@ def propagate(
     image = np.where(resolved, seed[source], NO_IMAGE)
     hops = np.where(resolved, depth64 - depth64[link], 0)
 
-    # The method is the topological relationship, derived rather than tracked,
-    # so it cannot drift from the arrays it describes. `relative` is new and is
-    # the common case: a cousin, neither ancestor nor descendant.
+    # The method is the topological relationship, derived rather than tracked so
+    # it cannot drift. `relative` is the common case: a cousin.
     out64 = subtree_out.astype(np.int64)
     is_anc = (source <= idxs) & (idxs < out64[np.maximum(source, 0)])
     is_desc = (idxs < source) & (source < out64)
@@ -965,11 +848,8 @@ def propagate(
 class FossilCandidate:
     """A drawn, dated, extinct PBDB taxon, offering itself as a witness.
 
-    It is **not a node**, and that is the whole point of this design. A witness
-    used to have to be one, which capped the layer at 2,552 forks however many
-    images anyone sourced, because only 0.5% of OTT taxa flagged extinct are in
-    the synthesis tree at all (architecture §3.4). *Acanthostega*, *Eohippus*
-    and *Odontochelys* are drawn, dated, correctly placed, and were ineligible.
+    Not a node: requiring one capped the layer at ~2,552 forks, since only ~0.5%
+    of extinct OTT taxa are in the synthesis tree.
     """
 
     pbdb_taxon_no: int
@@ -998,49 +878,19 @@ def load_fossil_candidates(
 ) -> tuple[list[FossilCandidate], JsonDict]:
     """Every PBDB taxon that could witness anything, from phase 4's `fossil`.
 
-    Four conditions, and three of them are refusals that cost real coverage:
+    Conditions:
 
-    **Drawn.** Through `fossil_image`, which is keyed on `accepted_no` and
-    matched by name with `_seed_by_name`'s refusal rule. 4,656 PBDB taxa have a
-    picture; a candidate needs one because a witness with no drawing is nothing
-    to put on a canvas.
-
-    **Dated.** Both `fea` and a young end, so `[young, fea]` is the whole of
-    when the taxon might have been alive. Phase 4's finding that `fea` is
-    junk-wide is about *placing* a taxon at it and does not carry here: this is
-    a containment test and `fea` is never read as a position. What a wide
-    bracket costs a candidate is the tie-break, which prefers the narrower one.
-
-    The young end is `lla_drawn`, not `lla`. Phase 4 finds 10,655 taxa whose
-    own young end rests on `sp.`/`indet.` material no identified member
-    reaches, and *widening a bracket at the young end is exactly how a taxon
-    wins a fork it has no business at* — a range stretched toward the present
-    cannot fail to contain a recent split. That is the crown-group failure
-    `HOLOCENE_MA` exists to stop, arriving through a different door, and it
-    reached 41 of the 885 witnesses before this read the corrected end.
-
-    **Extinct**, and this one will quietly undo the feature if it is dropped.
-    PBDB carries *Mammalia* at 239.5–0 Ma, *Viverridae* at 56–0 and *Panthera*
-    at 23.04–0. A range running to the present contains every split inside it,
-    so unfiltered the biggest forks all take the crown group at gap zero — the
-    exact failure the witness exists to correct, arriving with a fossil's label
-    on. `is_extant = 0` in SQL excludes the 4,538 rows where it is NULL as well,
-    which is intended: those are genuinely unknown, a wrong include is a silent
-    regression and a wrong exclude is one missing picture.
-
-    **Ended.** The same statement, checked against the bracket rather than
-    trusted to the flag — see `HOLOCENE_MA`, and read it against the first
-    version of this function, which trusted the flag and handed a 378,328-tip
-    fork to a living seagrass.
-
-    **Primary.** PBDB carries a row per `taxon_no` and synonyms collapse onto
-    one accepted name, so without this the same animal offers itself several
-    times over and the tie-break spends its ordering on duplicates.
-
-    Keyed on `pbdb_taxon_no` and never on the name, because PBDB has homonyms
-    internally as well as against OTT: `Scopus` is both the extant hamerkop and
-    an extinct Permian genus, and 1,338 names are like it. Aggregating by name
-    merges those two into a 254–0 Ma envelope that spans most of the tree.
+    - Drawn (via `fossil_image`): a witness with no drawing is nothing to draw.
+    - Dated: both `fea` and a young end. A containment test, so `fea` is never
+      read as a position; a wide bracket only loses the tie-break.
+    - Young end is `lla_drawn`, not `lla`: a bracket widened at the young end
+      cannot fail to contain a recent split (the `HOLOCENE_MA` failure again).
+    - Extinct AND ended before `HOLOCENE_MA`, checked against the bracket not
+      just the flag — trusting the flag once handed a 378,328-tip fork to a
+      living seagrass. `is_extant = 0` also excludes NULL (genuinely unknown).
+    - Primary only, and keyed on `pbdb_taxon_no` never the name: PBDB has
+      internal homonyms (`Scopus` is both a hamerkop and a Permian genus), and
+      aggregating by name would merge them into a tree-spanning envelope.
     """
     stats: JsonDict = {"rows": 0, "drawn": 0, "extant_excluded": 0, "unended": 0}
     out: list[FossilCandidate] = []
@@ -1073,12 +923,9 @@ def load_fossil_candidates(
             (HOLOCENE_MA,),
         ).fetchone()[0]
     )
-    # `lla_drawn` rather than `lla`, and this is a containment test so the
-    # difference decides which forks a taxon is offered for. PBDB's own young
-    # end is stretched by `sp.`/`indet.` material on 10,655 taxa, and a bracket
-    # widened at the young end cannot fail to contain a recent split — the same
-    # failure `HOLOCENE_MA` exists to stop, arriving through a different door.
-    # `coalesce` keeps a build whose fossil table predates the column working.
+    # `lla_drawn` not `lla`: a young end widened by `sp.`/`indet.` material would
+    # let a taxon win a fork it has no business at. `coalesce` keeps a pre-column
+    # fossil table working.
     young = "coalesce(lla_drawn, lla)" if has_drawn else "lla"
     for row in con.execute(
         f"SELECT pbdb_taxon_no, accepted_no, name, rank, attach_idx, attach_walk, "
@@ -1121,57 +968,25 @@ def divergence_witnesses(
 ) -> Witness:
     """For each fork, the fossil taxon that was around when it split.
 
-    `propagate` answers "what does something in this clade look like" and gets
-    that right by preferring the most inclusive drawing beneath a node. At a
-    divergence that is the wrong end of the branch: the most inclusive drawing
-    beneath the human–chimp split is *Homo* and beneath the whale–hippo split is
-    Cetacea, so a reader who asked what parted there is shown two crown groups
-    that did not exist yet. This answers the other question, on its own terms,
-    into its own table.
-
-    **A candidate is a fossil, not a node**, and that is the change this
-    function exists for. Phase 4 gives every PBDB taxon an `attach_idx`: the
-    deepest node in the synthesis tree that is an ancestor-or-self of it, found
-    by walking PBDB's own `parent_no` hierarchy up until something resolves. A
-    fossil attached at `a` may witness `a` and every ancestor of `a`, and
-    nothing else about the rule changes. Requiring a *node* capped the layer at
-    2,552 forks; this reaches ten times that, and *Acanthostega gunnari* becomes
-    reachable at the fish/tetrapod split for the first time.
+    `propagate` prefers the most inclusive drawing beneath a node, which at a
+    split is the wrong end of the branch (a crown group). This answers the other
+    question into its own table. A candidate is a fossil, not a node: phase 4's
+    `attach_idx` lets a fossil attached at `a` witness `a` and every ancestor of
+    `a`, which is what lifts the cap from ~2,552 forks.
 
     Each candidate offers itself upward and each fork keeps the best offer:
 
-    - Reject unless the fork has a position in time. `age_ma` first; where it is
-      NaN — a `structural` node, which nobody has dated — fall back to
-      `age_layout`, which is finite everywhere. **That fallback is a departure
-      and is worth understanding.** `age_ma` is what may be *shown* and
-      `age_layout` is only where to *draw*, and the project's standing rule is
-      that a structural node never carries a number. It still does not: the
-      layout age is used to choose a picture and is never rendered as an age.
-      Since the fork is already drawn at that position, picking the fossil
-      nearest to where the reader sees it is the consistent choice rather than
-      a new claim — and the card says outright that the fork is undated.
-    - Reject if the fork carries its own image. Exactness wins everywhere else
-      in this phase and there is no reason for it to stop here; Mammalia stays
-      Mammalia rather than becoming a Cretaceous monotreme.
+    - Reject unless the fork has a position in time: `age_ma`, else `age_layout`
+      where nobody has dated it. The layout age is used only to choose, never
+      rendered as an age, so the "no number on a structural node" rule holds.
+    - Reject if the fork carries its own image (exactness wins).
     - Reject if the gap between the split and `[lla, fea]` exceeds
       `near_fraction` of the split's age.
-    - Otherwise rank: **nearest first, then tightest evidence, then firmest
-      placement.** Gap, then the narrower bracket — which is what puts
-      *Sahelanthropus* (7.2–5.3) ahead of *Ardipithecus* (11.6–2.6) at the
-      human–chimp split when both contain it, and what demotes *Ammonitina*
-      (249.9–56 Ma, 43,884 occurrences) wherever anything better exists — then
-      `attach_walk`, then `n_occs`, then the taxon number so the result does not
-      depend on row order.
+    - Otherwise rank: gap, then narrower bracket, then `attach_walk` (zero hops
+      is a different quality of claim from eight, and it is what the caption
+      carries), then `n_occs`, then taxon number for determinism.
 
-    `attach_walk` earns its place in the middle of that ordering rather than at
-    the end. It is how many `parent_no` hops PBDB took to find an in-synthesis
-    ancestor, distributed 29,074 at 0 hops and 48,764 at 1, tailing to 698 at
-    11 — and **zero hops is a different quality of claim from eight.** A witness
-    that walked eleven is a statement about a family, not a lineage, and it is
-    the number the caption has to carry.
-
-    Cost is bounded by the candidates, not the tree: each walks at most 111
-    ancestors.
+    Cost is bounded by the candidates: each walks at most 111 ancestors.
     """
     n = parent.size
     if not tip_count.size == seed.size == age_ma.size == n:
@@ -1229,22 +1044,11 @@ def link_fossil_images(
 ) -> tuple[dict[int, int], JsonDict]:
     """`pbdb accepted_no -> position in records`, by name, refusing ambiguity.
 
-    Everything above resolves images onto *nodes*. The fossil corpus is not
-    nodes — architecture §3.4, only 0.5% of extinct OTT taxa are in synthesis —
-    so *Acanthostega*, *Pakicetus*, *Eohippus* and *Odontochelys* have drawings
-    on PhyloPic, brackets in PBDB, attachment points in the tree, and no way to
-    reach any of it. This is the join that gives them one.
-
-    Matching is by name, which is the only key the two corpora share, so the
-    refusal rule from `_seed_by_name` applies unchanged and matters more here:
-    **PBDB carries homonyms internally**, not merely against OTT. `Scopus` is
-    two accepted taxa in this table, the extant hamerkop at 5.3–0 Ma and an
-    extinct Permian genus at 254–252 Ma, and 1,338 names are like it. A name
-    resolving to more than one `accepted_no` is refused outright rather than
-    resolved to whichever row the query returned first.
-
-    Keyed on `accepted_no` and not on the name, so a consumer joins on the
-    taxon rather than on a string that may mean two things.
+    The fossil corpus is not nodes, so this join is how a drawn, dated, attached
+    fossil (*Acanthostega*, *Pakicetus*) reaches its drawing. Matched by name,
+    the only shared key, so `_seed_by_name`'s refusal rule applies: PBDB has
+    internal homonyms, and a name resolving to more than one `accepted_no` is
+    refused. Keyed on `accepted_no`, not the name.
     """
     by_title: dict[str, int] = {}
     for i, r in enumerate(records):
@@ -1539,26 +1343,14 @@ def write_node_divergence_witness(
 ) -> int:
     """One row per fork that has a witness.
 
-    Deliberately a second table rather than more columns on `node_image`. The
-    two resolutions answer different questions and a consumer must be able to
-    take one without the other: a node the reader *selected* still wants its
-    clade's exemplar, and only a node they arrived at by splitting wants the
-    witness. Merging them would force that choice at build time, where the
-    information needed to make it does not exist.
+    A second table, not columns on `node_image`: the two resolutions answer
+    different questions and a consumer must take one without the other (a
+    selected node wants its clade's exemplar; only a split wants the witness).
 
-    **Renamed from `node_divergence_image`, and not out of tidiness.** That
-    table's `source_idx` was a node index and this one's key is a
-    `fossil.pbdb_taxon_no`; the columns share a shape and mean different
-    things, and a consumer joining the old column name against `node` would get
-    a clean join to an unrelated taxon. That is the `node_fts.rowid` failure
-    (handoff §5) waiting to happen again, so the table gets a new name and the
-    old one is dropped.
-
-    The taxon's name, rank and bracket are denormalised here rather than left
-    to a join. A witness may not render without its dates — that is the whole
-    difference between it and an unlabelled shape — so the dates travel with
-    the row that decides to draw it, and there is no way to read one without
-    the other.
+    Keyed by `fossil.pbdb_taxon_no`, NOT a node idx — a consumer joining it
+    against `node` would join cleanly to an unrelated taxon, so the old
+    `node_divergence_image` name is dropped. Name, rank and bracket are
+    denormalised here because a witness may not render without its dates.
     """
     con.executescript(
         """
@@ -1606,24 +1398,16 @@ def write_node_divergence_witness(
 
 
 def write_arrays(records: list[ImageRecord], assign: Assignment) -> None:
-    """The same resolution as flat arrays, for the packaging step.
-
-    `node_image` is the queryable form; these are the mmap-able one, and they
-    keep the hot path off SQLite the way architecture §3.2 does for topology.
-    """
+    """The same resolution as flat arrays, for the packaging step."""
     OUT.mkdir(parents=True, exist_ok=True)
     np.save(OUT / "node_image.npy", assign.image.astype(np.int32))
     np.save(OUT / "node_image_source.npy", assign.source.astype(np.int64))
     np.save(OUT / "node_image_clade.npy", assign.clade.astype(np.int64))
     np.save(OUT / "node_image_climb.npy", assign.climb)
     np.save(OUT / "node_image_method.npy", assign.method)
-    # The witness deliberately gets no arrays. It used to have three, and they
-    # were dead: nothing in `package.py` or the server ever opened them —
-    # `Witnesses` reads the table, because a witness needs a name and a bracket
-    # beside its picture and those are not numbers in a parallel array. Leaving
-    # `node_divergence_source.npy` on disk would be worse than useless now that
-    # the column it mirrored holds a PBDB taxon number rather than a node index,
-    # so the stale files are removed rather than left to be misread.
+    # The witness gets no arrays: it needs a name and a bracket beside its
+    # picture, so it is read from the table. Remove the stale files, whose
+    # column now holds a PBDB taxon number rather than a node index.
     for stale in (
         "node_divergence_image.npy",
         "node_divergence_source.npy",
@@ -1638,10 +1422,8 @@ def write_arrays(records: list[ImageRecord], assign: Assignment) -> None:
 def record_mirror(records: list[ImageRecord], have: dict[str, MirrorRow]) -> None:
     """One manifest entry for the mirror, not 12,863.
 
-    Per-file digests live in `silhouette.sha256`; putting them in the
-    git-tracked `snapshot/manifest.json` would add megabytes of churn for
-    something the database already carries. The index is checksummed properly,
-    because it is what the whole resolution is derived from.
+    Per-file digests live in `silhouette.sha256`; the index is checksummed
+    properly because the whole resolution derives from it.
     """
     m = Manifest()
     if INDEX.exists():
@@ -1690,19 +1472,11 @@ def coverage_gates(
 
     # --- what the picture is actually claiming ---------------------------
     #
-    # This pair of gates replaces the pair that used to block here, which
-    # required 94%/88.6% node coverage and measured 100.0000%. Both numbers
-    # were true and neither meant anything: coverage asks whether *an* image
-    # resolved, and under the old rule two thirds of the tree resolved to a
-    # blob standing for a million species. A reader seeing 100% would conclude
-    # the silhouette layer worked, and management.md records that in every
-    # screenshot of the last build not one silhouette usefully rendered.
-    #
-    # What a borrowed picture claims is "this node and this drawing are both
-    # inside clade C". So the honest measure is the size of C, and the gate is
-    # the share of nodes whose C is small enough to be about something. Read
-    # it as: for this fraction of the tree, the picture beside a node depicts
-    # a group the node genuinely belongs to and a reader can hold in mind.
+    # Coverage (whether an image resolved) reads 100% and means nothing: under
+    # the old rule two thirds of the tree resolved to a blob standing for a
+    # million species. A borrowed picture claims "this node and this drawing are
+    # both inside clade C", so the honest measure is the size of C — the share of
+    # nodes whose C is small enough to be about something.
     claim = np.where(resolved, tip_count[np.maximum(assign.clade, 0)], 0)
     informative = resolved & (claim <= INFORMATIVE_CLADE_TIPS)
     leaf_inf = float(informative[is_tip].mean())
@@ -1871,17 +1645,9 @@ def _licence_label(url: str) -> str:
 
 
 # The cases the witness rule was built for, pinned by OTT id because names are
-# ambiguous in this taxonomy and ids are not — looking `Vertebrata` up by name
-# in this database reaches a red alga. These are not the whole test; they are
-# the forks a reader is most likely to try, and a rule that draws Homo at the
-# human–chimp split or a dolphin at the whale–hippo one has regressed whatever
-# the aggregate counts say.
-#
-# The first two are the reason the layer moved off nodes. *Acanthostega
-# gunnari* and *Eohippus* are the textbook animals for their divergences, both
-# were already drawn and mirrored, and both were unreachable purely because
-# they are not in the synthesis tree. Tetrapoda used to draw a Triassic
-# archosaur 110 Ma adrift; Perissodactyla drew nothing at all.
+# ambiguous in this taxonomy. The first two (Acanthostega, Eohippus) are the
+# reason the layer moved off nodes: textbook animals for their divergences,
+# already drawn, but not in the synthesis tree.
 WITNESS_ANCHORS: tuple[tuple[str, tuple[int, ...], str], ...] = (
     ("the fish–tetrapod split", (229562,), "Acanthostega gunnari"),
     ("the horse–rhino split", (541948,), "Eohippus angustidens"),
@@ -1891,7 +1657,7 @@ WITNESS_ANCHORS: tuple[tuple[str, tuple[int, ...], str], ...] = (
 
 
 def _mrca(parent: U32Array, nodes: Sequence[int]) -> int:
-    """Last common element of the ancestor paths, the primitive everything uses."""
+    """Last common element of the ancestor paths."""
     par = parent.astype(np.int64)
 
     def path(v: int) -> list[int]:
@@ -1908,32 +1674,12 @@ def _mrca(parent: U32Array, nodes: Sequence[int]) -> int:
     return common[-1]
 
 
-# The number of witnessed forks whose taxon's range actually contains the split.
-# **This, and not coverage, is the measure.** The silhouette layer already
-# learned that lesson once at full price: 100% node coverage was true and
-# meaningless, because with 7,470 seeds over 2.7M nodes two thirds of the tree
-# was drawing a superphylum. A witness table is the same trap in a worse place —
-# every row is a claim about time made from two independent estimates, so filling
-# it is easy and filling it with anything defensible is not.
-#
-# **And spanning is not a clean measure either, which is worth knowing before
-# trusting it.** Measured old rule against new on the same corrected corpus:
-#
-#     node-only          548 forks, 207 spanning, median gap 14%, p90 100%
-#     fossil attachment  885 forks, 192 spanning, median gap 17%, p90  81%
-#
-# Spanning went *down*. It is not a regression, and the reason is the same
-# hazard `HOLOCENE_MA` exists for: a range that runs to the present cannot fail
-# to contain a recent split, so a living taxon spans by construction. Of the 107
-# forks the old rule reached and this one does not, 14 were "spanning" and the
-# list is *Moho braccatus* — a bird that died in 1987 — on Passeriformes at a
-# 52 Ma gap, *Styliola* on Opisthobranchia, and *Pseudamia*, the living
-# cardinalfish, on Gobiaria. Meanwhile 444 forks are reached that the old rule
-# could not touch at all, and where both fire the new witness is closer on 177
-# and further on 108.
-#
-# So the floor sits under the measured 192 rather than over the old 207. What it
-# is for is catching a rule that has stopped working, not ratifying a number.
+# Witnessed forks whose taxon's range actually contains the split — this, not
+# coverage, is the measure (coverage is easy to fill and hard to fill
+# defensibly). Spanning is not clean either: a range running to the present
+# spans by construction (the HOLOCENE_MA hazard), so moving off nodes lowered
+# spanning even while reaching far more forks. The floor catches a rule that has
+# stopped working, not a number to ratify.
 MIN_SPANNING_WITNESSES = 175
 
 
@@ -1949,9 +1695,8 @@ def witness_gates(
 ) -> None:
     """Check the forks everyone will look at, then the failure modes.
 
-    Counting rows is not the same as checking them — the standing lesson of this
-    repo — so the blocking gates are the named forks and the count of witnesses
-    that *span* their split. Everything else observes.
+    The blocking gates are the named forks and the count of witnesses that span
+    their split; everything else observes.
     """
     found = witness.source != NO_IMAGE
     n = int(found.sum())
@@ -2051,18 +1796,11 @@ def _witness_shape_gates(
 ) -> None:
     """The two failure modes that look exactly like success.
 
-    **A wide bracket wins everything it contains.** *Ammonitina* spans
-    249.9–56 Ma with 43,884 occurrences and is a candidate for a great many
-    forks. The narrow-bracket tie-break is supposed to demote it wherever
-    anything better exists, and "supposed to" is not a measurement, so the most
-    prolific witnesses are reported by name. A single taxon holding a large
-    share of the table is the shape of that failure, and it would otherwise read
-    as coverage.
-
-    **A loose attachment reads like a placement.** `attach_walk` is how many
-    `parent_no` hops PBDB took to find an in-synthesis ancestor, and eleven hops
-    is a statement about a family rather than a lineage. The distribution is
-    what tells a reader whether the caption's hedging is doing real work.
+    - A wide bracket wins everything it contains: the most prolific witnesses are
+      reported by name, since a single taxon holding a large share of the table
+      is the shape of that failure (the narrow-bracket tie-break should demote it).
+    - A loose attachment reads like a placement: the `attach_walk` distribution
+      shows whether the caption's hedging is doing real work.
     """
     by_taxon: dict[int, int] = {}
     walks: dict[int, int] = {}
@@ -2158,11 +1896,9 @@ def licence_gates(
 def run(budget: int = 0, mirror_only: bool = False, log: Log = _log) -> int:
     """Phase 5a.
 
-    `budget` caps **SVG downloads** in one run rather than node resolutions.
-    There is no per-node remote work left to budget — that is the point of the
-    redesign at the top of this module — so the only unbounded remote cost is
-    the mirror, and that is what the flag governs. Runs are resumable, so
-    repeated budgeted runs converge on a complete mirror.
+    `budget` caps SVG downloads per run, not node resolutions (there is no
+    per-node remote work). Runs are resumable, so repeated budgeted runs
+    converge on a complete mirror.
     """
     g = GateSet("phase5a-images")
     MIRROR.mkdir(parents=True, exist_ok=True)
@@ -2192,9 +1928,8 @@ def run(budget: int = 0, mirror_only: bool = False, log: Log = _log) -> int:
             build, total_items = api.build, api.total_items
 
     g.observe("PhyloPic build index", build, note="Stale builds 410; never hard-coded.")
-    # The service states its own `totalItems`, so completeness is checkable
-    # rather than assumed. A short crawl means paging stopped early, which is
-    # the failure mode that would silently shrink coverage.
+    # The service states its own `totalItems`, so a short crawl (paging stopped
+    # early) is caught rather than silently shrinking coverage.
     g.require(
         "crawled every image the service lists",
         f"{len(records):,}",

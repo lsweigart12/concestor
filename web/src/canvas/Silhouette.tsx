@@ -1,48 +1,19 @@
 /**
  * A PhyloPic silhouette, inlined into the DOM.
  *
- * architecture §7 says silhouettes are monochrome so `fill: currentColor`
- * drops them straight into the dark instrument and lets them take the trace
- * colour, bloom included. That is true of the *shape* but not of the files:
- * every mirrored SVG hardcodes `fill="#000000"` on its top-level `<g>`.
- * Through `<img src>` or `background-image` an SVG is an opaque image and
- * nothing in the page can recolour it — so the intended behaviour renders a
- * black silhouette on a near-black canvas, i.e. nothing at all.
+ * Silhouettes are monochrome so `fill: currentColor` gives them the lane hue and
+ * bloom — but the mirrored SVGs hardcode `fill="#000000"`, and through `<img>`
+ * that cannot be recoloured, so it would render black on near-black. So the
+ * markup is fetched and inlined with the baked fill stripped. Payloads are
+ * immutable per build, so this is a one-time fetch per image, shared across
+ * every node that inherited it.
  *
- * So the markup is fetched and inlined, with the baked fill stripped. Once the
- * paths are real DOM nodes, `fill: currentColor` works as designed and the
- * silhouette inherits the lane hue and the selection bloom.
- *
- * The mirror is ours and the payloads are immutable per build, so this is a
- * one-time fetch per image, shared across every node that inherited it — and
- * with a mean climb of 27 hops, a handful of images cover most of a view.
- *
- * **`tip` is the accessible name as well as the tooltip, and a drawing without
- * one is hidden.** A silhouette is content and not decoration — on a canvas of
- * dots and dates it is the only thing saying what an animal *looks like* — so
- * blanket `aria-hidden` was answering the wrong question. But the answer is not
- * "label them all" either, because almost none of these are portraits: the
- * corpus is 12,863 drawings against 2.7M nodes, and what the picture actually
- * claims is `borrowedTitle`'s sentence — *not Cetacea itself, a drawing from
- * within Delphinidae, the smallest group holding both (95 species)*. That claim
- * is the number `docs/handoff.md` §5 says the UI must render, and until now it
- * was rendered to whoever could hold a pointer still.
- *
- * So the rule is the one the callers already follow without knowing it: a
- * drawing that has something to say passes a `tip`, and it now says it to
- * everybody; a drawing that would only repeat the name printed beside it — the
- * detail card under its own `h2`, a palette row beside its own label — passes
- * none and stays out of the tree entirely. One prop, one sentence, and no way
- * to get one half of it right.
- *
- * It has to be attached out here, on the wrapper, and that is not a
- * preference. `sanitiseSvg` is an allow-list: `title` and `desc` are not
- * elements it emits and `aria-*` is not an attribute it keeps, so the fetched
- * markup cannot carry a name of its own — and writing one *into* the string
- * would interpolate a taxon name into `dangerouslySetInnerHTML`, which is the
- * hazard the `<title>` child was removed for in the first place. `role="img"`
- * on the wrapper also prunes the drawing's own nodes from the tree, so the
- * paths cannot report themselves as anything.
+ * `tip` is the accessible name as well as the tooltip: a drawing that says
+ * something (`borrowedTitle`'s clade sentence) passes one and is announced; a
+ * drawing that would repeat an adjacent label passes none and is hidden. It is
+ * attached on the wrapper, not in the markup: `sanitiseSvg` strips `title`,
+ * `desc` and `aria-*`, and writing a name into the string would interpolate it
+ * into `dangerouslySetInnerHTML`.
  */
 
 import { useEffect, useState } from "react";

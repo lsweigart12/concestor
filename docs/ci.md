@@ -1,7 +1,7 @@
 # Continuous integration and deployment
 
-What runs on a pull request, what it can and cannot prove, and what has to
-happen before Concestor deploys on Cloudflare.
+What runs on a pull request, what a green run does and does not prove, and how the
+project deploys on Cloudflare.
 
 ---
 
@@ -11,219 +11,127 @@ happen before Concestor deploys on Cloudflare.
 |---|---|---|
 | `.github/workflows/ci.yml` | every push to `main`, every pull request | `commits`, `web`, `server`, `pipeline`, `cloudflare` |
 | `.github/workflows/release.yml` | CI succeeding on `main`, or manual | `release` — semantic-release, fully automatic |
-| `.github/workflows/deploy-web.yml` | **called by `release.yml`**, pull request, manual | `deploy` — skipped entirely until Cloudflare credentials exist |
-| `.github/dependabot.yml` | monthly | npm, gomod, uv, github-actions — grouped, one pull request each |
+| `.github/workflows/deploy-web.yml` | **called by `release.yml`**, pull request, manual | `deploy` — skipped until Cloudflare credentials exist |
+| `.github/dependabot.yml` | monthly | npm, gomod, uv, github-actions — grouped |
 
-The chain is `merge → CI → release → deploy`, and no link in it waits for a
-human. The last link is a **call** rather than a trigger — `release.yml` runs
-the deploy as one of its own jobs — and §4 is why that is not the obvious
-shape it replaced.
+The chain is `merge → CI → release → deploy`, and no link waits for a human. The three
+halves share only files, so they get three independent jobs and a red run names the half
+that broke. **Nothing in CI needs `build/` (3.2 GB) or `snapshot/` (1.7 GB), and nothing
+in CI should try to produce them** — the pipeline is hours of work against academic APIs
+with no rate limiting (see `docs/data-sources.md`).
 
-The three halves share only files, so they get three independent jobs and a red
-run names the half that broke. Nothing in CI needs `build/` (3.2 GB) or
-`snapshot/` (1.7 GB), and nothing in CI should ever try to produce them: the
-pipeline is hours of work against academic APIs that, per
-`docs/data-sources.md`, have no rate limiting because nobody implemented it.
-Pointing a CI matrix at Open Tree would be the rudest thing this project could
-do.
-
-**`web`** — `npm ci`, then `prettier --check`, `oxlint`, typecheck, vitest
-(two projects, `node` and `dom`), and `vite build`. The built `dist` is
-uploaded as an artifact and
-handed to the `cloudflare` job, so the thing that gets validated for deployment
-is the thing that was tested.
-
-The first two arrived late and are the counterparts to `gofmt -l`/`go vet` and
-`ruff format --check`/`ruff check`; until they landed, the largest body of
-source in the repository was the only part of it with no static analysis at
-all. **The linter is oxlint rather than typescript-eslint, and that is forced
-rather than preferred:** typescript-eslint declares `typescript@<6.1.0` as a
-peer and throws `typescript-eslint does not support TS 7.0` on import if the
-resolution is forced past it, and the upstream workaround is to alias the
-*build* compiler down to the TypeScript 6 API — which would have vite, vitest
-and `tsc -b` all typechecking this repository with a compiler one major behind
-the one it ships on, so the linter can parse. `web/.oxlintrc.json` carries the
-whole account, including the five categories and two plugins that were measured
-over `src/` and refused. `web/prettier.config.js` carries the other half: every
-value in it is Prettier's own default, because the house style already was —
-the 90th-percentile line was 79 characters before the formatter existed.
-
-`npm test` runs two vitest projects and CI runs both from the one command:
-`node`, the pure-module suite that has always been there, and `dom`, which
-boots jsdom and renders React components. Neither needs `build/`, so unlike §2
-below, a green `web` job does mean what it looks like it means. What it still
-does not cover is anything a real browser does and jsdom does not — layout,
-paint, WebGL — so the bioluminescent mode and every measurement taken off
-`getBoundingClientRect` remain outside it. `vitest.config.ts` says which
-filenames land in which project.
-
-**`server`** — `gofmt -l`, `go vet`, `go build`, then `go test -json` through
-`scripts/ci/go-test-summary.py`. See §2, which is the important part.
-
-**`pipeline`** — `uv sync --locked` and then the four gates CLAUDE.md requires
-of every pipeline change, in order: `ruff format --check`, `ruff check`,
-`ty check`, `pytest`. Nothing here is advisory; all four block the merge.
-
-**`cloudflare`** — `wrangler deploy --dry-run` against the built `dist`. See §3.
-
-**`commits`** — commitlint over the pull request's own commits only. The
-version is a function of the commit log, so the commit log is an input to the
-build and gets checked like one. See §4.
+- **`web`** — `npm ci`, then `prettier --check`, `oxlint`, typecheck, vitest (two
+  projects, `node` and `dom`), `vite build`. The built `dist` is uploaded and handed to
+  the `cloudflare` job, so the thing validated for deployment is the thing tested. The
+  linter is oxlint, not typescript-eslint (which throws on TS 7.0);
+  `web/.oxlintrc.json` and `web/prettier.config.js` carry the config rationale. Neither
+  vitest project needs `build/`, so a green `web` job means what it looks like — except it
+  cannot cover what a real browser does and jsdom does not (layout, paint, WebGL).
+- **`server`** — `gofmt -l`, `go vet`, `go build`, then `go test -json` through
+  `scripts/ci/go-test-summary.py`. See §2.
+- **`pipeline`** — `uv sync --locked`, then `ruff format --check`, `ruff check`,
+  `ty check`, `pytest`, in that order. All four block the merge.
+- **`cloudflare`** — `wrangler deploy --dry-run` against the built `dist`. See §3.
+- **`commits`** — commitlint over the pull request's own commits. The version is a
+  function of the commit log, so the log is a build input and gets checked like one. §4.
 
 ---
 
 ## 2. What a green run does not mean
 
-On a checkout with no dataset, measured 2026-08-04 — **this table is the one
-place the split is written down**, and the prose elsewhere that used to repeat
-it now points here instead, because it was copied into five files and stale in
-all five:
+On a checkout with no dataset (measured 2026-08-04) — **this table is the one place the
+split is written down**:
 
 | Suite | Runs | Skips |
 |---|---|---|
 | Go | 31 | **127** |
 | pytest | 307 | 83 |
 
-Both suites report success. `go test` prints `ok` for every package.
+Both suites report success; `go test` prints `ok` for every package. That default is
+correct — a clean checkout without a 3.2 GB build should not fail — but `ok` reads as
+*the server is tested* when ~80% of the server's tests did not run.
 
-That default is correct — a clean checkout without a 3.2 GB build should not
-fail — and it is dangerous left unsaid, because `ok` reads as *the server is
-tested* when 80% of the server's tests did not run. The same trap has already
-caught someone inside a git worktree, where `testenv.BuildDir`'s six-parent
-walk stops one directory short of the borrowed `build/` and the suite quietly
-stopped testing anything.
+Two complementary mechanisms guard against the silence:
 
-So there are two mechanisms, and they are complementary:
-
-- **`scripts/ci/go-test-summary.py`** prints the pass/skip split into the job
-  summary, and fails a run in which fewer than ten tests ran at all. It cannot
-  tell you the dataset tests passed; it can tell you the dataset-free ones have
-  not silently disappeared too.
-
-- **`CONCESTOR_REQUIRE_BUILD=1`** turns every dataset skip into a failure. The
-  Go side routes all of them through `testenv.absent` — which is why
-  `npy_test.go`'s second copy of the six-parent walk is gone, since a skip
-  the flag does not reach is exactly the skip that hides something. The
-  pipeline side refuses the whole session in `pipeline/tests/conftest.py`,
-  once, rather than failing 78 times with the same message.
-
-  It guards the database, not `snapshot/`. With a build and no snapshot, 5
-  tests in `test_vernaculars.py` still skip: the snapshot is 1.7 GB of pinned
-  upstream sources a worktree deliberately does not borrow, so requiring it
-  would make the flag unusable where it is most needed. With a build the count
-  is **158 of 158** Go tests and **385 of 390** pipeline tests, those 5 being
-  the snapshot's.
+- **`scripts/ci/go-test-summary.py`** prints the pass/skip split into the job summary and
+  fails a run in which fewer than ten tests ran at all. It cannot tell you the dataset
+  tests passed; it can tell you the dataset-free ones have not silently disappeared.
+- **`CONCESTOR_REQUIRE_BUILD=1`** turns every dataset skip into a failure. The Go side
+  routes all skips through `testenv.absent`; the pipeline side refuses the whole session
+  in `pipeline/tests/conftest.py`. It guards the database, not `snapshot/`: with a build
+  and no snapshot, 5 `test_vernaculars.py` tests still skip (the snapshot is 1.7 GB a
+  worktree deliberately does not borrow). With a build the count is **158/158** Go tests
+  and **385/390** pipeline tests.
 
 ```bash
 scripts/check.sh
 ```
 
-is the local counterpart to CI: every check above, plus the dataset half. It
-resolves a build through the same borrowing rules as `scripts/serve.sh`, so it
-works from a worktree, and it symlinks `build/` into the worktree root — which
-is the missing half, because Go's own walk cannot follow the borrow. When it
-finds a build it exports `CONCESTOR_REQUIRE_BUILD=1` and a skip becomes a
-failure; when it does not, it says so in yellow rather than printing a green
-that means less than it looks like. Like the pipeline's own gates, it collects
-failures and reports all of them at the end.
+is the local counterpart to CI: every check above plus the dataset half. It resolves a
+build, symlinks `build/` into the worktree root, exports `CONCESTOR_REQUIRE_BUILD=1` when
+a build is found (a skip becomes a failure), and says so in yellow when it is not. Run it
+before anything that touches the server or the pipeline. **CI is the floor, not the
+check.**
 
-Run it before anything that touches the server or the pipeline. CI is the
-floor, not the check.
+### Running in a git worktree
+
+`scripts/serve.sh` and `scripts/dev.sh` work unchanged in a parallel session's worktree,
+which has the source but neither `build/` nor `snapshot/`; they borrow both read-only from
+the main checkout. **`go test` does not borrow.** `testenv.BuildDir` walks six parents for
+`build/concestor.db`, and from `<worktree>/server/internal/store` that stops one level
+short — so **most of the Go suite silently skips and still prints `ok`.** Run
+`scripts/check.sh`, which symlinks `build` into the worktree root (it is gitignored) and
+sets `CONCESTOR_REQUIRE_BUILD=1` so a skip becomes a failure. Borrowed paths are pipeline
+output nobody edits; `web/` always belongs to the worktree, and nothing may hardcode a
+port.
 
 ---
 
-## 3. Cloudflare: what can actually deploy there
+## 3. Cloudflare deployment
 
-**All of it**, since Containers went generally available on 2026-04-13. One
-Worker serves `web/dist` as static assets and routes `/v1/*` to a Container
-running `docs/architecture.md` §4's binary unchanged — same mmap'd arrays,
-same `immutable=1` SQLite, on a machine with a page cache.
+**All of it deploys on Cloudflare** since Containers went GA (2026-04-13). One Worker
+serves `web/dist` as static assets and routes `/v1/*` to a Container running architecture
+§4's binary unchanged. See [docs/deployment.md](deployment.md) for the decision and
+measurements (a Worker isolate caps at 128 MB and the artifact set is 2,229 MB, so the
+binary does not port; the process working set is 463 MB; `/v1/path` answers in 0.4 ms,
+which rules out any design that turns array reads into round trips).
 
-**[docs/deployment.md](deployment.md) is the decision, the alternatives and the
-measurements.** It supersedes this section's earlier answer, which was
-frontend-here-API-elsewhere and was correct when it was written. The three
-numbers that decided it: a Worker isolate is capped at **128 MB** and the
-artifact set is **2,229 MB**, so the binary genuinely does not port; the
-process's measured working set is **463 MB**, which a 4 GiB instance holds with
-room; and `/v1/path` answers in **0.4 ms**, which is 41 dependent array reads
-and rules out every design that turns them into round trips.
+Three things about the deploy path:
 
-Three things about the deploy path belong here rather than there.
-
-**The API image is never built in CI, and cannot be.** It carries 2.2 GB of
-pipeline output that is not in this repository — §5's rule, unchanged. So
-`scripts/deploy/push-api-image.sh` builds and pushes it from a checkout that
-has `build/`, and `web/wrangler.jsonc` names it by **registry tag**. That form
-is not cosmetic: with a Dockerfile in that config, `wrangler deploy --dry-run`
-refuses to run without Docker *even in a dry run*, which would break the
-`cloudflare` job below. With a registry reference the dry run passes clean, no
-Docker and no credentials.
-
-**`assets.run_worker_first: ["/v1/*"]` is load-bearing.** Without it,
-`not_found_handling: "single-page-application"` answers *every* unmatched path
-with `index.html` and the Worker never runs — `/v1/search` would return the
-HTML shell with a 200 and the client would try to parse it as JSON.
-
-**That failure was live on `/healthz`, which is outside the glob.** The route
-exists on the Go mux, nothing routes a non-`/v1/*` path to the container, and
-`curl -sI https://concestor.com/healthz` returns `200 text/html` — the shell.
-The frontend's boot probe fetched it and read `res.ok`, so it reported the API
-healthy whether or not it was running, and the boot-error screen was unreachable
-in production for its whole life. `/v1/about` is the probe now. Nothing in CI
-could have caught it: the glob is validated, and a path outside the glob
-behaving exactly as configured is not a misconfiguration.
-
-**The Worker returns the upstream response unmodified.** `/v1` is long-lived and
-ETag'd by build id because the data cannot change within a build, and **there is
-no exception left**. `/v1/random` was one — `no-store`, no ETag, because caching
-a server-side draw at the edge hands every visitor the same "random" species
-forever — and it has been replaced by `/v1/random-pool/{build_id}`, which serves
-the pools rather than a pick and is cacheable by the ordinary rule. The only
-`no-store` the Worker now passes through is that endpoint's 404 for a stale
-build id, which must not be cached or it outlives the deploy that caused it.
+- **The API image is never built in CI, and cannot be** — it carries 2.2 GB of pipeline
+  output not in this repository. `scripts/deploy/push-api-image.sh` builds and pushes it
+  from a checkout that has `build/`, and `web/wrangler.jsonc` names it by **registry
+  tag**. (A Dockerfile in that config makes `wrangler deploy --dry-run` require Docker
+  even for a dry run, which would break the `cloudflare` job; a registry reference passes
+  clean.)
+- **`assets.run_worker_first: ["/v1/*"]` is load-bearing.** Without it,
+  `not_found_handling: "single-page-application"` answers every unmatched path with
+  `index.html` and the Worker never runs — `/v1/search` would return the HTML shell with
+  a 200. (This bug was live on `/healthz`, which is outside the glob, so the boot probe
+  read `res.ok` off the HTML shell and reported the API healthy regardless. `/v1/about`
+  is the probe now.)
+- **The Worker returns the upstream response unmodified.** `/v1` is long-lived and ETag'd
+  by build id; the only `no-store` passed through is `/v1/random-pool/{build_id}`'s 404
+  for a stale build id (which must not be cached or it outlives the deploy that caused it).
 
 ### Turning the deploy on
 
-Nothing is configured, and `deploy-web.yml` is written so that costs nothing:
-with no credentials in the repository the guard step skips every later step and
-the run is green with a notice. It is not a failure to have no Cloudflare
-account; it is a failure to find out on the day you get one that the pipeline
-was never wired up. Meanwhile the `cloudflare` job in `ci.yml` still bundles
-the Worker and validates the config on every pull request, so the first real
-deploy is a credentials problem rather than a config one.
-
-The order matters, because a Worker whose container image does not exist yet
-will not deploy. `docs/deployment.md` §5 has it in full; in short, push the
-image first and commit the tag it prints, then set:
+Nothing is configured; `deploy-web.yml` skips every later step with no credentials, so the
+run is green with a notice. The `cloudflare` job in `ci.yml` still bundles the Worker and
+validates the config on every PR. Order matters — a Worker whose container image does not
+exist will not deploy. Push the image first and commit the tag it prints, then set:
 
 | | Name | Value |
 |---|---|---|
-| secret | `CLOUDFLARE_API_TOKEN` | *Edit Cloudflare Workers*, plus registry write to push images |
+| secret | `CLOUDFLARE_API_TOKEN` | *Edit Cloudflare Workers* + registry write |
 | secret | `CLOUDFLARE_ACCOUNT_ID` | substituted into the image reference at deploy time |
-| variable | `CONCESTOR_API_ORIGIN` | **optional.** Set it only to route `/v1` to an API *outside* Cloudflare |
+| variable | `CONCESTOR_API_ORIGIN` | **optional** — set only to route `/v1` outside Cloudflare |
 
-Then a release runs `wrangler deploy` — as a job of the release run, not off a
-trigger of its own, and §4 is why that distinction cost ten releases — and a
-pull request from this repository uploads a preview version and comments the URL
-onto the pull request. Pull requests from forks have no secrets and skip the
-deploy, which is the correct behaviour rather than a limitation to work around.
-
-**The preview is a version of a *second* Worker**, `concestor-preview`, and that
-is forced rather than tidy: Cloudflare does not generate preview URLs for a
-Worker that implements a Durable Object, and production's container class is one.
-This workflow ran `--preview-alias pr-N` against the production Worker from the
-day the deploy was turned on, and every alias it minted pointed at nothing —
-error 1042 at the hostname, `has_preview: false` on the version, and a green
-step, which is this page's recurring failure shape. `docs/deployment.md` §5 has
-the measurements, the second Worker's design, and what a preview consequently
-cannot show you — chiefly that `/v1` is production's, so a `server/` or
-`pipeline/` change is not in it.
-
-`CONCESTOR_API_ORIGIN` is passed with `--var`, not as a secret, deliberately:
-it is a public origin the browser already sends every request to. Leaving it
-unset is the normal case and is what uses the container; setting it is both the
-local-development path and the one-variable fallback if the API ever moves back
-off Cloudflare.
+A release then runs `wrangler deploy`; a PR from this repository uploads a preview version
+and comments the URL. The preview is a version of a **second** Worker, `concestor-preview`
+— Cloudflare does not generate preview URLs for a Worker implementing a Durable Object,
+and production's container class is one. A preview cannot show `server/` or `pipeline/`
+changes: `/v1` is production's.
 
 Locally:
 
@@ -233,16 +141,15 @@ npm --prefix web run cf:check:preview   # and the preview Worker's
 npm --prefix web run cf:dev             # wrangler dev; set API_ORIGIN at a local server
 ```
 
-`cf:dev` wants `API_ORIGIN` pointed at a running `scripts/serve.sh` rather than
-the container: starting the real one locally means Docker and a 2.2 GB image,
-which is not a thing to ask of someone changing a button.
+`cf:dev` wants `API_ORIGIN` pointed at a running `scripts/serve.sh` rather than the
+container (which means Docker and a 2.2 GB image).
 
 ---
 
 ## 4. Releases
 
-Fully automatic. Merge to `main`, CI passes, a release is cut. Nobody decides
-a version number and nobody writes release notes.
+Fully automatic: merge to `main`, CI passes, a release is cut. Nobody decides a version or
+writes release notes.
 
 ```
 merge → CI green on main → semantic-release → tag + GitHub Release → deploy
@@ -250,127 +157,50 @@ merge → CI green on main → semantic-release → tag + GitHub Release → dep
 
 ### The version is a function of the commit log
 
-Conventional Commits. Two files, and they do different jobs: which types are
-**allowed** is `commitlint.config.cjs`, which of them **bump** is
-`release.config.cjs`'s `releaseRules`. **The mapping is written down in that
-second file and deliberately nowhere else**, including here — it was stated in
-three prose places and enforced in none, all three naming the linter as the
-source, and under the analyser's untouched preset defaults `perf` had been
-cutting a patch the whole time it was documented not to.
+Conventional Commits. Two files do different jobs: which types are **allowed** is
+`commitlint.config.cjs`; which of them **bump** is `release.config.cjs`'s `releaseRules`.
+**The bump mapping is written down in that second file and deliberately nowhere else** —
+read it there, do not restate it.
 
-The type prefix is the whole of what the convention imposes here. The subject
-stays a sentence in this project's voice:
+The type prefix is the whole of what the convention imposes; the subject stays a sentence
+in this project's voice (`feat: Make the card say what a thing is`). `subject-case` is
+**off** in commitlint (config-conventional would reject every commit this project writes),
+and the rules are **written out rather than `extends`-ed** (commitlint resolves `extends`
+from the repository root where there is no `node_modules`, throwing `MODULE_NOT_FOUND`
+under `npx`, which is how CI runs it).
 
-```
-feat: Make the card say what a thing is, and let the reader walk from it
-```
+### Dependabot
 
-That is five characters more than the commit that actually shipped. Two rules
-exist to keep it that way, and both are load-bearing: **`subject-case` is
-off**, because config-conventional forbids sentence case and would reject
-every commit this project has ever written, and the rules are **written out
-rather than `extends`-ed**, because commitlint resolves `extends` from the
-repository root, there is no `node_modules` there, and the extended form
-throws `MODULE_NOT_FOUND` under `npx` — which is exactly how CI runs it.
-
-### Dependabot is exempt, and pays for the exemption up front
-
-The first month of dependency updates opened six pull requests and
-**`commits` failed on all six**. Nothing was wrong with any of them: a bot
-writes `Bump actions/checkout from 4 to 7`, which has no type prefix, and a
-grouped update writes its whole group onto one body line — 364 characters
-naming four packages and their four repositories. A check that fails on every
-change of a given kind has stopped saying anything about the change and says
-only who wrote it.
-
-So `commitlint.config.cjs` **ignores commits signed off by
-`dependabot[bot]`**, and `.github/dependabot.yml` settles the type instead,
-before the commit is written rather than after: **`ci` for the workflows,
-`build` for npm, gomod and uv.** Both are types `release.config.cjs` leaves
-alone, which is the intended answer — a dependency bump is not a feature and
-not a fix, and cutting a version for one makes the tag a worse description of
-what changed than the commit already is.
-
-Two things follow that are easy to get wrong. The exemption keys on the
-**sign-off trailer**, not the author, because commitlint is handed a message
-and not a commit. And the test is worth keeping narrow: an unprefixed commit
-from a person still fails, which is the whole point.
-
-### One pull request per ecosystem, not one per dependency
-
-The cadence caps how *often* updates arrive. It does nothing about how many
-arrive at once, and the two are not the same problem: one monthly
-github-actions run opened five pull requests, one per action, every one of
-them the same one-line edit to a `uses:` tag. **Every ecosystem is grouped**,
-so the ceiling is five pull requests a month — npm splits runtime from
-dev-toolchain, because React and TypeScript moving together is exactly the
-case grouping is for and a runtime bump is a different review.
-
-What is deliberately *not* here is auto-merge. Five reviewable pull requests a
-month is a cost worth paying to keep `main`'s history something a person
-agreed to.
+`commitlint.config.cjs` **ignores commits signed off by `dependabot[bot]`** (a bot writes
+no type prefix), and `.github/dependabot.yml` settles the type instead: **`ci` for
+workflows, `build` for npm/gomod/uv** — both types `release.config.cjs` leaves alone, so a
+dependency bump cuts no version. The exemption keys on the **sign-off trailer**, not the
+author. Every ecosystem is **grouped** (one PR per ecosystem, not per dependency), and
+auto-merge is deliberately absent.
 
 ### One version, and the tag is the only place it is written
 
-`web/package.json` and `pipeline/pyproject.toml` stay at `0.1.0` and are never
-touched. Nothing is committed back to `main` — no version bump, no
-`CHANGELOG.md`, no bot commit, so `main`'s history is only ever what someone
-wrote.
+`web/package.json` and `pipeline/pyproject.toml` stay at `0.1.0` and are never touched.
+Nothing is committed back to `main` — no version bump, no `CHANGELOG.md`, no bot commit.
+Release notes are generated from the commits between tags and live on the GitHub Release.
+One version rather than three because architecture §4 makes pinning structural: the
+artifact set and the code that reads it ship together.
 
-One version rather than three because architecture §4 makes version pinning
-structural: the artifact set and the code that reads it ship together, and
-three components drifting apart at `0.1.0`, `0.4.2` and `1.1.0` would describe
-a system this is not.
+A release produces a tag, a GitHub Release with generated notes, and four assets from
+`scripts/ci/build-release.sh`: the server for `linux/amd64` and `linux/arm64`, the built
+frontend, and `SHA256SUMS`. Binaries are static (`CGO_ENABLED=0`;
+`modernc.org/sqlite` needs no cgo) and carry the version via `-ldflags -X main.version`.
 
-The consequence of committing nothing back is that **there is no
-`CHANGELOG.md` in the tree**. The release notes are generated from the commits
-between tags and live on the GitHub Release, where they cannot go stale. A
-file would cost a bot commit on `main` for every release; if that trade ever
-looks worth making, it is `@semantic-release/changelog` plus
-`@semantic-release/git` and a `[skip ci]` marker.
-
-### What a release produces
-
-A tag, a GitHub Release with generated notes, and four assets from
-`scripts/ci/build-release.sh`: the server for `linux/amd64` and `linux/arm64`,
-the built frontend, and `SHA256SUMS`. The binaries are static
-(`CGO_ENABLED=0`, which costs nothing because the SQLite driver is
-`modernc.org/sqlite` rather than a cgo wrapper) and carry the version through
-`-ldflags -X main.version`.
-
-**The dataset is not in the release and never will be.** Two gigabytes of baked
-artifacts move on the pipeline's cadence, not the code's; their vehicle is the
-container image of §3, tagged with the build id it contains. A running instance
-reports both on `/v1/about`: `release` is the tag it was built from, `build_id`
-is the artifact set it has mmap'd. Conflating them would be the same mistake as
-merging `age_ma` into `age_layout` to save 10 MB — one number where the honest
-answer needs two.
+**The dataset is not in the release and never will be** — 2 GB of baked artifacts move on
+the pipeline's cadence, not the code's, via the container image of §3. `/v1/about` reports
+both: `release` is the tag it was built from, `build_id` the artifact set it has mmap'd.
 
 ### The release calls the deploy, because a release cannot trigger one
 
-**`GITHUB_TOKEN` does not start workflows.** Events raised by the token
-Actions hands a job — pushes, tags, published releases — are ignored by every
-`on:` trigger in the repository. It is GitHub's recursion guard, it cannot be
-switched off, and it is the single most expensive thing on this page to not
-know.
-
-`deploy-web.yml` used to say `on: release: [published]`, which is the obvious
-reading of "deploy when a release is cut" and is the shape most of the internet
-will show you. semantic-release publishes with `secrets.GITHUB_TOKEN`, so it
-**never fired once**: measured across 40 runs of that workflow, 38 were pull
-request previews and 2 were manual dispatches, against **ten published
-releases**. Both real production deploys of concestor.com were run by hand,
-`v0.11.0` among them.
-
-What makes it worth a section is the shape of the failure rather than the
-mistake. Nothing was red. The tag existed, the notes were generated, the four
-assets were attached, and the release job was green — the *only* symptom was
-that the site kept serving an older version, which is a thing you find out by
-looking at the site. A trigger that is never reached logs nothing, so there is
-no run to inspect and no error to search for.
-
-So the deploy is a **job in `release.yml`**, called with `uses:` and gated on
-semantic-release having actually published:
+**`GITHUB_TOKEN` does not start workflows** — events raised by the token Actions hands a
+job (pushes, tags, published releases) are ignored by every `on:` trigger. This is
+GitHub's recursion guard and cannot be switched off. So the deploy is a **job in
+`release.yml`**, called with `uses:` and gated on semantic-release having published:
 
 ```yaml
 deploy:
@@ -381,95 +211,59 @@ deploy:
   secrets: inherit
 ```
 
-Three consequences, all of them the point:
+Consequences:
 
-- **No new credential.** The alternative is giving semantic-release a personal
-  access token or a GitHub App token so its release is raised by an identity
-  the guard does not apply to. That works, and it buys back the decoupled
-  trigger, but it puts a second long-lived credential in a repository whose
-  Cloudflare token already has no spend cap behind it — `docs/deployment.md`
-  §6.1. Paying a permanent credential to keep an `on:` line is the wrong trade
-  when a `uses:` line does the same work.
-- **A failed deploy is loud, and attached to the release that failed to ship.**
-  The deploy is a job of the release run, so it turns *that* run red. The
-  release is still published — it has to be, since the deploy checks the tag
-  out — so the state worth recognising is **a red Release run whose
-  `semantic-release` job is green: the version was cut and production was not
-  updated.** Re-run it with the **Deploy web** workflow manually, passing the
-  tag. That is a worse outcome than a clean deploy and a much better one than
-  the silence it replaced.
-- **Production deploys no longer appear as `deploy-web.yml` runs.** A called
-  workflow does not get a run of its own; its jobs appear under the Release
-  run. `deploy-web.yml`'s own run list is now previews and hand-deploys only,
-  and looking there for the production history is looking in the wrong place.
+- **No new credential.** The alternative (a PAT or GitHub App token so the release is
+  raised by an unguarded identity) adds a second long-lived credential; a `uses:` line
+  does the same work.
+- **A failed deploy is loud** and turns the Release run red. The state to recognise: a red
+  Release run whose `semantic-release` job is green means the version was cut but
+  production was not updated — re-run the **Deploy web** workflow manually with the tag.
+- **Production deploys no longer appear as `deploy-web.yml` runs** — a called workflow's
+  jobs appear under the Release run. `deploy-web.yml`'s own run list is previews and
+  hand-deploys only.
+- **A called workflow may not request more permission than its caller grants.**
+  `deploy-web.yml` needs `pull-requests: write` for the preview comment; without a matching
+  `permissions:` block on the `deploy` job in `release.yml`, the Release run ends in
+  `startup_failure` (validated before any job runs, so the `if:` is no protection). The two
+  permission blocks move together.
 
-**And a called workflow may not request more permission than its caller
-grants** — which is the second way this arrangement can take the release path
-down, found the day the preview URL was added. `deploy-web.yml` grew
-`pull-requests: write` so it could comment a preview onto the pull request,
-`release.yml` granted `contents: write` and nothing else, and the next Release
-run ended in **`startup_failure`**: no jobs, no logs, no annotation, and a red
-run whose only information is that word. It happens even though the `deploy`
-job is *skipped* on a `ci:` merge, because GitHub validates every called
-workflow before it runs any job — so the `if:` above is no protection, and a
-permission the *preview* needed stopped the *release*. The fix is a
-`permissions:` block on the `deploy` job in `release.yml`, and the rule to keep
-is that the two blocks move together.
-
-**Triggering on `push: tags: v*` instead does not work**, and for exactly the
-same reason — semantic-release pushes the tag with the same token, so the guard
-applies unchanged. It is the tempting second guess and it fails identically and
-just as quietly.
-
-The guard against this regressing is in `release.yml` rather than in prose. The
-deploy runs on an output written by `release.config.cjs`'s `successCmd`, and
-nothing else reads it, so that output silently failing would rebuild this exact
-bug one level up. The step therefore diffs the local tag list across
-semantic-release and **fails** if a tag was cut without the output being set.
+Triggering on `push: tags: v*` instead does not work — semantic-release pushes the tag
+with the same token, so the guard applies. A guard step in `release.yml` diffs the local
+tag list across semantic-release and **fails** if a tag was cut without the deploy's
+trigger output being set.
 
 ### Two guards worth knowing
 
-- **The release runs on CI succeeding, not on push to `main`.** `workflow_run`
-  is the only trigger that can know the commit's tests were green.
-- **If `main` moved while CI was running, the release skips** with a notice
-  rather than shipping the newer, untested tip. Nothing is lost: that commit
-  has its own CI run, and its success triggers the release again.
+- **The release runs on CI succeeding, not on push to `main`** — `workflow_run` is the
+  only trigger that can know the commit's tests were green.
+- **If `main` moved while CI was running, the release skips** with a notice rather than
+  shipping the newer, untested tip. That commit has its own CI run.
 
 ### The baseline
 
-`v0.1.0` is tagged at the last commit before this pipeline existed. Without it
-semantic-release's first release is `v1.0.0`, which is a claim about stability
-that nobody has made. From `0.x`, `feat` gives `0.2.0` and a breaking change
-gives `1.0.0` when someone means it.
-
-To watch it decide without releasing anything, run the **Release** workflow
-manually with `dry_run` left on.
+`v0.1.0` is tagged at the last commit before this pipeline existed; without it,
+semantic-release's first release is `v1.0.0` (a stability claim nobody made). From `0.x`,
+`feat` gives `0.2.0` and a breaking change gives `1.0.0`. Run the **Release** workflow
+manually with `dry_run` on to watch it decide without releasing.
 
 ---
 
 ## 5. What is deliberately not here
 
-- **No pipeline run in CI.** Release cadence, not per commit, and the upstream
-  APIs are a build-time oracle that must be paced.
-- **No workflow that builds the read API's image.** The API does deploy now —
-  as a Container, per §3 — but its image contains the dataset, and a workflow
-  that builds it would need the pipeline's output in CI. `scripts/deploy/push-api-image.sh`
-  runs where `build/` already is, on the pipeline's cadence rather than the
-  code's, and prints a tag for someone to commit.
-- **No coverage percentage.** The number that matters on this repo is the
-  pass/skip split in §2, and a coverage badge computed without a dataset would
-  report the 17-test figure as the truth.
-- **No release-approval step.** A release PR to merge, or an environment
-  awaiting review, would make the version a decision someone takes on a
-  Thursday rather than a consequence of what was merged. The gate is CI, and
-  the way to hold a release back is not to merge the `feat:`.
-- **No end-to-end browser test.** It would need a dataset, which means it
-  belongs with `scripts/check.sh` and a real build, not in CI. `docs/handoff.md`
-  §7 already records that no accessibility or performance pass exists; this is
-  the same gap and should be filled there rather than papered over here.
-- **Nothing times the deployed API.** Every latency figure this project holds
-  was taken on a developer machine, and production is half a vCPU. That gap has
-  now hidden two expensive endpoints — the unindexed `fossil` scan behind
-  `/v1/search`, and `/v1/random` at 167 ms locally against 1.19–1.51 s over the
-  wire — and both were found by hand with `curl`, not by a check. This is a real
-  hole rather than a deliberate omission; `handoff.md` §7 carries it.
+- **No pipeline run in CI** — release cadence, not per commit, and the upstream APIs must
+  be paced.
+- **No workflow that builds the read API's image** — its image contains the dataset, so a
+  workflow that builds it would need the pipeline's output in CI.
+  `scripts/deploy/push-api-image.sh` runs where `build/` already is.
+- **No coverage percentage** — the number that matters is the pass/skip split in §2, and a
+  coverage badge computed without a dataset would report the tiny dataset-free figure as
+  the truth.
+- **No release-approval step** — the gate is CI; to hold a release back, do not merge the
+  `feat:`.
+- **No end-to-end browser test** — it needs a dataset, so it belongs with
+  `scripts/check.sh` and a real build.
+- **Nothing times the deployed API** — every latency figure was taken on a developer
+  machine, and production is half a vCPU. That gap has hidden two expensive endpoints (the
+  unindexed `fossil` scan behind `/v1/search`, and `/v1/random`), both found by hand with
+  `curl`. A real hole rather than a deliberate omission.

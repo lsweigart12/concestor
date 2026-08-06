@@ -10,15 +10,11 @@ import (
 	"unicode"
 )
 
-// Search ranking, per architecture §4: exact match first, then tip_count
-// descending, then has-silhouette, then has-measured-age. Ranking ambiguous
-// prefixes by subtree size is what makes "can" surface Cantharellales before
-// a one-species genus.
-//
-// Candidate generation has two paths. When node_fts exists it is used. Until
-// then the fallback is an indexed prefix range over node.name — SQLite's
-// default collation is BINARY, so the query is issued once per plausible
-// capitalisation rather than relying on LIKE, which cannot use the index.
+// Search ranking: exact match first, then tip_count descending, then
+// has-silhouette, then has-measured-age. Candidate generation uses node_fts
+// where it exists; the fallback is an indexed prefix range over node.name (once
+// per plausible capitalisation, since the collation is BINARY and LIKE cannot
+// use the index).
 
 // SearchResult is one row of /v1/search.
 type SearchResult struct {
@@ -33,30 +29,20 @@ type SearchResult struct {
 	HasAge     bool    `json:"has_age"`
 	HasImage   bool    `json:"has_image"`
 	MatchedOn  string  `json:"matched_on"` // "name" | "vernacular" | "fts"
-	// The name that actually matched, when it is not one the row already
-	// shows. A synonym or an abbreviation is the whole reason a row is on the
-	// page and the only field that contains what the reader typed — without it
-	// the row is an unexplained answer, and for *Homo floresiensis* it is an
-	// unexplained answer about a different species.
+	// The name that actually matched, when it is not one the row already shows.
+	// A synonym or abbreviation is the only field containing what the reader
+	// typed; without it the row is an unexplained answer (and for *Homo
+	// floresiensis* an unexplained answer about a different species).
 	MatchedName *string `json:"matched_name,omitempty"`
 
-	// Where this row sits in the one ranking that covers both corpora. See
-	// {@link Interleave}. Set by /v1/search and nil everywhere else — a random
-	// pick and a segment listing are not answers to a query and have no
-	// position in one.
+	// Where this row sits in the ranking that covers both corpora (see Interleave).
+	// Set by /v1/search and nil elsewhere.
 	Order *int `json:"order,omitempty"`
 
-	// The silhouette, for callers that draw one. HasImage on its own is a
-	// ranking signal; these three are what it takes to *show* the thing, and
-	// resolution has already happened by the time HasImage is set, so sending
-	// them costs nothing beyond the bytes.
-	//
-	// CladeTips is the deciding field, not a detail. A silhouette stands for the
-	// smallest clade holding both the hit and the drawing, and drawing one that
-	// spans a kingdom misinforms where blank merely withholds (architecture §7).
-	// The caller cannot judge that without the clade's size, and it has no other
-	// way to learn it: the clade is usually not itself in the result set. It is
-	// sent here so the palette can apply the same rule as the canvas.
+	// The silhouette, for callers that draw one. CladeTips is the deciding field:
+	// a silhouette stands for the smallest clade holding both hit and drawing, and
+	// one spanning a kingdom misinforms where blank withholds, so the palette
+	// needs the clade's size to apply the same rule as the canvas.
 	PhylopicID           *string `json:"phylopic_id,omitempty"`
 	SilhouetteSourceIdx  *int    `json:"silhouette_source_idx,omitempty"`
 	SilhouetteSourceTips *int64  `json:"silhouette_source_tips,omitempty"`
@@ -107,26 +93,18 @@ func resultTier(r *SearchResult) int {
 const (
 	maxSearchLimit     = 50
 	defaultSearchLimit = 20
-	// Candidates kept per prefix variant before the final ranking. tip_count
-	// is the dominant sort key once exact matches are separated out, so any
-	// value at or above maxSearchLimit yields exactly the same page; the
-	// headroom is only for de-duplication across variants and against the
-	// vernacular and FTS candidate sets.
+	// Candidates kept per prefix variant before the final ranking. Headroom for
+	// de-duplication across variants; tip_count dominates the sort, so any value
+	// at or above maxSearchLimit yields the same page.
 	candidatesPerVariant = 128
 	// Below this token length the FTS prefix enumeration costs more than the
 	// hot-name cache, which answers the same query from memory.
 	minFTSToken = 3
-	// How much larger a clade has to be, in species, before a head-word match
-	// on it withdraws an exact match's exactness. See decorate.
-	//
-	// The corpus fixes the bounds and they are two orders of magnitude apart,
-	// which is the whole reason this is a threshold worth having rather than a
-	// number fitted to an example. It must NOT fire for "cow": Bos taurus is
-	// headlined "Domestic Cattle" and carries "cow" as an alias, against
-	// Sirenia's "sea cows" at 7 tips — a ratio of 7, and Bos taurus is the
-	// right answer. It MUST fire for "butterfly": Chaetodon capistratus is
-	// headlined "Kete" and carries "Butterfly" as one of nine Caribbean
-	// aliases, against Papilionidae's 1,080 tips — a ratio of 1,080.
+	// How much larger a clade has to be before a head-word match on it withdraws
+	// an exact match's exactness (see decorate). The corpus fixes the bounds two
+	// orders of magnitude apart: must not fire for "cow" (Bos taurus vs Sirenia's
+	// "sea cows", ratio 7) but must for "butterfly" (an alias on a reef fish vs
+	// Papilionidae, ratio ~1,080).
 	outrankRatio = 100
 )
 
@@ -163,11 +141,9 @@ func (s *Store) Search(ctx context.Context, q string, limit int) ([]SearchResult
 		byIdx[*r.Idx] = r
 	}
 
-	// FTS5 answers a prefix query by enumerating every indexed term with that
-	// prefix. Measured against this corpus: '"homo"*' is 0.4 ms, '"can"*' is
-	// 2 ms, and '"a"*' is 90 ms. So the shortest queries — the ones a palette
-	// fires on the very first keystroke — go to the hot-name cache instead,
-	// which answers them from memory and ranks them identically.
+	// FTS5 enumerates every indexed term with the prefix, so the shortest queries
+	// (first keystroke) are answered from the hot-name cache instead, which ranks
+	// them identically.
 	useFTS := s.Schema.FTS != nil && longestToken(q) >= minFTSToken
 	if useFTS {
 		rows, err := s.searchFTS(ctx, q, limit*8)
@@ -246,11 +222,8 @@ func (s *Store) Search(ctx context.Context, q string, limit int) ([]SearchResult
 	if len(results) > limit {
 		results = results[:limit]
 	}
-	// The same rank the canvas and the card will show, so a row that italicises
-	// *Tyrannosaurus rex* in one place italicises it in all three. After the
-	// truncation because it is a display field and no sort reads it — filling it
-	// earlier would cost the work on rows nobody sees, and filling it in
-	// `lessResult`'s reach would be re-ranking, which `/v1/search` may not do.
+	// The same rank the canvas and card show. After the truncation because it is
+	// display-only and no sort reads it.
 	for i := range results {
 		if results[i].Idx != nil {
 			results[i].Rank = s.rankFor(*results[i].Idx, results[i].Rank)
@@ -259,10 +232,8 @@ func (s *Store) Search(ctx context.Context, q string, limit int) ([]SearchResult
 	if err := s.fillVernaculars(ctx, results); err != nil {
 		return nil, err
 	}
-	// The test searchFTS applied was half-blind: it ran before the common name
-	// existed on the row, so `showsName`'s vernacular arm could never fire and
-	// "human" was captioned "human". A name is only worth crediting once the row
-	// is finished, which is here.
+	// Credit the matched name only once the row is finished (the common name now
+	// exists), so a row already showing the matched string does not caption it.
 	for i := range results {
 		if n := results[i].MatchedName; n != nil && showsName(&results[i], *n) {
 			results[i].MatchedName = nil
@@ -274,110 +245,55 @@ func (s *Store) Search(ctx context.Context, q string, limit int) ([]SearchResult
 	return results, nil
 }
 
-// Answer is how good the best row in a ranking is, and how many rows there are
-// to choose from. {@link Interleave} returns it because that is the one place
-// where both corpora have been scored on the same scale, and computing it a
-// second time somewhere else is how the two would come to disagree.
-//
-// It is not serialised and it is not a ranking signal. Its whole job is the
-// question handleSearch asks after the answer exists: *was that any good?* —
-// see {@link Answer.Weak}.
-//
-// The zero value is inert in both directions, which is what makes it safe to
-// return beside an error: Weak wants a bad band and the zero Band is the best
-// one, Better wants rows and the zero Rows is none.
+// Answer is how good the best row in a ranking is and how many rows there are.
+// Returned by Interleave, the one place both corpora are scored on one scale.
+// Not serialised and not a ranking signal — it answers "was that any good?"
+// (see Answer.Weak). The zero value is inert: zero Band is the best band, zero
+// Rows is none.
 type Answer struct {
-	// The best band any pickable row reached. Lower is better; bandNone on an
-	// empty list, which is the honest reading rather than a sentinel — nothing
-	// matched, in any way at all.
+	// The best band any pickable row reached; lower is better, bandNone on empty.
 	Band int
-	// Pickable rows across both corpora. Broken taxa are not counted, on the
-	// same grounds Interleave declines to stamp them: they render as a note and
-	// cannot be chosen, so they are not rows a reader can act on.
+	// Pickable rows across both corpora. Broken taxa are not counted: they render
+	// as a note and cannot be chosen.
 	Rows int
 }
 
 // How few rows a weak answer may hold before the query is read as a dead end
-// rather than a word somebody is part-way through typing.
-//
-// The two are genuinely indistinguishable from one string — `elefant` is a live
-// prefix of *Paradileptus elefantinus* exactly as `giraff` is one of Giraffidae
-// — so the discriminator is not the query but *how much of the corpus lives
-// under it*. Measured over 870 prefixes, six characters and longer, of 250
-// well-attested corpus words: 573 of them reach nothing better than a prefix
-// match, and the smallest of those still returns a **full page**. A reader
-// part-way through a name the corpus holds is never short of rows.
-//
-// The bounds are two-sided and both are from real strings. It MUST reach
-// `elefant` (1 row, one ciliate whose synonym is *Paradileptus elefantinus*),
-// `cheeta` (4) and `mamal` (6). It must NOT reach `tyrannosau` (10 rows), where
-// the only correction on offer is `tyrannos` — the reader's own prefix,
-// truncated.
+// rather than a name someone is part-way through typing. The discriminator is
+// how much of the corpus lives under the prefix: a live prefix of a real name
+// always returns a full page, so must reach `elefant` (1), `cheeta` (4),
+// `mamal` (6) but not `tyrannosau` (10, whose only correction is its own prefix).
 const sparseRows = 8
 
-// Weak reports whether this answer is poor enough to be worth asking the
-// spelling index about. Both halves are load-bearing:
-//
-//   - **Nothing matched as a whole word.** A band at or below bandToken means
-//     some name contains the query as words, and a reader who typed real words
-//     did not misspell them.
-//   - **And there is almost nothing there.** A prefix match is what typeahead
-//     means, so the band alone would fire on every second keystroke.
-//
-// The empty list is the same test rather than a separate one: no rows is
-// bandNone and zero, which is as weak as an answer gets.
+// Weak reports whether this answer is poor enough to ask the spelling index
+// about: nothing matched as a whole word (band above bandToken), AND there is
+// almost nothing there (a prefix match alone would fire every keystroke). An
+// empty list is the same test — bandNone and zero rows.
 func (a Answer) Weak() bool {
 	return a.Band > bandToken && a.Rows <= sparseRows
 }
 
-// Better reports whether this answer is worth putting to the reader in place of
-// that one.
-//
-// A strictly better band, and rows to show. "It returned something" was enough
-// while the only thing it was measured against was an empty list; against a
-// weak list it is not, because trading one junk answer for another junk answer
-// is not a correction, it is a second guess.
+// Better reports whether this answer is worth offering in place of that one: a
+// strictly better band, and rows to show. Trading one junk answer for another is
+// a second guess, not a correction.
 func (a Answer) Better(than Answer) bool {
 	return a.Rows > 0 && a.Band < than.Band
 }
 
-// Interleave puts the two corpora in one order and stamps each row with its
-// position in it, in place, and reports how good that order turned out to be.
+// Interleave puts the two corpora in one order, stamps each row with its
+// position in place, and reports how good that order is. The server does this
+// because it is ranking, which the client may not do (a client that computed the
+// order would be the fuzzy-score bug). The rule, in order:
 //
-// # Why the server does this
+//  1. Band — how well the query sits inside the name (matchBand, over both
+//     corpora, which is what makes the merge possible).
+//  2. Position within the row's own corpus — each corpus scores on signals the
+//     other lacks, so compare each row to its own best rather than invent a
+//     common scale.
+//  3. Node before fossil — the last tiebreak: a row that joins the tree beats
+//     one that only hangs off it.
 //
-// Because it is ranking, and `web/` may not rank. The client used to receive
-// two lists and pin the fossils to a section at the tail however well they
-// matched, which is a defensible answer to a question nobody was asking: the
-// reader typing "triceratops" does not want the species that nearly match it
-// followed, eventually, by the animal. Both lists are answers to one query and
-// they belong in one order — but a client that *computed* that order would be
-// the fuzzy-score bug again, where a score the client can see outweighs four
-// ranks it cannot. So the order is decided here and travels as an integer.
-//
-// # The rule, and why the parts are in this order
-//
-//  1. **Band.** How well the query sits inside the name, from {@link
-//     matchBand} — the same function, run over both corpora, which is the whole
-//     reason a merge is possible at all. It does nearly all the work: there is
-//     no node called *Triceratops*, so the fossil takes the exact band and
-//     leads; there is a node called *Canidae* headlined "dog family", so "dog"
-//     is a head-word match on a node and no PBDB row gets near it.
-//
-//  2. **Position within the row's own corpus.** Each list arrives ranked by
-//     signals the other has no counterpart for — a node has a subtree size and
-//     a common name, a fossil has occurrence counts and a stratigraphic
-//     record — and inventing a common scale for those would be inventing a
-//     number. Comparing *positions* asks each corpus how good this row is
-//     relative to its own best, which is a question both can answer.
-//
-//  3. **Node before fossil.** The last tiebreak and the smallest claim: where
-//     two rows are equally good answers, the one that can join the tree is
-//     worth more than the one that can only hang off it.
-//
-// Broken taxa are left unstamped. They render as a note rather than a row —
-// they cannot be picked — so a position in a list of pickable things would be a
-// position in a list they are not in.
+// Broken taxa are left unstamped: they cannot be picked.
 func Interleave(nodes []SearchResult, fossils []Fossil, q string) Answer {
 	qFold := strings.ToLower(q)
 	type slot struct {
@@ -472,22 +388,11 @@ func lessResult(a, b *SearchResult) bool {
 	if aBroken, bBroken := a.Kind == "broken", b.Kind == "broken"; aBroken != bBroken {
 		return bBroken
 	}
-	// Two taxa can both be called exactly what was typed, and below this line
-	// the only thing left to separate them is size — which is the wrong
-	// question when the smaller one is the animal the word is *about*. `human`
-	// is the case: *Homo* (7 tips) and *Homo sapiens* (2) both carry it, so the
-	// genus won and the reader who typed the most ordinary word in the product
-	// got the clade containing *H. erectus* and *H. neanderthalensis* instead of
-	// themselves. English Wikipedia's article **Human** is *Homo sapiens*'s, and
-	// that is a statement about which taxon the word denotes — decided outside
-	// this project, by the same instrument name-ranking.md already trusts.
-	//
-	// It sits *below* the band and above `score` for a reason. It settles ties,
-	// never bands: a taxon does not climb past a better-matching name because it
-	// owns an article, and nothing is ever demoted for lacking one. Where no
-	// candidate holds the title — `shark`, `snake`, `dog`, `cow`, `whale`, and
-	// 5,942 of the 6,619 contested names — this line does not fire at all and
-	// the ranking is exactly what it was.
+	// When two taxa are both called exactly what was typed, size is the wrong
+	// tiebreak (for `human`, the genus *Homo* beat *Homo sapiens*). English
+	// Wikipedia's article title says which taxon the word denotes. It settles
+	// ties only, never bands, and does not fire where no candidate holds the
+	// title (`shark`, `dog`, `whale`, and most contested names).
 	if a.denotes != b.denotes {
 		return a.denotes
 	}
@@ -550,15 +455,10 @@ func prefixBound(p string) string { return p + "\U0010FFFF" }
 
 // searchNamePrefix is the fallback used until node_fts exists.
 //
-// The obvious query — range scan ORDER BY tip_count DESC LIMIT 400 — measures
-// 65 ms for a one-character prefix, because SQLite has to leave the covering
-// index and seek the primary key for every one of 268,281 candidate rows just
-// to sort them. The index-only scan of the same range is 3.5 ms.
-//
-// So the ranking happens here instead: take idx alone (index-only), read
-// tip_count straight out of the mmap'd array, keep the best K in a bounded
-// heap, and fetch full rows for only those. Same answer, one order of
-// magnitude cheaper.
+// ORDER BY tip_count in SQL forces a primary-key seek per candidate row, so the
+// ranking happens here instead: take idx index-only, read tip_count from the
+// mmap'd array, keep the best K in a bounded heap, fetch full rows for only
+// those. Same answer, an order of magnitude cheaper.
 func (s *Store) searchNamePrefix(ctx context.Context, q string) ([]*SearchResult, error) {
 	seen := make(map[int]struct{})
 	var idxs []int
@@ -829,23 +729,12 @@ func (s *Store) searchFTS(ctx context.Context, q string, limit int) ([]*SearchRe
 			band = matchBand(name.String, qFold)
 		}
 
-		// One row, three questions, and they had been sharing one answer.
-		//
-		//   bands[idx] — how well did the best name match?
-		//   kinds[idx] — which name should be reported as the reason?
-		//   tiers[idx] — is any name matched one the taxon still goes by?
-		//
-		// A node matching through several names can differ on all three, and
-		// Metazoa did: it reached "animal" through the synonym *Animalia* and
-		// the vernacular *animals*. Reporting the strongest name picked the
-		// synonym, which then cost it the ranking, and it fell below five-tip
-		// bacteria and off the end of the candidate cut — searching "animal"
-		// did not return the animals at all.
-		//
-		// So the reason reported is the name that actually won the band, with
-		// strength only breaking ties. That is what makes matched_on true: the
-		// vernacular is why Metazoa is on the page, and crediting the synonym
-		// pointed at a name that lost.
+		// A node matching through several names tracks three things separately:
+		// how well the best name matched (bands), which name to report as the
+		// reason (kinds), and the best tier across every matched name (tiers).
+		// The reason reported is the name that won the band, not the strongest —
+		// else Metazoa credits the synonym *Animalia* over the vernacular that
+		// actually put it on the page.
 		if band < bands[idx] {
 			bands[idx] = band
 			kinds[idx] = kn
@@ -1070,18 +959,12 @@ func scanNodeResults(rows *sql.Rows, matchedOn string) ([]*SearchResult, error) 
 	return out, rows.Err()
 }
 
-// searchBroken answers the question "is the thing I typed a broken taxon?" —
-// and only that question.
+// searchBroken answers only "is the thing I typed a broken taxon?".
 //
-// It used to match on prefix, which was wrong in a way that made the palette
-// worse the more of a name you typed. A broken taxon is not a candidate answer
-// competing with real nodes: it is an explanation for a specific name, useful
-// only to someone who meant that name. On a prefix, 9,839 of them chase every
-// keystroke — typing "nean" put *Neanastatinae* and *Neanuridae* on the page
-// alongside 22 real genera, and neither is what anyone reaching for
-// *Neanderthal* wanted. Matching the whole name keeps the promise that matters
-// (ask for Dinosauria and we say why it is not there, rather than silently
-// answering about Archosauria) and drops the noise, which was all of it.
+// Matches the whole name, not a prefix: a broken taxon is an explanation for a
+// specific name, not a candidate competing with real nodes, so a prefix match
+// would chase every keystroke with noise (typing "nean" would surface
+// *Neanuridae*, not the *Neanderthal* the reader meant).
 func (s *Store) searchBroken(qFold string) []SearchResult {
 	if qFold == "" {
 		return nil
@@ -1093,12 +976,10 @@ func (s *Store) searchBroken(qFold string) []SearchResult {
 		switch {
 		case b.fold == qFold:
 		case b.foldAbbr != "" && b.foldAbbr == qFold:
-			// The whole-name rule, kept. An abbreviated binomial typed in full
-			// is a complete name and not a prefix, so it carries the same
-			// evidence that the person meant *this* taxon — which is the whole
-			// reason the rule is "the whole name" rather than "a prefix of it".
-			// Without this "E. coli" answered *Entamoeba coli* and never
-			// mentioned *Escherichia coli*, the taxon nearly everyone means.
+			// An abbreviated binomial typed in full is a complete name, so it
+			// carries the same evidence. Without this "E. coli" answered
+			// *Entamoeba coli*, not *Escherichia coli*, the taxon nearly everyone
+			// means.
 			matched = "abbreviation"
 		default:
 			continue
@@ -1136,76 +1017,31 @@ func (s *Store) searchBroken(qFold string) []SearchResult {
 // maxBrokenExplanations caps how many same-named broken taxa are explained.
 const maxBrokenExplanations = 2
 
-// decorate fills the ranking signals that live in the arrays and the optional
-// tables: exact match, has-image, has-measured-age, baked score.
+// decorate fills the ranking signals from the arrays and optional tables: exact
+// match, has-image, has-measured-age, baked score.
 //
-// Exact match is the primary sort key (architecture §4) and it is judged
-// against every name a node has, not just its scientific one. "human" must
-// reach Homo (7 tips) rather than Pulex, the human flea (22 tips); "T. rex"
-// must reach Tyrannosaurus rex through its abbreviation.
+// Exact match is the primary sort key, judged against every name a node has, not
+// just the scientific one ("human" must reach Homo, not Pulex the human flea).
+// It also decides where exactness is withdrawn, since an exact match settles
+// which name the query is, not which taxon the reader means. Two withdrawals,
+// both only demoting a row to bandHead (where clade size decides):
 //
-// It also decides where exactness is *withdrawn*, which is the second half of
-// that judgement and the one nothing had. An exact match settles which name
-// the query is; it does not settle which taxon the reader means, because a
-// common name can be filed against a taxon far below the group it names. Two
-// withdrawals, both measured over 77 everyday words, and both only ever
-// demoting a row to bandHead — where clade size decides — never below it:
+//   - A lone bare word recorded for a single species is a category label:
+//     "eagle" is all that is recorded for a one-species fossil genus, and ranked
+//     above Haliaeetus. Restricted to tip_count ≤ 1, which keeps Serpentes
+//     ("snake") and Salmo ("salmon").
+//   - An alias the taxon is not headlined by, withdrawn only against a head-word
+//     match on a clade outrankRatio times larger (keeps Bos taurus for "cow").
 //
-//   - **A lone bare word recorded for a single species is a category label.**
-//     PBDB's ColDP vernacular field carries group words ("belemnite" on 33
-//     taxa, "heart urchin" on 25), and when it is the only thing anyone has
-//     written down about a one-species taxon, the word says what kind of thing
-//     it is rather than what it is called. "eagle" is the whole of what is
-//     recorded for Miraquila, a one-species fossil genus, and it ranked above
-//     Haliaeetus, the sea eagles. Restricting this to tip_count ≤ 1 is what
-//     keeps Serpentes ("snake"), Nephropoidea ("lobster") and Salmo
-//     ("salmon") — clades whose one recorded name is genuinely their name.
+// A taxon whose scientific name is the query is never withdrawn (that is bandOwn).
 //
-//   - **An alias the taxon is not headlined by answers to clade size.** If a
-//     taxon's own headline name does not carry the word at all, an exact match
-//     on one of its other aliases is a coincidence of naming: Chaetodon
-//     capistratus is headlined "Kete" and carries "Butterfly" as one of nine
-//     Caribbean aliases. Withdrawn only against a head-word match on a clade
-//     outrankRatio times larger, which is what keeps Bos taurus ("cow", against
-//     Sirenia's "sea cows") and Rattus norvegicus (headlined "Brown Rat", so
-//     never eligible at all).
-//
-// A taxon whose *scientific* name is the query is never withdrawn — that is
-// what bandOwn is for.
-//
-// # And one promotion, which is the other half of the same judgement
-//
-// Withdrawing exactness answers "this taxon is probably not what the word
-// means" from offline signals. Nothing answered the positive form, so two taxa
-// equally entitled to the word fell through to clade size — and the *larger*
-// won. That is right for `beetle`, where Coleoptera holds it against two
-// one-species beetles, and wrong for `human`, where *Homo* (7 tips) beat
-// *Homo sapiens* (2).
-//
-// **English Wikipedia's article title is the discriminator**, and it is the
-// instrument `docs/name-ranking.md` §2 already uses — read here for a
-// different question than the one it answers there. `usage_rank` orders one
-// taxon's own names and is display-only; an *article title* is held by one
-// taxon and no other, so `wiki_evidence = 'title'` on the name the reader typed
-// says which taxon that word denotes. Measured over the 6,619 English names
-// more than one node claims: 663 have exactly one titled claimant, 5,942 have
-// none, and **14 have two or more** — every one of those a monotypic pair with
-// identical tip counts (Sphenisciformes/Spheniscidae at 59, Gaviidae/Gavia at
-// 7), where the two answers are the same set of species and the tie does not
-// matter. The leader changes on 358 names: `onion` to *Allium cepa* from the
-// 1,048-tip genus *Allium*, `hare` to *Lepus* from Leporidae (which is also the
-// rabbits), `perch` to *Perca* from Percidae, `mayfly` to Ephemeroptera from
-// **Tipulidae**, the crane flies.
-//
-// It only ever promotes, and that is deliberate rather than timid. The mirror
-// rule — withdraw an exact match whose evidence is `elsewhere`, i.e. a real
-// English article by that name that is *not* this taxon's — was written,
-// measured and refused: "whale" on Cetacea and "rat" on *Rattus norvegicus* are
-// both `elsewhere` (the articles **Whale** and **Rat** are broad-concept pages)
-// and both are the only exact claimant there is, so withdrawing them demotes
-// the right answer with nothing better to promote. `snail` is `elsewhere` on
-// all four of its claimants including Gastropoda. Absence of a title is not
-// evidence against a taxon — the same rule `name-ranking.md` states for NULL.
+// And one promotion: where two taxa are equally entitled to a word, clade size
+// picked the larger — right for `beetle` (Coleoptera), wrong for `human`
+// (*Homo* beat *Homo sapiens*). English Wikipedia's article title is the
+// discriminator: `wiki_evidence = 'title'` on the typed name says which taxon
+// the word denotes. It only ever promotes; the mirror rule (withdraw on
+// `elsewhere`) was refused, because **Whale** and **Rat** are broad-concept
+// pages and Cetacea/*Rattus* are the only claimants there are.
 func (s *Store) decorate(ctx context.Context, results []SearchResult, qFold string) error {
 	idxs := make([]int, 0, len(results))
 	for i := range results {
@@ -1244,9 +1080,8 @@ func (s *Store) decorate(ctx context.Context, results []SearchResult, qFold stri
 		s.log.Warn("vernacular ranking signal unavailable", "err", err)
 		vern = map[int]string{}
 	}
-	// A node's band has to be judged against *every* common name it carries:
-	// Canidae matches "dog" as a whole word through "dog family", which is not
-	// its primary vernacular.
+	// A node's band is judged against every common name it carries: Canidae
+	// matches "dog" through "dog family", not its primary vernacular.
 	allVern, err := s.allVernacularNames(ctx, idxs)
 	if err != nil {
 		s.log.Warn("vernacular band signal unavailable", "err", err)
@@ -1272,12 +1107,9 @@ func (s *Store) decorate(ctx context.Context, results []SearchResult, qFold stri
 		if r.band != bandExact || r.bandOwn == bandExact {
 			continue
 		}
-		// Both withdrawals below ask "is this bare word really this taxon's
-		// name, or a label somebody filed against it?". An article titled with
-		// the word, about this taxon, answers that outright, so neither runs.
-		// *Allium cepa* is the shape: one species, and "onion" is the whole of
-		// what is recorded for it — a category label by every offline signal
-		// available, and the title of the article about the onion.
+		// An article titled with the word, about this taxon, blocks both
+		// withdrawals: *Allium cepa* looks like a category label offline, but is
+		// the subject of the article "Onion".
 		if r.denotes {
 			continue
 		}
@@ -1294,9 +1126,8 @@ func (s *Store) decorate(ctx context.Context, results []SearchResult, qFold stri
 		}
 		r.withdrawable = true
 	}
-	// The comparison is against head-word matches only, and it is made after
-	// the pass above so that a label demoted there can be the thing a rival is
-	// measured against.
+	// Against head-word matches only, after the pass above so a label demoted
+	// there can be what a rival is measured against.
 	var headMax int64
 	for i := range results {
 		if r := &results[i]; r.band == bandHead && r.TipCount != nil {

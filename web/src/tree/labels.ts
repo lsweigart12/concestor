@@ -1,23 +1,8 @@
 /**
- * Label placement.
- *
- * Positions in this app are computed, never simulated — and until now that
- * applied to the *nodes* while their labels were pinned at fixed offsets and
- * left to collide. With a handful of well-spaced species that reads fine. With
- * a clade whose child sits in the same lane, it does not: the child's trace
- * runs horizontally out of the parent at exactly the parent's y, so a label on
- * that side is drawn straight through a line, and the next node's label is
- * drawn through that.
- *
- * So labels get the same treatment as nodes. Each one measures itself, asks for
- * a place, and takes the first candidate that collides with nothing — nodes,
- * traces, or labels already placed. Failing that it wraps to two or three rows
- * and asks again. Failing *that* it takes the least-bad position and says so,
- * because with enough lineages converging on one divergence point some overlap
- * is genuinely unavoidable and pretending otherwise just hides it.
- *
- * The search is deterministic and order-stable: same inputs, same layout, every
- * time. Nothing here is a physics simulation or an annealing pass.
+ * Label placement, computed rather than simulated. Each label measures itself
+ * and takes the first candidate colliding with nothing (nodes, traces, placed
+ * labels); failing that it wraps to two or three rows, then takes the least-bad
+ * position and marks it overlapped. Deterministic and order-stable.
  */
 
 export interface Rect {
@@ -32,13 +17,8 @@ export interface LabelInput {
   x: number;
   y: number;
   /**
-   * The mark ends its line, with the margin to its right open.
-   *
-   * A question about geometry, not about the topology — which is why it is not
-   * spelled `isLeaf`. A chosen leaf is one; so is a **graft**, whose connector
-   * arrives from the left and stops at the fossil with nothing beyond it. Giving
-   * a graft the divergence ordering, which it had, put every fossil's name and
-   * silhouette a half-row above the mark they belong to.
+   * The mark ends its line, margin to its right open — geometry, not topology,
+   * hence not `isLeaf`: a graft is terminal too.
    */
   terminal: boolean;
   /** The taxon name. Wraps when it must. */
@@ -55,13 +35,8 @@ export interface LabelInput {
   meta: string;
   hasSilhouette: boolean;
   /**
-   * Drawn at `--w-med` rather than `--w-reg`, which is 4.0% wider.
-   *
-   * A property of the *type*, not of the topology, which is why it is not
-   * spelled `isMRCA` even though the MRCA is currently the only mark that
-   * carries it. Whatever `.mark.is-mrca .mark-label` grows to cover, the rule
-   * to keep is that a label measured in one weight and drawn in another is a
-   * label placed against the wrong box.
+   * Drawn at `--w-med` (4.0% wider than `--w-reg`) — a property of the type, not
+   * the topology, hence not `isMRCA` though the MRCA is its only carrier.
    */
   medium: boolean;
   /** Placed in descending order, so the most important labels get first pick. */
@@ -69,13 +44,9 @@ export interface LabelInput {
 }
 
 /**
- * Where a label sits relative to the mark it names — enough of one to say
- * where its box is, and no more.
- *
- * Split out from {@link LabelBox} because three places were computing that box
- * from the same four numbers: the candidate search, the content bounds, and now
- * the viewport's reveal. Three copies of one offset is three chances for a
- * label to be measured a few pixels away from where it is drawn.
+ * Where a label sits relative to its mark, enough to locate its box. Split from
+ * {@link LabelBox} so the candidate search, the content bounds and the reveal
+ * compute that box from one definition.
  */
 interface LabelPlacement {
   side: "left" | "right";
@@ -116,14 +87,9 @@ export interface TraceRun {
 }
 
 /**
- * The two stacks, spelled exactly as `--sans` and `--mono` in styles.css.
- *
- * Exported because four other measurements were each carrying their own
- * abbreviation of them, and an abbreviation is not a shorthand here: canvas
- * resolves `ui-sans-serif, -apple-system, sans-serif` to a different face than
- * the full list, **6.1% narrower** at 12.5px. Every label was measured against
- * that face and drawn in the real one, and `SLACK` was quietly absorbing the
- * whole error — which is why a second mismatch on top of it had nowhere to go.
+ * The two stacks, spelled exactly as `--sans` and `--mono` in styles.css. The
+ * full list matters: canvas resolves an abbreviated stack to a face 6.1%
+ * narrower, and every label is measured here and drawn there.
  */
 export const SANS =
   'ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
@@ -131,17 +97,9 @@ export const MONO =
   'ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace';
 
 /**
- * Must match `.mark-name`, `.mark-age` and `.mark-meta` in styles.css. A label
- * measured at one size and rendered at another is a label placed against the
- * wrong box — and there were two of those.
- *
- * `.mark-age` renders at **11px**, not the 9.5px of `.mark-meta`; measured as
- * meta, "≤ 6.7 Ma" came out 15.8% short and the divergence's own name was
- * wrapped to make room for a figure that then did not fit either. And
- * `.mark.is-mrca .mark-label` sets `font-weight: var(--w-med)`, 560, which
- * `.mark-name` inherits: measured at 400, "Primates" was 9.1% short of the box
- * it was given and broke across two lines as "Primate" / "s". The MRCA is the
- * one label in this app guaranteed to be on screen.
+ * Must match `.mark-name`, `.mark-age` and `.mark-meta` in styles.css: a label
+ * measured at one size and drawn at another is placed against the wrong box. The
+ * MED variants are `--w-med` (560), which the MRCA's label inherits.
  */
 const NAME_FONT = `12.5px ${SANS}`;
 const NAME_FONT_MED = `560 12.5px ${SANS}`;
@@ -154,13 +112,7 @@ const SIL = 34; // silhouette box
 const SIL_GAP = 9;
 const DOT_GAP = 13; // node centre → nearest label edge
 const NAME_LINE = 16;
-/**
- * The rank row and the age row, which are 9.5px and 11px type respectively.
- *
- * One constant for both, tall enough for the larger, because the difference is
- * a pixel and a half and two constants would have to be kept in step with two
- * CSS rules for it.
- */
+/** Line height for both the rank (9.5px) and age (11px) rows, tall enough for the larger. */
 const META_LINE = 15;
 const TRACE_HALF = 5; // traces are 1.6px cores with a 7px halo; keep clear of both
 const DOT_HALF = 8;
@@ -171,36 +123,19 @@ const WRAP_LEVELS = 3;
 // whatever sits to its right.
 const GLYPH_W = 16;
 
-// CSS `letter-spacing`, in em, for the three runs. See `textWidth`. The age's
-// is negative and comes from `.num` rather than `.mark-age` — tabular figures
-// are set slightly tight — so leaving it out would only ever over-reserve, but
-// it costs nothing to be right about.
+// CSS `letter-spacing`, in em, for the three runs. See `textWidth`.
 const NAME_TRACKING = 0.005;
 const AGE_TRACKING = -0.01;
 const META_TRACKING = 0.06;
 /**
- * Bias every measurement slightly wide.
- *
- * The model and the browser will never agree exactly — subpixel advances, the
- * margin on the age, whether a webfont has finished loading. The errors are not
- * symmetric in cost: an over-estimate reserves a few pixels too many and nothing
- * looks wrong, while an under-estimate flips a row count and puts text through a
- * line. So round against ourselves.
- *
- * It is genuine slack now and not a correction. It used to be spending its whole
- * 6% on the truncated font stack above, which left nothing for the real
- * disagreements and made the two size and weight mismatches visible rather than
- * merely present.
+ * Bias every measurement slightly wide: an over-estimate reserves a few spare
+ * pixels, an under-estimate flips a row count and puts text through a line.
  */
 const SLACK = 1.06;
 
 /**
- * Everything above that is a claim about styles.css, gathered so a test can
- * hold it to one.
- *
- * "Must match `.mark-name` / `.mark-meta`" was a comment for as long as this
- * file has existed, and three of the numbers under it drifted anyway. A comment
- * cannot fail; `labels.test.ts` reads the stylesheet and compares.
+ * The font/size claims about styles.css, gathered so `labels.test.ts` can read
+ * the stylesheet and hold them to it (a comment cannot fail, and three drifted).
  */
 export const TYPE = {
   NAME_FONT,
@@ -232,28 +167,9 @@ function measurer(): CanvasRenderingContext2D | null {
 }
 
 /**
- * The type size out of a CSS font shorthand.
- *
- * `Number.parseFloat` reads the *first* number in the string, and half the
- * fonts above start with a weight — so on `560 12.5px …` it returned **560**,
- * and `textWidth` then charged the tracking below at 560px per em. The MRCA is
- * the only mark measured at medium weight, its label is the one on the left of
- * its dot and right-aligned, and the surplus therefore landed on the left edge
- * of the layout's content box. The fit centres that box, so the *tree* sat
- * right of centre: 22.5px of it on a 1016px canvas for a thirteen-character
- * name, and more for a longer one, because the error is 2.8px per character.
- *
- * The rank row is where it got expensive. `META_TRACKING` is 0.06, which at
- * 560px is 33.6px a character: "SUPERORDER" measured 416px against a real 63,
- * saturating the wrap cap and reserving three rows of height for one line. The
- * age row failed the other way — `AGE_TRACKING` is negative, so "≤ 96 Ma" came
- * out at 7.6px against a real 49 — which is the under-estimate {@link SLACK}
- * exists to prevent.
- *
- * It survived because `medium` is one mark in a tree and no test set it: the
- * fixture in `labels.test.ts` said `medium: false`, and under the no-DOM
- * estimate below a medium name resolved to some thousands of pixels without
- * anything reading the number.
+ * The type size out of a CSS font shorthand. Matches the `px` number
+ * specifically: `Number.parseFloat` reads the first number, which on a shorthand
+ * starting with a weight (`560 12.5px …`) is the weight.
  */
 function fontPx(font: string): number {
   return Number.parseFloat(/(\d*\.?\d+)px/.exec(font)?.[1] ?? "") || 13;
@@ -291,18 +207,8 @@ interface Metrics {
 }
 
 /**
- * Three rows: what kind of thing this is, which thing it is, and when.
- *
- * The age used to ride on the name's line, and on a left-hand label that line is
- * right-aligned — so the figure took the space nearest the mark and the *name*
- * was pushed away from the thing it names. `Boreoeutheria ≤ 96 Ma` reserved 139
- * units where the name needs 85, and every one of those units is distance
- * between a label and its own point.
- *
- * On rows of their own the label is as wide as its widest row rather than the
- * sum of them, which is the whole gain, and the three read in the order a
- * stranger needs: the rank says what kind of thing is being named before the
- * name arrives, and the age is the fact you go looking for once you know.
+ * Three rows — rank, name, age — each on its own line, so the label is as wide
+ * as its widest row rather than the sum of them.
  */
 function metricsFor(n: LabelInput, wrap: number, cap: number): Metrics {
   const nameFont = n.medium ? NAME_FONT_MED : NAME_FONT;
@@ -350,20 +256,10 @@ interface Candidate {
 }
 
 /**
- * Where a label is willing to go, best first.
- *
- * Terminal marks want to sit beside their point on the open margin side, so
- * they try right, then vertical dodges, and only then the crowded interior.
- * Clades default above-left — nothing is ever routed there, since the parent
- * arrives horizontally at the node's own y and its vertical drop is back at the
- * parent's x — and fall through to above-right, below-left, below-right. That
- * ordering is what makes a blocked clade label step sideways into open space
- * rather than downward through its own subtree.
- *
- * The split is `terminal`, not `isLeaf`, and the difference is not cosmetic: the
- * clade list never offers `dy: 0` until its ninth candidate, so anything sent
- * down it that *is* a terminal mark is displaced by half a row even when the
- * space beside it is completely clear. That is what happened to every graft.
+ * Where a label is willing to go, best first. Terminal marks try right, then
+ * vertical dodges, then the interior; clades default above-left and step
+ * sideways rather than down through their own subtree. Keyed on `terminal`, not
+ * `isLeaf` — the clade list withholds `dy: 0`, which would displace a graft.
  */
 function candidatesFor(n: LabelInput, h: number, rowH: number): Candidate[] {
   const near = h / 2 + 10;

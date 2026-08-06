@@ -1,20 +1,11 @@
 """A Newick parser that assigns preorder indices in one pass.
 
-Preorder numbering is the load-bearing decision in the whole data model
-(architecture §3.1): it gives `parent[i] < i`, makes subtree containment an
-interval test, and makes tip ordering inherent rather than something layout
-code has to maintain.
-
-Newick writes an internal node's label *after* its children, which looks like
-it forces postorder. It does not: the node's preorder *position* is the `(`
-that opens it, which is encountered before any child. So indices are assigned
-at `(` and the label is attached later when the matching `)` closes.
-
-The scan is driven by a numpy-located array of structural byte offsets rather
-than a per-character Python loop — 31 MB of text with ~8M delimiters is
-otherwise the slowest thing in the build. The parser keeps an explicit stack:
-max observed depth is 111, but a pathological input should not blow the C
-stack.
+Preorder numbering gives `parent[i] < i`, makes subtree containment an interval
+test, and makes tip ordering inherent. An internal node's preorder position is
+the `(` that opens it, so indices are assigned at `(` and the label attached
+when the matching `)` closes. The scan is driven by a numpy-located array of
+structural byte offsets rather than a per-character Python loop, and keeps an
+explicit stack rather than recursing.
 """
 
 from __future__ import annotations
@@ -70,9 +61,8 @@ def _split_label(seg: bytes) -> tuple[bytes, float]:
 def parse_ott_id(label: bytes) -> int:
     """Extract an OTT id from a synthesis node label.
 
-    Handles `ott770315`, `Homo_sapiens_ott770315`, and returns NO_OTT for
-    synthesised `mrcaott83926ott3607676` labels, which have no OTT id at all
-    and are precisely why OTT id cannot be the primary key.
+    Handles `ott770315` and `Homo_sapiens_ott770315`; returns NO_OTT for
+    synthesised `mrcaott83926ott3607676` labels, which carry no OTT id.
     """
     if not label:
         return NO_OTT
@@ -98,8 +88,7 @@ def parse(
 ) -> ParsedTree:
     """Parse one Newick tree, assigning `idx` by preorder traversal."""
     buf = np.frombuffer(data, dtype=np.uint8)
-    # Newick permits quoted labels containing delimiters. This parser does not
-    # handle them, so it refuses the input rather than mis-splitting silently.
+    # Quoted labels can contain delimiters; refuse rather than mis-split.
     if bool(((buf == 0x27) | (buf == 0x22)).any()):
         raise NewickError(
             "quoted labels detected; this parser does not handle quoting and "
@@ -204,9 +193,8 @@ class Topology:
 def derive(parent: U32Array) -> Topology:
     """Compute depth, subtree extent and tip counts from the parent array.
 
-    Every quantity here is a single pass, forward or reverse, because preorder
-    guarantees `parent[i] < i`: ancestors are already final on a forward sweep
-    and descendants are already final on a reverse one.
+    Each is a single forward or reverse pass, since preorder guarantees
+    `parent[i] < i`.
     """
     n = len(parent)
     par = parent.astype(np.int64)
@@ -215,9 +203,8 @@ def derive(parent: U32Array) -> Topology:
     child_count = np.bincount(par[1:], minlength=n).astype(np.uint32)
     is_tip = child_count == 0
 
-    # The sequential sweeps run over Python lists rather than numpy scalars:
-    # element access dominates here, and numpy scalar boxing makes the same
-    # loop roughly an order of magnitude slower.
+    # Sweeps run over Python lists: numpy scalar boxing makes the loop ~10x
+    # slower here.
     par_l = par.tolist()
 
     depth_l = [0] * n
@@ -232,8 +219,7 @@ def derive(parent: U32Array) -> Topology:
         tip_count_l[p] += tip_count_l[i]
         size_l[p] += size_l[i]
 
-    # u8 is enough for the synthesis tree (max depth 111) but not for every
-    # tree we parse: a fully-resolved chronogram goes far deeper.
+    # u8 suffices for the synthesis tree but not a fully-resolved chronogram.
     max_depth = max(depth_l)
     depth = np.array(depth_l, dtype=np.uint8 if max_depth < 256 else np.uint32)
     tip_count = np.array(tip_count_l, dtype=np.uint32)

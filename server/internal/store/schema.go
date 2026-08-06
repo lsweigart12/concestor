@@ -7,15 +7,11 @@ import (
 	"strings"
 )
 
-// Other agents are concurrently adding vernacular, node_fts, silhouette,
-// node_image and a search-ranking table to concestor.db. The binary must start
-// and serve correctly against a partially-built dataset, so every table and
+// The binary must start against a partially-built dataset, so every table and
 // column is detected from sqlite_master / PRAGMA table_info at startup and the
-// resolution is reported verbatim by /v1/about.
-//
-// Where a column name cannot be known in advance, a short candidate list is
-// tried and the winner recorded. Nothing is guessed silently: a table that is
-// present but does not resolve is reported with the reason it was skipped.
+// resolution is reported by /v1/about. Where a column name is not fixed, a short
+// candidate list is tried; a table present but unresolvable is reported skipped
+// with a reason rather than guessed at silently.
 
 // Schema is the resolved shape of the database this instance opened.
 type Schema struct {
@@ -37,18 +33,10 @@ type Schema struct {
 }
 
 // FTSSchema names the FTS5 index plus the table that maps its rowid back to a
-// node.
-//
-// Architecture §3.3 sketched `node_fts` with `content=”` and an implied
-// rowid == node.idx. The pipeline built something better: one FTS row per
-// *name* — scientific, abbreviation, synonym, vernacular — because a node has
-// many names, with `search_name` carrying the id -> idx mapping and a `kind`
-// saying which sort of name matched.
-//
-// Assuming the rowid was node.idx against that schema does not error. It joins
-// cleanly to entirely unrelated nodes and returns confident nonsense. So FTS is
-// wired up only when the mapping table is found; otherwise it is skipped with
-// a reason and the prefix fallback is used.
+// node. There is one FTS row per name (a node has many), so `search_name`
+// carries the id -> idx mapping and a `kind`. Assuming rowid == node.idx would
+// not error but joins to unrelated nodes, so FTS is wired up only when the
+// mapping table is found; otherwise the prefix fallback is used.
 type FTSSchema struct {
 	Table    string `json:"table"`
 	MapTable string `json:"map_table"`
@@ -58,16 +46,12 @@ type FTSSchema struct {
 	MapKind  string `json:"map_kind,omitempty"`
 }
 
-// VernacularSchema maps common names onto nodes. Priority-one work per
-// handoff §1: a palette that returns nothing for "dog" is broken at the door.
+// VernacularSchema maps common names onto nodes.
 //
-// Source and SourceID are not about names at all — they are the only place in
-// the built database that records *which Wikidata item* a node is, and that
-// identifier is what lets a card link out to an encyclopaedia article about the
-// right taxon rather than a search for a string. They ride here because the
-// crawl that produced them was a vernacular crawl; a node with no common name
-// therefore has no QID either, which is the honest shape of what was gathered
-// and not a bug to route around.
+// Source and SourceID record which Wikidata item a node is (the only place the
+// database does), which is what lets a card link to the right taxon's article.
+// They ride here because the crawl that produced them was a vernacular crawl, so
+// a node with no common name has no QID either.
 type VernacularSchema struct {
 	Table     string `json:"table"`
 	Idx       string `json:"idx"`
@@ -89,17 +73,10 @@ type VernacularSchema struct {
 	Rank string `json:"rank,omitempty"`
 
 	// WikiEvidence is what English Wikipedia does with a name — `title`,
-	// `redirect`, `elsewhere`, `none`, or NULL for "the taxon has no English
-	// article, so the question could not be asked". Written by the `names`
-	// phase; see `docs/name-ranking.md` §2.
-	//
-	// Search reads exactly one of those five values, `title`, and reads it as a
-	// statement about which *taxon* a word denotes rather than about which name
-	// a taxon goes by. That distinction is the whole licence for touching it
-	// here: `usage_rank` above orders one taxon's own names and is display-only,
-	// but an article title is held by one taxon and no other, so "the word you
-	// typed is the title of this taxon's article" is an answer to band.go's
-	// question. See {@link decorate}.
+	// `redirect`, `elsewhere`, `none`, or NULL (no English article). Search reads
+	// only `title`: an article title is held by one taxon, so "the word you typed
+	// titles this taxon's article" answers band.go's question of which taxon a
+	// word denotes. See decorate.
 	WikiEvidence string `json:"wiki_evidence,omitempty"`
 }
 
@@ -119,13 +96,11 @@ type SilhouetteSchema struct {
 	SVGPath string `json:"svg_path,omitempty"`
 }
 
-// NodeImageSchema maps a node to the silhouette shown for it. SourceIdx names
-// the node the image is actually *of* — the closest drawn relative, which is a
-// cousin for 2,448,650 of the 2.7M nodes and an exact match for only 7,470.
-// CladeIdx is the smallest clade containing both the node and the drawing, and
-// its tip_count is the size of the claim the picture makes. Climb and Method
-// say how far and by what rule, which the UI needs in order not to imply the
-// picture depicts the species the user selected.
+// NodeImageSchema maps a node to the silhouette shown for it. SourceIdx is the
+// node the image is actually of (the closest drawn relative). CladeIdx is the
+// smallest clade containing both node and drawing, and its tip_count is the size
+// of the claim the picture makes. Climb and Method say how far and by what rule,
+// so the UI need not imply the picture depicts the selected species.
 type NodeImageSchema struct {
 	Table     string `json:"table"`
 	Idx       string `json:"idx"`
@@ -144,10 +119,9 @@ type SynonymSchema struct {
 	Name  string `json:"name"`
 }
 
-// RankingSchema is a baked search-ranking table. Only a column literally named
-// `score` is used, and higher is taken to be better; a column named `rank` is
-// ambiguous (SQLite FTS5 ranks lower-is-better) so it is deliberately ignored
-// rather than guessed at.
+// RankingSchema is a baked search-ranking table. Only a column named `score` is
+// used (higher is better); `rank` is ambiguous (FTS5 ranks lower-is-better) and
+// ignored rather than guessed at.
 type RankingSchema struct {
 	Table string `json:"table"`
 	Idx   string `json:"idx"`
@@ -347,31 +321,18 @@ func (s *Schema) resolveNodeImage() {
 	}
 }
 
-// WitnessSchema maps a divergence to a *second* silhouette: a fossil taxon
-// from below the fork whose stratigraphic bracket puts it at that divergence.
+// WitnessSchema maps a divergence to a second silhouette: a fossil taxon from
+// below the fork whose stratigraphic bracket puts it at that divergence. It is a
+// separate table from node_image because node_image prefers the most inclusive
+// drawing (a crown group at a split); this says what was there when the lineages
+// parted.
 //
-// It is a separate table from node_image because it answers a separate
-// question. node_image says what something in this clade looks like and prefers
-// the most inclusive drawing beneath a node, which at a split is always a crown
-// group — the human–chimp split drew Homo, the whale–hippo split drew a
-// dolphin. This says what was there when the lineages parted, and it exists for
-// a few hundred forks rather than 2.7M nodes because it is refused wherever the
-// node has no position in time, carries its own drawing, or has nothing drawn,
-// dated and extinct hanging below it.
-//
-// **A witness is a fossil, not a node**, and PbdbTaxonNo is the key that says
-// so. It used to be a node index called `source_idx` in a table called
-// `node_divergence_image`; both were renamed rather than redefined, because a
-// column that keeps its name and changes what it addresses is the
-// `node_fts.rowid` trap — it joins cleanly against `node` and returns confident
-// nonsense. The old table is still recognised so an older build keeps serving,
-// and there SourceIdx is a node index and the fossil columns are empty.
-//
-// AttachIdx is the deepest node the fossil is known to sit below and AttachWalk
-// is how many PBDB `parent_no` hops it took to find it. Zero hops is a
-// different quality of claim from eight, and the caption has to say which.
-// GapMa is the distance from the split to the taxon's range, 0 meaning the
-// range spans it.
+// A witness is a fossil, not a node, and PbdbTaxonNo is the key that says so. It
+// was renamed from a node index `source_idx` rather than redefined, to avoid the
+// join-cleanly-to-`node` trap; the old `node_divergence_image` table is still
+// recognised (SourceIdx set, fossil columns empty) so an older build keeps
+// serving. AttachIdx/AttachWalk say how far below the fork the fossil sits;
+// GapMa is the split-to-range distance, 0 meaning the range spans it.
 type WitnessSchema struct {
 	Table string `json:"table"`
 	Idx   string `json:"idx"`
@@ -420,10 +381,8 @@ func (s *Schema) resolveWitness() {
 		Fea:         s.col(t, "fea"),
 		Lla:         s.col(t, "lla"),
 	}
-	// The taxon and its dates are required, not optional as node_image's source
-	// is. A witness with no named taxon is a picture with no caption, and with
-	// no dates it is the unexplained silhouette this replaced — "Sahelanthropus,
-	// 7.2–5.3 Ma" beside a split dated 6.7 is the whole claim.
+	// The taxon and its dates are required: a witness with no name or no bracket
+	// is a picture with no caption.
 	if w.Fossil() {
 		if w.TaxonName == "" || w.Fea == "" || w.Lla == "" || w.AttachIdx == "" {
 			s.Skipped[t] = "a fossil witness carries no taxon name or no bracket"
@@ -441,8 +400,7 @@ func (s *Schema) resolveWitness() {
 
 // OccurrenceSchema names the fossil range shown for a node in the fourth age
 // tier. The four bounds stay four columns: `fea`/`fla` and `lea`/`lla` are two
-// separate uncertainty brackets and collapsing them into one range is a
-// different and wrong claim about what PBDB knows (architecture §7).
+// separate uncertainty brackets and one range would be a different, wrong claim.
 type OccurrenceSchema struct {
 	Table string `json:"table"`
 	Idx   string `json:"idx"`

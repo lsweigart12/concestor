@@ -9,19 +9,15 @@ import (
 	"strings"
 )
 
-// Fossils attach to segments; they are not placed in the tree (architecture
-// §3.4). Each PBDB taxon carries the deepest synthesis node that is an
-// ancestor-or-self of it, so a segment query is one index scan over
-// fossil(attach_idx, n_occs DESC).
+// Fossils attach to segments, not placed in the tree. Each PBDB taxon carries
+// the deepest synthesis node that is an ancestor-or-self of it, so a segment
+// query is one index scan over fossil(attach_idx, n_occs DESC).
 //
-// The claim being made is deliberately weak: *this taxon belongs somewhere
-// below node X, and existed between these dates.* Not *this taxon is the
-// sister of that one.* Both appearance brackets are returned uncollapsed so
-// the UI can draw the double bracket — faded envelope fea→lla for the maximal
-// possible extent, solid bar fla→lea for the minimal certain one. Anything
-// else misrepresents PBDB's uncertainty model, and ~21% of taxa have no
-// interval at all and must get an explicit "no range recorded" treatment
-// rather than a zero-width bar.
+// The claim is weak: this taxon belongs somewhere below node X, and existed
+// between these dates. Both appearance brackets are returned uncollapsed so the
+// UI can draw the double bracket (faded envelope fea→lla, solid bar fla→lea);
+// the ~21% of taxa with no interval get an explicit "no range recorded" rather
+// than a zero-width bar.
 
 // FossilSchema is the resolved shape of the fossil table.
 type FossilSchema struct {
@@ -103,26 +99,15 @@ func (s *Schema) resolveFossil() {
 	s.Fossil = f
 }
 
-// verifyFossilFTS wires up `fossil_fts` only after proving its rowid really is
-// a `pbdb_taxon_no`.
+// verifyFossilFTS wires up `fossil_fts` only after proving its rowid really is a
+// `pbdb_taxon_no`.
 //
-// **The proof has to go through MATCH.** The obvious check — join the index to
-// the table on that identity and count the names that disagree — is not a check
-// at all: the index is contentless, so selecting a column off it yields NULL,
-// `NULL <> 'Eotriceratops'` is NULL rather than true, and the count comes back
-// 0 for a correct index and a deliberately corrupted one alike. That is the
-// house rule about counting rows not being the same as checking them, arriving
-// through a door nobody was watching.
-//
-// So each sampled taxon is looked up *by its own name*, and the answer must
-// contain its own key. A correct index passes; one built against any other key
-// fails on the first sample. The sample is taken from both ends of the keyspace
-// because a key that merely *overlaps* the right one — the case no amount of
-// reading the schema would catch — can agree across a whole region and diverge
-// outside it.
-//
-// Refusal is not fatal. The scan is still there, still correct, and a slow
-// search is a better failure than a search that describes the wrong animal.
+// The proof goes through MATCH: the index is contentless, so a join-and-compare
+// gate reads NULL and passes on a corrupted index alike. Instead each sampled
+// taxon is looked up by its own name and the answer must contain its own key,
+// sampled from both ends of the keyspace (a partly-overlapping key agrees across
+// a region and diverges outside it). Refusal is not fatal: the scan fallback is
+// correct, and a slow search beats one describing the wrong animal.
 func (s *Schema) verifyFossilFTS(ctx context.Context, db *sql.DB) {
 	f := s.Fossil
 	if f == nil {
@@ -223,31 +208,20 @@ type Fossil struct {
 	FLA *float64 `json:"fla"`
 	LEA *float64 `json:"lea"`
 	LLA *float64 `json:"lla"`
-	// The young end of that last bracket, read for what it is worth. PBDB's
-	// `lla` above is its own number and is never overwritten.
-	//
-	// LLAIdentified is the youngest last appearance an *identified* member of
-	// this taxon reaches. When it is older than LLA, the taxon's own young end
-	// rests on material catalogued no finer than the taxon itself — a
-	// `Stegosaurus sp.` — and says nothing about where the named animal's
-	// record ends. That comparison is exact: PBDB aggregates upward, so a young
-	// end below every descendant's cannot come from an identified one.
-	//
-	// LLADrawn is where the taxon may be *drawn*. It equals LLA except on the
-	// 4,819 taxa whose alternative is corroborated enough to act on, and it is
-	// the value a graft's position must read. Null on a build predating it.
+	// The young end of that last bracket, read for what it is worth. LLA above is
+	// PBDB's own number, never overwritten. LLAIdentified is the youngest last
+	// appearance an identified member reaches; when older than LLA, the taxon's
+	// young end rests on `sp.`-level material. LLADrawn is where the taxon may be
+	// drawn (LLA except where the correction fires) and is what a graft reads.
 	LLAIdentified *float64 `json:"lla_identified,omitempty"`
 	YoungEndOccs  *int64   `json:"young_end_occs,omitempty"`
 	LLADrawn      *float64 `json:"lla_drawn,omitempty"`
-	// The other end of the same last-appearance bracket, moved with LLADrawn.
-	// `[lea, lla]` is one bracket and both of its ends come from the same
-	// occurrences, so a consumer that took LLADrawn and PBDB's own LEA would
-	// be assembling a bracket out of two different records — for Stegosaurus,
-	// a corrected 143.1 against a 100.5 that is the very occurrence refused.
+	// The other end of the same bracket, moved with LLADrawn: `[lea, lla]` share
+	// occurrences, so pairing LLADrawn with PBDB's own LEA would mix two records.
 	LEADrawn *float64 `json:"lea_drawn,omitempty"`
 
-	// Where this row sits in the one ranking that covers both corpora. See
-	// {@link Interleave}. Set by /v1/search and nil everywhere else.
+	// Where this row sits in the ranking over both corpora (see Interleave). Set
+	// by /v1/search, nil elsewhere.
 	Order *int `json:"order,omitempty"`
 }
 
@@ -256,34 +230,17 @@ type Fossil struct {
 // explicit "showing N of M".
 const maxSegmentFossils = 200
 
-// notability orders a lane. It is a sum of penalties, smallest first, and it
-// exists because ordering on `n_occs` alone put five living wastebasket clades
-// at the top of every deep segment.
+// notability orders a lane: a sum of penalties, smallest first. Ordering on
+// `n_occs` alone surfaced the least specific row (a clade accumulates every
+// occurrence inside it), so a deep segment opened on living wastebasket clades.
+// The penalties:
 //
-// Measured on Tetrapoda, which has 623 taxa attached: by occurrence count the
-// first eight were Tetrapoda itself (211,065 occurrences, `is_extant` true),
-// Anthracosauria, Reptiliomorpha, Amphibiosauria, Cotylosauria and three more
-// like them, and *Acanthostega gunnari* sat at rank 147. A clade accumulates
-// every occurrence of everything inside it, so the *least* specific row always
-// wins a count — the ranking was guaranteed to surface the least informative
-// thing present. With these penalties the same lane opens on Diplocaulus,
-// Diadectes, Diploceraspis and Seymouria.
+//	extant (8)   a living group is not a fossil taxon (unknown extancy is 4).
+//	undrawn (2)  a drawing is the strongest notability signal; outranks
+//	             specificity, so a drawn family beats an undrawn genus.
+//	broad (1)    species and genera can be pictured; orders and clades are filing.
 //
-// The three penalties, and why each:
-//
-//	extant (8)   a living group is not a fossil taxon. PBDB lists Tetrapoda
-//	             below Tetrapoda; that is true and useless. Unknown extancy
-//	             is 4 — suspected rather than convicted.
-//	undrawn (2)  a drawing is the strongest notability signal in the corpus,
-//	             because somebody chose to illustrate it, and it is also what
-//	             makes the row worth looking at. It outranks specificity so a
-//	             drawn family beats an undrawn genus.
-//	broad (1)    species and genera are animals a reader can picture; orders
-//	             and unranked clades are filing.
-//
-// `n_occs` still breaks ties and is still a real signal *within* a tier: a
-// genus with 400 occurrences is one people have heard of, one with a single
-// occurrence is a single paper.
+// `n_occs` still breaks ties within a tier.
 func (s *Store) notability(f *FossilSchema) string {
 	terms := []string{}
 	if f.IsExtant != "" {
@@ -440,16 +397,9 @@ func (s *Store) Fossils(ctx context.Context, attach []int, limit int) (list []Fo
 }
 
 // FossilByTaxonNo returns one PBDB taxon by its own key, or nil when there is
-// no such row.
-//
-// This exists for exactly one reason: a graft is view state, so it goes in the
-// URL, so a cold load has to be able to rebuild it from an id alone. The
-// segment query cannot serve that — it is keyed on the branch, and a shared
-// link may arrive with no lane open and no segment to ask about.
-//
-// Deliberately not filtered by `is_primary`. The segment listing shows accepted
-// taxa only, but a link already made against a row is a row the reader saw, and
-// silently resolving it to nothing would break the share rather than correct it.
+// no such row. Exists so a cold load can rebuild a graft (view state, in the
+// URL) from an id alone, which the branch-keyed segment query cannot. Not
+// filtered by `is_primary`: a link already made is a row the reader saw.
 func (s *Store) FossilByTaxonNo(ctx context.Context, taxonNo int64) (*Fossil, error) {
 	f := s.Schema.Fossil
 	if f == nil || f.TaxonNo == "" {
@@ -468,49 +418,24 @@ func (s *Store) FossilByTaxonNo(ctx context.Context, taxonNo int64) (*Fossil, er
 	return &fo, nil
 }
 
-// maxFossilSearch caps a palette query.
-//
-// It used to be 8, and the small number was doing a job that no longer exists:
-// fossils were pinned to a section at the tail of the list, so a long tail of
-// near-matches would push the species a reader actually asked for off the
-// bottom. They are now ranked against nodes by the same band, so a fossil is
-// only high in the list when it is a better answer than the nodes above it —
-// and the number that has to be generous is the *candidate* count, or a taxon
-// that would have led the page is cut before the merge ever sees it.
+// maxFossilSearch caps a palette query. Generous, because it is the candidate
+// count feeding the merge: a taxon cut here is cut before the band ranking can
+// promote it above the nodes.
 const maxFossilSearch = 24
 
 // notInTree refuses a PBDB taxon that is itself a node in the synthesis tree.
 //
-// This is the line the whole search rests on, so it is drawn once here rather
-// than restated at each call site. `attach_walk` is how many PBDB `parent_no`
-// hops phase 3 took to reach a node; zero means it took none, which means this
-// taxon *is* that node. 32,386 accepted PBDB taxa are in that position —
-// *Tyrannosaurus*, *Tyrannosaurus rex* and *Stegosaurus* among them — and
-// before this they arrived twice on one query, once as something that joins the
-// tree and once as something that hangs off it, with nothing on either row
-// saying why the same animal was being offered two different futures.
-//
-// The node wins that duplicate every time, and not on a preference: phase 4
-// already writes the taxon's PBDB bracket onto the node as its `occurrence`
-// row, so the node row carries the fossil's dates *and* an ancestry, *and* the
-// ability to induce an MRCA. There is nothing the graft was adding.
-//
-// So the exclusion is what makes the corpus mean something a reader can hold:
-// **a fossil row is a taxon the tree does not contain.** Not "a taxon that is
-// extinct" — the tree is full of extinct taxa — and not "a taxon in PBDB",
-// which is 93,686 living things. Cost: 8.9% of the accepted corpus, all of it
-// reachable by the same name through `/v1/search`'s node path.
-//
-// Name equality is deliberately *not* also required. 1,320 of these rows differ
-// from their node's name — PBDB's `Animalia` against OTT's `Metazoa`,
-// `Haplorhini` against `Haplorrhini` — and those are the same taxon spelled
-// twice, which is precisely the case a graft has nothing to add to. OTT carries
-// the alternatives as synonyms, so the node path answers them.
+// `attach_walk = 0` means phase 3 took no hops to reach a node, i.e. this taxon
+// IS that node. Such a taxon otherwise arrives twice on one query (once joining
+// the tree, once hanging off it); the node wins, because phase 4 already writes
+// its PBDB bracket onto the node as an `occurrence` row, so the node carries the
+// dates and an ancestry and can induce an MRCA. The rule a reader holds: a
+// fossil row is a taxon the tree does not contain. Name equality is not required
+// (PBDB `Animalia` vs OTT `Metazoa` is the same taxon, answered by the synonym).
 func notInTree(f *FossilSchema) string {
 	if f.AttachWalk == "" {
-		// A build predating the column cannot tell the two apart. Serving the
-		// whole corpus is the old behaviour and the honest degradation; the
-		// duplicate is visible and a silently empty list is not.
+		// A build predating the column cannot tell the two apart; serving the
+		// whole corpus (a visible duplicate) beats a silently empty list.
 		return ""
 	}
 	return fmt.Sprintf("t.%q <> 0", f.AttachWalk)
@@ -518,40 +443,16 @@ func notInTree(f *FossilSchema) string {
 
 // SearchFossils finds PBDB taxa the tree does not contain, best match first.
 //
-// # Candidate generation, and why there are two of them
+// Candidate generation: `fossil_fts` where it exists, else a `LIKE '%q%'` full
+// scan (the table has no index on `name`) — the scan was ~90% of `/v1/search`,
+// flat against match count, so the index cuts it to 0.1–15 ms. The index drops
+// the mid-word substring matches `LIKE` found, but those are exactly the rows
+// matchBand scores `bandNone` and could never reach a page.
 //
-// Where `fossil_fts` exists the name is matched through it; otherwise the
-// query falls back to `LIKE '%q%'`, which is a full scan of the 523,112-row
-// table because `fossil` is keyed on `(attach_idx, n_occs DESC)` for the
-// segment query and has no index on `name`.
-//
-// That scan used to be the only path, on the reasoning that ~40 ms sits inside
-// the palette's 110 ms debounce. The reasoning was sound and the number was
-// wrong. Measured through the serving binary it is **100–117 ms**, flat against
-// match count — `zzzqqq`, which matches nothing, costs 100 ms — and it was
-// roughly 90% of `/v1/search`. The deployed container is a `standard-1`
-// instance with **half a vCPU**, several times slower than the laptop those
-// figures come from, which is why search felt fine in development and slow in
-// production. Through the index the same queries cost 0.1–15 ms, the worst case
-// being a two-character prefix, which is the shortest the palette sends.
-//
-// The two paths do not return quite the same rows, and the difference is
-// deliberate. FTS5 matches whole tokens and token prefixes; `LIKE '%q%'` also
-// matched inside a word, so "rex" reached *Aulacorexia* along with 525 others.
-// The index returns **no row the scan would not** — a pipeline gate asserts
-// that — and the rows it drops are exactly the ones {@link matchBand} scores
-// `bandNone`, its worst band, which {@link Interleave} then ranks behind every
-// node. They could not reach a 24-row page from either path.
-//
-// # Ranking
-//
-// SQL orders by a coarse match tier and then `notability` — the same
-// extinct/drawn/specific/count ranking a drill-down lane uses. That tier is
-// candidate *generation*, not the answer: the rows are re-banded in Go by
-// {@link matchBand}, the same function that ranks nodes, because the two lists
-// are about to be merged into one and a corpus ranked by its own private scale
-// cannot be interleaved with another. `notability` survives as the order
-// *within* a band, which is what it was always measuring.
+// Ranking: SQL orders by a coarse tier and `notability`, but that is generation;
+// the rows are re-banded in Go by matchBand (the same function that ranks nodes)
+// so the two corpora can be merged. `notability` survives as the order within a
+// band.
 func (s *Store) SearchFossils(ctx context.Context, q string, limit int) ([]Fossil, error) {
 	f := s.Schema.Fossil
 	if f == nil || f.TaxonNo == "" {

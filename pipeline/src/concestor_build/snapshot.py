@@ -1,11 +1,8 @@
 """Phase 0 — pin and snapshot upstream sources.
 
-Ordering is deliberate. The GBIF legacy backbone goes first: it was frozen
-2023-08-28, GBIF has moved on to Catalogue of Life Extended Release, and it is
-the only identifier path from PBDB to OTT. Everything else here is either
-actively maintained or already versioned, so it can wait.
-
-Nothing in `snapshot/` is ever modified after write.
+The GBIF legacy backbone is captured first: it is frozen, no longer maintained
+upstream, and the only identifier path from PBDB to OTT. Nothing in `snapshot/`
+is modified after write.
 """
 
 from __future__ import annotations
@@ -29,8 +26,8 @@ OTT_TAX = "https://files.opentreeoflife.org/ott/ott3.7.3"
 GBIF_BACKBONE = "https://hosted-datasets.gbif.org/datasets/backbone/2023-08-28"
 ZENODO_RECORD = "19049120"
 
-# Sizes measured 2026-07-31 (docs/data-sources.md). A mismatch is reported but
-# does not fail the phase on its own — the SHA-256 is the real identity.
+# A size mismatch is reported but does not fail the phase — the SHA-256 is the
+# real identity.
 DOWNLOADS: list[JsonDict] = [
     # --- decaying sources, captured first -------------------------------
     {
@@ -140,8 +137,8 @@ def run(skip_checklist: bool = False, force: bool = False) -> int:
     SNAPSHOT.mkdir(parents=True, exist_ok=True)
 
     with provenance.client() as client:
-        # Gate first: if the live API has moved past v16.1, later phases'
-        # oracle checks compare against a tree we did not build from.
+        # If the live API has moved past v16.1, later phases' oracle checks
+        # would compare against a tree we did not build from.
         about = client.post(
             "https://api.opentreeoflife.org/v3/tree_of_life/about", json={}
         )
@@ -248,7 +245,6 @@ def run(skip_checklist: bool = False, force: bool = False) -> int:
                 "~88% reach a nubKey (docs §4)",
             )
 
-    # Every artifact carries a digest by construction; assert it anyway.
     missing = [a.name for a in m.artifacts.values() if not a.sha256]
     g.require("artifacts without SHA-256", missing, [])
     g.observe(

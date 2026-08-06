@@ -1,22 +1,14 @@
 /**
- * Deterministic layout. Positions are computed, never simulated.
- *
- * design-reference.md asks for a deterministic hierarchical layout and
- * suggests d3-hierarchy / ELK / dagre. **We use none of them**, and that is a
- * settled decision (architecture §7, handoff.md §1a): a graph-layout engine
- * assigns `x` by *depth*, and here `x` is *time*. Running one would silently
- * destroy the axis the layout exists for. Every other principle in that
- * document holds — deterministic, computed, not simulated, not draggable —
- * and this file is all of them.
+ * Deterministic layout. Positions are computed, never simulated. No graph-layout
+ * engine (no d3-hierarchy / ELK / dagre): they assign `x` by depth, and here `x`
+ * is time (architecture §7).
  *
  *   x = symlog(age_layout)      linear below t0 = 1 Ma, logarithmic above
  *   y = tip lane                assigned by preorder idx
  *
- * Both properties the motion design depends on fall out of preorder numbering
- * rather than being maintained here: sorting leaves by `idx` is a canonical
- * vertical order, so adding a leaf inserts it in place and never permutes the
- * others, and an internal node sits at the midpoint of its children's extent
- * so a lane keeps its position across renders.
+ * Preorder `idx` gives both motion properties for free: sorting leaves by it is
+ * a canonical vertical order, so adding a leaf inserts in place, and an internal
+ * node sits at its children's midpoint so a lane keeps its position.
  */
 
 import type { PathNode } from "../api";
@@ -36,16 +28,7 @@ export const SYMLOG_T0 = 1.0;
 /** Share of the axis given to the linear stretch. */
 const LIN_SHARE = 0.07;
 
-/**
- * Which scale the axis is on.
- *
- * The toggle is a real change of scale and not a caption: `linear` maps age to
- * position proportionally, which squashes every hominin divergence against the
- * present and is exactly the comparison the toggle exists to let a reader
- * make. It once changed only the footer word and the knee marker, so the
- * "linear" view was the symlog view with its warning removed — the one
- * arrangement that is worse than either scale.
- */
+/** Which scale the axis is on. A real change of scale, not a caption. */
 export type AxisMode = "log" | "linear";
 
 export const ROW_H = 74;
@@ -53,30 +36,18 @@ export const PLOT_W = 1240;
 export const PAD_X = 150;
 
 /**
- * Two marks closer than this in x are one mark.
- *
- * A node dot is 16 layout units across (`DOT_HALF` in `labels.ts`), so centres
- * nearer than this cannot be told apart at any zoom — the transform scales both
- * the gap and the dot. Two things read it, and both are asking the same
- * question: whether a branch has any length worth drawing along. The row rule
- * uses it to decide that a node and its only child would be one mark, and the
- * graft connector to decide it has nowhere on the branch to leave from but the
- * anchor itself.
+ * Two marks closer than this in x are one mark — a node dot is 16 layout units
+ * across, so nearer centres cannot be told apart at any zoom. Read by the row
+ * rule and the graft connector to ask whether a branch has any length to draw
+ * along.
  */
 const MARK_MIN_SEP = 18;
 
 /**
- * Fraction of the axis for an age, present at 0 and deep time at 1.
- *
- * log(0) is undefined at the present, which is where a naive implementation
- * emits -Infinity and the layout silently collapses — hence the linear stretch
- * below `SYMLOG_T0`. The knee gets a visible tick, because a scale that bends
- * without saying so misleads.
- *
- * **This is no longer the default scale**, though it is still the only one that
- * can hold a tree spanning a hominin divergence and the Cambrian at once. That
- * is what it is for, and one opening asks for it by name. `DEFAULT` in
- * `state/store.ts` has the reasoning for preferring true proportions elsewhere.
+ * Fraction of the axis for an age, present at 0 and deep time at 1. log(0) is
+ * undefined at the present, so there is a linear stretch below `SYMLOG_T0` (the
+ * knee gets a visible tick). Not the default scale, but the only one that holds
+ * a hominin divergence and the Cambrian at once.
  */
 export function symlogFrac(age: number, maxAge: number): number {
   if (!Number.isFinite(age) || age <= 0) return 0;
@@ -93,11 +64,8 @@ export function fracToAge(frac: number, maxAge: number): number {
 }
 
 /**
- * Proportional time: the deepest node at the far edge, the present at 0.
- *
- * Unclamped on purpose, so it stays invertible either side of the plot — the
- * axis asks what age sits under screen x, and that x is routinely off the ends
- * once the view is panned.
+ * Proportional time: deepest node at the far edge, present at 0. Unclamped, so
+ * it stays invertible off the ends of the plot (the axis inverts panned x).
  */
 function linearFrac(age: number, maxAge: number): number {
   if (!Number.isFinite(age)) return 0;
@@ -130,22 +98,14 @@ export interface Placed {
   isMRCA: boolean;
   /** Stable across renders — see {@link laneHue}. */
   hue: number;
-  /**
-   * Set on a fossil drawn against the tree rather than a node in it. Carries
-   * the graft so the renderer can draw its connector back to the attach point;
-   * absent on everything the topology actually contains.
-   */
+  /** Set on a fossil drawn against the tree; carries the graft for its connector. */
   graft?: Graft;
 }
 
 /**
  * A graft's connector: from a point on a drawn branch down to the fossil.
- *
- * Two coordinates rather than one, because the two ends mean different things.
- * `(joinX, joinY)` is on the lineage, at the fossil's own **first appearance**
- * — the youngest its lineage can have parted, clamped to the branch. `(x, y)`
- * is the fossil at its last. So the vertical drop is the part nobody knows and
- * the horizontal run is, where unclamped, the taxon's observed extent.
+ * `(joinX, joinY)` is on the lineage at the fossil's first appearance (clamped
+ * to the branch); `(x, y)` is the fossil at its last.
  */
 interface GraftLink {
   idx: number;
@@ -170,62 +130,27 @@ export interface Layout {
 }
 
 /**
- * A lane's hue, derived from the node's own `idx` rather than its row.
- *
- * design-reference.md requires that "a lane keeps its hue across renders".
- * Keying hue on row position would break that the moment a new species slots
- * in above an existing one and shifts every row below it. Keying on `idx` —
- * which is immutable, assigned once by the preorder traversal in phase 1 —
- * makes the hue a property of the organism, not of the current view.
- *
- * The set is deliberately tight and cool: cyan through teal to pale green,
- * low chroma. Distinguishable, never candy.
- *
- * Exported because the empty canvas's lights need the *first* member by name —
- * see `canvas/bootLight.ts`, which lights the wordmark in the app's own colour
- * and cannot get at it through {@link laneHue}, whose whole job is to make the
- * choice unpredictable. A literal `186` there would be a second spelling of a
- * number that lives here.
+ * A lane's hue, keyed on the node's immutable `idx` so it stays constant across
+ * renders (a row-keyed hue would shift when a species slots in above). A tight,
+ * cool set. Exported because `canvas/bootLight.ts` needs the first member by
+ * name — it cannot go through {@link laneHue}, which is deliberately unpredictable.
  */
 export const LANE_HUES = [186, 172, 200, 158, 212, 145, 194];
 
 export function laneHue(idx: number): number {
-  // A cheap integer hash so adjacent idx values (sister taxa, very common in a
-  // selection) do not land on adjacent hues.
+  // A cheap integer hash so adjacent idx values (sister taxa) do not land on
+  // adjacent hues.
   let h = idx * 2654435761;
   h ^= h >>> 15;
   return LANE_HUES[Math.abs(h) % LANE_HUES.length]!;
 }
 
 /**
- * Row order for grafts sharing a slot: the deeper the join, the lower the row.
- *
- * A graft's connector is an L — down from `(joinX, anchorY)` to its own row,
- * then right to the fossil. `joinAge` is clamped to be no younger than the
- * anchor, so **`joinX` is never right of the anchor**: every connector leaves
- * the lineage at or above the branch's top and then has to travel right, past
- * whatever else hangs off the same point.
- *
- * That makes crossings a pure question of order. Take two grafts on one slot,
- * `i` drawn above `j`. `j`'s vertical crosses `i`'s horizontal run exactly when
- * `joinX(i) < joinX(j) < x(i)` — and sorting so that `joinX` only ever
- * *decreases* down the rows makes that condition unsatisfiable. `i`'s own
- * vertical stops at `i`'s row, above `j`, so it can never reach `j`'s run
- * either. No crossings, by construction rather than by tuning.
- *
- * `joinX` decreases as `joinAge` increases, so ascending `joinAge` is the same
- * rule stated without reference to the scale — which matters, because it must
- * hold under both axis modes and at every zoom.
- *
- * The case it was written for: *H. georgicus* (first appearance 2.58 Ma) among
- * *H. floresiensis* and *H. neanderthalensis*, whose first appearances are
- * *younger* than the divergence they hang from and so clamp to it. Ordered by
- * last appearance, georgicus came first and its run cut straight through the
- * vertical carrying the other two down. It belongs at the bottom, and this is
- * the property that says so.
- *
- * Sorting is stable, so grafts that join at the same point keep the order
- * `buildGrafts` gave them and the picture stays a function of the URL.
+ * Row order for grafts sharing a slot: ascending `joinAge`, so `joinX` only
+ * decreases down the rows. That makes connector crossings unsatisfiable — no
+ * crossings by construction. Ascending `joinAge` rather than `joinX` states it
+ * without reference to the scale, so it holds under both axis modes and every
+ * zoom. Stable, so the picture stays a function of the URL.
  */
 export function graftOrder(a: Graft, b: Graft): number {
   return a.joinAge - b.joinAge;
@@ -242,24 +167,11 @@ export function layout(
     /** Fossils drawn against the tree. See `graft.ts`; empty is the default. */
     grafts?: readonly Graft[];
     /**
-     * Hold the axis out to at least this age, whatever is on the canvas.
-     *
-     * Written for one caller: an opening drawn in sequence (`state/sequence.ts`).
-     * Every step of one adds a lineage and so moves `maxAge`, and for the fish
-     * opening that pullback is the drama — but the scale is *recomputed*
-     * between steps, not tweened, and nothing in this app eases a node from one
-     * x to another. `docs/management.md` records that the spring reflow
-     * `design-reference.md` promises has never been implemented and that the
-     * tree jump-cuts; four hard rescales in five seconds read as a bug rather
-     * than as depth. Easing `maxAge` itself would mean re-running this whole
-     * pass — placement, collision, bounds — every frame, and racing the fit
-     * animation that already runs on every add.
-     *
-     * So the axis is held at the sequence's *final* extent from its first
-     * frame. Nothing rescales; what pulls back is the viewport's own fit, which
-     * is animated already. It is a floor and never a ceiling — `Math.max`
-     * below — because a value smaller than the content needs would put a node
-     * off the left edge, which is the one failure a time axis must not have.
+     * Hold the axis out to at least this age, whatever is on the canvas. For a
+     * sequenced opening (`state/sequence.ts`): the scale is recomputed between
+     * steps rather than tweened, so pinning it to the sequence's final extent
+     * from the first frame avoids four hard rescales in five seconds, and the
+     * viewport's own fit does the pullback. A floor, never a ceiling (`Math.max`).
      */
     holdMaxAge?: number | null;
   } = {},
@@ -282,9 +194,8 @@ export function layout(
   }
 
   const ageOf = (v: number) => nodes.get(v)?.age_layout ?? 0;
-  // Grafts count toward the extent. A fossil older than every node on screen
-  // would otherwise be placed against a scale that does not reach it and land
-  // off the left edge — which is the one failure a time axis must not have.
+  // Grafts count toward the extent, or a fossil older than every node lands off
+  // the left edge.
   const maxAge = Math.max(
     ...ind.rendered.map(ageOf),
     ...grafts.map((g) => g.node.age_layout),
@@ -309,93 +220,34 @@ export function layout(
     }
   }
   const leafSet = new Set(ind.leaves);
-  /**
-   * Would this node be drawn on top of the one child whose row it inherits?
-   *
-   * Only asked of a node with exactly one rendered child, because that is the
-   * only shape where a node's y is *equal* to another mark's rather than
-   * strictly between two of them.
-   */
+  // Only a node with exactly one rendered child can share another mark's y.
   const collidesWithOnlyChild = (v: number): boolean => {
     const cs = kids.get(v) ?? [];
     if (cs.length !== 1) return false;
     return Math.abs(xOf(v) - xOf(cs[0]!)) < MARK_MIN_SEP;
   };
   /**
-   * **A row belongs to a lineage that ends here.** A node with rendered
-   * descendants is drawn *on* the lineage that continues past it, never on a row
-   * of its own — even when the reader chose it by name.
+   * A row belongs to a lineage that ends here: a node with rendered descendants
+   * is drawn *on* the lineage that continues past it, never on a row of its own,
+   * even when chosen. Rows ascend by `idx` (preorder), so a chosen internal node
+   * given its own row would take the first row of its block, above its children.
    *
-   * This is the rule the whole picture rests on, and getting it wrong is not a
-   * cosmetic failure. Rows are handed out in ascending `idx`, which is preorder,
-   * which puts an **ancestor before every one of its descendants**. So a chosen
-   * internal node given a row of its own always took the *first* row of its own
-   * block — drawn above its own children, with its parent's midpoint landing
-   * inside the block below them.
-   *
-   * Selecting Cetacea beside *Balaenoptera musculus* and *Hippopotamus
-   * amphibius* is the case that named it. Cetacea went to the top row, the blue
-   * whale to the row under it, and Whippomorpha — the ancestor of both — to the
-   * midpoint of Cetacea and the hippo, which is *below the whale*. Read down the
-   * canvas it said: Cetacea, whale, then their ancestor, then a fossil. Cetacea
-   * looked like a sibling of the animal it contains, and Whippomorpha's dashed
-   * branch ran back up the canvas alongside the whale's own, nineteen pixels
-   * apart, because Cetacea carries no age and sits 1.5 Ma off its parent.
-   *
-   * Dropped onto the lineage instead, Cetacea is a marked point at 50 Ma on the
-   * branch running out to the blue whale, and Whippomorpha forks above it. That
-   * is how every phylogeny in print draws a named clade that contains a sampled
-   * tip, and it needs no reordering to get there: with the node off the row list
-   * the remaining rows are still ascending `idx`, so adding a species still
-   * inserts it in place and still permutes nothing.
-   *
-   * One exception, and it is the reason this used to be unconditional.
-   * *Homo sapiens neanderthalensis* is a child of *Homo sapiens*, and both sit
-   * at `age_layout` 0 — so putting the parent on its child's row puts two chosen
-   * species on the same pixel, joined by a trace of zero length. The divergence
-   * renders, correctly, and is invisible. Where a node would land within
-   * {@link MARK_MIN_SEP} of the single child it takes its row from, it keeps a
-   * row and the trace becomes a visible vertical drop at the true shared age.
-   * The fix is a row and not an offset in x: x is time and must not be nudged to
-   * make a picture work, while y carries no meaning beyond keeping lineages
-   * apart.
-   *
-   * A node with two or more rendered children never needs it — the midpoint of
-   * its children is strictly between two distinct rows, so it cannot collide
-   * with either.
+   * One exception: where a node would land within {@link MARK_MIN_SEP} of its
+   * single child (both at `age_layout` 0, e.g. *H. sapiens* and its subspecies),
+   * it keeps a row so the zero-length trace becomes a visible drop — a row, not
+   * an x offset, since x is time.
    */
   const rows = ind.rendered.filter(
     (v) => !kids.has(v) || (leafSet.has(v) && collidesWithOnlyChild(v)),
   );
 
   /**
-   * Grafts take rows of their own, immediately outside the block of rows the
-   * lineage they hang from occupies.
-   *
-   * Outside the *block*, not beside the anchor's own row: an anchor with
-   * descendants on screen owns a run of rows, and dropping a fossil into the
-   * middle of that run would separate a branch from the rest of itself. Placed
-   * against the end of the block it reads as what it is — an extra thing hanging
-   * off this part of the tree — and the rows between it and its connector all
-   * belong to the same clade.
-   *
-   * **Which end** is the part that matters, and it is decided by where the
-   * anchor's own fork sits. A graft row inserted *between* the anchor and that
-   * fork drags the fork's midpoint half a row for every row inserted, and with
-   * one graft that lands the fork exactly on the graft's row — arithmetic, not
-   * bad luck. The fossil's dashed run then leaves from a point a few pixels off
-   * a divergence dot and reads as hanging off the divergence: *Pakicetus* drawn
-   * against Whippomorpha, which is a claim about a hippo's ancestor rather than
-   * about a whale's. So the graft goes on the **far side of the block from the
-   * fork**, and the connector never runs back across it.
-   *
-   * Rows ascend by `idx`, so a fork sits below its first child's block and above
-   * its last — which is the whole of what {@link graftsAbove} has to decide.
-   *
-   * **Within a slot the deeper join goes further from the anchor**, and that
-   * ordering is what keeps the connectors from crossing each other. Below the
-   * block that is `graftOrder`; above it, the rows run the other way and so does
-   * the sort. See {@link graftOrder}.
+   * Grafts take rows of their own, just outside the block of rows the lineage
+   * they hang from occupies — on the far side of the block from the anchor's
+   * own fork, so an inserted row cannot drag the fork's midpoint onto the graft
+   * (which would read as the fossil hanging off the divergence). Within a slot
+   * the deeper join goes furthest, so connectors do not cross. See
+   * {@link graftsAbove} and {@link graftOrder}.
    */
   const basePos = new Map<number, number>();
   rows.forEach((v, i) => basePos.set(v, i));
@@ -471,24 +323,11 @@ export function layout(
   }
 
   /**
-   * Where the connector leaves the branch — `joinAge`, held clear of the corner.
-   *
-   * `orthPath` draws a branch as a vertical at the **ancestor's** x and then a
-   * horizontal at the anchor's y. `joinAge` is clamped to the branch, so when a
-   * fossil is older than the whole branch it clamps to the branch top and
-   * `xAt(joinAge)` is exactly that vertical's x — and the connector is then drawn
-   * along the line it is supposed to be distinguished from. Collinear, so the two
-   * read as one stroke however the rows are arranged: *Pakicetus*, 56 Ma against
-   * a Cetacea branch spanning 51.8–50.3, drew its drop straight down the trunk
-   * and hung the fossil off Whippomorpha.
-   *
-   * The remedy is geometric and not a change of age: the drop is pushed to the
-   * first point of the horizontal run that is clear of the corner, and never
-   * past the anchor's own mark. On a branch shorter than that — Cetacea's is
-   * eight units wide, because it carries no age and phase 2 synthesized one 1.5
-   * Ma off its parent — the connector leaves from the anchor's dot itself, which
-   * is the least ambiguous thing it could do. `joinAge` and `joinAt` are
-   * untouched, so the caption still says which of the three joins this is.
+   * Where the connector leaves the branch. Held clear of the branch's own
+   * corner: when a fossil is older than the whole branch, `xAt(joinAge)` lands
+   * on the branch's vertical and the connector would be drawn along the line it
+   * is meant to be distinguished from. Pushed to the first point of the run
+   * clear of the corner, never past the anchor's mark. `joinAge`/`joinAt` untouched.
    */
   const joinXFor = (g: Graft): number => {
     const ancIdx = ind.segments.get(g.anchor)?.anc ?? null;
@@ -514,8 +353,7 @@ export function layout(
       node: g.node,
       isLeaf: false,
       isMRCA: false,
-      // The anchor's hue, not its own: a graft belongs to the lineage it hangs
-      // from, and giving it an independent colour would read as a third branch.
+      // The anchor's hue: a graft belongs to the lineage it hangs from.
       hue: laneHue(g.anchor),
       graft: g,
     });
@@ -537,26 +375,13 @@ export function layout(
     idx: p.idx,
     x: p.x,
     y: p.y,
-    // A graft is terminal without being a leaf: `isLeaf` says *chosen*, which
-    // decides whether it may draw a borrowed exemplar, and a graft may not be
-    // one of those. What the label placement needs is the other question —
-    // does anything continue past this mark — and for a fossil nothing does.
-    //
-    // Nor, now, does `isLeaf` answer it for a node. A chosen clade that still
-    // has a rendered descendant sits *on* that descendant's line, so the margin
-    // to its right is the descendant's own trace and its name belongs above the
-    // branch, where `candidatesFor` sends a divergence. Left as terminal it
-    // asked for `right, dy: 0` first and got it: "Cetacea" printed straight
-    // along the line running out to the blue whale.
+    // Terminal means "nothing continues past this mark", not `isLeaf`
+    // (chosen): a graft is terminal, and a chosen clade with a rendered
+    // descendant sits on that descendant's line and is not.
     terminal: (p.isLeaf && !kids.has(p.idx)) || p.graft !== undefined,
-    // `.mark.is-mrca .mark-label` sets `--w-med`, and the MRCA is the one label
-    // guaranteed to be on screen — so the one weight mismatch this app can have
-    // is also the one it is certain to show.
     medium: p.isMRCA,
-    // A graft outranks every divergence and yields only to a chosen leaf. It
-    // is on the canvas because the reader asked for it by name, and `tip_count`
-    // alone would put a one-tip fossil below every node it hangs among — so
-    // the label the reader came for would be the first one crowded out.
+    // A graft outranks every divergence and yields only to a chosen leaf: the
+    // reader asked for it by name, so `tip_count` alone would crowd it out.
     priority:
       (p.isLeaf ? 1e9 : 0) +
       (p.graft ? 8e8 : 0) +
@@ -620,26 +445,15 @@ const defaultLabelText: LabelText = (p) => ({
 });
 
 /**
- * Boundaries a reader is likely to recognise, offered ahead of round numbers.
- *
- * 66 Ma is the K–Pg, 252 the end-Permian, 541 the base of the Cambrian. They
- * are not a tick *set* — the axis generates its ladder from the range actually
- * on screen (see `TimeAxis.tsx`) — but where one of these lands close to a
- * round number, the recognisable one is the better label.
- *
- * A fixed set was the whole tick supply once, and the failure was not subtle:
- * nothing between 1 and 10 meant that human-and-chimp, whose entire tree lives
- * inside 7 Ma, drew an axis with the single number `0` on it, and any zoom past
- * the fit pushed all ten off-screen and left the axis blank.
+ * Boundaries a reader may recognise (66 K–Pg, 252 end-Permian, 541 Cambrian),
+ * offered ahead of a nearby round number. Not the tick set — the axis generates
+ * its ladder from the on-screen range (see `TimeAxis.tsx`).
  */
 export const LANDMARK_TICKS = [66, 252, 541];
 
 /**
- * Orthogonal edge path with a small consistent corner radius.
- *
- * No bezier: design-reference.md is explicit that curves make convergent
- * branches ambiguous, and with a dozen lineages meeting at one divergence
- * point that ambiguity is the whole failure mode.
+ * Orthogonal edge path with a small corner radius. No bezier: curves make
+ * convergent branches ambiguous where a dozen lineages meet at one point.
  */
 export function orthPath(
   x1: number,

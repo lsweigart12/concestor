@@ -1,55 +1,15 @@
 /**
- * One tooltip, for the whole app. `tip.ts` carries the reasoning and the
- * arithmetic; this is the store, the hook and the layer that draws it.
+ * One tooltip, for the whole app. `tip.ts` carries the placement arithmetic;
+ * this is the store, the hook and the single layer that draws it.
  *
- * **A hook rather than a wrapper**, and that is a decision about this codebase
- * rather than a taste. `<Tip><button/></Tip>` is the friendlier API and it puts
- * an element into the tree — which here means into `.mode-chip`'s own grid and
- * into a `<g>` inside the drill lane's single SVG.
- * `styles.test.ts` exists because a stray element in one of those fails
- * silently, in text, at a window size nobody is looking at. `useTip` returns
- * event handlers and nothing else: the DOM after this change is the DOM before
- * it, attribute for attribute, minus every `title`.
+ * It is a hook (`useTip`) rather than a wrapper component so the trigger's DOM
+ * is unchanged — a wrapping element would break `.mode-chip`'s grid and the
+ * drill lane's SVG. One layer subscribes to a module store, so only the trigger
+ * opening and the one closing re-render on a hover.
  *
- * **One tip, one layer, one element.** The alternative is a portal per trigger,
- * which is a few hundred idle React subtrees on a canvas of marks. Here the
- * layer is mounted once beside the app and every trigger talks to a module
- * store. Only two components re-render on a hover — the one opening and the one
- * closing — because `useSyncExternalStore` is given a snapshot that is a
- * boolean about *this* trigger, so the other forty-eight subscribers see no
- * change and React does nothing with them.
- *
- * **What it owes a reader, from WCAG 1.4.13**, all three of which the native
- * `title` this replaces failed:
- *
- * - *Dismissible.* Escape closes it without moving the pointer. The listener is
- *   in the capture phase and swallows the press only when a tip is actually
- *   open, which is what makes the tooltip the innermost thing in the app's
- *   escape chain rather than a fourth thing competing with the palette, the
- *   card and the dialog.
- * - *Hoverable.* The pointer can move onto the words. That is why the tip takes
- *   pointer events and why leaving is on a timer rather than immediate — a
- *   reader at 400% zoom is reading a tip that may be most of their screen.
- * - *Persistent.* Nothing times out. It goes when the pointer leaves, when
- *   focus leaves, on Escape, or on the press it was explaining.
- *
- * **The focus half of that was near-dead for this component's whole life, and
- * is live now.** `App.tsx` calls `preventDefault` on every key it matches, and
- * `bindings.ts` used to claim bare `Tab` for stepping the selection — so the
- * focus ring did not move in this app at all, and a tip that opens on focus was
- * waiting for something that could not happen outside the palette and the
- * dialog. The handlers were kept anyway, on the ground that they were correct
- * the moment that changed and cost one comparison until then, and that is what
- * they turned out to be: `step` moved to `n`, `Tab` went back to the browser,
- * and every tip on the bar and the mode panel now opens under the focus ring
- * without a line changing here. Which is the argument for writing the correct
- * handler while the thing it depends on is still broken.
- *
- * **Mouse only, deliberately.** `pointerenter` fires for touch, so a tapped
- * control on a phone would raise a tip that nothing can dismiss — the finger is
- * already gone. Touch readers lose nothing here that they had: a `title`
- * attribute never showed on a touch screen either, which is half of why the
- * copy that accumulated in them was never reviewed.
+ * WCAG 1.4.13: the tip is dismissible (Escape), hoverable (pointer can reach
+ * the words, hence the close timer) and persistent (no timeout). Mouse only —
+ * a touch tap would raise a tip nothing could dismiss.
  */
 
 import {
@@ -273,33 +233,16 @@ export function TooltipLayer() {
 
   useEffect(() => {
     if (!state) return;
-    /*
-      The anchor is a rectangle measured once, at open time, so **anything that
-      relays out the page invalidates it** — and the failure is not a tip in
-      slightly the wrong place, it is a sentence about one control left hanging
-      over another. This app re-lays out the whole canvas constantly: opening
-      the detail card narrows the plot and re-fits the tree, `L` and `A` change
-      what every label prints, `F` reframes.
-
-      All of it is caught here rather than at the trigger, and that is the
-      correction worth recording. `pointerdown` and `keydown` were originally
-      handlers on the trigger itself, which cannot see the two cases that
-      matter: a press on some *other* element, and a keystroke while the
-      pointer sits still on a mark. Both leave the old tip up, pointing at
-      something that has moved out from under it.
-
-      Re-placing instead of dismissing was the other option and is wrong: the
-      reader asked about a control, and the honest answer to "that control is
-      no longer where you asked about it" is to stop answering.
-    */
+    // The anchor is measured once at open time, so anything that relays out the
+    // page invalidates it. Listen on the window (not the trigger) to catch a
+    // press on another element or a keystroke while the pointer sits still, and
+    // dismiss rather than re-place.
     const go = () => dismiss();
     window.addEventListener("resize", go);
     window.addEventListener("scroll", go, true);
     window.addEventListener("pointerdown", go, true);
-    // Escape is swallowed, and only when there is a tip to dismiss — which is
-    // what makes the tooltip the innermost thing in the app's escape chain
-    // rather than a fourth thing competing with the palette, the card and the
-    // dialog. Every other key just closes it and travels on.
+    // Escape is swallowed only when a tip is open, so the tip is the innermost
+    // link in the escape chain. Every other key just closes it and travels on.
     const onKey = (e: KeyboardEvent) => {
       if (!active) return;
       dismiss();

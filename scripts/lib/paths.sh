@@ -73,8 +73,7 @@ concestor_resolve_artifacts() {
 # fail the same way.
 concestor_artifacts_missing() {
   printf '\n  %s\n\n' "No build/topology or build/concestor.db, in this checkout or the main one.
-  The pipeline has not run. See docs/handoff.md §2 'Reproduce from a clean
-  checkout'. At minimum:
+  The pipeline has not run. See the quick start in README.md. At minimum:
       cd pipeline && uv sync && uv run concestor-build topology" >&2
   exit 1
 }

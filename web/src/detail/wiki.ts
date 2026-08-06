@@ -1,52 +1,17 @@
 /**
- * The encyclopaedia block on a card: a description, and a way out to the
- * article.
+ * The encyclopaedia block on a card: a description, and a way out to the article.
  *
- * ## Why this is fetched at read time rather than baked
+ * Fetched at read time rather than baked (which does not weaken architecture
+ * §9's build-time-oracle rule): it is not part of the dataset, no gate touches
+ * it, and it covers the fossil taxa a QID-keyed crawl cannot. It costs nothing
+ * when it fails — the card is complete without it. Opening a card sends a taxon
+ * name to Wikimedia; that is the whole privacy surface, public-taxonomy data.
  *
- * Everything else a card shows comes out of the build, and that is the right
- * default — `docs/architecture.md` §9 is emphatic that the Open Tree API is a
- * build-time oracle and never a runtime dependency, and nothing here weakens
- * that. This is a different kind of thing and the reasoning is different too:
- *
- *   - **It is not part of the dataset.** Topology, ages, brackets and images
- *     are what the pipeline exists to make reproducible, and a build id has to
- *     mean the same tree every time. A description of a badger is prose about a
- *     badger. It is not a claim this project makes, it does not go through any
- *     gate, and freezing a 2026 revision of it into the artifact would make the
- *     app *staler* rather than more trustworthy.
- *   - **It covers the corpus the build cannot.** Nodes carry a Wikidata QID —
- *     108,293 of them — but the 523,112 PBDB fossil taxa carry none, and a
- *     crawl keyed on QIDs would leave every fossil card exactly as bare as it
- *     is now. Resolving a fossil by name is a *request-time* question because
- *     it needs an answer that can be refused (see the guard below).
- *   - **It costs nothing when it fails.** The card is complete before this
- *     resolves and complete without it. Offline, blocked, or rate-limited, the
- *     block does not appear and no other part of the app notices.
- *
- * The cost is real and worth stating plainly: opening a card sends a taxon name
- * to the Wikimedia Foundation. That is the whole of the privacy surface, it is
- * public-taxonomy data, and it happens only on a click.
- *
- * ## The guard
- *
- * A name-shaped link is how you put a Greek war god on a fossil card. PBDB's
- * *Ivesia* is an Ediacaran rangeomorph and OTT's is a rose-family plant; the
- * same trap cost this project a phase-3 fix (`refuse_disagreements`) and a
- * phase-6 one (the P225 check in `vernaculars.py`), and it is the same trap
- * here. So:
- *
- *   - **With a QID**, nothing is checked at request time, because the check has
- *     already been made by something better placed to make it. Phase 6 refuses
- *     any Wikidata item whose own `wdt:P225` names a different taxon from OTT's.
- *     Re-testing it here would fetch the same triple and learn nothing — and
- *     where that triple is absent it would learn nothing there either, which is
- *     the documented residual both ends live with.
- *   - **Without one** — every fossil, and the 2.6M nodes the crawl never
- *     reached — the item is found by its English article title and then made to
- *     prove itself: its `P225` must name the taxon we asked about, or there is
- *     no answer. Refusing is cheap here, because the fallback is a card with no
- *     description rather than a card with the wrong one.
+ * The guard: a name-shaped link is how a Greek war god lands on a fossil card
+ * (PBDB's *Ivesia* is an Ediacaran rangeomorph, OTT's a rose-family plant). With
+ * a QID, phase 6 has already refused any item whose `wdt:P225` disagrees with
+ * OTT. Without one, the item found by article title must prove itself by `P225`,
+ * or there is no answer.
  */
 
 /** English only, in both places it is chosen. See `LANG_NOTE`. */
@@ -54,18 +19,12 @@ const WIKI_LANG = "en";
 const WIKI_SITE = "enwiki";
 
 /**
- * Why there is no language setting.
+ * Why there is no language setting: a picker means doing the vernacular names
+ * (same crawl, also English-only) properly at the same time.
  *
- * Wikidata carries descriptions in ~300 languages and this asks for one. A
- * picker is a real feature and not a line of code — the vernacular names on the
- * card come from the same crawl and are also filtered to English, so doing this
- * properly means doing both together. Recorded rather than pretended away.
- *
- * **The `export` is load-bearing and nothing imports it.** This is a record
- * rather than a value, no code reads it, and `noUnusedLocals` would delete a
- * private one — while `docs/name-ranking.md` §8 and `name_rank.py` both point
- * a reader here by this name. Narrowing it to a comment would lose the anchor
- * those two aim at; narrowing it to a private constant would not compile.
+ * The `export` is load-bearing though nothing imports it: `name-ranking.md` §8
+ * and `name_rank.py` point a reader here by this name, and `noUnusedLocals`
+ * would delete a private constant.
  */
 export const LANG_NOTE = "English Wikipedia and Wikidata only.";
 
@@ -287,15 +246,10 @@ function readItem(qid: string, ent: Record<string, unknown>): Item {
 }
 
 /**
- * The article's opening paragraph.
- *
- * The REST summary carries a thumbnail alongside the text and it is deliberately
- * not read. A photograph on this card would be the one warm, high-detail object
- * on an instrument whose whole visual argument is a dark field and flat
- * silhouettes — and it would arrive with a Commons attribution obligation that
- * the credit block, which is about PhyloPic, is not built to carry.
- * `docs/phase5c-decision.md` is the standing record of what Wikimedia imagery
- * would cost here; nothing about a card changes that answer.
+ * The article's opening paragraph. The REST summary's thumbnail is deliberately
+ * not read: a photograph would be the one warm object on a dark field of flat
+ * silhouettes, and would carry a Commons attribution the PhyloPic credit block
+ * cannot.
  */
 async function summary(title: string): Promise<string | null> {
   const url =
@@ -308,13 +262,7 @@ async function summary(title: string): Promise<string | null> {
 
 type JsonObject = Record<string, unknown>;
 
-/**
- * One request, with a deadline and no retry.
- *
- * A retry would double the load on a donated public API for a block the card
- * does not need, and it would double the time a reader spends looking at a
- * pending row before it gives up.
- */
+/** One request, with a deadline and no retry (a donated public API). */
 async function getJSON(url: string): Promise<JsonObject | null> {
   const res = await fetch(url, {
     headers: { accept: "application/json" },

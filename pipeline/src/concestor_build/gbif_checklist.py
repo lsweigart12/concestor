@@ -1,55 +1,16 @@
 """Export GBIF's PBDB checklist, including the `nubKey` backbone match.
 
-This is the operative half of the only identifier path from PBDB to OTT:
-
     PBDB taxon_no → GBIF checklist taxonID → nubKey → OTT `gbif:` source id
 
-`taxonID` and the names come from the published Darwin Core archive, but
-`nubKey` is GBIF's *matching* of the checklist against its backbone and exists
-only in the API. That match is what decays, so it is snapshotted here.
+`nubKey` is GBIF's matching of the checklist against its backbone and exists
+only in the API, so it is snapshotted here. GBIF caps paging at offset 100,000
+and no single field partitions the checklist under that cap, so this builds a
+*covering* set of shards (rank, then status, then phylum), accepts overlap, and
+deduplicates by GBIF key; coverage is proven by counting distinct keys against
+the API's own total.
 
-GBIF caps paging at offset 100,000 on both `/species/search` and `/species`,
-while the checklist holds 461,889 records. No single field partitions it under
-that cap (`status` leaves 197k accepted species; `origin` and `nameType` are
-degenerate; `highertaxonKey` matches every ancestor and so does not partition
-at all).
-
-So this builds a *covering* set of shards rather than a partition — cutting on
-rank, then status, then phylum — accepts the resulting overlap, and
-deduplicates by GBIF key. Coverage is proven afterwards by counting distinct
-keys against the API's own total, which is a stronger check than trusting the
-shard arithmetic.
-
-STATUS: never run, and **do not run it**. Measured 2026-07-31, see
-`docs/phase3-pbdb-path.md`: the bulk export solves a problem the build does not
-have. A point lookup exists and is not subject to the offset cap, because it
-does not page:
-
-    GET /v1/species?datasetKey={PBDB_DATASET_KEY}&sourceId={pbdb_taxon_no}
-        -> the checklist record carrying nubKey, one request, ~0.5 s
-
-    GET /v1/species/{nubKey}/related?datasetKey={PBDB_DATASET_KEY}
-        -> the inverse: the PBDB checklist record for a backbone key
-
-Phase 3 needs one lookup per PBDB taxon, ordered by `n_occs`, not a dump. The
-shard planner below is kept only as documentation of a route not to take, the
-way it already documents the hierarchy-descent dead end.
-
-**Superseded by `resolve.py`**, which implements the point lookup as
-`gbif_pbdb_chain` with a resumable on-disk checkpoint. Nothing imports this
-module; it is documentation now, deliberately kept rather than deleted.
-
-The offline alternative was measured too, and it is a second method rather than
-a substitute. The frozen backbone's `simple.txt.gz` records one contributing
-dataset per row — column 8 the dataset UUID, column 10 that dataset's usage key
-(GBIF's key, *not* PBDB's `taxon_no`) — and 212,054 rows cite the PBDB
-checklist. Joined back to `taxon_no` by name and rank against `pbdb_taxa.csv`
-that reaches 38.6% of PBDB taxa and 17.9% of them reach OTT, for zero requests
-and with no decay risk. But a row records only the source that *won* the
-provenance slot, and PBDB wins it only where nothing higher-priority has the
-name: 8% of genera, and **0 of PBDB's 100 highest-occurrence taxa**.
-*Tyrannosaurus* is in the checklist with the documented chain, yet its nub entry
-cites ZooBank, so the offline map cannot see a match that exists.
+UNUSED and superseded by `resolve.py`, which does a per-taxon point lookup not
+subject to the offset cap. Nothing imports this module; kept as documentation.
 """
 
 from __future__ import annotations
@@ -74,8 +35,7 @@ SPECIES = "https://api.gbif.org/v1/species"
 OFFSET_CAP = 99_000
 PAGE = 1000
 
-# Fields worth keeping. The full record carries vernaculars, descriptions and a
-# higherClassificationMap we do not need at ~10x the size.
+# Fields worth keeping; the full record is ~10x the size.
 KEEP = (
     "key",
     "nubKey",
@@ -172,13 +132,6 @@ def plan_shards(client: httpx.Client, log: Log = print) -> list[JsonDict]:
     Three fixed cuts, deepening only where needed:
 
         rank  ->  rank x status  ->  rank x status x phylum
-
-    An earlier version descended the checklist hierarchy node by node until
-    every shard fit. That is correct but pathological: PBDB's tree is deep and
-    wide, so the descent costs one count request per node visited and does not
-    terminate in usable time. `highertaxonKey` matches *any* ancestor, so a
-    fixed phylum-level cut buys the same coverage in ~200 requests, and the
-    duplicate records it produces are removed by the dedup-by-key step.
     """
     shards: list[JsonDict] = []
     log(f"  checklist total: {count(client, {}):,}")

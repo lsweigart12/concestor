@@ -1,32 +1,13 @@
 """Consolidate the artifact set and record exactly what it is made of.
 
-`ingest.md` used to end with `concestor-build package  # → topology.bin,
-meta.bin, concestor.db, manifest`. Two of those four turned out not to need
-making, and the docs and the `--help` string that still said otherwise were
-corrected in 2026-08.
+There is no `topology.bin`/`meta.bin`: the `.npy` files phase 1 writes are
+already flat typed arrays the serving binary reads directly, so a second copy
+would only add a source of truth that can drift.
 
-**There is no `topology.bin` or `meta.bin`, deliberately.** Architecture §3.2
-named them, and they describe the right thing — flat typed arrays, memory
-mapped, no query planner on the path lookup. But that is exactly what phase 1
-already writes: a `.npy` file is a 128-byte ASCII header followed by raw
-little-endian data, which is a self-describing version of the same bytes. The
-serving binary reads them directly (`server/internal/npy`), so concatenating
-them into a second on-disk copy would double the disk cost, add a build step
-that can silently disagree with its input, and give the system two candidate
-sources of truth for its most load-bearing array. The names in architecture
-§3.2 should be read as describing the *format*, not demanding a file.
-
-What this phase does produce is the thing architecture §"Build orchestration"
-actually argues for: a single manifest recording the build id, every source
-with its checksum, every phase's gate results, and the age provenance — served
-at `/v1/about` so a running instance can state what it is made of. For a system
-whose credibility rests on data provenance, that endpoint is a feature rather
-than diagnostics, and this is what fills it.
-
-It also gates the artifact set as a whole, which nothing else does: individual
-phases check their own output, and only something running afterwards can notice
-that the age arrays are shorter than the topology they claim to describe, or
-that a phase wrote gates recording its own failure.
+Produces a single manifest — build id, every source with its checksum, every
+phase's gate results, the age provenance — served at `/v1/about`. Also gates the
+artifact set as a whole: only something running afterwards can notice that an
+age array is shorter than the topology, or that a phase recorded its own failure.
 """
 
 from __future__ import annotations
@@ -62,20 +43,16 @@ OPTIONAL_ARRAYS = (
     "child_count.npy",
 )
 
-# Not per-node, and checking them as if they were is a gate bug rather than a
-# data bug. `ott_sorted` / `ott_to_idx` are a sorted lookup *pair* covering only
-# the 2,599,664 nodes that carry an OTT id at all — mrca* nodes have none, which
-# is the whole reason `idx` is the primary key (architecture §3.1). They are
-# gated against each other and against that count instead.
+# A sorted lookup pair covering only the nodes that carry an OTT id, not
+# per-node arrays. Gated against each other and that count, not the node count.
 LOOKUP_ARRAYS = ("ott_sorted.npy", "ott_to_idx.npy")
 
 
 def _sha256(path: Path, limit: int = 64 << 20) -> str:
-    """Checksum a file, capped so a 515 MB database does not dominate the run.
+    """Checksum a file, capped so a large database does not dominate the run.
 
-    The cap is recorded alongside the digest: a prefix hash still catches a
-    truncated or replaced file, which is what this is for, and pretending it is
-    a whole-file digest would be worse than saying so.
+    A prefix hash still catches a truncated or replaced file; the cap is
+    recorded alongside the digest.
     """
     h = hashlib.sha256()
     read = 0
@@ -91,8 +68,7 @@ def _sha256(path: Path, limit: int = 64 << 20) -> str:
 def _gate_summaries() -> dict[str, JsonDict]:
     """Every phase's gates, as written by the phase itself.
 
-    Excluding our own, which a previous run left on disk: reading it back makes
-    this phase fail because it failed last time, and then keep failing.
+    Excludes our own gate file, so a prior failure is not read back and repeated.
     """
     out: dict[str, JsonDict] = {}
     for p in sorted(BUILD.glob("*_gates.json")):
@@ -133,8 +109,7 @@ def _table_counts(con: sqlite3.Connection) -> dict[str, int]:
         try:
             counts[n] = int(con.execute(f'SELECT count(*) FROM "{n}"').fetchone()[0])
         except sqlite3.DatabaseError:
-            # A virtual table can refuse a bare count; that is not a build
-            # failure, and reporting the table with no number is honest.
+            # A virtual table can refuse a bare count; not a build failure.
             continue
     return counts
 
@@ -239,8 +214,8 @@ def run() -> int:
     )
 
     # --- build id ---------------------------------------------------------
-    # Derived from what the artifacts actually are, so two builds from the same
-    # sources produce the same id and a changed input cannot reuse one.
+    # Derived from the artifact checksums, so it is stable across identical
+    # builds and cannot be reused after an input changes.
     print("\n--- build id ---", flush=True)
     files: dict[str, JsonDict] = {}
     for p in sorted(TOPO_OUT.glob("*.npy")):

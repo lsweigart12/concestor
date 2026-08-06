@@ -34,8 +34,7 @@ COMMIT=$(git rev-parse --short HEAD)
 # the local story, and scripts/serve.sh is what a developer actually uses.
 #
 # CGO_ENABLED=0 for a static binary. The SQLite driver is modernc.org/sqlite,
-# which is transpiled Go rather than a cgo wrapper, so this costs nothing —
-# see docs/serving-binary.md.
+# which is transpiled Go rather than a cgo wrapper, so this costs nothing.
 for platform in "linux/amd64" "linux/arm64"; do
   goos="${platform%%/*}"
   goarch="${platform##*/}"

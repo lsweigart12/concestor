@@ -135,9 +135,7 @@ the commits, and neither is written by hand.
 
 CI runs the same checks on every pull request, on a clean checkout — which
 means no `build/`, which means **most of the Go suite and a fifth of the
-pipeline's skip themselves and both still report success**. The split is
-measured in [docs/ci.md](docs/ci.md) §2 and written down only there.
-`scripts/check.sh`
+pipeline's skip themselves and both still report success**. `scripts/check.sh`
 finds a build, sets `CONCESTOR_REQUIRE_BUILD=1` so a skip becomes a failure,
 and is the run to trust before merging anything that reads the artifacts.
 [docs/ci.md](docs/ci.md) covers that and the Cloudflare deployment path.
@@ -205,16 +203,15 @@ re-researching.
 
 | Document | Contents |
 |---|---|
-| [handoff.md](docs/handoff.md) | Current state, priorities, and decisions taken. Start here |
+| [architecture.md](docs/architecture.md) | Data model, storage, backend, rendering, age tiers, fossils, witnesses |
 | [design-reference.md](docs/design-reference.md) | Visual and interaction language. Authoritative for anything the user sees |
-| [architecture.md](docs/architecture.md) | Data model, storage, backend, rendering |
 | [data-sources.md](docs/data-sources.md) | Verified facts and corrections for every upstream dataset |
 | [ingest.md](docs/ingest.md) | The build phases and their validation gates |
-| [phase2-decision.md](docs/phase2-decision.md) | The dating decision, with the evidence |
-| [phase3-pbdb-path.md](docs/phase3-pbdb-path.md) | How fossils resolve to the tree, measured |
-| [serving-binary.md](docs/serving-binary.md) | Why the read API is Go, and what it serves |
-| [management.md](docs/management.md) | The standing brief for whoever owns the project |
-| [worktrees.md](docs/worktrees.md) | Running from a parallel git worktree |
+| [ci.md](docs/ci.md) | What CI checks, what a green run does not mean, and the Cloudflare path |
+| [deployment.md](docs/deployment.md) | Where it runs and how it ships |
+
+Plus focused references: `name-ranking.md`, `fossil-grafts.md`, `image-store.md`,
+`biolum-gpu.md`, `analytics.md`, and `sidebar.md`.
 
 ---
 

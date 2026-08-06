@@ -1,9 +1,8 @@
 """Phase 3 — the identifier resolution layer.
 
-Emits the `xref` table (architecture §3.3) and `build/reconciliation.json`
-(architecture §5). Methods run in **strict precedence order** and a later method
-never overwrites an earlier one — including a `manual` row that deliberately
-resolves to nothing, which is what makes suppression work.
+Emits the `xref` table and `build/reconciliation.json`. Methods run in strict
+precedence order and a later method never overwrites an earlier one — including
+a `manual` row that resolves to nothing, which is what makes suppression work.
 
     1. manual                     data/overrides.tsv, git-tracked
     2. ott_sourceinfo             OTT's own sourceinfo column
@@ -12,28 +11,18 @@ resolves to nothing, which is what makes suppression work.
     5. phylopic_resolve           owned by phase 5; consumed here, not crawled
     6. name_exact                 exact string, unique candidate only
 
-Then a **sweep** takes resolutions away again — see `refuse_disagreements`. It
-is not a seventh method: the six above ask "what node is this?" and the sweep
-asks "does anything contradict the answer?", which is why it runs last, over
-every method at once, and can overwrite a row none of them may.
+Then a sweep (`refuse_disagreements`) takes resolutions away. It is not a
+seventh method: the six ask "what node is this?" and the sweep asks "does
+anything contradict the answer?", so it runs last, over every method at once.
 
-All resolution happens at build time. The runtime never matches names, and
-there is no fuzzy method anywhere: 16% of PBDB genus names are cross-kingdom
-homonyms and a system that silently picks one is worse than one that admits it
-does not know. Being *unique* is not the same as being right, though, which is
-what the sweep is for: OTT has exactly one *Sadleria* and it is a living fern,
-so the Devonian sponge of that name matched it unopposed.
+All resolution happens at build time; the runtime never matches names. There is
+no fuzzy method: PBDB genus names are heavily cross-kingdom homonyms, and being
+unique is not being right — OTT's only *Sadleria* is a living fern, matched
+unopposed by a Devonian sponge, which is what the sweep exists to catch.
 
-`gbif_checklist.py`'s ~450 covering shards are **superseded for this purpose**.
-That module solves a bulk-export problem this build does not have; the point
-lookup used here does not page, so GBIF's offset cap never applies. The module
-is kept as documentation of a route not to take — see its STATUS note and
-docs/phase3-pbdb-path.md §5.
-
-The crawl is **prioritised, not exhaustive** (management.md): ordered by
-`n_occs` descending, resumable from an on-disk checkpoint, and bounded by
-`--budget`. 523,112 lookups at the measured 0.5 s is 73 hours; the top 25,000
-genera hold 93.3% of genus occurrences, and fossils are a secondary feature.
+The crawl is prioritised, not exhaustive: ordered by `n_occs` descending,
+resumable from a checkpoint, bounded by `--budget`. The full 523,112 lookups
+would take ~73 hours; the top genera hold most genus occurrences.
 """
 
 from __future__ import annotations
@@ -84,9 +73,7 @@ GBIF_SPECIES = "https://api.gbif.org/v1/species"
 # study id or malformed — see `parse_sourceinfo`.
 TAXONOMY_SOURCES = frozenset({"ncbi", "gbif", "irmng", "worms", "if", "silva"})
 
-# Precedence order. Confidences are architecture §5's, except
-# `gbif_backbone_provenance`, which postdates that table and sits directly below
-# the API chain it mirrors.
+# Precedence order.
 METHOD_ORDER = (
     "manual",
     "ott_sourceinfo",
@@ -97,11 +84,8 @@ METHOD_ORDER = (
 )
 UNRESOLVED = "unresolved"
 
-# The sweep in `refuse_disagreements`, which runs *after* all six methods and
-# takes resolutions away. They are methods in the sense the column means — how
-# this row came to say what it says — and they resolve to nothing, so they carry
-# the same zero confidence as `unresolved` and are excluded from `METHOD_ORDER`,
-# which is the precedence order of methods that *find* something.
+# Set by the `refuse_disagreements` sweep. They resolve to nothing, so they
+# carry zero confidence and are excluded from METHOD_ORDER (methods that find).
 REFUSED_EXTANCY = "refused_extancy_disagreement"
 REFUSED_AMBIGUOUS = "refused_name_ambiguous"
 REFUSALS = (REFUSED_EXTANCY, REFUSED_AMBIGUOUS)
@@ -118,13 +102,10 @@ CONFIDENCE: dict[str, float] = {
     REFUSED_AMBIGUOUS: 0.00,
 }
 
-# --- measured baselines ------------------------------------------------------
-# Every figure here was measured on 2026-07-31 against the pinned snapshot and
-# reproduced exactly when this module was written. They are not estimates.
+# --- measured baselines, against the pinned snapshot -------------------------
 
 EXPECT_PBDB_ROWS = 523_112
 
-# ingest.md phase 3 step 2, all reproduced exactly bar IRMNG — see the gate.
 EXPECT_TAXA_PER_SOURCE = {
     "gbif": 2_562_021,
     "if": 276_248,
@@ -137,15 +118,14 @@ EXPECT_TAXA_PER_SOURCE = {
 EXPECT_BACKBONE_ROWS = 7_746_724
 EXPECT_BACKBONE_PBDB_CITED = 212_054
 
-# docs/phase3-pbdb-path.md §1: PBDB taxa reaching a backbone row. The file is
-# frozen, so *any* movement is a bug in our code rather than upstream.
+# PBDB taxa reaching a backbone row. The file is frozen, so any movement is a
+# bug in our code, not upstream.
 EXPECT_BACKBONE_PCT = 38.6
 BACKBONE_TOLERANCE = 2.0
 EXPECT_BACKBONE_OTT_PCT = 17.9
 
-# docs/phase3-pbdb-path.md §5, conditioned on records that exist in the
-# checklist. Scored on a *uniform* control cohort, because the doc's sample was
-# uniform and the prioritised crawl is emphatically not — see `run`.
+# Chain rates, conditioned on records that exist in the checklist and scored on
+# a uniform control cohort (the prioritised crawl is not uniform — see `run`).
 EXPECT_HOP1_PCT = 92.9  # checklist record -> nubKey
 EXPECT_HOP2_PCT = 51.9  # nubKey -> OTT taxon
 EXPECT_E2E_PCT = 48.2  # checklist record -> OTT taxon
@@ -165,11 +145,7 @@ def _now() -> str:
 
 
 def connect(path: Path = DB, *, readonly: bool = False) -> sqlite3.Connection:
-    """Open the shared build database, tolerating another phase holding a lock.
-
-    Several phases write to `concestor.db`. None of them touch `node`, but they
-    do overlap in time, so every connection waits rather than failing.
-    """
+    """Open the shared build database, waiting rather than failing on a lock."""
     uri = f"file:{path}?mode=ro" if readonly else f"file:{path}"
     con = sqlite3.connect(uri, uri=True, timeout=120.0)
     con.execute("PRAGMA busy_timeout = 120000")
@@ -186,10 +162,8 @@ def table_exists(con: sqlite3.Connection, name: str) -> bool:
 class IdMap:
     """A sorted key/value pair of arrays used as an integer→integer map.
 
-    A Python dict over 2.6M GBIF ids costs roughly 250 MB; the same data as two
-    `int64` arrays is 41 MB, and every lookup site here is naturally batched.
-    First key wins on duplicates, which is the same precedence rule the rest of
-    the phase runs on.
+    Two int64 arrays instead of a dict: ~41 MB vs ~250 MB over 2.6M GBIF ids,
+    and lookups here are batched. First key wins on duplicates.
     """
 
     __slots__ = ("keys", "n_duplicate", "values")
@@ -229,11 +203,8 @@ class IdMap:
 class PbdbTaxon(NamedTuple):
     """One row of `pbdb_taxa.csv`.
 
-    `taxon_no` is the unique key: `orig_no` is **not** unique (407,634 distinct
-    values over 523,112 rows — *Dinosauria* alone has ten rank variants sharing
-    orig_no 52775), which is why the primary key architecture §3.4 specifies
-    cannot be used as written. `parent_no` and `accepted_no` both reference
-    `taxon_no`, confirmed against the whole file.
+    `taxon_no` is the unique key; `orig_no` is not unique (a taxon can have many
+    rank variants sharing one). `parent_no` and `accepted_no` reference `taxon_no`.
     """
 
     taxon_no: int
@@ -251,11 +222,8 @@ class PbdbTaxon(NamedTuple):
     fla: float | None
     lea: float | None
     lla: float | None
-    # PBDB's own flags, a character set: `I` ichnotaxon, `F` form taxon, `V`
-    # variant. Phase 4 reads `I` and `F` — for those two a genus-level
-    # identification is the *finest one that exists*, so their own appearance
-    # range is their real one and must not be second-guessed against species
-    # that were never going to be named. See `fossils.young_ends`.
+    # PBDB flags, a character set: `I` ichnotaxon, `F` form taxon, `V` variant.
+    # Phase 4 reads `I`/`F` — there a genus-level id is the finest that exists.
     flags: str
 
 
@@ -286,8 +254,7 @@ def load_pbdb_taxa(path: Path = PBDB_TAXA) -> list[PbdbTaxon]:
                     accepted_name=r["accepted_name"],
                     parent_no=_int(r["parent_no"]),
                     n_occs=_int(r["n_occs"]),
-                    # Nullable on purpose: 9,059 records (1.7%) are genuinely
-                    # unknown, which is not the same claim as "not extant".
+                    # Nullable: "unknown" is not the same claim as "not extant".
                     is_extant=_EXTANT.get(r["is_extant"]),
                     difference=r["difference"],
                     fea=_num(r["firstapp_max_ma"]),
@@ -312,9 +279,8 @@ class Resolution(NamedTuple):
 class Xref:
     """Set-if-absent map of `(source, source_id) -> Resolution`.
 
-    Precedence is enforced by refusing every write to a key that already has
-    one, so the method order in `run` *is* the precedence order and a `manual`
-    row resolving to `None` blocks everything downstream of it.
+    Refusing every write to an existing key makes the method order in `run` the
+    precedence order; a `manual` row resolving to `None` blocks everything below.
     """
 
     __slots__ = ("_rows", "blocked", "by_method")
@@ -345,17 +311,9 @@ class Xref:
     ) -> bool:
         """Take a resolution away, recording which sweep took it.
 
-        The only writer that may overwrite an existing row, and deliberately so:
-        `add`'s refuse-every-rewrite is what makes `METHOD_ORDER` a precedence
-        order, and a refusal is not another claimant in that order — it is the
-        statement that no claimant was good enough. The candidate list keeps
-        what was withdrawn, so a reader can see what the sweep decided against
-        rather than an unexplained absence.
-
-        `manual` is exempt. Those two rows are somebody's reviewed judgement
-        against the pinned snapshot, and a gate exists purely to fail the build
-        if one stops applying; a sweep quietly overruling one would be the same
-        class of bug that gate was written to catch.
+        The only writer that may overwrite an existing row. The candidate list
+        keeps what was withdrawn. `manual` is exempt — a gate exists to fail the
+        build if a manual override stops applying, so a sweep must not overrule one.
         """
         cur = self._rows.get((source, source_id))
         if cur is None or cur.idx is None or cur.method == "manual":
@@ -405,13 +363,9 @@ class Override(NamedTuple):
 
 OVERRIDE_HEADER = ("source", "source_id", "ott_id", "reason")
 
-# The two rows architecture §5 gives as examples. Both were verified against the
-# pinned snapshot before being written out:
-#   - pbdb 38613 is *Tyrannosaurus*; GBIF nubKey 4822631 carries OTT 664348,
-#     which is node idx 654141 in the synthesis tree.
-#   - pbdb 52983 is *Brontosaurus*, which PBDB currently accepts alongside
-#     *Apatosaurus* (38665) as a separate genus — the instability the override
-#     is suppressing is real and present in the snapshot.
+# Seed rows, verified against the pinned snapshot: pbdb 38613 (*Tyrannosaurus*)
+# resolves via GBIF nubKey 4822631; pbdb 52983 (*Brontosaurus*) is suppressed
+# for unstable synonymy with *Apatosaurus*.
 SEED_OVERRIDES = (
     Override("pbdb", "38613", 664348, "verified via GBIF nubKey 4822631, 2026-07-31"),
     Override(
@@ -438,12 +392,7 @@ def write_seed_overrides(path: Path = OVERRIDES) -> None:
 
 
 def load_overrides(path: Path = OVERRIDES) -> list[Override]:
-    """Read `data/overrides.tsv`. `reason` is required; a blank one is an error.
-
-    An override is a judgement call about contested taxonomy, which is why the
-    file is git-tracked rather than a database row: judgement calls need review,
-    attribution and history.
-    """
+    """Read `data/overrides.tsv`. `reason` is required; a blank one is an error."""
     if not path.exists():
         return []
     out: list[Override] = []
@@ -507,7 +456,7 @@ class SourceInfoScan(NamedTuple):
     per_source: Counter[
         str
     ]  # source ids, which is larger — the relation is many-to-one
-    taxa_per_source: Counter[str]  # distinct OTT taxa, which is what ingest.md counts
+    taxa_per_source: Counter[str]  # distinct OTT taxa
     rows_offered: int
     rows_written: int
     malformed: int
@@ -522,11 +471,8 @@ def scan_sourceinfo(
 ) -> SourceInfoScan:
     """Stream `taxonomy.tsv`, writing `ott_sourceinfo` rows and building gbif→OTT.
 
-    Two things come out of one pass. The `xref` rows are the cheap, broad half
-    of the resolution layer. The `gbif_id → ott_id` map is the *second hop* of
-    the fossil chain, and it has to cover every OTT taxon rather than only the
-    ones in the synthetic tree — "resolves in OTT" and "lands on a node" are
-    different questions and the gates score them separately.
+    One pass yields both: the `xref` rows, and the `gbif_id → ott_id` map (the
+    fossil chain's second hop, covering every OTT taxon, not only tree nodes).
     """
     per_source: Counter[str] = Counter()
     taxa_per_source: Counter[str] = Counter()
@@ -676,12 +622,10 @@ def crawl_checklist(
 ) -> int:
     """Point-look-up every `taxon_no` in `wanted` that is not already checkpointed.
 
-    Appends to `path` as results arrive, so an interrupted crawl loses at most
-    one in-flight request and the next run resumes from where it stopped. Paced
-    deliberately: GBIF still has no rate limit because nobody implemented one.
+    Appends to `path` as results arrive, so an interrupted crawl resumes where
+    it stopped. Paced, since GBIF has no rate limit.
     """
-    # `wanted` is the control cohort followed by the prioritised one and the two
-    # overlap, so dedupe before spending requests on the same taxon twice.
+    # `wanted` overlaps between cohorts; dedupe before spending requests.
     todo = list(dict.fromkeys(t for t in wanted if t not in done))
     if not todo:
         log(f"  crawl: nothing to do, {len(done):,} records already checkpointed")
@@ -780,8 +724,7 @@ def score_chain(
 
 # --- method 4: gbif_backbone_provenance ---------------------------------------
 
-# Confirmed column layout, docs/phase3-pbdb-path.md §2. Headerless TSV, `\N` for
-# null, 7,746,724 rows of exactly 30 fields.
+# Backbone column layout. Headerless TSV, `\N` for null, 30 fields per row.
 COL_NUB_KEY = 0
 COL_PARENT_KEY = 1  # ...and the *accepted* key on a synonym row
 COL_STATUS = 4
@@ -803,9 +746,8 @@ class BackboneScan(NamedTuple):
     ranks: Counter[str]
     # taxon_no -> nub key, for rows that joined to exactly one PBDB record
     taxon_to_nub: dict[int, int]
-    # 298 PBDB taxa are cited by more than one backbone row. The join is unique
-    # in the row->taxon direction, not the other way, so the extras are kept:
-    # the taxon reaches OTT if *any* of its rows does.
+    # Some PBDB taxa are cited by more than one backbone row; keep the extras,
+    # since the taxon reaches OTT if any of its rows does.
     taxon_alt_nub: dict[int, list[int]]
     # taxon_no -> accepted nub key, for synonym rows whose own key misses OTT
     taxon_to_accepted_nub: dict[int, int]
@@ -819,15 +761,11 @@ def scan_backbone(
 ) -> BackboneScan:
     """Read the frozen backbone's provenance column into a `taxon_no → nubKey` map.
 
-    A backbone row records **one** contributing dataset — whichever source won
-    the provenance slot — and PBDB wins it only where no higher-priority source
-    has the name at all. That is why this method is accurate whenever it fires
-    and still reaches 0 of PBDB's 100 highest-occurrence taxa.
-
-    PBDB's own `taxon_no` is not in the file, so the join is by canonical name
-    and rank **against `pbdb_taxa.csv`** — never against the ColDP archive,
-    whose compound synonym ids of the form `txn:{accepted}#{name}` map a synonym
-    onto the accepted taxon's number and produced an 11% error rate in testing.
+    A backbone row records one contributing dataset, and PBDB wins the slot only
+    where no higher-priority source has the name — accurate when it fires, but
+    reaching few high-occurrence taxa. PBDB's `taxon_no` is not in the file, so
+    the join is by canonical name and rank against `pbdb_taxa.csv` — never the
+    ColDP archive, whose compound synonym ids caused an 11% error rate.
     """
     rows = malformed = cited = uniq = amb = nomatch = 0
     ranks: Counter[str] = Counter()
@@ -882,52 +820,18 @@ def scan_backbone(
 
 # --- the sweep: refusing what a name cannot decide -----------------------------
 #
-# Every method above answers "what OTT node is this PBDB taxon?" and the last of
-# them answers it with a bare string. A string is only evidence of identity when
-# both corpora mean the same thing by it, and they frequently do not: PBDB's
-# *Ivesia* is an Ediacaran rangeomorph and OTT's is a rose-family plant, PBDB's
-# *Sadleria* is a Devonian sponge and OTT's a Hawaiian fern. Nothing in the name
-# says which, and the resolution was silently confident either way.
-#
-# Phase 4 found this rather than phase 3, because phase 4 is the first place a
-# resolution can be checked against *time*: a taxon last seen before the Permian
-# cannot be a living genus. 1,019 of the 1,048 exact attachments older than
-# 250 Ma landed on a node with living descendants. That is the defect, and this
-# is where it belongs.
-#
-# The check is the one cross-corpus fact both sides record independently:
-# **whether the thing is still alive.** PBDB carries `is_extant` per taxon and
-# OTT flags 313,300 taxa `extinct` in `taxonomy.tsv`. Where PBDB says extinct
-# and OTT's taxon says nothing of the sort, the name has matched two different
-# concepts and the honest answer is no resolution — the same discipline
-# `images.py`'s `_seed_by_name` applies when a title reaches two nodes.
-#
-# Measured against phase 4's own signal (an extinct taxon last seen before
-# 250 Ma resolving onto a lineage the chronogram still dates), 709 suspect and
-# 22 clean:
-#
-#   refuse on the flag alone            704/709 suspect, 3/22 clean, 17,995 rows
-#   refuse only onto a living lineage   704/709 suspect, 0/22 clean, 16,833 rows
-#
-# So the guard is kept: OTT not flagging a taxon extinct is weak evidence on its
-# own — nobody has gone through the fossil record ticking boxes — and it becomes
-# decisive only when the node OTT resolves to still has descendants in a tree of
-# living species. Without the guard 1,162 genuinely extinct genera that OTT
-# simply has not flagged lose an exact attachment: *Neochelys*, *Baptemys* and
-# *Roxochelys*, all fossil turtles, among them. With it *Tyrannosaurus* (which
-# OTT does flag) keeps its node, *Sadleria*'s Devonian sponge moves off the fern
-# and onto Porifera where PBDB always had it, and the extant *Scopus* keeps the
-# hamerkop while the Permian one loses it.
+# A bare name is only evidence of identity where both corpora mean the same thing
+# by it, and they often do not (PBDB's *Sadleria* is a Devonian sponge, OTT's a
+# living fern). The one cross-corpus fact both sides record is whether the thing
+# is still alive: where PBDB says extinct and OTT's taxon carries no extinct flag
+# AND the node still has a chronogram-dated (living) descendant, the name has
+# matched two concepts and the resolution is withdrawn. The living-lineage guard
+# matters — refusing on OTT's flag alone costs ~1,162 correct attachments of
+# genuinely extinct genera OTT simply has not flagged.
 
 
 def load_ott_extinct(path: Path = TAXONOMY) -> set[int]:
-    """OTT ids whose taxon carries an `extinct` flag. 313,300 of 4,529,570.
-
-    `extinct_inherited` counts too and is the commoner of the two: OTT marks a
-    clade extinct and propagates it downward, so a member of an extinct group is
-    flagged by inheritance rather than in its own right. Both mean the same
-    thing here — OTT does not think this taxon is alive.
-    """
+    """OTT ids whose taxon carries an `extinct` flag (own or inherited)."""
     out: set[int] = set()
     if not path.exists():
         return out
@@ -951,13 +855,9 @@ def living_lineages() -> BoolArray | None:
     """Per node: does a tree of *living* species still date something below it?
 
     Phase 2's `age_ma` is finite only where a chronogram of extant taxa reached
-    the node, so "has a finite age at or below it" is the closest thing the
-    build has to "this lineage did not end". Preorder gives `parent[i] < i`, so
-    one reverse pass carries the flag to the root.
-
-    Returns None when phase 2 has not run, which disables the sweep rather than
-    guessing at it — refusing on the flag alone costs 1,162 correct attachments
-    and the guard is the whole reason it does not.
+    the node, so "finite age at or below" approximates "this lineage did not
+    end". One reverse pass carries the flag to the root. Returns None when phase
+    2 has not run, which disables the sweep rather than guessing.
     """
     ages = TOPOLOGY / "age_ma.npy"
     parents = TOPOLOGY / "parent.npy"
@@ -980,24 +880,16 @@ def refuse_disagreements(
 ) -> JsonDict:
     """Withdraw the resolutions the evidence does not support. Two refusals.
 
-    **Extancy disagreement**, over every method rather than `name_exact` alone.
-    Phase 4 measured that `gbif_backbone_provenance` and `gbif_pbdb_chain`
-    produce these too — the backbone merges a fossil name onto the living genus
-    just as a bare string match does — so trusting id provenance is not the fix.
-    Over every row rather than accepted taxa only: phase 4 gives each
-    `taxon_no` its own attachment from its own resolution and `layout_bounds`
-    reads them without filtering on `is_primary`, so a synonym's bad resolution
-    moves a node on the axis exactly as an accepted one does. PBDB's *Ivesia* is
-    that case — the row carrying the 538.8 Ma bound is a synonym.
+    Extancy disagreement, over every method (not just `name_exact`) and every
+    row (not just accepted taxa) — the backbone merges a fossil name onto the
+    living genus too, and a synonym's bad resolution moves a node on the axis
+    just as an accepted one does.
 
-    **Residual ambiguity**, `name_exact` only, ported from `_seed_by_name`. PBDB
-    carries homonyms internally: 1,429 names belong to more than one accepted
-    taxon, and each of them matched the same single OTT node, so at most one can
-    be right and nothing says which. Run *after* the extancy sweep on purpose —
-    it decides most of them on evidence, and `Scopus` is the case that shows why
-    order matters. Both PBDB *Scopus* rows resolved to OTT's hamerkop; the sweep
-    takes the Permian one, one claimant is left, and the correct resolution
-    survives. Refusing on ambiguity first would have thrown away both.
+    Residual ambiguity, `name_exact` only: a name claimed by two accepted PBDB
+    taxa that both matched the same OTT node — at most one is right and nothing
+    says which, so both go. Run AFTER the extancy sweep, so a case like `Scopus`
+    (Permian genus + hamerkop, both onto the hamerkop) is decided on evidence
+    first, leaving one claimant, rather than throwing away both.
     """
     stats: JsonDict = {
         "extancy_refused": 0,
@@ -1031,18 +923,16 @@ def refuse_disagreements(
             continue
         stats["ambiguous_names"] += 1
         for no in nos:
-            # `candidates` is a list of node indices everywhere else in this
-            # table, so it stays one here: what was withdrawn, not who claimed
-            # it. The counts below are where the ambiguity itself is recorded.
+            # `candidates` stays a node-index list: what was withdrawn, not who
+            # claimed it.
             if xref.revoke("pbdb", str(no), REFUSED_AMBIGUOUS, None):
                 stats["ambiguous_refused"] += 1
     return stats
 
 
-# The cases the sweep exists for, and the ones it must not take with them.
-# Counting refusals is not checking them — a sweep this broad is exactly the
-# shape of change that passes every count while removing the wrong 16,000 rows —
-# so these five are asserted by PBDB taxon number against the pinned snapshot.
+# The cases the sweep exists for, and the ones it must not take with them,
+# asserted by PBDB taxon number against the pinned snapshot (counting refusals
+# is not checking them).
 XREF_ANCHORS: tuple[tuple[int, str, bool, str], ...] = (
     (
         3277,
@@ -1170,11 +1060,9 @@ def load_forward_map(con: sqlite3.Connection) -> dict[int, int]:
 
 
 class OttResolver:
-    """`ott_id → idx`, chasing forwards and counting every hop it needed.
+    """`ott_id → idx`, chasing forwards (silent in OTT) before giving up.
 
-    OTT id forwarding is silent — 297,070 entries in this release — so an id
-    that fails to resolve is never assumed dead until its forward has been
-    followed. Phase 1's `forward` table is already transitively collapsed.
+    Phase 1's `forward` table is already transitively collapsed.
     """
 
     __slots__ = ("chased", "forwards", "ott_to_idx")
@@ -1269,7 +1157,7 @@ def run(budget: int = 25_000, use_api: bool = True) -> int:
     if not OVERRIDES.exists():
         write_seed_overrides()
         seeded = True
-        print(f"  created {OVERRIDES} with architecture §5's two verified rows")
+        print(f"  created {OVERRIDES} with two verified seed rows")
     overrides = load_overrides()
     override_failures: list[JsonDict] = []
     for o in overrides:
@@ -1285,10 +1173,9 @@ def run(budget: int = 25_000, use_api: bool = True) -> int:
         xref.add(o.source, o.source_id, idx, "manual")
     print(f"  {len(overrides)} override(s), {len(override_failures)} unresolvable")
 
-    # Write them **now**, before anything else touches the table. Method 2
-    # streams 4.7M rows straight into SQLite rather than through `xref`, so an
-    # override on a taxonomy source id would otherwise lose the `INSERT OR
-    # IGNORE` race against the very method it is there to overrule.
+    # Write manual rows now: method 2 streams straight into SQLite, so an
+    # override would otherwise lose the INSERT OR IGNORE race to the method it
+    # exists to overrule.
     con.executemany("INSERT OR IGNORE INTO xref VALUES (?,?,?,?,?,?)", xref.rows())
     con.commit()
 
@@ -1311,11 +1198,9 @@ def run(budget: int = 25_000, use_api: bool = True) -> int:
     ordered = sorted(taxa, key=lambda t: (-t.n_occs, t.taxon_no))
     prioritised = [t.taxon_no for t in ordered[: max(budget, 0)]]
 
-    # ...plus a *uniform* control cohort. The 48.2% baseline was measured on a
-    # uniform random sample; the crawl is ordered by n_occs descending, and the
-    # same memo measures the notable end at 58.0%/32.0% rather than 92.9%/48.2%.
-    # Scoring the gate on the prioritised cohort would compare two different
-    # populations and fail for a reason that is not a bug.
+    # ...plus a uniform control cohort. The chain-rate baselines were measured
+    # on a uniform sample; the crawl is ordered by n_occs, so scoring the gate on
+    # the prioritised cohort would compare two populations and fail spuriously.
     rng = random.Random(CONTROL_SEED)
     control = rng.sample([t.taxon_no for t in taxa], k=min(CONTROL_SAMPLE, len(taxa)))
 
@@ -1326,9 +1211,8 @@ def run(budget: int = 25_000, use_api: bool = True) -> int:
     else:
         print("  --no-api: scoring the existing checkpoint only", flush=True)
 
-    # The crawl captures the decaying half of the chain, so it is phase-0 work
-    # in spirit even though it runs here — hence a manifest entry beside the
-    # files phase 0 pinned.
+    # The crawl captures the decaying half of the chain, so record it in the
+    # manifest beside the files phase 0 pinned.
     if NUBKEYS.exists():
         manifest = Manifest()
         record_local(
@@ -1426,10 +1310,8 @@ def run(budget: int = 25_000, use_api: bool = True) -> int:
         )
     else:
         cols = {r[1] for r in con.execute(f"PRAGMA table_info({image_table})")}
-        # `node_image` is keyed by the node the image is *shown on*, and the
-        # same silhouette legitimately serves a whole clade — 6,458 images over
-        # 2.7M nodes. The xref wants the inverse, so it wants `source_idx`: the
-        # node the image is actually **of**.
+        # `node_image` is keyed by the node the image is shown on; the xref wants
+        # the node it is actually of, so prefer `source_idx`.
         target = "source_idx" if "source_idx" in cols else "idx"
         if {"phylopic_id", target} <= cols:
             for pid, idx in con.execute(
@@ -1468,9 +1350,8 @@ def run(budget: int = 25_000, use_api: bool = True) -> int:
         if len(cands) == 1:
             if xref.add("pbdb", str(t.taxon_no), cands[0], "name_exact"):
                 name_resolved += 1
-        # Two candidates means unresolved, with the candidate list recorded.
-        # There is no fuzzy method: 16% of PBDB genus names are cross-kingdom
-        # homonyms and silently picking one is worse than admitting ignorance.
+        # Two candidates means unresolved (candidate list recorded). No fuzzy
+        # method: PBDB genus names are heavily cross-kingdom homonyms.
         elif xref.add("pbdb", str(t.taxon_no), None, UNRESOLVED, sorted(cands)[:32]):
             ambiguous_rows += 1
     print(
@@ -1520,8 +1401,8 @@ def run(budget: int = 25_000, use_api: bool = True) -> int:
         ).fetchone()[0],
         0,
     )
-    # Counting rows is not checking them: `idx` is what phase 4 walks to, so it
-    # has to point at a real node, and `confidence` has to match its method.
+    # `idx` is what phase 4 walks to, so it must point at a real node, and
+    # `confidence` must match its method.
     g.require(
         "resolved rows whose idx is not a node",
         con.execute(
@@ -1551,8 +1432,8 @@ def run(budget: int = 25_000, use_api: bool = True) -> int:
         ).fetchone()[0],
         0,
     )
-    # A refusal that kept its idx would be the worst of both: the row reads as
-    # withdrawn and every consumer joining on `idx` still follows it.
+    # A refusal that kept its idx reads as withdrawn while consumers joining on
+    # `idx` still follow it.
     g.require(
         "refusals that still carry a resolution",
         con.execute(
@@ -1570,8 +1451,8 @@ def run(budget: int = 25_000, use_api: bool = True) -> int:
         ).fetchone()[0]
         g.observe(f"rows by method: {method}", f"{n:,}")
 
-    # manual: an override whose target no longer exists is a hard failure —
-    # it means someone's reviewed judgement was silently dropped.
+    # manual: an override whose target no longer exists means a reviewed
+    # judgement was silently dropped — a hard failure.
     g.require(
         "manual overrides still applying",
         f"{len(overrides) - len(override_failures)}/{len(overrides)}",
@@ -1582,22 +1463,20 @@ def run(budget: int = 25_000, use_api: bool = True) -> int:
     if seeded:
         g.observe(
             "data/overrides.tsv",
-            "created with architecture §5's two rows",
+            "created with two seed rows",
             note="both verified against the pinned snapshot before writing",
         )
 
-    # ott_sourceinfo — a content gate, because a silently mis-parsed prefix
-    # loses ids without changing any row count that anything else checks.
+    # ott_sourceinfo — a content gate: a mis-parsed prefix loses ids silently.
     g.require(
         "ott_sourceinfo — distinct OTT taxa per source",
         dict(sorted(scan.taxa_per_source.items())),
         EXPECT_TAXA_PER_SOURCE,
         ok=dict(scan.taxa_per_source) == EXPECT_TAXA_PER_SOURCE,
-        note="ingest.md's figures, reproduced exactly except IRMNG, which is "
-        "1,480,678 rather than 1,480,677. The extra taxon is OTT 7494610 "
-        "*Ficus variegata*, whose only IRMNG id is the space-prefixed "
-        "' irmng:11258800' — so the doc's figure is the naive parse's and the "
-        "+1 is the defensive parse working.",
+        note="reference figures, reproduced exactly except IRMNG (1,480,678 vs "
+        "1,480,677). The extra taxon is OTT 7494610 *Ficus variegata*, whose "
+        "only IRMNG id is space-prefixed ' irmng:11258800' — the +1 is the "
+        "defensive parse working.",
     )
     g.observe(
         "ott_sourceinfo — source ids per source",
@@ -1611,7 +1490,7 @@ def run(budget: int = 25_000, use_api: bool = True) -> int:
         f"{scan.rows_offered - scan.rows_written:,}",
     )
 
-    # gbif_pbdb_chain — two hops, scored separately, on the uniform cohort.
+    # gbif_pbdb_chain — two hops scored separately, on the uniform cohort.
     print("\n--- gbif_pbdb_chain ---", flush=True)
     have_control = control_score.in_checklist > 0
     chain_gate = g.require if have_control else g.observe
@@ -1644,9 +1523,8 @@ def run(budget: int = 25_000, use_api: bool = True) -> int:
     g.observe(
         "chain — prioritised cohort (n_occs descending)",
         json.dumps(priority_score.as_dict()),
-        note="docs/phase3-pbdb-path.md §5's n_occs>=100 column: 94.7% in the "
-        "checklist, 58.0% to a nubKey, 32.0% to OTT. Coverage really is worse "
-        "at the notable end.",
+        note="the n_occs>=100 cohort reaches 94.7% in the checklist, 58.0% to a "
+        "nubKey, 32.0% to OTT. Coverage is worse at the notable end.",
     )
     g.observe(
         "chain — crawl progress",
@@ -1667,13 +1545,10 @@ def run(budget: int = 25_000, use_api: bool = True) -> int:
         f"{_occurrence_coverage(taxa, {t.taxon_no for t in ordered[:budget]}):.1f}% "
         "of genus occurrences",
         "93.3% at 25,000",
-        note="management.md's 93.3% is the top 25,000 *genera*. Ordering by "
-        "n_occs across all ranks puts only 7,946 genera in the first 25,000 — "
-        "n_occs is a subtree total, so higher taxa dominate the ordering, and "
-        "the 25,000th genus sits at all-rank position 87,126. The ordering is "
-        "still the right one for phase 4 (higher taxa are the attachment "
-        "points the parent-walk lands on) but the two figures are not the same "
-        "measurement.",
+        note="the 93.3% figure is the top 25,000 *genera*. Ordering by n_occs "
+        "across all ranks puts only 7,946 genera in the first 25,000 — n_occs is "
+        "a subtree total, so higher taxa dominate — so the two figures are not "
+        "the same measurement. The ordering is still right for phase 4.",
     )
 
     # gbif_backbone_provenance — a frozen file, so any movement is our bug.
@@ -1746,13 +1621,9 @@ def run(budget: int = 25_000, use_api: bool = True) -> int:
         )
     }
     acknowledged = load_acknowledged()
-    # A row the sweep withdrew is not a regression. A regression is something
-    # that used to resolve and now quietly does not; a refusal is a decision
-    # this build made on stated evidence, counted by its own gates and anchored
-    # on six named taxa. Signing 17,068 of them off one line at a time in
-    # `acknowledged_regressions.tsv` would bury the reviewed exceptions that
-    # file exists for under a systematic change, and the file is the record of
-    # what somebody *looked at*.
+    # A row the sweep withdrew is not a regression: a refusal is a decision this
+    # build made on stated evidence, counted by its own gates. Excluded here so
+    # the acknowledged-regressions file stays the record of what was reviewed.
     withdrawn = {
         (s, i)
         for s, i in con.execute(

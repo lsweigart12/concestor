@@ -1,14 +1,8 @@
 /**
- * Fuzzy matching with highlighted ranges, and session ranking.
- *
- * design-reference.md asks for fuzzy search with highlighted match ranges and
- * results ranked on recency and frequency rather than alphabetically. That is
- * the Raycast model, and it composes with — rather than replaces — the corpus
- * ranking baked at build time (architecture §4: exact match, then `tip_count`
- * descending, then has-silhouette, then has-measured-age, which is what makes
- * "can" surface Canidae before *Cania*). Neither signal alone is right: the
- * corpus knows what is important in general, the session knows what is
- * important to you.
+ * Fuzzy matching with highlighted ranges, and session ranking on recency and
+ * frequency. Composes with — does not replace — the corpus ranking baked at
+ * build time (architecture §4): the corpus knows what matters in general, the
+ * session what matters to you.
  */
 
 interface Match {

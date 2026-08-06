@@ -3,10 +3,8 @@
  *
  * React Flow / xyflow v12 handles pan, zoom and hit-testing; positions come
  * entirely from our own layout pass and node dragging is off. The rendered set
- * is at most `2|L| − 1` nodes — ten species is nineteen — so we are drawing
- * dozens of elements, not millions, which is what makes a DOM/SVG renderer the
- * right call here even though the source dataset is 2.4M leaves. Reaching for
- * WebGL because the *source* is large would be optimising the wrong number.
+ * is at most `2|L| − 1` nodes, so a DOM/SVG renderer is right here even though
+ * the source dataset is 2.4M leaves.
  *
  * The signature interaction lives here, and it is the product:
  *
@@ -119,53 +117,31 @@ const NODE_BOX = 10;
 const EDGE_PAD = 26;
 
 /**
- * Horizontal room the layout gives itself, before the fit scales it.
- *
- * This has to follow the container rather than being a constant. Node labels
- * live inside the transformed viewport, so they scale with zoom — and a fixed
- * 1240px layout squeezed into an 800px panel fits at ~0.45, which renders
- * 12.5px type at under 6px, which is a name nobody can read.
- *
- * Shrinking the *layout* instead keeps the fit near 1:1, so text stays at its
- * designed size. The graph gets narrower in a narrow panel, which is the honest
- * trade — and it matters more now than it did: the names no longer tier off
- * when the type gets small, so this is the only thing keeping them legible.
+ * Horizontal room the layout gives itself, before the fit scales it. Follows the
+ * container: labels scale with zoom, so a fixed layout squeezed into a narrow
+ * panel fits at a scale that renders the type unreadable. Shrinking the layout
+ * keeps the fit near 1:1 and the text at its designed size.
  */
 const MIN_PLOT_W = 340;
 /**
- * The bottom strip the fit keeps clear, in screen px.
- *
- * Two occupants, not one: the time axis is pinned to the bottom of the canvas
- * and the provenance key now sits on the shelf above it, bottom left. It was
- * 104 while the axis carried a caption row under its ruler and the key was in
- * that row; the row is gone, the strip is 20px shorter, and the key is a
- * separate line above it — so the sum barely moved and the reason it is what it
- * is has changed completely. `--axis-h` is the strip itself and
- * `.canvas-legend` is what rides on top of it; this is both plus a margin.
+ * The bottom strip the fit keeps clear, in screen px: the time axis (`--axis-h`)
+ * plus the provenance key above it (`.canvas-legend`) plus a margin.
  */
 const AXIS_RESERVE = 96;
 const MAX_FIT_ZOOM = 1.4;
 
 /**
- * Margin the reveal keeps between the subject and every edge it clears, and the
- * shortest it will ever wait before deciding there is anything to do.
- *
- * The wait is not a polish delay, and it is a *floor* rather than the whole
- * answer — `scheduleFit` raises it past any reframe already on its way. A
- * selection very often arrives together with something that moves the viewport
- * on its own: an add, a lane, the card's own reframe. A pan computed against a
- * transform that is still animating cancels that animation and lands somewhere
- * neither of them asked for.
+ * Margin the reveal keeps between the subject and every edge, and the shortest
+ * it waits before acting. The wait is a floor, not a polish delay: `scheduleFit`
+ * raises it past any reframe already animating, or a pan lands mid-animation.
  */
 const REVEAL_PAD = 18;
 const REVEAL_DELAY = 140;
 
 /**
- * Per design-reference.md's signature sequence, in ms. `T_FLARE` and `T_DRAW`
- * are the lead-in beats — when the sequence starts — while the pace of the
- * drawing itself is `STAGGER` here plus `DRAW_MS` and `DECAY_MS` in
- * `TraceEdge`. Those three move together: stretching the draw without
- * stretching the gap between waves collapses the travel into a fade-in.
+ * The signature sequence's lead-in beats, in ms. The drawing's own pace is
+ * `STAGGER` here plus `DRAW_MS`/`DECAY_MS` in `TraceEdge`; the three move
+ * together, or the travel collapses into a fade-in.
  */
 const T_FLARE = 80;
 const T_DRAW = 120;
@@ -173,15 +149,8 @@ const STAGGER = 96;
 
 /**
  * The prop-drilling channel from `App` through `Graph` to `TimeAxis`,
- * `DrillLane` and `NodeMark`.
- *
- * **Exported although no other file imports it**, which is the one exception
- * in the sweep that made 51 of its neighbours private. This is not an accident
- * of history like the rest of them: it is the seam between the two largest
- * components in the repository, 27 props of which 12 are callbacks, and issue
- * #94 names it by this name as the thing a staged refactor pulls apart. A
- * visibility change here is a change to what that refactor starts from, and
- * this PR changes no behaviour and settles no design.
+ * `DrillLane` and `NodeMark`. Exported (though nothing imports it) as the seam
+ * between the two largest components, kept as the starting point for a refactor.
  */
 export interface GraphProps {
   induced: Induced;
@@ -192,16 +161,7 @@ export interface GraphProps {
   onFocus: (idx: number | null) => void;
   isolate: boolean;
   axisMode: AxisMode;
-  /**
-   * Which words the marks carry, and whether they print a date.
-   *
-   * Read here and switched in the sidebar — these arrive as values with no
-   * setter beside them, which is the shape every canvas-mode prop now has. The
-   * four switches were on three different edges of the canvas and are one set:
-   * *the controls that change how the canvas is drawn rather than what is on
-   * it*. `sidebar/Sidebar.tsx` is where the set finally sits together, and this
-   * component's job shrank to drawing what they say.
-   */
+  /** Which words the marks carry, and whether they print a date. Switched in the sidebar. */
   labels: LabelMode;
   ages: boolean;
   intervals: TimescaleInterval[] | null;
@@ -286,32 +246,17 @@ function Inner(props: GraphProps) {
   const [flaring, setFlaring] = useState<number | null>(null);
   const playedToken = useRef<number | null>(null);
 
-  /**
-   * Whether the canvas is showing its own fit.
-   *
-   * The same answer `reportFit` sends the app, kept here as well because the
-   * card reserve turns on it: reframing the tree is the right response to the
-   * canvas getting smaller only while the frame is ours to move. A reader who
-   * has zoomed into a corner and then clicks a mark to read about it has not
-   * asked for the whole tree back.
-   *
-   * Starts true so the first card opened on a freshly fitted canvas reserves
-   * rather than waiting for the first report.
-   */
+  // Whether the canvas is showing its own fit. The card reserve turns on it:
+  // reframing on a shrink is right only while the frame is ours to move. Starts
+  // true so the first card on a fitted canvas reserves without waiting.
   const [atFit, setAtFit] = useState(true);
 
   /**
-   * Whether the layout is currently arranged around an open card.
-   *
-   * State rather than a derived value, because it may **lag** what the card is
-   * doing. Taking or releasing the reserve re-lays out the tree — the plot
-   * width follows the free width — so it happens only at a moment when the
-   * canvas is about to be reframed anyway. Off the fit, the card opens over a
-   * canvas that does not move at all and {@link revealShift} does the work.
-   *
-   * A reserve left standing after its card closed is reconciled the next time
-   * the reader returns to the fit, which costs an empty strip on the right and
-   * never a jump under their hands.
+   * Whether the layout is arranged around an open card. State, not derived,
+   * because it lags: taking or releasing the reserve re-lays out the tree, so it
+   * happens only when the canvas is about to reframe anyway. Off the fit,
+   * {@link revealShift} does the work instead. A stale reserve is reconciled the
+   * next time the reader returns to the fit.
    */
   const [reserved, setReserved] = useState(false);
   const wantReserve = cardReserve(vw, cardOpen) > 0;
@@ -334,20 +279,10 @@ function Inner(props: GraphProps) {
     : PLOT_W;
 
   /**
-   * What each label will say, handed to the layout so the placement pass can
-   * measure the real strings. Keeping this next to the renderer is what stops
-   * the two drifting — a label measured at one width and drawn at another
-   * collides exactly as badly as no placement pass at all.
-   *
-   * It reads the two label switches, and that is safe in a way reading the
-   * *zoom* was not. The old tiering had to be measured at its widest variant
-   * whatever was showing, because the fit reads the placement's bounds and then
-   * sets the zoom: letting placement depend on the zoom tier closes a loop —
-   * layout → fit → zoom → tier → layout — and React Flow never finishes
-   * measuring, leaving every node `visibility: hidden`. `labels` and `ages` are
-   * outside that loop. They come from the reader, the layout recomputes once
-   * when they change, and the fit that follows is the same reframe a window
-   * resize takes.
+   * What each label will say, handed to the layout so the placement pass
+   * measures the real strings and cannot drift from the renderer. Reads the two
+   * label switches — safe where reading the zoom was not, because zoom feeds the
+   * fit and letting placement depend on it closes a layout→fit→zoom→layout loop.
    */
   const describeLabel: LabelText = useCallback(
     (p) => {
@@ -481,51 +416,24 @@ function Inner(props: GraphProps) {
     }));
   }, [lay, biolum]);
 
-  /**
-   * And what is lit when there is no tree to light anything.
-   *
-   * The condition is deliberately `biolum && empty` and not `biolum` alone:
-   * these two lists are **never both non-empty**, so at no point does the
-   * canvas carry a light that is not the tree while a tree is on it. The moment
-   * a species is drawn the invitation unmounts and the panel's own lights go
-   * with it, so the water goes back to holding what the branches and the marks
-   * put in it — plus the one control that opens the palette, which stays lit
-   * because it is the way in rather than a comment on what is drawn.
-   *
-   * **The `empty` half of this condition is gone and that is not a widening.**
-   * It read `biolum && empty`, which tied every light in `bootLight.ts` to the
-   * panel; the panel's own sources are scoped to `.boot` inside that file now,
-   * so they still go out on the first species without anything here saying so,
-   * and the one source that outlives the panel is the only one that changed.
-   * `bootLight.ts` carries the argument for both the empty canvas earning a
-   * light source and that single piece of chrome earning one.
-   */
+  // What is lit when there is no tree. `bootLight.ts` scopes the panel's own
+  // sources to `.boot`, so they go out on the first species; the one source that
+  // outlives the panel (the palette control) is the exception.
   const bootLights = useBootLights(biolum, reduced);
 
   /**
-   * Counter-scale for silhouettes as the canvas shrinks.
-   *
-   * Images live in the transformed viewport, so pulling back shrinks them with
-   * everything else — and they are the one element that is *more* useful when
-   * pulled back, because a shape survives at sizes where a name does not.
-   *
-   * The cap is not timidity. Lanes are `ROW_H` apart in layout space and the
-   * icon is 34 of that, so anything past ~2x has neighbouring rows colliding;
-   * and at the minimum zoom the whole tree is a few hundred pixels tall, which
-   * bounds how much any icon can say regardless of policy. 1.6x is what fits
-   * without collisions, and it is worth roughly +60% at the zoom levels people
-   * actually use to see a whole tree. A transform, so it costs no relayout and
-   * cannot move the text it sits beside.
+   * Counter-scale for silhouettes as the canvas shrinks — they are the one
+   * element more useful pulled back, since a shape survives where a name does
+   * not. Capped at 1.6x, past which neighbouring rows collide. A transform, so
+   * it costs no relayout.
    */
   const iconScale = Math.min(1.6, Math.max(1, 1 / Math.max(zoom, 0.05)));
 
   const drawDelay = useMemo(() => {
     const m = new Map<number, number>();
     if (!delta) return m;
-    // Root-ward → leaf-ward, lightly staggered. All-at-once reads as a
-    // fade-in; staggered reads as travel. The stagger is per *wave*, so
-    // sibling branches leave their shared ancestor together rather than the
-    // tree unspooling along one route.
+    // Root-ward → leaf-ward, staggered per wave (all-at-once reads as a fade-in),
+    // so sibling branches leave their shared ancestor together.
     delta.drawOrder.forEach((wave, i) => {
       for (const v of wave) m.set(v, T_DRAW + i * STAGGER);
     });
@@ -780,29 +688,18 @@ function Inner(props: GraphProps) {
   );
 
   /**
-   * Fit the *content*, not the nodes.
-   *
-   * React Flow's `fitView` frames node boxes, and our node box is a 10px dot —
-   * so it happily fits a tree whose leaf labels run 260px off the right edge
-   * and whose root name is cut in half by the left one. Padding cannot fix
-   * that: the overflow is asymmetric and measured in pixels, while padding is
-   * a symmetric fraction of the viewport.
-   *
-   * So compute the transform directly from the layout bounds plus the space
-   * labels are known to need. Same principle as everything else here —
-   * positions are computed, never guessed at by a solver.
+   * Fit the content, not the nodes. React Flow's `fitView` frames node boxes,
+   * and ours is a 10px dot, so it fits a tree whose labels run off both edges;
+   * padding cannot fix an asymmetric pixel overflow. So compute the transform
+   * from the layout bounds, which already include every placed label.
    */
   const fitTarget = useCallback((): Viewport | null => {
     const c = lay.content;
     if (!c || !vw || !vh) return null;
-    // And `vw`/`vh` are not enough, because they can be a number React Flow
-    // made up — `unlaidOut` is the whole account. Nothing is lost by refusing:
-    // a size change re-arms `owedFit` below, so the fit lands the moment there
-    // is a canvas to land it in.
+    // `vw`/`vh` can be numbers React Flow made up — see `unlaidOut`. A size
+    // change re-arms `owedFit`, so nothing is lost by refusing.
     if (unlaidOut(canvasRef.current)) return null;
     return fitViewport({
-      // The bounds already include every placed label, so the fit frames what
-      // is actually drawn rather than the dots plus a guessed margin.
       content: fitContentPad(c, EDGE_PAD),
       vw,
       vh,
@@ -839,36 +736,14 @@ function Inner(props: GraphProps) {
   );
 
   /**
-   * Fit after `delay`, and record *now* when it will have landed.
+   * Fit after `delay`, recording *now* when it will have landed, so the reveal
+   * below can compute its wait from `fitUntil` and not fire mid-animation.
    *
-   * Recording it at scheduling time is the whole point. Every automatic reframe
-   * here waits a beat before it starts — for a draw to read, for a lane to reach
-   * its real height — and the reveal below computes its own wait from
-   * `fitUntil`. Set only when the fit *starts*, that timestamp is still in the
-   * past during the delay, so the reveal took its 140ms floor, fired partway
-   * into the animation, read a transform that was still moving and panned from
-   * wherever it had got to. The reframe stopped a few tens of pixels short of
-   * its target — which is exactly enough to leave the last label under the card.
-   *
-   * **It must not close over `fitToContent`, and that is not a style
-   * preference.** Every caller below arms this on a change to the one thing it
-   * watches and clears it on cleanup, then guards its body on that same thing —
-   * so an effect re-run for any *other* reason clears the pending timer and
-   * returns early without re-arming it. `fitToContent` is rebuilt whenever the
-   * layout is, so a `useCallback` depending on it makes every one of those
-   * effects re-run on a layout change, and a layout change inside the delay
-   * then silently cancels the reframe it scheduled.
-   *
-   * That is latent until something changes the layout in the two or three
-   * hundred milliseconds after an add. An opening drawn in sequence does
-   * exactly that: the sequence ends on the frame its last taxon lands,
-   * `holdMaxAge` is released with it, and the layout that moves underneath is
-   * the one whose fit is 260ms out. The whole tree stayed at the zoom the last
-   * species was framed at, with every divergence off the left edge.
-   *
-   * So the live fit is reached through a ref and this callback is built once.
-   * Firing through the *latest* fit is what was wanted anyway: a reframe should
-   * frame the layout as it is when it runs, not as it was when it was booked.
+   * It must not close over `fitToContent`: that is rebuilt on every layout
+   * change, so a `useCallback` depending on it would re-run the guarded effects
+   * that arm this and silently cancel a pending reframe. So the live fit is
+   * reached through a ref and this callback is built once — which also fires the
+   * latest fit, framing the layout as it is when it runs.
    */
   const fitNow = useRef(fitToContent);
   useEffect(() => {
@@ -882,18 +757,9 @@ function Inner(props: GraphProps) {
   }, []);
 
   /**
-   * Tell the app whether the canvas is already showing the fit.
-   *
-   * Asked of the viewport rather than remembered, because "have we fitted?" is
-   * the wrong question — the tree reframes itself on an add and on a lane
-   * opening, the target moves when the window resizes, and a flag set at the
-   * last `fitToContent` would be stale after any of those. Comparing the live
-   * transform against the target it would be given answers it in every case.
-   *
-   * On `onMoveEnd` and on layout change only, never per frame: React Flow pans
-   * by transform without re-rendering subscribers, and taking a viewport
-   * subscription here to keep a palette row up to date would trade a smooth
-   * drag for it. The palette is opened between gestures, not during one.
+   * Tell the app whether the canvas is showing the fit, asked of the live
+   * viewport rather than remembered (a flag would go stale on any reframe). On
+   * `onMoveEnd` and layout change only, never per frame.
    */
   const reportFit = useCallback(() => {
     const t = fitTarget();
@@ -904,9 +770,7 @@ function Inner(props: GraphProps) {
       return;
     }
     const v = rf.getViewport();
-    // A whole pixel of pan and a half percent of zoom are both invisible, and
-    // the animated fit lands a hair off its own target often enough that an
-    // exact test would report "not fit" immediately after fitting.
+    // Tolerances, because the animated fit lands a hair off its own target.
     const fit =
       Math.abs(v.x - t.x) < 1.5 &&
       Math.abs(v.y - t.y) < 1.5 &&
@@ -937,30 +801,12 @@ function Inner(props: GraphProps) {
   }, [laneH, scheduleFit, reduced]);
 
   /**
-   * The panel moved, so the tree must not appear to.
-   *
-   * The canvas is `left: var(--sidebar-w)` and React Flow's transform is
-   * relative to the canvas, so every pixel the panel's edge moves is a pixel
-   * the whole tree slides sideways on screen. Toggling a 336px panel threw the
-   * tree a third of a window to one side under the reader's eyes, and dragging
-   * the panel's edge dragged the tree along with it.
-   *
-   * **Two answers, and which one applies is the same question the card's
-   * reserve asks.** A reader sitting on the fit is looking at *the whole tree*,
-   * and the honest response to a canvas that changed size is to frame the whole
-   * tree in the new one — so it refits, and the tree is never left behind the
-   * panel that just opened over it. A reader who has zoomed into a corner is
-   * looking at *something*, and refitting would take it away from them; there
-   * the viewport takes the opposite shift and the picture stays exactly where
-   * it was.
-   *
-   * It runs off `vw`, which is the only signal there is: a left-hand panel
-   * cannot change the canvas's offset without changing its width, and React
-   * Flow reports width from a `ResizeObserver`, so this fires on every frame of
-   * the CSS transition — the correction arrives in the same increments the
-   * slide does, and the refit is debounced by `scheduleFit` into one. A window
-   * resize changes `vw` and *not* the offset, so the delta is zero and nothing
-   * happens, which is right: that is the browser moving the canvas, not us.
+   * The panel moved, so the tree must not appear to. The canvas is
+   * `left: var(--sidebar-w)`, so every pixel the panel's edge moves slides the
+   * tree sideways. Two answers, the same question the card's reserve asks: on
+   * the fit, refit into the new size; zoomed into a corner, take the opposite
+   * shift so the picture stays put. Runs off `vw` (a resize changes `vw` and not
+   * the offset, so the delta is zero — the browser moving the canvas, not us).
    */
   const lastLeft = useRef<number | null>(null);
   useEffect(() => {
@@ -978,15 +824,9 @@ function Inner(props: GraphProps) {
     return;
   }, [vw, rf, atFit, scheduleFit, reduced]);
 
-  // And the card, for exactly the reason above: it is the same event on the
-  // other axis. Taking the reserve has already narrowed the plot by the time
-  // this runs, so the fit is being asked to frame a tree that is genuinely a
-  // different shape, not the old one pushed left.
-  //
-  // The sidebar's own width is deliberately *not* in this set. Dragging it is
-  // an ordinary container resize, and a canvas that refits on one takes the
-  // view away from a reader who had zoomed into a corner — which is the same
-  // rule the reserve's lag above encodes.
+  // And the card: the same event on the other axis, the reserve having already
+  // narrowed the plot. The sidebar's own width is deliberately not in this set —
+  // dragging it is an ordinary resize and must not take the view away.
   const lastReserved = useRef(reserved);
   useEffect(() => {
     if (lastReserved.current === reserved) return;
@@ -996,11 +836,8 @@ function Inner(props: GraphProps) {
 
   useEffect(() => {
     if (!fitSignal) return;
-    // The third writer, and the one that has never gone wrong: a fit signal is
-    // a key press, and a reader pressing a key has a canvas. It is guarded all
-    // the same, because "there is no canvas to move into" is one rule and this
-    // is the call site where it happens to be reachable only by luck — which is
-    // exactly what was true of the reveal below until it was not.
+    // Guarded like the rest, though a fit signal is a key press and a reader
+    // pressing a key has a canvas.
     if (unlaidOut(canvasRef.current)) return;
     if (fitSignal.kind === "selection" && focusedIdx !== null) {
       rf.fitView({
@@ -1084,34 +921,12 @@ function Inner(props: GraphProps) {
   }, [vw, vh, atFit, scheduleFit, reduced]);
 
   /**
-   * The floor under all of it: whatever else happened, the thing the card is
-   * about is on screen and not underneath the card.
-   *
-   * Runs on the subject and on the card's footprint, never on the live
-   * transform — a reader who deliberately drags a mark under the card is
-   * panning, and a viewport that pans back is a viewport fighting its own
-   * reader. So this fires when the *selection* changes, or when the card
-   * appears or goes, and is otherwise silent.
-   *
-   * The subject is the mark **and its label**, because a dot on the seam with
-   * its name printed underneath the card is not visible in any sense a reader
-   * would recognise. Where the two together are wider than the free strip, the
-   * shift centres them rather than picking an edge — see `revealShift`.
-   *
-   * Deliberately last: it reads the settled transform, so if the reframe above
-   * has already brought the subject into the clear there is nothing to do and
-   * nothing happens.
-   *
-   * And it refuses an unlaid-out canvas for the reason `fitTarget` does, which
-   * is the same reason and was not the same code. `!vw || !vh` above is exactly
-   * the guard {@link unlaidOut} exists because React Flow defeats: on a cold
-   * load into a container the browser has not sized yet, this fired a 320ms
-   * pan framed against an invented 500×500 viewport, and d3-zoom's tween made
-   * the store transform NaN for the whole animation. The canvas kept its
-   * `<pattern>`, its dots and its `--icon-scale` from that number, and the time
-   * axis — refusing ticks it could not place — emptied of all eighteen and came
-   * back with fifteen. The subject loses nothing by the refusal: `vw` and `vh`
-   * are deps, so a real canvas re-runs this and reveals against that one.
+   * The floor under all of it: the thing the card is about is on screen and not
+   * under the card. Runs on the selection and the card's footprint, never on the
+   * live transform (a reader dragging a mark under the card is panning). The
+   * subject is the mark and its label. Deliberately last, so if the reframe
+   * above already cleared the subject nothing happens; refuses an unlaid-out
+   * canvas ({@link unlaidOut}) as `fitTarget` does.
    */
   useEffect(() => {
     if (focusedIdx === null || !vw || !vh) return;
@@ -1122,10 +937,8 @@ function Inner(props: GraphProps) {
     const subject = box ? union(dot, labelRect(p.x, p.y, box)) : dot;
     const wait = Math.max(REVEAL_DELAY, fitUntil.current - Date.now() + 60);
     const t = window.setTimeout(() => {
-      // Measured here rather than at the top: the wait is a floor raised past
-      // any reframe already on its way, so the canvas this pans into is the one
-      // that exists when the timer fires and not the one that did when it was
-      // set.
+      // Measured here, not at the top: the wait is a floor raised past any
+      // reframe on its way, so this pans into the canvas that exists on fire.
       if (unlaidOut(canvasRef.current)) return;
       const v = rf.getViewport();
       const { dx, dy } = revealShift(

@@ -1,10 +1,7 @@
 // Package topo holds the memory-mapped topology arrays and the one primitive
-// everything else is built from: path(node) -> [root, ..., node].
-//
-// Architecture §2 is the load-bearing claim — every interaction is a set
-// operation over ancestor paths — so this package is deliberately small and
-// deliberately allocation-light. A path lookup is a 41-step walk up a mmap'd
-// u32 array with one allocation for the result slice.
+// everything else is built from: path(node) -> [root, ..., node]. Every
+// interaction is a set operation over ancestor paths, so a path lookup is a walk
+// up a mmap'd u32 array with one allocation for the result slice.
 package topo
 
 import (
@@ -30,13 +27,9 @@ const (
 	TierMeasured     = uint8(0)
 	TierInterpolated = uint8(1)
 	TierStructural   = uint8(2)
-	// TierOccurrence is written by phase 4, not phase 2, and it is not a
-	// fourth grade of divergence estimate. The first three all answer "when
-	// did these lineages part", from a chronogram of extant species, and an
-	// extinct taxon has no counterpart there — which is why 1,742 of the 1,743
-	// extinct-flagged nodes are structural by construction. This answers a
-	// different and weaker question: when the taxon is observed in the rock.
-	// It never carries an age_ma, and its range lives in the occurrence table.
+	// TierOccurrence is written by phase 4, not a fourth grade of divergence
+	// estimate: it answers when the taxon is observed in the rock, never carries
+	// an age_ma, and keeps its range in the occurrence table.
 	TierOccurrence = uint8(3)
 )
 

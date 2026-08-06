@@ -97,8 +97,7 @@ func (s *Store) nodeHasNameContaining(ctx context.Context, idx int, q string) (b
 	return false, nil
 }
 
-// Exact match is the primary sort key (architecture §4). These are the queries
-// management.md names as the product's front door.
+// Exact match is the primary sort key. These are the product's front-door queries.
 func TestExactMatchOutranksLargerSubtrees(t *testing.T) {
 	st := open(t)
 	if st.Schema.Vernacular == nil {
@@ -178,11 +177,9 @@ func TestMatchedOnReportsTheKindOfNameThatHit(t *testing.T) {
 	}
 }
 
-// An exact whole-word match must outrank a mid-word prefix match, regardless
-// of subtree size. Without the band rule "dog" ranks Apocynaceae ("dogbane
-// family", 7,050 tips) above Canidae ("dog family", 211) — and "dog" is the
-// example management.md uses for the palette being broken at the front door.
-// The failure is subtle enough to come back if it is not pinned.
+// An exact whole-word match must outrank a mid-word prefix match, regardless of
+// subtree size. Without the band rule "dog" ranks Apocynaceae ("dogbane family",
+// 7,050 tips) above Canidae ("dog family", 211).
 func TestWholeWordMatchOutranksMidWordPrefix(t *testing.T) {
 	st := open(t)
 	if st.Schema.Vernacular == nil {
@@ -275,12 +272,10 @@ func TestSynonymHitsRankBelowCurrentNames(t *testing.T) {
 	}
 }
 
-// A broken taxon's name is filed in search_name against the MRCA that
-// swallowed it, because that is the node the client draws once the app has
-// explained itself. That row must never come back as an ordinary node hit:
-// doing so answers about the substitute, silently, which is the live Open Tree
-// behaviour handoff.md §3 exists to refuse. Searching "Dinosauria" returned a
-// node called *Sauria*, ranked above the explanation.
+// A broken taxon's name is filed in search_name against the MRCA that swallowed
+// it (the node the client draws once it has explained itself). That row must
+// never come back as an ordinary node hit, which would silently answer about the
+// substitute the way the live Open Tree API does.
 func TestABrokenTaxonsNameNeverReturnsTheSubstitutedNode(t *testing.T) {
 	st := open(t)
 	if st.Schema.FTS == nil {
@@ -388,12 +383,9 @@ func TestAbbreviateBinomial(t *testing.T) {
 	}
 }
 
-// The fourth age tier's constraints, checked at the boundary the client sees.
-//
-// handoff §7 makes four of them non-negotiable, and two are checkable here:
+// The fourth age tier's constraints, checked at the boundary the client sees:
 // a range never enters age_ma, and it is a range rather than a point. The
-// pipeline gates the arrays; this gates what leaves the process, because the
-// two are separate programs sharing only files.
+// pipeline gates the arrays; this gates what leaves the process.
 func TestAnOccurrenceRangeIsNeverAnAge(t *testing.T) {
 	st := open(t)
 	if st.Schema.Occurrence == nil {
@@ -459,17 +451,13 @@ func TestAnOccurrenceRangeIsNeverAnAge(t *testing.T) {
 	t.Logf("%d of %d sampled nodes have no certain extent", empty, len(idxs))
 }
 
-// A common word that names a group must reach the group, not a taxon that
-// happens to be labelled with it. All three of these were wrong in the running
-// app and each was wrong for a different reason (handoff.md §7):
+// A common word that names a group must reach the group, not a taxon labelled
+// with it — each of these was wrong in the app for a different reason:
 //
-//   - "butterfly" returned *Chaetodon capistratus*, a butterflyfish headlined
-//     "Kete" and carrying "Butterfly" as one of nine Caribbean aliases
-//   - "eagle" returned *Miraquila*, a one-species fossil genus whose only
-//     recorded common name is PBDB's category label "eagle"
-//   - "oak" returned *Usnea* ("Oak moss", a lichen) and *Enaphalodes* ("Oak
-//     Borer", a beetle), because no node carries the bare word at all and
-//     nothing separated a name the word modifies from a name it is
+//   - "butterfly" returned a butterflyfish carrying "Butterfly" as an alias
+//   - "eagle" returned a one-species fossil genus whose only name is the label
+//   - "oak" returned a lichen ("Oak moss") and a beetle ("Oak Borer"), since no
+//     node carries the bare word and nothing separated modifier from head
 func TestGroupWordsReachTheGroup(t *testing.T) {
 	st := open(t)
 	if st.Schema.Vernacular == nil {

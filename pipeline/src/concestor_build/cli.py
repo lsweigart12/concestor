@@ -1,12 +1,8 @@
 """Command line entry point.
 
 Each phase is a separate subcommand writing to `build/` with a manifest, and
-phases are resumable — `dates` does not re-run `topology`.
-
-The numbering in ingest.md is a *dependency* order, not a priority order
-(handoff.md §1). `images` and `vernaculars` are priority-one work that happens
-to sit late in the numbering; nothing about this list implies they wait for
-`fossils`.
+phases are resumable — `dates` does not re-run `topology`. The numbering is a
+dependency order, not a priority order.
 """
 
 from __future__ import annotations
@@ -81,16 +77,13 @@ def main(argv: list[str] | None = None) -> int:
     v = sub.add_parser("vernaculars", help="phase 6 — common names")
     v.add_argument("--no-api", action="store_true", help="skip the Wikidata query")
 
-    # Separate from `vernaculars` so the ordering can be re-run and retuned
-    # without replaying phase 6's 287-page ingest, the same way `search` is.
-    # It reads the `vernacular` table and writes only order and evidence.
+    # Separate from `vernaculars` so ordering can be re-run without replaying
+    # phase 6's ingest. Reads the `vernacular` table, writes order and evidence.
     nr = sub.add_parser("names", help="phase 6b — rank common names by use")
     nr.add_argument("--no-api", action="store_true", help="replay checkpoints only")
 
     sub.add_parser("search", help="build the FTS index over names and vernaculars")
 
-    # Not "topology.bin, meta.bin": those files do not exist and never will.
-    # `package.py`'s docstring is the reasoning; this string is what a user sees.
     sub.add_parser("package", help="gate the artifact set and write the build manifest")
 
     sub.add_parser("render", help="throwaway renderer — one induced subtree")

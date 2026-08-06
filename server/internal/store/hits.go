@@ -2,58 +2,26 @@ package store
 
 import "context"
 
-// Search rows for taxa nobody searched for.
+// Search rows for taxa nobody searched for, to fill the palette's empty state.
 //
-// The palette's species list is empty until a word is typed, and an empty list
-// is the one state that cannot answer the question a reader opening it actually
-// has — *what is in here?* Filling it needs rows for a set of taxa chosen ahead
-// of time, which is a different question from every other one this package
-// answers: not "what matches this string" but "give me these, fully dressed".
-//
-// **It is a primitive rather than a feature.** This file knows nothing about
-// which taxa are worth suggesting and must not learn — that list is editorial,
-// it changes on somebody's judgement about what a curious reader recognises,
-// and it lives in `web/src/palette/starters.ts` beside the copy it serves.
-// What the server owns is the half the client cannot compute: `idx`, the tip
-// count, the resolved silhouette and the headline vernacular are all facts
-// about the *dataset*, and a client that baked them would be shipping a
-// snapshot of one build to readers on another. That failure is silent — a
-// stale `idx` resolves cleanly and describes a different animal, which is the
-// `node_fts.rowid` trap in a new place.
-//
-// So the split is: the client says *which*, the server says *what they are*.
-//
-// The rows come back as SearchResult for the same reason RandomNodes' do — a
-// suggestion, a random pick and a search hit are one object to every caller,
-// with one row component and one add path, and a shape of its own would fork
-// all three.
+// A primitive, not a feature: which taxa to suggest is editorial and lives in
+// `web/src/palette/starters.ts`; the server owns only what the client cannot
+// bake without shipping one build's data to another build's readers (idx, tip
+// count, silhouette, headline name). The client says which, the server says what
+// they are. Rows come back as SearchResult so a suggestion, a random pick and a
+// search hit share one row component and add path.
 
-// matchedOnKey is what a row fetched by key reports in `matched_on`.
-//
-// Nothing matched: no query was asked, exactly as for {@link matchedOnRandom}.
-// Saying "name" would credit the reader with a match they never made, and the
-// palette keys off this field to caption *why* a row is on the page — a caption
-// that would then be a lie about a row the reader is most likely to trust,
-// being the first thing they saw.
+// matchedOnKey is what a row fetched by key reports in `matched_on`: nothing
+// matched, no query was asked. Saying "name" would caption a match never made.
 const matchedOnKey = "key"
 
 // HitsForKeys dresses a caller's chosen taxa as search rows.
 //
-// Unknown keys are **skipped, not errored**, and that is the whole of the
-// contract worth knowing. The caller's list is curated against one build and
-// served to readers on another; OTT ids are retired and forwarded silently —
-// 297,070 entries — and a suggestion list that 404s the entire response because
-// one taxon moved is a palette that loses its empty state to a taxonomy edit.
-// Resolve chases forwards transitively already, so a skip here means the taxon
-// is genuinely gone, and the honest answer is the rest of the list.
-//
-// Broken taxa are skipped for a second reason: they are not nodes, they cannot
-// be added, and every row this returns is one Enter will act on.
-//
-// Order is the caller's, preserved. The list is ranked by somebody's judgement
-// about what a first-time reader recognises, and returning it in idx order —
-// which is what the chunked IN scan hands back — would silently replace that
-// ranking with the tree's own preorder.
+// Unknown keys are skipped, not errored: the list is curated against one build
+// and served to readers on another, and one forwarded OTT id must not 404 the
+// whole empty state. Broken taxa are skipped too (not nodes, cannot be added).
+// Order is the caller's, preserved, since it is an editorial ranking that idx
+// order would silently replace.
 func (s *Store) HitsForKeys(ctx context.Context, keys []string) ([]SearchResult, error) {
 	idxs := make([]int, 0, len(keys))
 	// Keys that resolve, in the caller's order, so the reorder below has
