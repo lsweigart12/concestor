@@ -452,6 +452,20 @@ column on the left, and what is left outside it is the canvas, the timeline
 flush along the bottom, the panel's toggle top-left, three viewport actions
 top-right, and the detail card flying out from the right.
 
+**The column has one rhythm and it scales.** Five blocks — the wordmark, the
+search pill's slot, the taxa list, the canvas modes, the footer — with four
+equal gaps between them, from one `gap` on the flex column:
+`--side-gap: clamp(14px, 2.4vh, 30px)`. Two things make those four actually
+equal: the **sections carry no padding and no rules between them** (a gap that
+includes a section's padding is visibly larger than one that does not), and the
+**pill is told where the flow would have put it** — it is in a fixed layer, so
+its `top` reads the same `--side-pad-t + --brand-h + --side-gap` the flow does.
+`vh` rather than a flex spacer, and that is the half worth keeping: the taxa
+list is the scroller and takes the slack, so a spacer competing with it for free
+height would shrink the list on a *tall* window. Making the gaps a function of
+the window and letting the list absorb the rest is what keeps them equal once
+the list is full and scrolling, which is the case this has to hold in.
+
 **The whole layout contract is `--sidebar-w`.** It is written to the document
 element by `sidebar/useSidebar.ts`; the canvas is `left: var(--sidebar-w)`, and
 because the axis, the drill lane and every mark are positioned *inside* the

@@ -106,14 +106,65 @@ describe("the search pill collapses to a circle", () => {
   });
 
   /**
-   * The pill sits directly under the wordmark, and the panel's own spacer is
-   * what keeps the first section from sliding beneath it. Both read the same
-   * two properties, so the two cannot drift.
+   * The pill is in a fixed layer, so it cannot inherit the column's flow and
+   * has to be told where the flow would have put it: the top padding, the
+   * wordmark, and one gap. Its slot in the column is exactly `--search-h`, and
+   * the two have to be computed from the same three properties or the sections
+   * below slide under the pill on any window where the gap resolves
+   * differently from the day somebody eyeballed it.
    */
-  it("keeps the panel's spacer and the pill reading the same numbers", () => {
-    expect(decl(".side-search", "top")).toBe("var(--brand-h)");
+  it("puts the pill exactly where the column's flow would have", () => {
+    const top = decl(".side-search", "top");
+    for (const v of ["--side-pad-t", "--brand-h", "--side-gap"]) {
+      expect(top, `the pill's top does not read ${v}`).toContain(`var(${v})`);
+    }
     expect(decl(".side-brand", "height")).toBe("var(--brand-h)");
-    expect(decl(".side-search-gap", "height")).toContain("var(--search-h)");
+    expect(decl(".side-search-gap", "height")).toBe("var(--search-h)");
+  });
+
+  /**
+   * And the invitation's words ride the same line as the pill they point at.
+   * They were two literals once and the second was not updated when the first
+   * moved, which put the sentence a gap's worth above the ring it explains.
+   */
+  it("keeps the invitation on the pill's own line", () => {
+    expect(decl(".side-search-tip", "top")).toBe(decl(".side-search", "top"));
+  });
+});
+
+describe("the column has one rhythm and it scales", () => {
+  /**
+   * Five blocks, four gaps, and the gap is the *only* spacing between them.
+   *
+   * Each section used to carry its own padding and a hairline to its
+   * neighbour, which under one shared gap is what makes the four gaps unequal:
+   * the two around the search pill's slot are the gap alone, and the two around
+   * the sections would be the gap plus two paddings. This is the rule that
+   * keeps them the same measurement rather than four that happen to look alike.
+   */
+  it("spaces the column with one gap and gives the sections no padding", () => {
+    expect(decl(".side-inner", "gap")).toBe("var(--side-gap)");
+    expect(decl(".side-section", "padding")).toBe("0");
+  });
+
+  it("draws no rule between the blocks, since the gap is the separation", () => {
+    const ruled = rules().filter(
+      (r) =>
+        r.selectors.some(
+          (sel) =>
+            sel.includes(".side-section") ||
+            sel === ".side-bottom" ||
+            sel === ".side-canvas",
+        ) && (r.decls.get("border-top") ?? "") !== "",
+    );
+    expect(ruled.map((r) => r.selector)).toEqual([]);
+  });
+
+  /** It scales with the window and is clamped at both ends. */
+  it("scales the gap, and floors and ceilings it", () => {
+    const gap = cssVar("--side-gap");
+    expect(gap).toMatch(/^clamp\(/);
+    expect(gap).toContain("vh");
   });
 });
 

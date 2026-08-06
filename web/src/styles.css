@@ -109,12 +109,13 @@
    * first painted frame a full-width canvas rather than a canvas with a strip
    * of void down the side of it.
    *
-   * The other four are constants two files have to agree about and only one of
-   * them can measure. `--brand-h` is the wordmark's height *and* the pill's
-   * distance from the top of the window; `--search-out` is how far past the
-   * panel's edge the pill hangs, and `--search-out` minus `--rail-pad` is the
-   * diameter of the circle left standing when the panel shuts — so those three
-   * are what make the collapsed control exactly `--search-h` across.
+   * The rest are constants two files have to agree about and only one of them
+   * can measure. `--search-out` is how far past the panel's edge the pill
+   * hangs, and `--search-out` minus `--rail-pad` is the diameter of the circle
+   * left standing when the panel shuts — so those two are what make the
+   * collapsed control exactly `--search-h` across. `--side-pad-t`, `--brand-h`
+   * and `--side-gap` are what the pill's own `top` is computed from, because
+   * the pill is in a fixed layer and cannot inherit the column's flow.
    */
   --sidebar-w: 0px;
   /*
@@ -126,7 +127,30 @@
    */
   --chrome-left: 0px;
   --rail-pad: 12px;
-  --brand-h: 56px;
+  /*
+   * The four gaps down the panel, and they scale.
+   *
+   * The column is five blocks — the wordmark, the search pill's slot, the taxa
+   * list, the canvas modes, the footer strip — and the reader should see one
+   * rhythm rather than five sections each with its own padding. One `gap` on
+   * the flex column is exactly four gaps, which is exactly the four the eye
+   * counts, and it is the only spacing between them: the sections carry no
+   * padding of their own and no rules between them, or the gap that includes a
+   * section's padding would be visibly larger than the gap that does not.
+   *
+   * `vh` rather than a flex spacer, because the taxa list is the thing that
+   * takes the slack — it is the scroller, and a spacer competing with it for
+   * free height would shrink the list on a tall window, which is backwards. So
+   * the gaps are a function of the *window* and the list absorbs whatever is
+   * left, which is what keeps them equal once the list is full and scrolling.
+   *
+   * Clamped at both ends: under about 580px tall the floor is what stops the
+   * five blocks touching, and past about 1250 the ceiling is what stops a tall
+   * screen turning the panel into five things floating a long way apart.
+   */
+  --side-gap: clamp(14px, 2.4vh, 30px);
+  --side-pad-t: 16px;
+  --brand-h: 38px;
   --search-h: 40px;
   --search-out: 52px;
 }
@@ -1757,7 +1781,9 @@ body {
   display: flex;
   flex-direction: column;
   height: 100%;
-  padding: 0 var(--rail-pad);
+  padding: var(--side-pad-t) var(--rail-pad) var(--s4);
+  /* The whole vertical rhythm. See `--side-gap`. */
+  gap: var(--side-gap);
 }
 
 /*
@@ -1776,6 +1802,19 @@ body {
   flex-direction: column;
   justify-content: center;
   gap: 1px;
+}
+
+/*
+ * The room the pill occupies, and nothing more.
+ *
+ * It used to carry a trailing 16px of its own; the column's `gap` supplies the
+ * space on both sides now, which is what makes the wordmark→search gap and the
+ * search→list gap the same measurement rather than two that happen to look
+ * alike.
+ */
+.side-search-gap {
+  flex: 0 0 auto;
+  height: var(--search-h);
 }
 
 .side-wordmark {
@@ -1870,13 +1909,6 @@ body {
   color: var(--ink-4);
 }
 
-/* What the pill occupies. It reads the pill's own two numbers rather than
-   carrying a padding of its own, so the two cannot drift. */
-.side-search-gap {
-  flex: 0 0 auto;
-  height: calc(var(--search-h) + 16px);
-}
-
 /* --------------------------------------------------------- the way in -- */
 
 /*
@@ -1893,7 +1925,11 @@ body {
 .side-search {
   position: fixed;
   left: var(--rail-pad);
-  top: var(--brand-h);
+  /* The pill is in a fixed layer, so it cannot inherit the column's flow and
+     has to be told where the flow would have put it: the top padding, the
+     wordmark, and one gap. Its slot in the column is `--search-h` tall and
+     starts here. */
+  top: calc(var(--side-pad-t) + var(--brand-h) + var(--side-gap));
   z-index: 32;
   width: calc(var(--chrome-left) + var(--search-out) - var(--rail-pad));
   height: var(--search-h);
@@ -2024,7 +2060,7 @@ body {
 .side-search-tip {
   position: fixed;
   left: calc(var(--chrome-left) + var(--search-out) + 12px);
-  top: var(--brand-h);
+  top: calc(var(--side-pad-t) + var(--brand-h) + var(--side-gap));
   z-index: 31;
   margin: 0;
   max-width: 250px;
@@ -2072,12 +2108,19 @@ body {
   flex: 0 0 auto;
 }
 
+/*
+ * No padding and no rules between them — the column's `gap` is the only
+ * spacing there is.
+ *
+ * Each section used to carry `var(--s3)` above and `var(--s2)` below, plus a
+ * hairline between neighbours. Under one shared gap that is what makes the four
+ * gaps *unequal*: the two around the search pill's slot would be the gap alone
+ * and the two around the sections would be the gap plus two paddings, which is
+ * the thing this rhythm exists to avoid. The captions are the section markers
+ * and at this much whitespace they are enough.
+ */
 .side-section {
-  padding: var(--s3) 0 var(--s2);
-}
-
-.side-section + .side-section {
-  border-top: 1px solid var(--hairline);
+  padding: 0;
 }
 
 /*
@@ -2122,7 +2165,6 @@ body {
   display: flex;
   flex-direction: column;
   gap: 1px;
-  padding-bottom: var(--s3);
 }
 
 /* --- the two doors --- */
@@ -2538,8 +2580,7 @@ body {
      sends it on. */
   justify-content: space-between;
   gap: var(--s3);
-  padding: var(--s2) 4px var(--s3);
-  border-top: 1px solid var(--hairline);
+  padding: 0 4px;
   font-size: 11px;
 }
 

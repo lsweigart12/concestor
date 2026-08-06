@@ -68,6 +68,42 @@ Two consequences worth knowing:
   variable there would collapse the panel to nothing before it had finished
   leaving.
 
+### One rhythm down the column, and it scales
+
+The panel is five blocks — the wordmark, the search pill's slot, the taxa list,
+the canvas modes, the footer strip — with **four gaps between them, all the same
+measurement, all scaling with the window**.
+
+```
+--side-gap: clamp(14px, 2.4vh, 30px)
+```
+
+It is a single `gap` on the flex column, which is exactly four gaps and exactly
+the four the eye counts. Two things had to change for those four to actually be
+equal:
+
+- **The sections carry no padding and no rules between them.** Each used to have
+  `var(--s3)` above and `var(--s2)` below plus a hairline to its neighbour.
+  Under one shared gap that is what makes the four *unequal*: the two around the
+  pill's slot are the gap alone, and the two around the sections would be the
+  gap plus two paddings. The captions are the section markers and at this much
+  whitespace they are enough.
+- **The pill has to be told where the flow would have put it.** It is in a fixed
+  layer so it cannot inherit the column, and its `top` is
+  `--side-pad-t + --brand-h + --side-gap` — the same three properties the flow
+  uses. Its slot in the column is exactly `--search-h`, with the gap supplying
+  the space on both sides.
+
+**`vh` rather than a flex spacer**, and that is the interesting half. The taxa
+list is the thing that takes the slack — it is the scroller — so a spacer
+competing with it for free height would *shrink the list on a tall window*,
+which is backwards. Making the gaps a function of the window and letting the
+list absorb whatever is left is what keeps them equal once the list is full and
+scrolling, which is the case the rhythm has to hold in.
+
+Measured: 23px at a 950px window and 15px at 640px, identical across all four
+gaps in both, with the list scrolling at the second.
+
 ### `--chrome-left` is a second number, and the difference is the drawer
 
 `--sidebar-w` is what the panel takes *off the canvas*. `--chrome-left` is where
