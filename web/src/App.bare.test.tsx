@@ -11,7 +11,7 @@
  * `document.fullscreenEnabled` false, so this *is* the bare browser, and the
  * app has to be honest with it. `App.test.tsx` is the same app with both.
  *
- * The rule being pinned is one the bar deliberately breaks its own rule for.
+ * The rule being pinned is one the app deliberately breaks its own rule for.
  * Unavailable actions are normally **disabled rather than hidden** — a greyed
  * `fit` says "add a species and this works". These two are **absent**, because
  * a greyed button saying the browser will never do it tells the reader nothing
@@ -26,15 +26,14 @@ import { drawOpening, openPalette, renderApp } from "./test/appHarness";
 describe("fullscreen is offered on both surfaces or on neither", () => {
   it("draws no button where the browser has no fullscreen", async () => {
     await renderApp();
-    // The bar is drawn: this is an absence inside something, not an empty page.
-    expect(document.querySelectorAll(".control-label").length).toBeGreaterThan(
-      3,
+    // The cluster is drawn: this is an absence inside something, not an empty
+    // page. Two survive it — the fit and the isolate — and both are about the
+    // view rather than about the browser.
+    const view = [...document.querySelectorAll(".viewport-btn")].map((n) =>
+      n.getAttribute("aria-label"),
     );
-    expect(
-      [...document.querySelectorAll(".control-label")].map(
-        (n) => n.textContent,
-      ),
-    ).not.toContain("Fullscreen");
+    expect(view.length).toBeGreaterThan(1);
+    expect(view).not.toContain("Fullscreen");
   });
 
   it("offers no command for it either", async () => {
@@ -55,22 +54,26 @@ describe("fullscreen is offered on both surfaces or on neither", () => {
  * asked in both of the canvas's branches.
  */
 describe("bioluminescence is offered on every canvas or on none", () => {
-  it("draws no panel at all on an empty canvas with no GPU", async () => {
-    await renderApp();
-    // The one chip that branch would hold is the only one in it, so the whole
-    // panel goes rather than being drawn empty.
-    expect(document.querySelector(".boot")).not.toBeNull();
-    expect(document.querySelector(".canvas-modes")).toBeNull();
-  });
-
-  it("draws the other two on a canvas with marks on it, and not the light", async () => {
+  it("draws the other three and not the light", async () => {
     await renderApp();
     await drawOpening();
-    const chips = [...document.querySelectorAll(".canvas-modes .mode-chip")];
+    const chips = [...document.querySelectorAll(".side-modes .mode-chip")];
     expect(chips.map((c) => c.getAttribute("aria-label"))).toEqual([
       "Labels",
-      "Ages",
+      "Dates",
+      "Time scale",
     ]);
+  });
+
+  /**
+   * And the section they are in is still drawn, which is the half that would
+   * fail silently. A capability check that took the caption with it would leave
+   * a heading over nothing on one browser and three switches on another.
+   */
+  it("keeps the section the missing switch would have been in", async () => {
+    await renderApp();
+    await drawOpening();
+    expect(document.querySelector(".side-modes")).not.toBeNull();
   });
 
   /** The command goes on being offered, because the palette is not a control. */

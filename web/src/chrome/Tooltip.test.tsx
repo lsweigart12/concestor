@@ -9,7 +9,7 @@
  *
  * 1. **`useTip` is a hook and not a wrapper.** `<Tip><button/></Tip>` is the
  *    friendlier API and it would put an element into `.mode-chip`'s grid, into
- *    `.canvas-modes`'s subgrid, into a `<g>` inside the drill lane's single
+ *    `.mode-chip`'s own grid, into a `<g>` inside the drill lane's single
  *    SVG. The claim in the header is that the DOM after this change is the DOM
  *    before it, attribute for attribute — which is a claim about rendered
  *    markup and was, until there was a DOM to render into, unenforced.

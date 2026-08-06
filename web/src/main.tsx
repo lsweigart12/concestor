@@ -13,6 +13,7 @@ import App from "./App";
 import { AboutPage } from "./chrome/AboutPage";
 import { TooltipLayer } from "./chrome/Tooltip";
 import { useRoute } from "./route";
+import { primeSidebarWidth } from "./sidebar/useSidebar";
 import "./styles.css";
 
 /**
@@ -30,6 +31,15 @@ function Root() {
     </>
   );
 }
+
+/*
+  Before anything renders, because the canvas is `left: var(--sidebar-w)` and
+  React Flow measures the canvas. A first frame at full width is not a flicker —
+  it is the width the fit is computed against, so a shared link would open with
+  its right-hand lineages hanging off the edge of a canvas that had since got
+  narrower. `sidebar/useSidebar.ts` keeps it true from here on.
+*/
+primeSidebarWidth();
 
 const el = document.getElementById("root");
 if (!el) throw new Error("#root missing from index.html");

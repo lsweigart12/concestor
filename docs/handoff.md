@@ -1527,7 +1527,7 @@ Five things not to redo:
 - **The two questions need two geometries**, which is why `freeRect` is not
   `cardReserve`. A card refused a reserve is still 360px of opaque panel, and
   below 620px it is not on the right at all — it spans the window under the
-  control bar, so the free region is the strip *below* it.
+  view cluster, so the free region is the strip *below* it.
 - **The subject is the mark and its label.** A dot on the seam with its name
   printed under the card is not visible in any sense a reader would recognise.
   Where the two together are wider than the strip, `revealShift` centres rather
@@ -1634,7 +1634,7 @@ Eight things not to redo:
   and the time scale moved to `T` — `l` names the labels, where it only ever
   named one of the two scales it switched between. `A` is the ages, `B` the
   light, and the four canvas modes are the four rows in `bindings.ts` whose
-  control lives on the bottom edge rather than in the control bar. (A `chrome`
+  control lives in the sidebar's Canvas section. (A `chrome`
   field used to say which rows the bar drew; it is gone — see the swap entry
   below.) `L` **cycles** through three states where every other
   toggle here flips, which is legible only because the chip is beside it: the
@@ -1770,82 +1770,86 @@ the focus ring without a line of the tooltip changing. The general lesson is
 worth the sentence: write the correct handler while the thing it depends on is
 still broken, and say in the header that it is waiting.
 
-### The bar is groups now, and on a phone it is one button
+### Every control is in one sidebar, and the card stayed on the right
 
-Two changes, and the second is the reason the first was worth making.
+`docs/sidebar.md` is the full account; this is what a reader of §3 needs.
 
-**The buttons are grouped, and a group wears a `ModeChip`'s anatomy** — a
-small-caps mono caption over a recessed track. That is the same argument the
-canvas-mode panel settled when three free-floating chips became one panel: a
-reader has to be able to see where the pressable thing starts *without reading
-any of the words in it*, and eight bare buttons on a strip of scrim gave them
-nothing to see. Four groups: **Concestor** (the app's mark, and the palette
-under it), **Add species** (`S` and `R` as *search* and *random*), **Canvas**
-(expand, clear and share, opposite corner), **Navigate** (fit, isolate, next,
-second row).
+**What it replaced was fine in every part and wrong as a whole.** The chrome sat
+on four edges at once — a captioned button bar along the top, a stack of mode
+chips bottom left, the time-scale switch on the axis footer, the detail card top
+right, a round palette button bottom right on a phone — and each placement had
+an argument. *A control belongs on the thing it changes* is why the scale switch
+was under the ruler it redraws. *Chrome auto-hides; the canvas is the page* is
+why the bar faded. The sum is a canvas with a hole in each corner and a reader
+whose eye goes somewhere different for every kind of thing they might do. The
+tree is the product and it had least of the screen.
 
-**Below 620px none of it is drawn.** The bar, the canvas-mode panel and the
-scale switch all go, and one 54px circle wearing the app's mark sits bottom
-right, above the timeline, opening the palette.
+**The strongest local argument is the one that lost.** The time scale really
+does belong on the ruler. It is also one of four controls that change *how the
+canvas is drawn rather than what is on it*, and a set is only legible when its
+members are beside each other; under the ruler it was a switch on its own that
+happened to wear the panel's anatomy.
 
-Seven things not to redo:
+Nine things not to redo:
 
-- **The swap is legitimate because of a rule the app already kept**, not
-  because of anything arranged for it: every control has a command, and the
-  palette's own field searches 2.7M species as well as the command list. So one
-  tap reaches the search, the random pick, clear, share, the axis, the labels,
-  the ages and the light. The one thing with no command is `step`, and losing it
-  is correct — stepping a selection with no keyboard to step from is meaningless,
-  which `bindings.ts` said where the key was claimed, years before this.
-- **The button is rendered inside the canvas, not beside the bar it replaces.**
-  It rides `--axis-h + --lane-h` exactly as `.canvas-modes` does on the other
-  side, so an open drill lane moves it instead of covering it — and `--lane-h`
-  is published by `Graph.tsx`, because that is the only thing that knows the
-  lane's height. That is the whole reason `onPalette` is a `GraphProps`.
-- **The media block has to sit at the foot of the stylesheet.** It hides
-  `.canvas-modes`, which is declared two thousand lines below the control bar,
-  and at equal specificity the later rule wins. The first draft put the block
-  with the bar and drew nothing but a permanently hidden button.
-  `chrome/swap.test.ts` caught it and is what keeps it caught: four rules in
-  three sections of one file have to agree, and getting three of them right
-  fails silently — the app just opens on a phone with no way to add a species,
-  or with a floating button *and* the bar it was meant to replace.
-- **`share` has no row in `bindings.ts` and must not get one.** That table is
-  *every key this app claims*; share has no key on purpose (`s` and `l` are the
-  two most-used letters here), and a keyless row in a key table is a lie about
-  what the table is. `ControlAction` is a union instead, so the one control with
-  no binding is *required* to carry its own label and hint, and `Controls`
-  prints no badge where there is no key to print. It used to carry a `no-key`
-  class as well, for the 720px rule that hid every label and then had to put
-  share's back; **that rule is gone and so is the class** — a control keeps its
-  word at every width the bar is drawn at, so there is no width at which a
-  keyless button could be empty, and the guarantee that share has words sits
-  entirely in the type. `Controls.test.tsx` renders the bar and reads the class
-  off the button, and `swap.test.ts` walks every rule in the stylesheet for one
-  hiding `.control-label`, because that is exactly the kind of thing that comes
-  back in a stylesheet without anything erroring.
-- **The `chrome` field on a binding is gone rather than updated.** It said
-  which rows the bar drew and at what prominence, and it could never be the
-  whole answer — `App.tsx` composes the bar and always did, the bar now holds a
-  control with no row in that table at all, and a flat flag cannot say which of
-  four captioned groups a button belongs in. Its one live use was
-  `secondary`, meaning "drop me below 620px", which is a width where nothing is
-  drawn any more.
-- **The inline mark is a third copy of the icon, and it is pinned.** The favicon
-  is already two copies in two languages — the SVG and `make-icons.py` —
-  and `icons.test.ts` exists because of it. `BrandMark.tsx` cannot import the
-  SVG (that file bakes in a black plate for a white tab strip, and literal hex,
-  neither of which belongs on scrim), so it restates the geometry and the test
-  compares the three circles attribute by attribute. It takes `currentColor`
-  and the test refuses any hex literal in it, because the reason it is a
-  component rather than an `<img>` is that it *can* read the app's accent.
-- **The tip outline is a run of groups now, not of buttons.** `TIPPED` is
-  exactly the bar's `lead` slot, and it has to stay exactly that: `Controls`
-  outlines a contiguous run of groups whose *every* action is marked, so a
-  fourth button in either group silently takes the outline off both. The button
-  on a phone carries the same pulse, because the bar that would otherwise
-  carry it is not on screen and the reader who has just been shown a tree they
-  did not build is exactly the one who needs telling where their own species go.
+1. **`--sidebar-w` must be written before the first paint.** `main.tsx` calls
+   `primeSidebarWidth()` and the hook keeps it true with `useLayoutEffect`.
+   Under a passive effect the first painted frame is a full-width canvas, React
+   Flow measures *that*, and the fit frames the tree against a viewport a
+   panel's width wider than the one it ends up in — so a shared link opens with its right-hand
+   lineages hanging off the edge. Not a flicker: a wrong fit that persists.
+2. **`--chrome-left` is a second property and not a tidy-up.** The first is what
+   the panel takes *off the canvas*; the second is where its edge *is on
+   screen*. Below `DOCK_W` those differ, and collapsing them draws the toggle
+   and the search pill on top of the drawer's own wordmark.
+3. **The tree must not move when the panel does.** The transform is relative to
+   the canvas, so every pixel the edge moves is a pixel the tree slides. At the
+   fit `Graph.tsx` refits; off the fit it takes the opposite shift. That is the
+   same split the card reserve already uses and for the same reason.
+4. **The card stayed on the right, and was moved into the panel first.** One
+   column holding everything that is not the tree is right for *controls* and
+   wrong for this: a card is about one taxon *on the canvas*, and reading it
+   from the same column as the list means looking left, then right, then left
+   again, while the panel it covered was the list you were choosing from.
+5. **The search pill is one element in two states.** Its collapsed diameter
+   falls out of `--search-out − --rail-pad = --search-h`, which is why those are
+   custom properties; `sidebar/layout.test.ts` pins the identity and that the
+   cap's centre lands under the toggle's.
+6. **A rotating placeholder hint was designed and refused.** Transient text,
+   auto-playing motion inside the control the reader is about to use, a changing
+   accessible description (NN/g; Deque) — and the palette already opens on ten
+   pressable examples gated in Go by `hits_test.go`, which is the honest version
+   of the same idea.
+7. **A row and its remove control are siblings, never nested.** A button inside
+   a button means pressing *remove* also selects, so the card opens on the taxon
+   that has just been taken off the canvas.
+8. **The panel is not draggable, and a splitter was built before that was
+   decided.** It was the full WAI-ARIA window-splitter contract and it worked;
+   it went because there is no width a reader would rather be at. Every row in
+   the panel is a name, a caption or a switch rather than a document that reads
+   better wider, so narrower only wraps the captions and wider only costs the
+   tree — and the trade the drag was really offering, panel against canvas, is
+   what the toggle already does instantly and from the keyboard. Do not rebuild
+   it without an argument about the *contents* rather than about the gesture.
+
+**The keymap moved and every hop was an upgrade.** `/` search (the only row that
+needed no argument — it is what `/` does everywhere), `S` sidebar, `A` add a
+taxon, `I` isolate, `D` dates. `P` is unbound rather than kept as an alias. The
+badge/label census went from two exceptions to one: `P` printed **Commands**
+because `p` named the palette and the word named what opening one is for, and
+the row is `/` and **Search** now, which is not a letter. `bindings.test.ts`
+holds the census at one.
+
+**And the widths are derived.** `WIDTH` (264) is the *narrowest* the column's
+contents read at, set by the `labels` switch. It was 336 while the detail card
+lived in the panel, sized to the measure the card's prose was written for; the
+card moved to the right-hand edge and took the only argument for the extra 72px
+with it. `DOCK_W` (940) is where a docked panel
+still leaves the canvas more than `MIN_FREE_W` (420) — `viewport.ts`'s own
+measurement of the narrowest strip worth reframing a tree into.
+`sidebar/layout.test.ts` holds that derivation and holds the stylesheet's own
+`width` against the module's constant, because that number is stated in both
+places.
 
 ### Fullscreen is on `E`, and the button says the word rather than the letter
 
@@ -2509,9 +2513,9 @@ Six things worth not redoing:
 The bar had names and landmarks and a focus ring nothing could reach. `step`
 was bound to bare `Tab`, `App.tsx` prevents the default of every key it
 matches, and the two together meant **the focus ring did not move in this app
-at all**: not one button on the control bar, not one segment of the canvas-mode
+at all**: not one button in the chrome, not one segment of the canvas-mode
 panel, not one link on the detail card was reachable by a reader with a keyboard
-and no pointer. It shipped for the whole life of the control bar and nothing
+and no pointer. It shipped for the whole life of that chrome and nothing
 caught it, because everything that looks like a keyboard test here was a test of
 the *commands*.
 
@@ -2553,7 +2557,7 @@ the navigation half of exactly that. Five things not to redo:
   nobody cancelled, and neither is the app's to get wrong. What the tests assert
   is that the press survives to reach that default. The order itself was walked
   by hand in Chrome and reads: the marks, the mode panel, the scale, the axis
-  links, the detail card, the control bar.
+  links, the detail card, the view cluster.
 
 ### A test that reads its subject as a string, and the one case where that is right
 
@@ -2570,19 +2574,21 @@ what stood between this project and Prettier.
 The decisions underneath were good and every one of them survived, as a
 behavioural test. `App.test.tsx` and `App.bare.test.tsx` render the whole app —
 canvas included, no mock — on a browser that has WebGL2 and fullscreen and on one
-that has neither, and ask both surfaces. `Controls.test.tsx` and
-`PaletteFab.test.tsx` render the bar and the button. `chrome/swap.test.ts` keeps
-the half a document cannot answer, because jsdom applies no stylesheet.
+that has neither, and ask both surfaces. `chrome/swap.test.ts` kept the half a
+document cannot answer, because jsdom applies no stylesheet; the surfaces it
+measured are gone and `sidebar/layout.test.ts` is its successor, asking the same
+kind of question of the sidebar's own geometry.
 
 Seven things worth not redoing:
 
 - **Do not mock the canvas in an App test.** Stubbing `canvas/Graph` is the
   obvious way to make the app cheap to render, and it silently removes the
-  interesting half of three claims: `PaletteFab` — the *whole* of the chrome
-  below 620px — is rendered inside `Graph`, so a test that the invitation
-  reaches both surfaces would be asserting about one of them and looking
-  covered. The real canvas mounts in jsdom for the price of a `ResizeObserver`
-  stub, which is what xyflow measures its container with.
+  interesting half of three claims: the marks are what the chrome is *about*, so
+  a test of the invitation, of a row lighting its mark, or of the card's reserve
+  would be asserting about a stub and looking covered. The real canvas mounts in
+  jsdom for the price of a `ResizeObserver` stub, which is what xyflow measures
+  its container with — and a `matchMedia` that answers `min-width` truthfully,
+  or every test sits behind a drawer that starts shut.
 - **`FULLSCREEN_AVAILABLE` and `BIOLUM_AVAILABLE` are `const`s at module scope**
   — deliberately, because a control that appears halfway through a session is
   worse than one that was never there — so a file cannot test both answers. That

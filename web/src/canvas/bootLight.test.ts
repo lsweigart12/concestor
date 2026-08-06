@@ -45,24 +45,29 @@ describe("the DOM contract", () => {
    * The list is non-empty and every entry is well formed.
    *
    * Whether each selector *matches something* is `App.test.tsx`'s, which has a
-   * rendered empty canvas to run them against — and `Controls.test.tsx` holds
-   * the one that used to be hardest to see from here, that `is-command` goes on
-   * the palette's button and not on the whole lead slot. What is left is the
-   * shape: a `SOURCES` that quietly emptied, or an entry scoped to a panel that
-   * is not the one it names, would leave that test iterating over nothing and
-   * passing.
+   * rendered empty canvas to run them against. What is left is the shape: a
+   * `SOURCES` that quietly emptied, or an entry scoped to a panel that is not
+   * the one it names, would leave that test iterating over nothing and passing.
+   *
+   * **Three where there were four**, and both changes are the sidebar. The
+   * command used to be two entries because it was two elements — a button on
+   * the control bar above 620px and a round palette button below it, never both
+   * — and the search pill is one object at every width. The wordmark moved out
+   * of the empty canvas's panel and into the sidebar, so it is `page`-scoped
+   * now with the condition carried in the selector instead.
    */
-  it("names four sources, two of them inside the panel", () => {
-    expect(SOURCES).toHaveLength(4);
-    expect(SOURCES.filter((s) => s.scope === "boot")).toHaveLength(2);
+  it("names three sources, one of them inside the panel", () => {
+    expect(SOURCES).toHaveLength(3);
+    expect(SOURCES.filter((s) => s.scope === "boot")).toHaveLength(1);
     for (const s of SOURCES) {
       expect(
         s.sel.trim(),
         "an empty selector matches the whole document",
       ).not.toBe("");
-      // Every one is anchored on a class. `.boot-inner > h1` is the wordmark and
-      // the combinator is deliberate: the same panel renders an unreachable-API
-      // heading, which is an apology rather than an invitation and must not glow.
+      // Every one is anchored on a class. The wordmark's carries `.is-open` and
+      // the qualifier is deliberate: a shut panel is translated off-screen and
+      // `inert`, not removed, so a bare `.side-wordmark` would light a
+      // rectangle nobody can see at a negative x.
       expect(s.sel.startsWith("."), `${s.sel} is not anchored on a class`).toBe(
         true,
       );

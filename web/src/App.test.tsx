@@ -54,78 +54,79 @@ vi.hoisted(() => {
 
 const TIP_LINE = "Now put something of your own beside it";
 
-const chips = () => [...document.querySelectorAll(".canvas-modes .mode-chip")];
-const panel = () => document.querySelector(".canvas-modes");
+const chips = () => [...document.querySelectorAll(".side-modes .mode-chip")];
 
 describe("one expression decides that nothing is drawn", () => {
   /**
    * The invitation and the canvas are told the same thing rather than working
-   * it out separately — `induced.rendered` is right there in the canvas's props,
-   * which is exactly what makes a second count easy to write and impossible to
-   * see. What that buys is asserted rather than the wiring: the two surfaces
-   * never disagree about whether the canvas is empty.
+   * it out separately — `induced.rendered` is right there in the canvas's
+   * props, which is exactly what makes a second count easy to write and
+   * impossible to see.
    */
-  it("draws the invitation over an empty canvas, under the short panel", async () => {
+  it("draws the invitation over an empty canvas", async () => {
     await renderApp();
     expect(document.querySelector(".boot")).not.toBeNull();
-    expect(panel()?.className).toBe("canvas-modes is-lone");
   });
 
-  it("takes both away together once there is a tree", async () => {
+  it("takes it away once there is a tree", async () => {
     await renderApp();
     await drawOpening();
     expect(document.querySelector(".boot")).toBeNull();
-    expect(panel()?.className).toBe("canvas-modes");
   });
 });
 
-describe("the empty canvas draws one chip under its invitation", () => {
-  /**
-   * The stylesheet is why this is worth asserting rather than reading. The
-   * narrow-window block measures a panel about 52px tall ending some 110px off
-   * the bottom, and drops the invitation's key rows where the two would meet. A
-   * second chip in that branch makes the panel half again as tall, moves its top
-   * past the bound that was measured, and the overlap comes back at a window
-   * size nobody is looking at.
-   */
-  it("puts one switch in that branch and only one", async () => {
-    await renderApp();
-    expect(chips()).toHaveLength(1);
-    expect(chips()[0]?.className.split(/\s+/)).toContain("biolum-mode");
-  });
-
-  /**
-   * Two of the three go and one stays, and the split is the argument. `labels`
-   * and `ages` annotate marks, and with none on screen they are switches a
-   * reader can throw and watch do nothing — which the bar already refuses by
-   * disabling `fit`, `isolate` and `step` on this same canvas. Bioluminescence
-   * is not in that set: its subject is the water, and the empty canvas's
-   * invitation is what lights it.
-   */
-  it("brings the other two back the moment there is something to annotate", async () => {
+/**
+ * The four canvas modes, together for the first time.
+ *
+ * They were three chips stacked bottom-left over the axis plus a fourth on the
+ * axis footer, and the empty canvas drew only one of the three — `labels` and
+ * `ages` annotate marks, so with none on screen they were switches a reader
+ * could throw and watch do nothing.
+ *
+ * **That branch is gone, and its argument went with the panel rather than being
+ * overruled.** It existed because the panel floated over the canvas, beside the
+ * invitation, in a corner the reader's eye was already in; a control doing
+ * nothing *there* was noise on the one screen that has to sell the product. In
+ * a section captioned CANVAS, below a list captioned TAXA, a switch a reader
+ * has not reached the point of using yet is simply further down the panel. What
+ * survives is the rule the branch was serving, which is asserted below: every
+ * one of them keeps its command.
+ */
+describe("the canvas modes are one set in one place", () => {
+  it("draws all four, in the order the reader meets them", async () => {
     await renderApp();
     await drawOpening();
-    expect(chips()).toHaveLength(3);
     expect(chips().map((c) => c.getAttribute("aria-label"))).toEqual([
       "Labels",
-      "Ages",
+      "Dates",
+      "Time scale",
       "Bioluminescence",
     ]);
   });
 
   /**
-   * A swap and not a removal, on the rule the narrow window already stands on:
-   * every control has a command. All three keep their rows, so the palette
-   * still reaches every setting the shortened panel drops — which is also why
-   * nothing here is disabled.
+   * And the empty canvas draws exactly the same four. The panel is not a
+   * canvas-side decoration any more, so there is no collision to dodge and no
+   * reason for a control to appear halfway through a session.
    */
-  it("leaves all three reachable while two of them are gone", async () => {
+  it("draws the same four over an empty canvas", async () => {
+    await renderApp();
+    expect(chips()).toHaveLength(4);
+  });
+
+  /**
+   * Every one keeps its command, which is the rule the collapsed panel stands
+   * on: with the sidebar shut there is nothing on screen but the canvas, its
+   * two corner clusters and the timeline, so a control with no command is a
+   * control that cannot be reached at all.
+   */
+  it("leaves all four reachable from the palette", async () => {
     await renderApp();
     const rows = await openPalette();
-    for (const setting of ["labels", "ages", "bioluminescence"]) {
+    for (const setting of ["labels", "dates", "bioluminescence", "time axis"]) {
       expect(
         rows.some((t) => t.toLowerCase().includes(setting)),
-        `${setting} lost its command with the panel`,
+        `${setting} has no command`,
       ).toBe(true);
     }
   });
@@ -134,7 +135,7 @@ describe("the empty canvas draws one chip under its invitation", () => {
 /**
  * Fullscreen, which is offered on the browser's terms rather than on ours.
  *
- * The bar's own rule is "unavailable actions are disabled rather than hidden",
+ * The standing rule is "unavailable actions are disabled rather than hidden",
  * and this is the exception — a greyed button saying the browser will never do
  * it tells a reader nothing they can act on. The failure that follows from
  * making that call *twice* is the one worth pinning: the button gated on one
@@ -142,11 +143,11 @@ describe("the empty canvas draws one chip under its invitation", () => {
  * thing that cannot happen, or a desktop loses one that can.
  */
 describe("fullscreen is offered on both surfaces or on neither", () => {
-  it("offers it on the bar and in the palette where the browser will", async () => {
+  it("offers it in the view cluster and in the palette where the browser will", async () => {
     await renderApp();
     expect(
-      [...document.querySelectorAll(".control-label")].map(
-        (n) => n.textContent,
+      [...document.querySelectorAll(".viewport-btn")].map((n) =>
+        n.getAttribute("aria-label"),
       ),
     ).toContain("Fullscreen");
     const rows = await openPalette();
@@ -157,36 +158,30 @@ describe("fullscreen is offered on both surfaces or on neither", () => {
 /**
  * The invitation after an opening has been read.
  *
- * One string, spread the same way into two surfaces. The bar's tray and the
- * button's flyout are the same invitation at two widths, and an invitation
- * worded differently depending on the window is two invitations — which is a
- * thing only a rendered app can be asked, because the two are built in
- * different components and the second is inside the canvas.
+ * It used to be spread into two surfaces — the control bar's tray above 620px
+ * and the palette button's flyout below it — and the thing worth pinning was
+ * that both got the *same string*, because an invitation worded differently
+ * depending on the window is two invitations. There is one surface at every
+ * width now, so what is left to check is the timing: it waits for the reader to
+ * be done with the answer, and it points at the one door that reaches every
+ * other.
  */
-describe("the invitation says one thing on both surfaces", () => {
+describe("the invitation waits for the answer to be read", () => {
   it("says nothing at all until the reader is done with the answer", async () => {
     await renderApp();
     await drawOpening();
-    expect(document.querySelector(".control-tip-tray")).toBeNull();
-    expect(document.querySelector(".palette-fab-tip")).toBeNull();
+    expect(document.querySelector(".side-search-tip")).toBeNull();
+    expect(document.querySelector(".side-search.is-tip")).toBeNull();
   });
 
-  it("sends the same sentence to the bar and to the button", async () => {
+  it("puts the sentence beside the search, and rings it", async () => {
     await renderApp();
     await drawOpening();
     await dismissAnswer();
-    const tray = document.querySelector(".control-tip-tray");
-    const flyout = document.querySelector(".palette-fab-tip");
-    expect(tray?.textContent).toBe(TIP_LINE);
-    expect(flyout?.textContent).toBe(TIP_LINE);
-  });
-
-  /** And the bar outlines the three doors it is pointing at. */
-  it("outlines the lead slot while it is making the offer", async () => {
-    await renderApp();
-    await drawOpening();
-    await dismissAnswer();
-    expect(document.querySelectorAll(".control-tip")).toHaveLength(1);
+    expect(document.querySelector(".side-search-tip")?.textContent).toBe(
+      TIP_LINE,
+    );
+    expect(document.querySelectorAll(".side-search.is-tip")).toHaveLength(1);
   });
 });
 
@@ -217,15 +212,15 @@ describe("the empty canvas's lights find the things they light", () => {
 });
 
 /**
- * The claim the phone layout is licensed by, checked against the whole table.
+ * The claim the collapsed layout is licensed by, checked against the whole
+ * table.
  *
- * Below 620px the control bar is not drawn, nor the canvas-mode panel, nor the
- * scale switch: a 54px circle replaces all three and opens the palette. What
- * makes that a *move* rather than a removal is one rule — **every control has a
- * command** — and the rule was being read rather than checked. `step` had a
- * binding and a button on the bar and no palette row, so on a touch device it
- * could not be reached at all: no key to press, no button drawn, and nothing to
- * search for.
+ * With the sidebar shut there is nothing on screen but the canvas, its two
+ * corner clusters and the timeline. What makes that a *state* rather than a
+ * loss of function is one rule — **every control has a command** — and the rule
+ * was being read rather than checked. `step` had a binding and a button and no
+ * palette row, so on a touch device it could not be reached at all: no key to
+ * press, no button drawn, and nothing to search for.
  *
  * So this walks `bindings.ts`, which is the single table by design, and asks
  * the rendered palette whether each row's key is printed on a command. That
@@ -239,13 +234,17 @@ describe("the empty canvas's lights find the things they light", () => {
  * with the reason each is allowed to be missing.
  */
 const NO_COMMAND: Partial<Record<ActionId, string>> = {
-  // The surface the whole rule is about. `PaletteFab` is what opens it below
-  // 620px, which is the swap rather than a hole in it.
-  palette: "is the palette",
+  // The surface the whole rule is about. The search pill is what opens it, and
+  // the pill survives the panel closing rather than being hidden with it.
+  search: "is the palette",
   // A filter *on* the palette rather than a thing behind it: the unfiltered
-  // list already searches taxa, and `S` only puts the commands away. Reached
+  // list already searches taxa, and `A` only puts the commands away. Reached
   // from inside, by typing `s` then space.
-  species: "filters the palette from within it",
+  "add-taxon": "filters the palette from within it",
+  // The panel's own switch, which is drawn on the canvas at every width and is
+  // therefore never behind the thing it opens. A command for it would be a row
+  // in a list you can only reach through the panel or the pill beside it.
+  sidebar: "is the switch for the panel itself, drawn on the canvas",
   // Not a control on any bar. It activates the carousel's front card, which is
   // drawn at every width and is a tap target already.
   "open-opening": "activates a card that is drawn at every width",

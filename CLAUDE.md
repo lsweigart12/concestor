@@ -27,6 +27,7 @@ wrong and these docs record the corrections.
 | [docs/witness-ceiling.md](docs/witness-ceiling.md) | Raising the divergence witness off nodes and onto fossil attachment points. **Shipped**; §9 is what it actually cost |
 | [docs/fossil-grafts.md](docs/fossil-grafts.md) | Drawing a fossil *in* the tree at its own date. **Shipped**; §2 is why grafting into the baked arrays was refused |
 | [docs/biolum-gpu.md](docs/biolum-gpu.md) | The bioluminescent mode on WebGL2 — rivers, marine snow, and five things that will cost you an afternoon. **Shipped** |
+| [docs/sidebar.md](docs/sidebar.md) | One column holds every control. The layout contract, the keymap that moved, and the card that stayed on the right. **Shipped** |
 | [docs/worktrees.md](docs/worktrees.md) | Why the preview works in a parallel session's worktree |
 | [docs/ci.md](docs/ci.md) | What CI checks, what a green run does *not* mean, and what can deploy on Cloudflare |
 | [docs/deployment.md](docs/deployment.md) | Where it runs: all of it on Cloudflare, the Go binary in a Container. The alternatives with numbers. §5 also has the preview Worker, and why it had to be a *second* one |
@@ -119,9 +120,11 @@ entirely a property of when React runs an effect's cleanup.
 **A test does not read its subject as a string, and `web/src/test/` holds the
 two things that replaced the ten that did.** `App.test.tsx` and
 `App.bare.test.tsx` render the *whole* app through `test/appHarness.tsx` — the
-real canvas, not a mock, because `PaletteFab` is the entire chrome below 620px
-and is drawn inside `Graph`, so a stub there quietly halves every claim about
-the two surfaces agreeing. The two files exist separately because
+real canvas, not a mock, because the marks are what the chrome is *about* and a
+stub there quietly halves every claim the file makes. Its `matchMedia` stub
+answers `min-width` truthfully as well as `prefers-reduced-motion`: jsdom's
+window is 1024 wide, which is genuinely over `DOCK_W`, and a stub saying
+otherwise would put every test behind a drawer that starts shut. The two files exist separately because
 `FULLSCREEN_AVAILABLE` and `BIOLUM_AVAILABLE` are module-scope consts and a
 file is the unit a module graph is evaluated in; the capability stubs go in
 `vi.hoisted`. `test/css.ts` parses `styles.css` with **postcss** for the tests
@@ -358,47 +361,57 @@ so the article **Cat** reaches no evidence — a coverage gap in phase 6, not a
 reason to weaken the rule.
 
 **The keyboard surface is bare letters, and `web/src/chrome/bindings.ts` is
-the only table.** `P` palette, `S` species-filtered palette, `F` fit (`⇧F` fit
-selection), `/` isolate, `N` next (`⇧N` previous), `T` time scale, `L` labels, `A` ages, `B`
-bioluminescence, `R` random species, `E` expand to fullscreen, `C` clear. **The four canvas modes hold the
-letters that name them**, which is why the time scale is on `T`: `l` names the
-labels, where it only ever named one of the two scales it switched between.
-**Fullscreen is on `E` and the button says "Fullscreen"** — the second row here
-whose label is not the word its letter came from, after `P` **Commands**. The
-letter is forced: `f` is fit and names it exactly, so the trade that let the axis
-give `l` up to the labels has no counterpart here, and printing `F` on a button
+the only table.** `/` search, `S` sidebar, `A` add a taxon, `R` random, `F` fit
+(`⇧F` fit selection), `I` isolate, `N` next (`⇧N` previous), `T` time scale,
+`L` labels, `D` dates, `B` bioluminescence, `E` expand to fullscreen, `C` clear.
+**The four canvas modes hold the letters that name them**, which is why the time
+scale is on `T`: `l` names the labels, where it only ever named one of the two
+scales it switched between.
+**`/` is the one row that needed no argument at all** — it is what `/` does in
+every application a reader has already used — and taking it set off the only
+chain of reassignments this table has had, each hop landing on a better mnemonic
+than the one before. `isolate` gave up `/`, which named nothing, for `i`, which
+names it exactly. `s` went to the **sidebar** the search now lives in, so a
+finger that remembers the old `S` lands on the panel holding the thing it was
+reaching for rather than on nothing. That sent *add* to `a` and `ages` to `d`
+under the name it always should have had, **Dates** — an age is a duration in
+ordinary English and a position here, and the store, the URL and every gate
+still say `ages`. `P` is **unbound** rather than kept as an alias, because two
+keys for one action is two things to learn and one of them is printed on
+nothing. `docs/sidebar.md` §10 is the table of what moved.
+**Fullscreen is on `E` and the button says "Fullscreen"** — now the *only* row
+whose label is not the word its letter came from, where there were two. The
+letter is forced: `f` is fit and names it exactly, and printing `F` on a button
 that does something else is the one failure this whole table exists to make
 impossible. The *word* is not forced, and **Expand** — tried first, for the
 symmetry — is wrong twice over: it names the gesture rather than the result, and
 a canvas that already opens drill lanes and isolates lineages gives "expand" a
-competing meaning. A badge teaches the key, a label teaches the action, and where
-they cannot be the same word the label wins.
+competing meaning. A badge teaches the key, a label teaches the action, and
+where they cannot be the same word the label wins. `bindings.test.ts` holds the
+census at one.
 **`Tab` is the browser's and has no row at all**, which is what makes the rest of
 this surface honest. It held `step` — globally, and the handler
 `preventDefault`s everything it matches — so the focus ring did not move in this
-app at all and *every* control the bar, the mode panel and the detail card draw
-was unreachable without a pointer. That is the Enter failure one level up (Enter
-would have cost keyboard activation; `Tab` cost keyboard navigation) and it is
-fixed the same way, except by **absence rather than a `Scope`**: no surface here
-wants `Tab`, and scoping it to a focused canvas would trap a reader inside the
-canvas, which is a keyboard trap and a worse bug. So `step` moved to `N` and the
-*word* moved with it — "Step" has no free letter left (`s`, `t`, `e` and `p` are
-all spent), and the alternative was a third badge printing one thing and doing
-another. `keyboard.test.tsx` is the pin, and it transcribes App's handler rather
-than mounting it, on purpose. `matchKey` refuses any press holding ctrl, meta or
-alt — that refusal is the feature, because the old `⌘`-based surface was a
-losing negotiation with the browser (`⌘L` is the URL bar and cannot be
-prevented, `⌘F` is find, `⌘R` is reload) and every binding that survived it was
-double-shifted. The same table feeds the control bar's buttons, the palette
-rows and the card's remove button, so a key cannot print one thing and do
-another. Three consequences worth knowing before changing it: **share has no
-key** on purpose; **clear is the one action with a confirmation dialog** — one
-unshifted letter beside two others, and the only one that can destroy an hour of
-work; and a badge is printed **only where the press would do it**, which is why
-`⌫` rides on the card's remove state and not on its add state or on the fossil
-card. `remove` fires on `induced.leaves`, which is the selection, which is
-exactly what puts that button in its remove state; a graft's index is negative,
-so the handler resolves no node and the press does nothing.
+app at all and *every* control the chrome drew was unreachable without a
+pointer. That is the Enter failure one level up (Enter would have cost keyboard
+activation; `Tab` cost keyboard navigation) and it is fixed the same way, except
+by **absence rather than a `Scope`**: no surface here wants `Tab`, and scoping it
+to a focused canvas would trap a reader inside the canvas, which is a keyboard
+trap and a worse bug. So `step` moved to `N` and the *word* moved with it —
+"Step" has no free letter left — and the alternative was a third badge printing
+one thing and doing another. `keyboard.test.tsx` is the pin, and it transcribes
+App's handler rather than mounting it, on purpose. `matchKey` refuses any press
+holding ctrl, meta or alt — that refusal is the feature, because the old
+`⌘`-based surface was a losing negotiation with the browser (`⌘L` is the URL bar
+and cannot be prevented, `⌘F` is find, `⌘R` is reload) and every binding that
+survived it was double-shifted. The same table feeds the sidebar's controls, the
+canvas's two corner clusters, the palette rows and the card's remove button, so a
+key cannot print one thing and do another. Three consequences worth knowing
+before changing it: **share has no key** on purpose; **clear is the one action
+with a confirmation dialog** — one unshifted letter beside two others, and the
+only one that can destroy an hour of work; and a badge is printed **only where
+the press would do it**, which is why `⌫` rides on the card's remove state and
+not on its add state or on the fossil card.
 
 **Every tooltip in this app is drawn by this app, and `title` is banned.**
 `chrome/tip.ts` is the placement and the timing, `chrome/Tooltip.tsx` is the
@@ -415,8 +428,8 @@ Every one is a sentence now and nothing moved anywhere, because all of it was
 already written in the components and in `name-ranking.md`. Seven things not to
 redo are in `docs/handoff.md` §3, chief among them that **it is a hook and not a
 wrapper** — `useTip` returns handlers, so the DOM is unchanged attribute for
-attribute, where `<Tip>` would put an element inside `.mode-chip`'s grid and
-`.canvas-modes`'s subgrid; that **placement has no flip in it**, because "away
+attribute, where `<Tip>` would put an element inside `.mode-chip`'s own grid;
+that **placement has no flip in it**, because "away
 from the nearer edge" and "the side with more room" are provably the same test
 (`r₋ − r₊ = 2y + h − H`) and "flip when it does not fit" would not have fixed
 the bug at all — a tip below that switch *fits*, across the timeline; that the
@@ -427,41 +440,126 @@ press on another element or a keystroke while the pointer sits still; and that
 disabled button fires no pointer events and the five disabled hints are the most
 useful tooltips on the bar.
 
-**The control bar is captioned groups, and on a phone it is one button.** Each
-group is a `ModeChip`'s anatomy — small-caps mono caption over a recessed track
-— because a reader has to see where the pressable thing starts before reading
-any of the words in it, which is the argument the canvas-mode panel already
-settled. Four: **Concestor** (the app's mark, the palette under it), **Add
-species** (`S` and `R` as *search* and *random*), **Canvas** (fullscreen, clear
-and share — everything that acts on the canvas as a whole, with the two one-way
-ones kept adjacent at the far right), **Navigate** (fit, isolate, next, second
-row).
-**Fullscreen is absent rather than disabled where the browser has none**, which
-is deliberately the opposite of the bar's own rule: a greyed `fit` says "add a
-species and this works" and a greyed fullscreen would say "your browser will
-never do this". `FULLSCREEN_AVAILABLE` is asked once at module scope on the
-`BIOLUM_AVAILABLE` precedent, and it gates the bar button and the palette row
-from the same expression — gating them separately is how an iPhone ends up with
-a command for a thing that cannot happen. **Below 620px none of it is drawn** — nor the
-mode panel, nor the scale switch — and a 54px circle wearing the same mark sits
-bottom right above the timeline, opening the palette. That swap is only
-legitimate because of a rule the app already kept: every control has a command,
-and the palette's field searches species as well as commands. **That rule is
-checked now rather than read** — `step` had a key and a button and no palette
-row for its whole life, so on a phone it could not be reached at all, and it was
-the only hole in the table. `App.test.tsx` walks `bindings.ts` against the
-rendered palette, with an exemption list naming each row allowed to be missing;
-the assertion runs one way only, because `share` is the exception in the other
-direction. Seven things not
-to redo are in `docs/handoff.md` §3, chief among them that the media block
-**must sit at the foot of styles.css** (it hides `.canvas-modes`, declared two
-thousand lines lower, and at equal specificity the later rule wins — the first
-draft drew a permanently hidden button and nothing else), that `share` **must
-not get a row in `bindings.ts`** so `ControlAction` is a union requiring the one
-keyless control to carry its own words, that the mark in `BrandMark.tsx` is a
-**third copy of the favicon** and is pinned to it by `icons.test.ts`, and that
-`TIPPED` is **exactly the bar's `lead` slot** — the outline wraps whole groups,
-so a fourth button in either takes it off both.
+**Every control is in one sidebar now, and `docs/sidebar.md` is the account.**
+The chrome used to sit on four edges at once — a captioned button bar along the
+top, a stack of mode chips bottom left, the time-scale switch on the axis
+footer, a round palette button bottom right on a phone — and every one of those
+placements had an argument. *A control belongs on the thing it changes* is why
+the scale switch was under the ruler it redraws. The **sum** is what failed: a
+canvas with a hole in each corner asks the reader's eye somewhere different for
+every kind of thing they might do, and the tree is the product. So: one docked
+column on the left, and what is left outside it is the canvas, the timeline
+flush along the bottom, the panel's toggle top-left, three viewport actions
+top-right, and the detail card flying out from the right.
+
+**The whole layout contract is `--sidebar-w`.** It is written to the document
+element by `sidebar/useSidebar.ts`; the canvas is `left: var(--sidebar-w)`, and
+because the axis, the drill lane and every mark are positioned *inside* the
+canvas they follow for free. `canvas/viewport.ts` is then correct for nothing —
+React Flow measures the canvas element, so `vw` is already the canvas's own
+width. Eight things not to redo, all in `docs/sidebar.md`, chief among them that
+it **must be written before the first paint** (`main.tsx` calls
+`primeSidebarWidth()`, and the hook keeps it true with `useLayoutEffect`;
+under a passive effect React Flow measures a full-width canvas and a shared link
+opens with its right-hand lineages off the edge — not a flicker, a wrong fit that
+persists); that **`--chrome-left` is a second property and not a tidy-up** —
+the first is what the panel takes *off the canvas* and the second is where its
+edge *is on screen*, and below `DOCK_W` those differ, so collapsing them draws
+the toggle and the search pill on top of the drawer's own wordmark; that **the
+tree must not move when the panel does** — the transform is relative to the
+canvas, so `Graph.tsx` refits at the fit and takes the opposite shift off it,
+which is the same split the card reserve already uses; that **the bioluminescent
+water needs a `ResizeObserver`** rather than the `window.resize` listener it had,
+because this element now resizes without the window resizing and a stale drawing
+buffer stretched over a wider canvas drew every river a fifth of a screen right
+of its own branch; that the search pill is
+**one element in two states**, its collapsed diameter falling out of
+`--search-out − --rail-pad = --search-h`, which is why those are custom
+properties and pinned by `layout.test.ts`; that the panel's own `width` is a
+**CSS constant and not the variable**, since the variable goes to `0px` the
+moment it shuts and reading it there would collapse the panel to nothing before
+it had finished leaving; that a **rotating placeholder hint
+was designed and refused** — transient text, auto-playing motion inside the one
+control the reader is about to use, and a changing accessible description — when
+the palette already opens on ten pressable examples gated in Go; and that the
+detail card **stayed on the right**. It was moved into the panel for one
+iteration and reverted: a card is about one taxon *on the canvas*, and reading it
+from the same column as the list means looking left, then right, then left again,
+while the panel it covered was the list you were choosing from.
+
+**It is one width, and the drag was built and then removed.** A handle shipped
+briefly to the full WAI-ARIA window-splitter contract — focusable separator,
+`aria-valuenow` as a percentage, arrow keys, `Home`/`End`, double-click reset,
+a coarse-pointer target, a snap past the minimum that closed the panel — and all
+of it worked. It went because **there is no width a reader would rather be at**:
+every row in the panel is a name, a caption or a switch, none of them a document
+that reads better wider, so narrower only wraps the captions and wider only
+costs the tree. What the drag was really offering was a way to trade panel for
+canvas, and the toggle already is one — instantly, reversibly, from the
+keyboard. Two states, and a control anybody can find.
+
+**The widths are derived rather than picked.** `WIDTH` (264) is the *narrowest*
+the column's contents read at — set by the `labels` switch, and dropped from 336
+when the detail card moved out to the right-hand edge and took the only argument
+for the extra 72px with it. `DOCK_W` (940) is
+where a docked panel still leaves the canvas more than `MIN_FREE_W` (420),
+`viewport.ts`'s own measurement of the narrowest strip worth reframing a tree
+into. `sidebar/layout.test.ts` holds that derivation and holds the stylesheet's
+`width` against the module's, because that number is stated in both places.
+Below `DOCK_W` the panel is an overlay drawer with a scrim and starts shut
+whatever the stored flag says: the flag is about the docked column, and a drawer
+opening over the canvas before the reader has asked for anything hides the one
+thing they came for. The old 620px swap block is gone with the four surfaces it
+swapped.
+
+**There is one route to the about page and the wordmark is it.** The footer had
+an `About Concestor →` row directly above `SourceLinks`, whose first link *is*
+the about page — one control drawn twice, stacked. Clicking `C⊙NCEST⊙R` opens it
+now, which is what a wordmark does everywhere else on the web, and the
+first-time driver is the empty canvas's own last line, lifted a rung of ink:
+that is where a stranger actually is, under the question that just persuaded
+them. `about | source` stays quiet in the footer for the reader who goes looking
+later. The `<button>` sits **inside** the `<h1>`, because a button's content
+model is phrasing content and a heading is not.
+
+**The two one-way actions are verbs in captions, not buttons — and not in the
+same caption.** Share and clear were two bordered buttons under a captioned
+section, glyph and word and key badge, and they were the loudest object in a
+panel whose whole register is quiet, spent on the two actions a reader reaches
+for least. They are in the caption's own face now, `SourceLinks`'s anatomy,
+which has said `about | source` in that voice from the beginning and never
+needed a box. **`CLEAR` sits in the `TAXA` caption beside the count** — what it
+empties is that list, and the far right of that header is exactly where every
+row below puts its own remove control. **`share` went the other way**, into the
+footer strip opposite `about | source`, and the whole `This tree` section went
+with it: one caption over one control, for the action a reader reaches for last,
+is three lines of chrome for a link. It carries a drawn chain glyph, which is
+doing real work — "share" means *post this* or *send this to a person* in most
+software and what this does is put a URL on the clipboard. The strip is two
+groups rather than three links and the gap between them says so. `.axis-link*`
+was renamed `.side-link*` in the same pass, since nothing it names has been on
+the axis since `SourceLinks` left the footer. **Both the count and `CLEAR` are absent at zero**, which is the
+one place *disabled rather than hidden* gives way: that rule exists so a control
+does not move out from under a hand reaching for it and so a greyed one can
+explain itself, and on an empty list nothing reaches for clear and the
+explanation *is* the empty list. Three things went with the boxes and one is
+worth arguing before it comes back: **the `C` badge**, still bound, still on the
+palette's row, and now named in the tooltip — clear is the one action that asks
+before it acts, so it is nobody's mid-flow keystroke, and a small box beside a
+word that is deliberately not a box would be the only thing in the row breaking
+its own register.
+
+**The Taxa list is the layers panel, and it is `Taxa` rather than `Species`**
+because it holds *Cetacea*, which is not one. Rows derive from
+`induced.leaves`, so the panel and the canvas cannot disagree about what is
+drawn. Four things not to redo: the row and its remove control are **siblings,
+never nested** (a button inside a button means pressing *remove* also selects,
+so the card opens on the taxon just removed); **`off` falls back to the
+scientific name**, because a list of blank rows is not the quieter version of
+this list; a fossil row's badge reads **"on a branch"** and never "extinct",
+which would be wrong about *T. rex*; and the range goes through `drawnBounds`
+and `ages.ts`'s `maFigure` — `ages.test.ts` sweeps for a second rounding ladder
+and found one here on the first run.
 
 **The detail card leads with what a thing is, and the tree prose is folded
 away.** `web/src/detail/` is the whole surface — common name, a Wikipedia
@@ -520,6 +618,11 @@ under 620px it spans the top rather than the right; and the subject is **the
 mark and its label**, centred rather than edge-clamped when the two together are
 wider than the strip. `viewport.test.ts` pins the card's width, gap and stacking
 width to styles.css by reading it, because the failure without that is silent.
+**Every number here is now measured against the canvas rather than the window**,
+because the sidebar takes its width out of the layout and React Flow measures
+the canvas element — which makes `MIN_FREE_W`'s refusal sharper rather than
+looser: a wide panel and an open card can leave too little to reframe into, and
+the reserve is refused exactly there.
 
 **Decisions in this codebase are made by whoever holds it.** These docs escalate
 nothing and hold nothing open pending approval; where a question was once
@@ -718,21 +821,23 @@ was spending its whole 6% hiding the largest of them.
 gone.** Three tiers used to decide it from the scale — name at 0.55, age at 0.62
 — which is a rule about legibility answering a question about intent: pulling
 back to see the whole tree took every name with it, and reading one name meant
-zooming until the tree no longer fitted. Two switches replace it, in one panel
-bottom-left above the axis with bioluminescence, because the three are one set —
-*controls that change how the canvas is drawn rather than what is on it*. They
-share a `subgrid` so the key, the caption and the switch line up down the stack;
-the caption is small-caps mono and the options sit in a recessed track, because
-set alike the caption read as a fourth option. It carries **no border, no fill
-and no lit state**, at 0.62 opacity until hovered: it was a bright card brighter
-than the tree, and three controls taking the accent to report a *setting* is not
-what "the graph is the only light source" means. **Bioluminescence is the one
+zooming until the tree no longer fitted. Two switches replace it, and they sit
+in the sidebar's **Canvas** section with the time scale and bioluminescence,
+because the four are one set — *controls that change how the canvas is drawn
+rather than what is on it*. That set was spread over two edges of the canvas for
+as long as each member had a local argument for where it sat, and the strongest
+of those arguments is the one that lost: the time scale really does belong on
+the ruler it redraws, but a set is only legible when its members are beside each
+other. The caption is small-caps mono and the options sit in a recessed track,
+because set alike the caption read as a fourth option. No border, no fill and no
+lit state: three controls taking the accent to report a *setting* is not what
+"the graph is the only light source" means. **Bioluminescence is the one
 choice allowed to glow**, in the mode's own cyan, because glowing is what it
 does and the chip is the only preview of it.
 `labels` is **off · common · scientific** on `L` — **common is the default**,
 because the product is for curious people rather than biologists and `Human`
 tells a stranger what they are looking at where *Homo sapiens* tells a
-specialist what they knew — `ages` is **on · off** on `A`,
+specialist what they knew — `dates` is **on · off** on `D`,
 and both are held in `sessionStorage` with the light rather than in the URL — a
 setting that is a claim about the *reader* may not ride in a link, and a link
 made with the labels off would open on a canvas of unnamed dots. Eight things

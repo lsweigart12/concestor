@@ -14,15 +14,41 @@ function press(key: string, mods: Partial<KeyLike> = {}): KeyLike {
 
 describe("matchKey", () => {
   it("binds the letters the reader was told about", () => {
-    expect(matchKey(press("p"))).toBe("palette");
-    expect(matchKey(press("s"))).toBe("species");
+    expect(matchKey(press("s"))).toBe("sidebar");
+    expect(matchKey(press("/"))).toBe("search");
+    expect(matchKey(press("a"))).toBe("add-taxon");
     expect(matchKey(press("f"))).toBe("fit");
-    expect(matchKey(press("/"))).toBe("isolate");
+    expect(matchKey(press("i"))).toBe("isolate");
     expect(matchKey(press("n"))).toBe("step");
     expect(matchKey(press("r"))).toBe("random-species");
     expect(matchKey(press("c"))).toBe("clear");
     expect(matchKey(press("b"))).toBe("biolum");
     expect(matchKey(press("e"))).toBe("fullscreen");
+  });
+
+  it("puts search on the one key nobody had to be taught", () => {
+    // The only row in this table whose letter was not argued for against a
+    // word. It cost `isolate` the key it had held for as long as `/` was free,
+    // and that trade is free in both directions: `i` names isolate exactly
+    // where `/` named nothing at all.
+    expect(matchKey(press("/"))).toBe("search");
+    expect(binding("search").label).toBe("Search");
+    expect(matchKey(press("i"))).toBe("isolate");
+    // And `p` is unbound rather than kept as an alias. Two keys for one action
+    // is two things to learn and one of them is printed on nothing.
+    expect(matchKey(press("p"))).toBeNull();
+  });
+
+  it("gives `s` to the panel and `a` to the row inside it", () => {
+    // The knock-on, and the order it happened in. `s` went to the **sidebar**
+    // the search now lives in — so a finger that remembers the old `S` lands on
+    // the panel holding the thing it was reaching for rather than on nothing —
+    // which sent *add* to `a`, and `ages` to `d` under the name it always
+    // should have had.
+    expect(matchKey(press("s"))).toBe("sidebar");
+    expect(matchKey(press("a"))).toBe("add-taxon");
+    expect(matchKey(press("d"))).toBe("ages");
+    expect(binding("ages").label).toBe("Dates");
   });
 
   it("leaves `f` on the fit, with fullscreen beside it on `e`", () => {
@@ -60,22 +86,29 @@ describe("matchKey", () => {
     // no word in them at all and were never in this question.
     const named = BINDINGS.filter((b) => /^[A-Z]$/.test(b.kbd));
     expect(named.length).toBeGreaterThan(8);
+    // **One, where there were two.** `P` printed **Commands** for as long as
+    // the palette was captioned by what it is rather than by what it does; the
+    // row is `/` and **Search** now, which is not a letter at all and so is not
+    // in this census. Fullscreen is the only survivor, and a second arriving is
+    // a drift somebody should have to argue for here.
     expect(
       named
         .filter((b) => !b.label.toUpperCase().startsWith(b.kbd))
         .map((b) => b.id),
-    ).toEqual(["palette", "fullscreen"]);
+    ).toEqual(["fullscreen"]);
   });
 
-  it("gives the four canvas modes the bottom edge and four letters", () => {
-    // `t` for time, `l` for labels, `a` for ages, `b` for the light. The axis
-    // held `l` first and gave it up when the labels arrived: `l` names what it
-    // switches now, where before it named one of the two scales it toggled
-    // between. A reader whose fingers remember the old `l` lands on a chip in
-    // the same corner of the canvas rather than on nothing.
+  it("gives the four canvas modes one section and four letters", () => {
+    // `t` for time, `l` for labels, `d` for dates, `b` for the light. Two of
+    // the four have moved a letter and both moved the same way — the letter
+    // stayed the one that names the control, by changing which word names it.
+    // The axis gave `l` up when the labels arrived; `ages` gave `a` up when the
+    // Taxa list needed *add*, and became **Dates**, which is the better word
+    // for this audience anyway: an age is a duration in ordinary English and a
+    // position here.
     expect(matchKey(press("t"))).toBe("axis");
     expect(matchKey(press("l"))).toBe("labels");
-    expect(matchKey(press("a"))).toBe("ages");
+    expect(matchKey(press("d"))).toBe("ages");
     expect(matchKey(press("b"))).toBe("biolum");
   });
 
@@ -137,21 +170,23 @@ describe("matchKey", () => {
   });
 
   it("is case-insensitive, so caps lock does not change what a key does", () => {
-    expect(matchKey(press("P"))).toBe("palette");
+    expect(matchKey(press("S"))).toBe("sidebar");
     expect(matchKey(press("C"))).toBe("clear");
   });
 
   it("takes `/` with or without shift", () => {
-    // Unshifted on a US layout, shifted on several others.
-    expect(matchKey(press("/"))).toBe("isolate");
-    expect(matchKey(press("/", { shiftKey: true }))).toBe("isolate");
+    // Unshifted on a US layout, shifted on several others, so the row carries
+    // no shift constraint and answers both. Nothing else claims `/`, so there
+    // is no variant to lose.
+    expect(matchKey(press("/"))).toBe("search");
+    expect(matchKey(press("/", { shiftKey: true }))).toBe("search");
   });
 
   it("refuses every modified press", () => {
     // The whole reason this surface exists. ⌘R reloads, ⌘L reaches the URL
     // bar, ⌘F opens find, and none of them may reach us.
     for (const mod of ["ctrlKey", "metaKey", "altKey"] as const) {
-      for (const key of ["p", "s", "f", "l", "r", "c", "/", "n"]) {
+      for (const key of ["s", "a", "f", "l", "r", "c", "/", "n", "i", "d"]) {
         expect(matchKey(press(key, { [mod]: true }))).toBeNull();
         expect(
           matchKey(press(key, { [mod]: true, shiftKey: true })),
@@ -162,6 +197,7 @@ describe("matchKey", () => {
 
   it("answers nothing for a key nobody claimed", () => {
     expect(matchKey(press("q"))).toBeNull();
+    expect(matchKey(press("p"))).toBeNull();
     expect(matchKey(press("F5"))).toBeNull();
     expect(matchKey(press(" "))).toBeNull();
   });
@@ -191,14 +227,16 @@ describe("matchKey", () => {
     // surface-scoped listener runs on `window` alongside the app's own, so a
     // letter leaking into it would fire twice.
     for (const key of [
-      "p",
       "s",
+      "a",
       "f",
       "r",
       "c",
       "l",
       "b",
       "e",
+      "i",
+      "d",
       "/",
       "n",
       "Escape",
@@ -248,7 +286,9 @@ describe("the table itself", () => {
   });
 
   it("prints a key for every action the chrome shows", () => {
-    expect(kbd("palette")).toBe("P");
+    expect(kbd("search")).toBe("/");
+    expect(kbd("sidebar")).toBe("S");
+    expect(kbd("add-taxon")).toBe("A");
     expect(kbd("random-species")).toBe("R");
     expect(kbd("step")).toBe("N");
   });

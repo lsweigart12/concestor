@@ -38,8 +38,6 @@
 
 import { useMemo } from "react";
 import type { TimescaleInterval } from "../api";
-import { SourceLinks } from "../chrome/SourceLinks";
-import { TimeScaleToggle } from "../chrome/TimeScaleToggle";
 import { LANDMARK_TICKS, SYMLOG_T0, type AxisMode } from "../tree/layout";
 
 interface Props {
@@ -51,14 +49,15 @@ interface Props {
   toAge: (x: number) => number;
   intervals: TimescaleInterval[] | null;
   axisMode: AxisMode;
-  /** Switching scale is a click on the footer as well as a key. */
-  onAxisMode: (m: AxisMode) => void;
   /**
-   * The provenance key, if this canvas has anything to admit. It rides on the
-   * footer line rather than floating over the canvas, because it answers the
-   * same question the ticks do: how to read a position.
+   * REMOVED — the key is drawn by `Graph.tsx` now, bottom-left over the canvas.
+   *
+   * It rode a footer line under the ruler for as long as that line had three
+   * cells in it; the other two moved into the sidebar and left a caption row
+   * holding the strip 26px off the bottom of the window for one centred phrase.
+   * The strip is the ruler now and sits flush; the key is chrome on the canvas,
+   * on the shelf the mode panel used to occupy.
    */
-  legend: React.ReactNode;
 }
 
 const MIN_BAND_PX = 46;
@@ -312,8 +311,6 @@ export function TimeAxis({
   toAge,
   intervals,
   axisMode,
-  onAxisMode,
-  legend,
 }: Props) {
   /**
    * The age range under the viewport, clamped to the axis itself.
@@ -507,31 +504,6 @@ export function TimeAxis({
           </>
         )}
       </svg>
-
-      {/* The footer is DOM rather than more SVG: it holds running text of two
-          different kinds, and one of them is a set of live trace swatches that
-          have to inherit the same stylesheet the canvas uses.
-
-          Three cells and the middle one is the subject. The legend is centred
-          under the ruler it explains — it is the only thing down here that is
-          about the picture, so it gets the middle and the two flanking columns
-          are equal whether or not either has anything in it. That is why
-          `Legend.tsx` renders an empty span rather than nothing on a canvas
-          with nothing to admit: an absent first cell would let the grid
-          collapse and slide the key off centre the moment it appeared.
-
-          The scale switch held the right-hand cell and holds the left one now.
-          It stays on this line rather than joining the three chips above the
-          axis, because the ruler is the thing it redraws and a control belongs
-          on what it changes; what it took from that panel is the anatomy, not
-          the address. The right end goes to the two links that say where any
-          of this came from — outbound, inert, and the last thing on the page,
-          which is the right order to meet them in. */}
-      <div className="axis-foot">
-        <TimeScaleToggle mode={axisMode} onChange={onAxisMode} />
-        {legend}
-        <SourceLinks />
-      </div>
     </div>
   );
 }

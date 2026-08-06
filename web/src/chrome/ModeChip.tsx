@@ -1,27 +1,27 @@
 /**
- * One row of the canvas-mode panel: a key, a caption, and a switch.
+ * One canvas mode: a key, a caption, and a switch.
  *
- * There are three of them — labels, ages, bioluminescence — and they are one
- * set rather than three controls that happen to look alike: *things that change
- * how the canvas is drawn rather than what is on it*. That set lives on the
- * bottom edge with the axis, and the actions that change the selection live on
- * the control bar at the top. The split was first written down in
- * `.axis-mode`'s note and the bioluminescence switch is what made it a rule.
+ * There are four of them — labels, dates, time scale, bioluminescence — and
+ * they are one set rather than four controls that happen to look alike:
+ * *things that change how the canvas is drawn rather than what is on it*. The
+ * Taxa list above them in the sidebar owns the other half of that split, which
+ * is what is *on* the canvas.
  *
- * **They are drawn as one panel, and it took two passes to get there.** Three
- * free-floating chips said the opposite of what the set means: each drew its own
- * border, each was a different width, and the columns inside them began at three
- * different x positions, so the group read as clutter that happened to be
- * stacked. The panel owns the border now and the rows share a grid.
+ * **It took three arrangements to get there and the last one was the layout.**
+ * Four free-floating chips said the opposite of what a set means: each drew its
+ * own border, each was a different width, and the columns inside them began at
+ * different x positions. A panel with one border and a shared `subgrid` fixed
+ * that, and then the caption sat in a column as wide as the longest word in the
+ * *set* — `BIOLUMINESCENCE` deciding the indent of a row reading `AGES` — so it
+ * stacked above its own switch instead. What finally settled it is that three
+ * of the four were bottom-left over the axis and the fourth was on the axis
+ * footer: a set is only legible when its members are beside each other, and in
+ * a column of the reader's own width each row simply spans it and the `subgrid`
+ * has nothing left to do.
  *
- * The caption then sat in a column of its own, which was the second mistake:
- * that column is as wide as the longest word in the *set*, so `BIOLUMINESCENCE`
- * decided the indent of a row reading `AGES` and two thirds of the panel was
- * dead space. It stacks **above** its own switch instead — a line rather than a
- * column — which leaves two columns to align, key and switch, and makes the
- * panel as wide as its widest switch. `.canvas-modes` in styles.css is the grid;
- * this component supplies the three cells, always in the same order and never
+ * This component supplies the three cells, always in the same order and never
  * conditionally, because a missing cell is what pulls a row out of line.
+ * `.side-modes` in styles.css is what places them.
  *
  * Two things it inherits from the switch it was extracted from, both of which
  * are the reason it is a component and not a `<button>`:

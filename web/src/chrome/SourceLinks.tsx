@@ -8,13 +8,19 @@
  * same place, so they share one hairline rule and light together on hover, and
  * the divider between them is the whole of the distinction the layout makes.
  *
- * It sits at the right end of the axis footer, under the present, because that
- * is where the eye finishes a lineage and the least valuable pixels on this
- * edge are the ones after it. The legend is centred beside it and says how to
- * read the picture; this says where the picture came from. Neither is chrome
- * the reader operates the canvas with — that is the panel on the left and the
- * bar along the top — so both stay below the canvas's own contrast until they
- * are pointed at.
+ * It sat at the right end of the axis footer for a long time, under the
+ * present, on the argument that the eye finishes a lineage there and the pixels
+ * after it are the least valuable on that edge. It is at the foot of the
+ * sidebar now, for a plainer reason: a reader looking for what this is does not
+ * look at the bottom of a ruler. What survives the move is the register — this
+ * is not chrome the reader operates the canvas with, so it stays below the
+ * canvas's own contrast until it is pointed at.
+ *
+ * `share` sits opposite it in the same row, in the same anatomy, and is *not*
+ * in this component: this one answers *where did this come from* and that one
+ * sends it on. They are two groups in one strip rather than one group of
+ * three, which is what the space between them says. `sidebar/Sidebar.tsx`
+ * draws it.
  *
  * **About is a `button`, not an `a`.** `goAbout` pushes history and swaps the
  * root, so an `href` would offer a middle-click that reloads the whole app and
@@ -54,13 +60,13 @@ function GitHubMark() {
 export function SourceLinks() {
   const tip = useTip("Read the source on GitHub");
   return (
-    <div className="axis-links">
-      <button type="button" className="axis-link" onClick={goAbout}>
+    <div className="side-links">
+      <button type="button" className="side-link" onClick={goAbout}>
         about
       </button>
-      <span className="axis-link-rule" aria-hidden="true" />
+      <span className="side-link-rule" aria-hidden="true" />
       <a
-        className="axis-link"
+        className="side-link"
         href={SOURCE_URL}
         target="_blank"
         rel="noreferrer noopener"
@@ -70,7 +76,7 @@ export function SourceLinks() {
         {...tip}
       >
         <GitHubMark />
-        <span className="axis-link-word">source</span>
+        <span className="side-link-word">source</span>
       </a>
     </div>
   );
