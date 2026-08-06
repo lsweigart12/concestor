@@ -854,6 +854,28 @@ inheriting `.mark.is-leaf .mark-label`'s 13.5px stood 17.9px against a reserved
 that reads the stylesheet: three had drifted, all under-measuring, and `SLACK`
 was spending its whole 6% hiding the largest of them.
 
+**A label the layout measures wrong is a tree the fit draws off-centre, and the
+fit is the last place to look for it.** `fitViewport` centres the layout's
+`content` box in the free region, so a box wider than what it holds moves the
+tree by half the difference — for a long time that was 22.5px to the right on a
+1016px canvas. The cause was `Number.parseFloat(font)` reading the **weight** out
+of `560 12.5px …` and charging the letter-spacing correction at 560px per em; it
+is `fontPx` now. It skewed one way rather than blurring because `medium` is set
+for exactly one mark, `medium: p.isMRCA`, whose label sits left of its dot and is
+right-aligned, so every surplus pixel went into `content.x`. Five things not to
+redo are in `docs/handoff.md` §3, chief among them that the **rank row was the
+expensive one** — `META_TRACKING` at 560px is 33.6px a character, so
+"SUPERORDER" measured 416px against a real 63 and reserved three rows of height
+for one line; that the **age row failed in the opposite direction**, 7.6px
+against a real 49, so one arithmetic error produced both an over- and an
+under-reservation and the symptom looked like geometry rather than measurement;
+that it survived because **no test set `medium`** and, with no DOM, the estimate
+resolved a medium name to thousands of pixels that nothing read; and that a
+**hidden preview pane cannot show you any of this** — without
+`requestAnimationFrame` React Flow's animated `setViewport` is a silent no-op,
+the canvas keeps its last transform, and a stale transform reads as a skew to the
+*left*. Apply the target at `duration: 0`, or read `fitViewport`'s output.
+
 **Which of those rows a mark draws is the reader's choice, and semantic zoom is
 gone.** Three tiers used to decide it from the scale — name at 0.55, age at 0.62
 — which is a rule about legibility answering a question about intent: pulling

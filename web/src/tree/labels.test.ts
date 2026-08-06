@@ -5,6 +5,7 @@ import {
   MONO,
   placeLabels,
   SANS,
+  textWidth,
   traceRects,
   TYPE,
   type LabelInput,
@@ -95,7 +96,35 @@ describe("the measurer is measuring the type that is actually drawn", () => {
     expect(decl(".mark.is-mrca .mark-label", "font-weight")).toBe(
       "var(--w-med)",
     );
+    // All three rows, because the weight is set on the label and every row
+    // inherits it. Only the name was pinned here, which is why the other two
+    // could be written in the same shape and never held to anything.
     expect(TYPE.NAME_FONT_MED).toBe(`${med} ${TYPE.NAME_FONT}`);
+    expect(TYPE.AGE_FONT_MED).toBe(`${med} ${TYPE.AGE_FONT}`);
+    expect(TYPE.META_FONT_MED).toBe(`${med} ${TYPE.META_FONT}`);
+  });
+
+  it("takes the size out of a shorthand that opens with a weight", () => {
+    // `560 12.5px …` starts with a number that is not a size, and the tracking
+    // correction read it as one — so every medium row was tracked at 560px per
+    // em. A weight is worth a few percent of a row's width and never a
+    // multiple of it, whichever way the browser rounds.
+    const ratio = (medium: string, plain: string, tracking: number) =>
+      textWidth("SUPERORDER", medium, tracking) /
+      textWidth("SUPERORDER", plain, tracking);
+    expect(
+      ratio(TYPE.META_FONT_MED, TYPE.META_FONT, TYPE.META_TRACKING),
+    ).toBeLessThan(1.15);
+    expect(
+      ratio(TYPE.NAME_FONT_MED, TYPE.NAME_FONT, TYPE.NAME_TRACKING),
+    ).toBeLessThan(1.15);
+    // The age's tracking is negative, so the same bug ran the other way and
+    // *under*-reserved: "≤ 96 Ma" measured 7.6px against a real 49.
+    expect(
+      textWidth("≤ 96 Ma", TYPE.AGE_FONT_MED, TYPE.AGE_TRACKING),
+    ).toBeGreaterThan(
+      textWidth("≤ 96 Ma", TYPE.AGE_FONT, TYPE.AGE_TRACKING) * 0.9,
+    );
   });
 
   it("reserves the letter-spacing the browser adds and the model cannot see", () => {
@@ -109,6 +138,35 @@ describe("the measurer is measuring the type that is actually drawn", () => {
     expect(`${TYPE.META_TRACKING}em`).toBe(
       decl(".mark-meta", "letter-spacing"),
     );
+  });
+
+  it("reserves the MRCA no more room than the same label at any other weight", () => {
+    // The one label in a tree with `medium` set, and the one guaranteed to be
+    // on screen. It sits left of its dot and is right-aligned, so anything
+    // over-reserved here lands on the left edge of the layout's content box —
+    // and `fitViewport` centres that box, which puts the *tree* right of
+    // centre. It was 22.5px of skew on a 1016px canvas, and the rank row alone
+    // was reserving three lines of height for one line of text.
+    const at = (medium: boolean) =>
+      placeLabels(
+        [
+          node({
+            idx: 1,
+            x: 0,
+            y: 0,
+            name: "Euarchontoglires",
+            meta: "SUPERORDER",
+            trailing: "≤ 83 Ma",
+            medium,
+          }),
+        ],
+        [],
+        OPTS,
+      ).get(1)!;
+    const plain = at(false);
+    const mrca = at(true);
+    expect(mrca.width).toBeLessThan(plain.width * 1.15);
+    expect(mrca.height).toBe(plain.height);
   });
 
   it("takes the age's family from the class that actually sets it", () => {
