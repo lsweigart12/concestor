@@ -1,82 +1,40 @@
 """Ranking a taxon's common names into the order people actually use them.
 
-Phase 6 harvests every English name a taxon goes by and elects one headline.
-It does not *order* the rest, and the election it does make is decided by
-`length(name)` once source and kind have tied — which is a tiebreak wearing a
-ranking's clothes. Measured against the shipped build, it produces:
-
-    Tyrannosaurus rex   "TRex"          (4 characters beats "T. rex"'s 6)
-    Carnivora           "Ferae"         (not an English name at all)
-    Lepidoptera         "lepidopteran"
-    Bacteria            "eubacteria"
-    Archaea             "Archaeon"
-
-and below the headline there is no order at all: the server stable-sorts
-`is_primary` to the front and leaves the remainder in rowid order, so the card
-reads *"Homo sapiens — also called human being, human beings, humans, man,
-men"*. 26,262 nodes carry more than one English name, which is the population
-this phase exists for.
+Phase 6 harvests every English name and elects one headline (by `length(name)`
+on a tie, which headlines *T. rex* as "TRex" and gives no order to the rest).
+This phase orders them.
 
 ## What "most used" is measured against
 
-**English Wikipedia's title and redirect graph.** A name that is an article
-title is the name Wikipedia's own naming policy calls the one most used in
-reliable English sources; a name that is a *redirect* to that article is one
-somebody thought a reader would type; a name that is no page at all is one
-nobody did. The pass is exact, offline-replayable and cheap — 50 titles per
-request against the MediaWiki API.
+English Wikipedia's title and redirect graph: an article title is the name
+Wikipedia's policy calls the one most used in reliable sources; a redirect is a
+name somebody thought a reader would type; no page is a name nobody did. The
+pass is exact, offline-replayable and cheap (50 titles per MediaWiki request).
 
-It also settles, by measurement rather than by hand-written rules, the whole
-class of failures where a name's ordinary English referent is a *different*
-taxon. Verified against the live API:
+It also settles, by measurement, the failures where a name's ordinary referent
+is a *different* taxon — `man`/`men` land on "Man", not Homo sapiens; `bug` on
+"Bug", not Insecta — demoting them without a rule about any of them.
 
-    man, men     -> "Man"     which is not Homo sapiens' article    demoted
-    bug, bugs    -> "Bug"     which is not Insecta's article        demoted
-    moth         -> "Moth"    which is not Lepidoptera's article    demoted
-    Ferae        -> "Ferae"   which is not Carnivora's article      demoted
-    TRex         -> no page at all                                  demoted
-    carnivorans  -> "Carnivora"                                     kept
-    T. rex       -> "Tyrannosaurus"                                 kept
+The taxon's own article title must be resolved through redirects first: Wikidata
+gives *Homo sapiens* the sitelink `Homo sapiens`, itself a redirect to `Human`,
+so comparing unresolved demotes every good name. Both ends resolve and the
+comparison is between targets. Where the taxon has no English article the column
+stays NULL, not "no page" — absent evidence is not evidence of absence.
 
-**The taxon's own article title has to be resolved through redirects first**,
-and getting that wrong inverts the result. Wikidata gives *Homo sapiens*
-(Q15978631) the enwiki sitelink `Homo sapiens` — which is itself a **redirect**
-to `Human`. Compared unresolved, every good vernacular for the species reads as
-pointing somewhere else and is demoted, and `Homo floresiensis`-grade noise
-floats up. Both ends go through the same resolution and the comparison is
-between *targets*.
+## Sources considered and not used
 
-**Where the taxon has no English article there is no wiki evidence at all**,
-and the column stays NULL rather than recording "no page". That is the same
-rule phase 6 applies to a Wikidata item with no `P225`: absent evidence is not
-evidence of absence, and a name we never asked about must not be scored as one
-we asked about and found missing.
-
-## Three sources that were considered and are not used
-
-- **English corpus frequency** (Google Books ngrams, `wordfreq`, any general
-  word list). It measures how common the *string* is in English, not how
-  commonly it is used *for this taxon*, and the two come apart exactly where
-  the ranking matters: within *Homo sapiens*'s own names it ranks `man` above
-  `human`, and `mouse` is mostly a pointing device. Refused on the same
-  principle that keeps `age_ma` and `age_layout` apart — a number that
-  measures a different question does not become the right one by being
-  numeric.
-- **Wikimedia pageview dumps** (`pageviews-YYYYMM-user.bz2`, 5.53 GB for June
-  2026, measured). These give an exact per-title view count including
-  redirects, which is the strongest possible statement of "most used" — but
-  every count still has to be attributed to a taxon, which needs this phase's
-  redirect pass anyway. It is a strict *addition* to what is built here, not
-  an alternative: one more evidence column, keyed on titles this phase has
-  already resolved. Deferred on the 5.53 GB and on the hours, not on doubt.
-- **Ranking search results by the same score.** `server/internal/store/band.go`
-  ranks which *taxon* a query means, and that is a different question from
-  which *name* a taxon goes by. This score is display-only and no search path
-  reads it; changing search ranking is its own decision with its own gates.
+- English corpus frequency: measures how common the string is, not how commonly
+  it is used *for this taxon* — inside *Homo sapiens*'s names it ranks `man`
+  above `human`.
+- Wikimedia pageview dumps: exact per-title counts, but each still needs this
+  phase's redirect pass to attribute to a taxon, so it is a strict addition, not
+  an alternative. Deferred on size.
+- Ranking search by this score: `band.go` ranks which *taxon* a query means, a
+  different question. This score is display-only and no search path reads it.
 
 ## The bands
 
-Strongest evidence first. Within a band, corroboration and then shape.
+Strongest evidence first; within a band, corroboration then shape.
 
     1  title       the name is the taxon's article title
     2  redirect    the name reaches the taxon's article
@@ -84,11 +42,8 @@ Strongest evidence first. Within a band, corroboration and then shape.
     4  label       the Wikidata item's own label
     5  alias       a Wikidata altLabel and nothing more
 
-`elsewhere` — a real page that lands on some *other* article — is **demoted one
-band and never removed**, which is deliberately the same shape as the rule
-`docs/handoff.md` records for search: exactness is withdrawn, not deleted. A
-name that names something else is still a name this taxon is filed under, and a
-reader who typed it deserves to see why they arrived here.
+`elsewhere` — a real page landing on some other article — is demoted one band
+and never removed: it is still a name this taxon is filed under.
 """
 
 from __future__ import annotations
@@ -120,9 +75,8 @@ RESOLVE_PAGES = OUT / "enwiki_resolve"
 WIKIDATA_ENDPOINT = "https://query.wikidata.org/sparql"
 MEDIAWIKI_ENDPOINT = "https://en.wikipedia.org/w/api.php"
 
-# The sitelink pass binds QIDs with VALUES for the same reason the phase-6 id
-# crawl does — each page becomes an indexed literal lookup rather than a scan.
-# 10,000 items returns comfortably inside WDQS's 60 s ceiling.
+# The sitelink pass binds QIDs with VALUES so each page is an indexed lookup,
+# not a scan; 10,000 returns inside WDQS's 60 s ceiling.
 SITELINK_PAGE = 10_000
 SITELINK_PAUSE_S = 1.5
 
@@ -162,18 +116,14 @@ EV_NONE = "none"
 # Shape
 # --------------------------------------------------------------------------
 #
-# These decide ties *inside* a band and never move a name across one. That
-# division is the whole of why they are allowed to be judgement calls at all:
-# a shape rule can reorder two names Wikipedia is silent about, and it can
-# never overrule Wikipedia about a name Wikipedia has an opinion on.
+# These decide ties *inside* a band and never move a name across one, so a shape
+# rule can reorder two names Wikipedia is silent about but never overrule it.
 
 _ARTICLE = re.compile(r"^(the|a|an)\s+", re.IGNORECASE)
 _BRACKETED = re.compile(r"[(\[]")
 _TRAILING_PUNCT = re.compile(r"[,;:]\s*$")
-# A capitalised single word ending the way a Latin clade name ends. This is
-# what puts "Ferae" and "Archaeon" below "carnivorans" and "archaeans" in the
-# band they share, and it is only ever a tiebreak — where Wikipedia has an
-# opinion the band has already decided.
+# A capitalised single word ending the way a Latin clade name ends; puts "Ferae"
+# below "carnivorans" in the band they share. Only ever a tiebreak.
 _LATINATE = re.compile(
     r"^[A-Z][a-z]+(aceae|idae|inae|oidea|ales|aria|ae|a|um|us|on|es)$"
 )
@@ -182,18 +132,10 @@ _LATINATE = re.compile(
 def mangled_abbreviation(name: str, scientific: str | None) -> bool:
     """Is this an abbreviation of the taxon's binomial, spelled wrongly?
 
-    *Tyrannosaurus rex* carries `T. rex`, `T rex`, `T-Rex` and `TRex`, and
-    Wikipedia has no opinion that separates them: the first three are all
-    redirects to *Tyrannosaurus*. Left to the generic tiebreaks the shortest
-    string wins and the app headlines its most famous fossil as **T-Rex**.
-
-    The discriminator is the taxon's own name. `X. epithet` is the standard
-    abbreviated binomial — the same form this project's search already indexes
-    as an abbreviation kind — so a string that abbreviates *this* binomial and
-    is *not* in that form is a mangling of a convention rather than a name of
-    its own. It fires only on the taxon's own abbreviation, so it can never
-    reach an ordinary common name: `blue whale` is not an abbreviation of
-    *Balaenoptera musculus* and is untouched.
+    `X. epithet` is the standard abbreviated binomial, so a string that
+    abbreviates *this* binomial but is not in that form (`TRex`, `T-Rex`) is a
+    mangling. Fires only on the taxon's own abbreviation, so it never reaches an
+    ordinary common name.
     """
     if not scientific:
         return False
@@ -210,12 +152,9 @@ def mangled_abbreviation(name: str, scientific: str | None) -> bool:
 def shape_penalty(name: str, scientific: str | None = None) -> int:
     """Count the defects in a name's *form*. Lower is a better display name.
 
-    Every clause here was found in the shipped table rather than imagined:
-    `Sibbold's Rorqual,` carries a trailing comma, `spider (arachnid)` carries
-    a disambiguator meant for a different medium, `the lion` carries an
-    article, `Zanthoxylum diversifolium Warb. (1891), non Lesq. (1878)` is a
-    nomenclatural citation that reached a vernacular column, and `T-Rex` is a
-    real convention spelled four different ways.
+    Each clause was found in the shipped table: trailing punctuation, bracketed
+    disambiguators, leading articles, nomenclatural citations, Latinate clade
+    names, mangled abbreviations, and over-long strings.
     """
     n = name.strip()
     p = 0
@@ -246,14 +185,9 @@ def _fold(s: str) -> str:
 def shares_stem(name: str, scientific: str | None, *, min_stem: int = 5) -> bool:
     """Is `name` the scientific name with an English suffix bolted on?
 
-    `lepidopteran` against *Lepidoptera*, `Dipterous` against *Diptera*,
-    `Actinopterygian` against *Actinopterygii*. It is **not** used to demote
-    such a name outright, because `arthropod`, `tetrapod`, `mollusc`,
-    `primate` and `chordate` are all formed exactly this way and are all the
-    ordinary English word — there is nothing else to call an arthropod. It is
-    used only *relatively*, inside one band: where a taxon has both a
-    stem-derived name and one that is not, the one that is not is the one a
-    reader recognises.
+    `lepidopteran` against *Lepidoptera*. Not used to demote outright —
+    `arthropod` is formed the same way and is the ordinary word — only
+    relatively: within a band, a non-stem name beats a stem-derived one.
     """
     if not scientific:
         return False
@@ -294,11 +228,8 @@ def _base_band(c: Candidate) -> int:
 def band(c: Candidate) -> int:
     """The band a name sorts in, after the `elsewhere` demotion.
 
-    A name whose page lands on another article is demoted **one band, never
-    removed**. Removing it would delete `man` from *Homo sapiens*, which is a
-    name for humans however much the article `Man` is about something
-    narrower, and a reader who searched it deserves to be told why they are
-    here rather than to conclude the search misheard.
+    A name whose page lands on another article is demoted one band, never
+    removed (removing it would delete `man` from *Homo sapiens*).
     """
     b = _base_band(c)
     if c.wiki == EV_ELSEWHERE:
@@ -309,10 +240,8 @@ def band(c: Candidate) -> int:
 def sort_key(c: Candidate, scientific: str | None, stem_free_available: bool) -> tuple:
     """The full ordering key. Total, deterministic, and stable across builds.
 
-    The last two components are the old election's whole ruleset, kept as a
-    dead heat breaker rather than as a ranking: `length(name)` is a perfectly
-    good way to choose between two names nothing else distinguishes, and a
-    catastrophic way to choose a headline. It elected `TRex` over `T. rex`.
+    `length(name)` is kept only as the last tiebreak, never as the ranking (it
+    elected `TRex` over `T. rex`).
     """
     stemmy = stem_free_available and shares_stem(c.name, scientific)
     return (
@@ -333,8 +262,8 @@ def rank(
     cands = list(candidates)
     if not cands:
         return []
-    # Computed once per taxon rather than per name: "is there anything here
-    # that is not just the Latin with an -an on it" is a fact about the set.
+    # Computed once per taxon: "is there a non-stem name in this band" is a fact
+    # about the set.
     by_band: dict[int, bool] = {}
     for c in cands:
         b = band(c)
@@ -387,8 +316,7 @@ def _post(client: httpx.Client, url: str, data: dict[str, str], log: Log) -> Jso
 def _qids(con: sqlite3.Connection) -> list[str]:
     """Every Wikidata item the vernacular crawl tied to a node, notable first.
 
-    Ordered by `tip_count` for the same reason phase 6's plan is: a crawl that
-    is interrupted must still leave the famous animals answerable.
+    Ordered by `tip_count` so an interrupted crawl still answers famous animals.
     """
     return [
         r[0]
@@ -524,10 +452,8 @@ def _resolve_batch(client: httpx.Client, titles: Sequence[str], log: Log) -> Jso
         elif target in present:
             out[t] = {"target": target, "normalized": n}
         else:
-            # Named in neither `pages` nor either map, which is what a batch
-            # over the API's 50-title limit does to its surplus. Recording it
-            # as "no such page" would be a lie of exactly the kind this file
-            # exists to avoid, so it is written out as never asked.
+            # Named in neither `pages` nor either map — the API's 50-title limit
+            # dropped the surplus. Record as never asked, not "no such page".
             out[t] = None
     return out
 
@@ -535,17 +461,12 @@ def _resolve_batch(client: httpx.Client, titles: Sequence[str], log: Log) -> Jso
 def _resolve_plan(con: sqlite3.Connection, sitelinks: dict[str, str]) -> list[str]:
     """Every title worth resolving, deduplicated and ordered deterministically.
 
-    Two populations, one list: the **article titles** the taxa themselves sit
-    at, which have to be resolved before anything can be compared against
-    them (`Homo sapiens` is a redirect to `Human`), and every **English
-    vernacular** on a node whose taxon has such a title. A name on a node with
-    no English article is not asked about at all — there would be nothing to
-    compare its answer to, and a resolution recorded with no counterpart is a
-    column waiting to be misread.
+    Two populations, one list: the taxa's own article titles (which must be
+    resolved before anything can be compared against them — `Homo sapiens`
+    redirects to `Human`), and every English vernacular on a node whose taxon has
+    such a title. A name on a node with no English article is not asked about.
     """
-    # The QID filter is done in Python rather than as a SQL `IN`: there are
-    # 108,682 of them and binding that many parameters is neither possible nor
-    # necessary for a table that fits in memory several times over.
+    # QID filter done in Python, not a SQL `IN`, to avoid binding 100k+ params.
     wanted: set[int] = {
         int(idx)
         for idx, qid in con.execute(
@@ -572,10 +493,8 @@ def crawl_resolutions(
     RESOLVE_PAGES.mkdir(parents=True, exist_ok=True)
     titles = _resolve_plan(con, sitelinks)
     n_pages = (len(titles) + RESOLVE_BATCH - 1) // RESOLVE_BATCH
-    # Digest the first batch only, for the reason phase 6's by-name crawl
-    # gives: widening the corpus should append pages rather than throw away
-    # every page already fetched, and a prefix digest is what makes that a
-    # checked property rather than a hope.
+    # Digest the first batch only, so widening the corpus appends pages rather
+    # than discarding fetched ones.
     prefix = hashlib.sha256(
         f"{RESOLVE_BATCH}|".encode() + "\n".join(titles[:RESOLVE_BATCH]).encode()
     ).hexdigest()
@@ -676,10 +595,9 @@ def evidence(
 ) -> str | None:
     """Classify one name against the taxon's resolved article.
 
-    Returns None — *not asked* — wherever the taxon has no English article or
-    this name was never resolved. That state is distinct from `none`, and
-    conflating them is how a partially-completed crawl would silently demote
-    every name it had not reached yet.
+    Returns None (*not asked*) where the taxon has no English article or the
+    name was never resolved — distinct from `none`, so a partial crawl does not
+    demote names it has not reached.
     """
     if taxon_target is None:
         return None
@@ -713,9 +631,8 @@ def taxon_targets(
 ) -> dict[int, tuple[str, str, str | None]]:
     """node idx -> (qid, sitelink title, resolved target).
 
-    A node claimed by more than one Wikidata item takes the lowest QID, for
-    the reason `store.WikidataQID` gives: six of 108,683 are, and answering
-    the same way every time matters more than which one wins.
+    A node claimed by more than one Wikidata item takes the lowest QID, so the
+    answer is stable.
     """
     out: dict[int, tuple[str, str, str | None]] = {}
     for idx, qid in con.execute(
@@ -739,10 +656,9 @@ def assign_ranks(
 ) -> JsonDict:
     """Rank every resolved name and write `usage_rank`, `is_primary`, `wiki_evidence`.
 
-    Called twice with different evidence and identical rules. Phase 6 calls it
-    with nothing, so a build that never runs this phase still has a defensible
-    order rather than rowid order; this phase calls it with the crawls, which
-    only ever *moves* names — no name is added, removed or rewritten here.
+    Called twice with identical rules: phase 6 with no crawl evidence (so a
+    build has a defensible order regardless), and this phase with the crawls.
+    Only moves names — none is added, removed or rewritten.
     """
     sitelinks = sitelinks or {}
     res = res or {}
@@ -801,11 +717,9 @@ def assign_ranks(
 # Phase entry point
 # --------------------------------------------------------------------------
 
-# The headline a reader should meet. Each is a *set*, because more than one
-# answer is defensible for a clade — "insect" and "insects" are both right and
-# which one wins is not worth gating on — and because gating on the exact
-# string would make every one of these a test of the tiebreak rather than of
-# the evidence.
+# The headline a reader should meet. Each is a set, since more than one answer
+# is defensible ("insect"/"insects") and gating on the exact string would test
+# the tiebreak rather than the evidence.
 HEADLINE_CHECKS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Homo sapiens", ("human", "humans")),
     ("Canis lupus familiaris", ("dog", "dogs", "domestic dog")),
@@ -815,18 +729,14 @@ HEADLINE_CHECKS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Aves", ("bird", "birds")),
     ("Insecta", ("insect", "insects")),
     ("Metazoa", ("animal", "animals")),
-    # Was "Ferae", a Latin clade name that is not English at all. `carnivorans`
-    # is a redirect to Carnivora's article and `Ferae` is an article of its own,
-    # so the evidence separates them without anything being hand-written.
+    # Was "Ferae" (not English); `carnivorans` redirects to Carnivora's article.
     ("Carnivora", ("carnivorans", "carnivores", "carnivoran")),
-    # Was "TRex", which is not a page on English Wikipedia in any form.
+    # Was "TRex", not a page on English Wikipedia in any form.
     ("Tyrannosaurus rex", ("T. rex", "Tyrannosaurus rex", "T rex", "T-Rex")),
 )
 
-# Names that must **not** lead their taxon, and the reason each one led or
-# could lead. Every one of these is a name whose ordinary English referent is
-# a different, usually narrower, thing — and every one is caught by the
-# redirect pass rather than by a rule written about it.
+# Names that must NOT lead their taxon — each has a different ordinary English
+# referent, caught by the redirect pass rather than a rule written about it.
 DEMOTED_CHECKS: tuple[tuple[str, str], ...] = (
     ("Homo sapiens", "man"),  # -> the article "Man"
     ("Homo sapiens", "men"),
@@ -863,10 +773,8 @@ def _rank_of(con: sqlite3.Connection, sci: str, name: str) -> int | None:
 def _row_census(con: sqlite3.Connection) -> tuple[int, int]:
     """Row count, and distinct (idx, lang, name) count.
 
-    Counted with a GROUP BY rather than by gluing the three columns into one
-    key. Any separator is a character some name might contain — and the first
-    draft reached for one that cannot appear in a name, which turned out to be
-    a character that cannot appear in Python source either.
+    GROUP BY rather than a glued key, since any separator is a character some
+    name might contain.
     """
     total = con.execute(
         "SELECT count(*) FROM vernacular WHERE idx IS NOT NULL"
@@ -881,13 +789,9 @@ def _row_census(con: sqlite3.Connection) -> tuple[int, int]:
 def _replayed(pages: Path) -> JsonDict:
     """The crawl report for a `--no-api` run, read off the checkpoints.
 
-    It has to compute `complete` from the plan on disk rather than leaving it
-    unset. The spot-check gates only *require* when the crawl is complete, so a
-    report that simply omits the field downgrades every one of them to an
-    observation — a full, finished crawl replayed offline would then fail to
-    block a build that had broken the ranking. Which is what the first version
-    of this did, and it took a passing 31/31 captioned "resolution crawl
-    incomplete" to notice.
+    Computes `complete` from the plan on disk: the spot-check gates only
+    `require` when the crawl is complete, so omitting the field would silently
+    downgrade them all to observations.
     """
     on_disk = len(list(pages.glob("page_*.jsonl")))
     plan_path = pages / "plan.json"
@@ -935,8 +839,7 @@ def run(use_api: bool = True) -> int:
     res = read_resolutions()
     print(f"  {len(res):,} titles resolved", flush=True)
 
-    # Captured before the rewrite so the phase can say what it actually moved.
-    # A change nobody counted is a change nobody can review.
+    # Captured before the rewrite so the phase can report what it moved.
     before = dict(
         con.execute(
             "SELECT idx, name FROM vernacular WHERE is_primary = 1 AND lang = ?",
@@ -1028,11 +931,8 @@ def run(use_api: bool = True) -> int:
             "                 AND w.target IS NOT NULL)"
         ).fetchone()[0]
         if sitelinks
-        # With no sitelink checkpoints there is no `node_wiki` to join to and
-        # no evidence to have written, so the gate is vacuous rather than
-        # failing. Querying a table this run did not create would fail the
-        # build for the absence of a crawl, which is a different complaint and
-        # is the one the observe gate below actually makes.
+        # With no sitelink checkpoints there is no `node_wiki` and no evidence
+        # written, so the gate is vacuous rather than failing.
         else 0,
         0,
         note="the Homo sapiens trap: the taxon's own title is itself a redirect",

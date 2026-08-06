@@ -1,20 +1,11 @@
 """Phase 5b — the ICS geologic timescale, from `chart.ttl` into `timescale.json`.
 
-Reads the pinned ICS International Chronostratigraphic Chart (v2026/06, CC-BY,
-178 concepts) and emits the ~40 KB reference scale the client draws beneath the
-chronogram (architecture §6, ingest.md phase 5 step 4).
-
-Turtle is parsed here by a small purpose-built reader rather than an RDF
-library, for two reasons. The file uses a narrow, regular slice of the grammar,
-and this runs exactly once per build; and the browser must never see a parser at
-all — it gets the JSON.
-
-A regex would *almost* work and that is the trap. 36 of the 356 age bounds carry
-a `skos:note "uncertain"` inside the blank node, ahead of `gtsd:inMYA`, which
-silently defeats a `hasBeginning\\s*\\[\\s*gtsd:inMYA` pattern. Those are the
-chart's `~` approximate ages, and they are carried through as `begin_approx` /
-`end_approx`.
-
+Reads the pinned ICS International Chronostratigraphic Chart (v2026/06, CC-BY)
+and emits the ~40 KB reference scale the client draws beneath the chronogram.
+Turtle is parsed by a small purpose-built reader rather than an RDF library:
+the file uses a narrow, regular slice of the grammar and this runs once per
+build. A regex almost works but misses the 36 bounds carrying `skos:note
+"uncertain"` (the chart's `~` ages), so it is a real parser.
 
 ## Output shape — `build/timescale.json`
 
@@ -22,7 +13,7 @@ chart's `~` approximate ages, and they are carried through as `begin_approx` /
 {
   "source":   {name, version, file, license, citation, concepts},
   "ranks":    ["Super-Eon", "Eon", ..., "Age"],   # coarse -> fine, band-row order
-  "color":    {...}                              # the derived-colour recipe, below
+  "color":    {...}                              # the derived-colour recipe
   "intervals": [ Interval, ... ],   # sorted by (rank row, then oldest first)
   "index": {
     "by_id":    {"Cambrian": 41, ...},        # id -> position in `intervals`
@@ -33,91 +24,29 @@ chart's `~` approximate ages, and they are carried through as `begin_approx` /
 }
 ```
 
-Every index value is a **position in `intervals`**, never a nested copy, so the
-file stays flat and the client renders nested bands by walking `by_rank` for the
-rows and `children` for level-of-detail fallback.
+Every index value is a position in `intervals`, never a nested copy. An
+`Interval` carries: id (URI local name), name, name_informal, rank, parent,
+depth, begin_ma/begin_err/begin_approx (older bound), end_ma/end_err/end_approx,
+color (derived), color_official (CGMW datum), order (sh:order). `begin_ma` is
+always the older bound. 21 concepts (Lower/Middle/Upper subdivisions) have no
+`skos:prefLabel`; their label is built from the CamelCase local name and marked
+`name_informal` so the UI never attributes it to ICS.
 
-An `Interval` is:
+## The colour clamp
 
-```
-{ "id": "Cambrian",                    # the URI's local name; the stable key
-  "name": "Cambrian",                  # skos:prefLabel @en
-  "name_informal": false,              # true = we built the label, see below
-  "rank": "Period",                    # gts:rank
-  "parent": "Paleozoic",               # skos:broader local name, null at a root
-  "depth": 2,                          # nesting level under a root
-  "begin_ma": 538.8, "begin_err": 0.6, "begin_approx": false,   # older bound
-  "end_ma": 486.85,  "end_err": 1.5,   "end_approx": false,     # younger bound
-  "color": "#2C3225",                  # what to draw — see below
-  "color_official": "#7FA056",         # the CGMW datum, preserved
-  "order": 154 }                       # sh:order, the chart's own draw order
-```
+Both colours ship: `color_official` is the exact CGMW hex; `color` is the
+recessive instrument colour, a uniform contraction of OKLab by K about
+(L_PIVOT, 0, 0) re-anchored at L_ANCHOR:
 
-The full URI is `source.uri_base + id`; it is not repeated per concept, which
-would be a tenth of the file for no information.
+    L' = L_ANCHOR + (L - L_PIVOT) * K
+    C' = C * K
+    H' = H                                   # hue untouched
 
-`begin_ma` is always the older bound, so `begin_ma >= end_ma`. `*_err` is
-`schema:marginOfError` and is null where ICS records none.
-
-**21 concepts have no `skos:prefLabel` in any language** — every Lower / Middle
-/ Upper subdivision (`LowerOrdovician`, `UpperCretaceous`, `MiddleTriassic`, …)
-plus `UpperPleistocene`. These are exactly the units the printed ICS chart sets
-in italic as *informal*, and the file gives them only a `skos:notation`
-short-code and a `skos:definition`. Their label is built here by splitting the
-CamelCase local name, and `name_informal` marks it so the UI never presents our
-string as ICS's.
-
-
-## The colour clamp, and why this one
-
-architecture §6 records the single genuine collision between the data and
-design-reference.md: the official CGMW palette is warm and highly saturated
-(Permian orange, Triassic purple), and the design language is a dark instrument
-where "the glow comes from the data, nowhere else". The resolution is to **keep
-the official hue relationships, drop the official saturation and luminance, and
-let the band recede.**
-
-So both colours ship. `color_official` is the exact `schema:color` hex, because
-it is the source datum and someone will want to check it. `color` is the derived
-instrument colour, and it is produced by a single transform in OKLab:
-
-    L' = L_ANCHOR + (L - L_PIVOT) * K        with K = 0.22
-    C' = C * K                               hue untouched
-    H' = H
-
-That is a **uniform contraction of OKLab by K about (L_PIVOT, 0, 0)**, followed
-by a translation onto L_ANCHOR. Because scaling chroma at constant hue is just
-scaling `a` and `b`, the whole thing is a similarity transform: *every* pairwise
-perceptual distance in the derived palette is exactly `K` times the official
-one. Hue is preserved to the bit, relative saturation is preserved, and the
-Proterozoic lightness ramps that ICS uses to order the eras survive in
-proportion. Nothing about the palette's structure is invented or destroyed —
-only its energy is dropped.
-
-The constants:
-
-- `K = 0.22` — contracts the official L span (0.462–0.985) to 0.115 and the
-  official C span (0.018–0.250) to a maximum of 0.055.
-- `L_PIVOT = 0.72` — the midpoint of the official lightness range, so the
-  contraction is centred rather than skewed.
-- `L_ANCHOR = 0.32` — lands the band at L 0.263–0.378 against a canvas at
-  L 0.145–0.174 (#0A0A0B–#101012). Distinctly a band, nowhere near a trace.
-
-`L_MIN`/`L_MAX`/`C_MAX` are hard guards, not part of the recipe: they clamp
-anything a future ICS revision might introduce outside the dim band. They do not
-fire on v2026/06, and a gate says so — if one ever does, the similarity property
-breaks for that concept and that should be a visible decision, not a silent one.
-
-**Known limit, stated rather than papered over.** The four Paleoproterozoic
-periods (Siderian → Statherian) span 10.5° of hue and are separated in the
-source almost entirely by a lightness ramp; their minimum official pairwise
-distance is 0.022, already at the edge of a just-noticeable difference. After
-contraction it is 0.0049, which is below it. No value of `K` that keeps the band
-recessive fixes this, because the flatness is ICS's, not ours. Per architecture
-§6 wayfinding in the band comes from labels and hairline dividers first and hue
-second, which is exactly the case this relies on. The `period sibling min ΔE`
-gate reports the number so it cannot be lost, and the companion `require` gate
-fails if a future change stops the derived palette being a faithful contraction.
+This is a similarity transform: every pairwise perceptual distance in the
+derived palette is exactly K times the official one. `L_MIN`/`L_MAX`/`C_MAX` are
+hard guards against a future ICS revision; they do not fire on v2026/06 and a
+gate says so. Known limit: the four Paleoproterozoic periods sit below a JND
+even in the source, so wayfinding there is by labels and dividers, not hue.
 """
 
 from __future__ import annotations
@@ -152,7 +81,7 @@ DCTERMS = "http://purl.org/dc/terms/"
 # the order `intervals` is sorted in.
 RANK_ORDER = ("Super-Eon", "Eon", "Era", "Period", "Sub-Period", "Epoch", "Age")
 
-# --- measured against snapshot/ics/chart.ttl (ICS v2026/06) on 2026-07-31 ----
+# --- measured against snapshot/ics/chart.ttl (ICS v2026/06) -----------------
 EXPECT_CONCEPTS = 178
 EXPECT_WITH_BROADER = 176
 EXPECT_RANKS = {
@@ -185,7 +114,7 @@ C_MAX = 0.060
 
 
 class TurtleError(ValueError):
-    """The chart is a pinned, checksummed file; a parse surprise is a bug."""
+    """A parse surprise in the pinned, checksummed chart is a bug."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -374,8 +303,7 @@ class _Parser:
         if subj_tok.kind == "bnode":
             subject = "_:" + subj_tok.text[2:]
         elif subj_tok.text == "[":
-            # `[] p o .` — an anonymous subject. Not used by chart.ttl, but
-            # cheap to keep honest rather than silently mis-parsing.
+            # `[] p o .` — an anonymous subject. Not used by chart.ttl.
             self.expect("]")
             subject = self.fresh_bnode()
         else:
@@ -566,9 +494,7 @@ def dim(official: str) -> tuple[str, tuple[float, float, float], bool]:
     """Contract a CGMW colour onto the recessive band.
 
     Returns the derived hex, its OKLab coordinates, and whether the hard
-    lightness/chroma guards had to fire — see the module docstring. Hue is never
-    touched, and on ICS v2026/06 the guards never fire, so the derived palette is
-    an exact `K`-scaled similarity of the official one.
+    lightness/chroma guards had to fire. Hue is never touched.
     """
     lightness, chroma, hue = oklab_to_oklch(hex_to_oklab(official))
     lightness = L_ANCHOR + (lightness - L_PIVOT) * K
@@ -674,9 +600,8 @@ def extract(graph: Graph) -> list[Interval]:
         derived, lab, guarded = (
             dim(color_official) if color_official else ("", (0.0, 0.0, 0.0), False)
         )
-        # 21 concepts — every Lower/Middle/Upper subdivision — carry no
-        # skos:prefLabel at all. The printed chart sets them in italic as
-        # informal units; we build the label and say that we did.
+        # The Lower/Middle/Upper subdivisions carry no skos:prefLabel; build the
+        # label from the URI and flag it informal.
         label = lang_value(props, SKOS + "prefLabel")
         out.append(
             Interval(
@@ -949,8 +874,7 @@ def run() -> int:
             f"wayfinding there (architecture §6)."
         ),
     )
-    # The gate that actually fails visibly if someone flattens the palette:
-    # the contraction is a similarity transform, so every derived distance must
+    # The contraction is a similarity transform, so every derived distance must
     # be exactly K times its official counterpart.
     drift = max(
         (

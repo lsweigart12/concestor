@@ -1,14 +1,10 @@
 """The palette's front door.
 
-The load-bearing assertion in this file is behavioural rather than structural:
-typing `dog`, `T. rex`, `shark`, `human` or `Homo sapiens` must put the taxon a
-person means at the top. A search box that only accepts binomials is the
-product failing at first contact (handoff.md §1a), and no row count detects
-that.
+The load-bearing assertion is behavioural: typing `dog`, `T. rex`, `shark`,
+`human` or `Homo sapiens` must put the taxon a person means at the top.
 
-Two layers. `test_ranking_*` builds a miniature index in memory and runs the
-real `query()` over it, so the ordering rules are proved without a 500 MB
-database. The rest run against the built artifact and skip without it.
+Two layers. `test_ranking_*` runs the real `query()` over a miniature in-memory
+index; the rest run against the built artifact and skip without it.
 """
 
 import math

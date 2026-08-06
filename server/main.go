@@ -2,8 +2,7 @@
 //
 // The whole runtime is one static binary over memory-mapped topology arrays
 // and a read-only SQLite database, both produced by the offline pipeline. It
-// shares only *files* with that pipeline — no runtime, no FFI — which is why
-// the language choice was made independently. See docs/serving-binary.md.
+// shares only files with that pipeline — no runtime, no FFI.
 package main
 
 import (
@@ -23,12 +22,8 @@ import (
 	"github.com/lsweigart12/concestor/server/internal/store"
 )
 
-// Set by the linker at release time — see scripts/ci/build-release.sh, which
-// passes -X main.version and -X main.commit from the tag semantic-release
-// computed. They are variables rather than constants for exactly that reason.
-//
-// "dev" is the honest default. A `go run` has no version, and reporting an
-// empty string on /v1/about would read as a release that forgot to say which.
+// Set by the linker at release time (-X main.version / main.commit). "dev" is
+// the default: a `go run` has no version.
 var (
 	version = "dev"
 	commit  = ""
@@ -63,8 +58,7 @@ func run() error {
 
 	silhouetteDirs := []string{*silhouettes}
 	if *silhouettes == "" {
-		// The mirror root, not the svg/ subdirectory: silhouette.svg_path is
-		// recorded relative to the root.
+		// The mirror root, not svg/: silhouette.svg_path is relative to it.
 		silhouetteDirs = []string{
 			filepath.Join(repoRoot, "snapshot", "phylopic"),
 			filepath.Join(absBuild, "silhouettes"),
@@ -108,48 +102,19 @@ func run() error {
 		log.Warn("table present but not wired up", "table", t, "reason", why)
 	}
 
-	// Warm the random pools in the background, and **in the background rather
-	// than inside Open** — which is the whole of the decision, because the
-	// obvious two answers are both worse.
-	//
-	// Building them on first request put two full scans on the press the reader
-	// is waiting on. Building them inside `store.Open` would put those scans in
-	// front of *every* request the container has not answered yet: the boot
-	// probe, the timescale, and — the one that matters — the reader's first
-	// search or opening. That taxes the primary flow to speed up a secondary
-	// one, on the single instance and half vCPU this runs on.
-	//
-	// Here it blocks nothing. The listener comes up immediately, the scans
-	// overlap with the seconds a reader spends before their first query, and a
-	// press arriving mid-scan waits on the same build through `RandomPool`'s
-	// mutex rather than starting a second one. By the time anybody presses `R`
-	// the answer is usually already in memory, and behind the edge's year on
-	// that response it is usually already in the cache too.
-	//
-	// **It is logged because nothing else times this.** `docs/ci.md` records
-	// that no check measures the deployed API, and both expensive endpoints
-	// this project has found were found by hand — so the one number that says
-	// what these scans cost on `standard-1` has to come from the container
-	// itself.
-	//
-	// **Read it on the Containers dashboard, not in Workers Logs**, and the
-	// distinction cost a wrong sentence in three files before it was checked.
-	// This process writes to stdout; Workers Logs holds the *Worker's*
-	// invocation logs, which is a different stream. Queried over the whole
-	// account for the 45 minutes around a deploy, `dataset loaded` — a line
-	// this binary certainly emits on every start — returns **zero** rows there.
-	// Container stdout surfaces under Workers & Pages → Containers → Logs,
-	// which since 2026-04-21 also correlates the Worker and Durable Object
-	// lines beside it. Nothing here can push it into Workers Logs either: the
-	// container starts on its own, with no Worker invocation to log from.
+	// Warm the random pools in the background: on first request the two full
+	// scans would land on the press a reader is waiting on; inside store.Open
+	// they would delay every request including the first search. Here the
+	// listener comes up immediately and a press arriving mid-scan waits on the
+	// same build through RandomPool's mutex. Logged because nothing else times
+	// these scans on the deployed container (read it on the Containers
+	// dashboard, not Workers Logs — different stream).
 	go func() {
 		t := time.Now()
 		pool, err := st.RandomPool(ctx)
 		if err != nil {
-			// Warn rather than fatal, and the process keeps serving. Nothing
-			// else depends on this, `RandomPool` does not memoise a failure,
-			// and the next press retries. A cancelled context here is a
-			// shutdown during startup, which is not worth a louder line.
+			// Warn rather than fatal: nothing else depends on this, RandomPool
+			// does not memoise a failure, and the next press retries.
 			log.Warn("random pool warm-up failed", "err", err)
 			return
 		}

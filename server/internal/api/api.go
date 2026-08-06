@@ -1,12 +1,10 @@
-// Package api serves the read-only HTTP contract described in architecture §4.
+// Package api serves the read-only HTTP contract.
 //
-// Everything is immutable within a build, so every /v1 response carries an
-// ETag derived from the build — the dataset **and** the binary, see etag — and
-// a long Cache-Control. Long rather than `immutable`: the data cannot change
-// within a build, but a URL here names no particular build, and a browser told
-// not to revalidate never finds out that it is holding an old one. There is no
-// write path, no session, and no runtime dependency on any upstream service:
-// the Open Tree API is a build-time oracle only (architecture §9).
+// Everything is immutable within a build, so every /v1 response carries an ETag
+// derived from the build (dataset and binary, see etag) and a long
+// Cache-Control — long rather than `immutable`, since a URL names no particular
+// build and a browser told not to revalidate never learns it holds an old one.
+// No write path, no session, no runtime dependency on any upstream service.
 package api
 
 import (
@@ -119,46 +117,17 @@ func isLocalOrigin(o string) bool {
 
 // --- response helpers ----------------------------------------------------
 
-// etag names the response's content, which is the dataset **and** the code
-// that renders it.
-//
-// It was the store's BuildID alone, and that was a bug with a production
-// symptom. `store.computeBuildID` hashes the name, size and mtime of the
-// arrays, the database and the gate files: it is a pure function of the
-// *artifacts*, and nothing about the binary enters it. So a release that
-// changed only Go code emitted a byte-identical ETag against an unchanged URL
-// under `max-age=31536000, immutable` — and `immutable` tells a client not to
-// revalidate at all, so nothing could correct it. v0.23.0 added
-// `layout_spread` to /v1/node, the container rolled to the new build, and
-// every warm cache went on serving the old shape.
-//
-// The fix is the one `docs/deployment.md` §5 already took for the container
-// image tag, in the same shape — `<dataset>-<code>` — because it is the same
-// problem. A tag naming only the dataset let a pre-#51 binary run in
-// production for two releases, and the lesson recorded there is exactly this
-// one: **an artifact's name must cover everything inside it.**
-//
-// BuildID itself is deliberately left alone. It is the *dataset* identity,
-// /v1/about publishes it under that meaning, and folding the commit into it
-// would silently change what that field says to every consumer that reads it.
-// The two ids stay two ids; the ETag is where they are combined.
+// etag names the response's content: the dataset AND the code that renders it.
+// BuildID alone was a bug — it hashes only the artifacts, so a Go-only release
+// emitted an identical ETag under `immutable` and warm caches served the old
+// shape. BuildID is left alone (it is the dataset identity /v1/about publishes);
+// the ETag is where the two ids are combined.
 func (s *Server) etag() string { return `"` + s.St.BuildID + "-" + s.codeID() + `"` }
 
-// codeID names the running binary the way St.BuildID names the dataset.
-//
-// A release build has the commit compiled in — both scripts/ci/build-release.sh
-// and scripts/deploy/push-api-image.sh pass `-X main.commit` — and that is the
-// exact answer. A `go run` or a `go test` has none, and the fallback may not be
-// a constant: a constant would make every commit-less build agree with every
-// other one, which is the collision this whole function exists to remove,
-// moved to the one place where a stale answer is hardest to notice.
-//
-// So it falls back to the binary's own identity: path, size and mtime, hashed.
-// That is computeBuildID's trick applied to the executable rather than to the
-// arrays, and it holds for the same reason — a rebuild rewrites the file, and
-// `go run` compiles to a fresh temporary every time. It carries a `dev-`
-// prefix because reading a twelve-hex-digit answer as an abbreviated sha in a
-// support question would cost more than the prefix does.
+// codeID names the running binary the way St.BuildID names the dataset. A release
+// build has the commit compiled in (-X main.commit); a `go run`/`go test` falls
+// back to the binary's own path, size and mtime hashed, with a `dev-` prefix so
+// it is not misread as a sha.
 func (s *Server) codeID() string {
 	s.codeOnce.Do(func() { s.code = resolveCodeID(s.Commit) })
 	return s.code
@@ -216,26 +185,17 @@ func fingerprintFile(p string) (string, bool) {
 	return hex.EncodeToString(h.Sum(nil))[:12], true
 }
 
-// The three lifetimes a /v1 response can carry. `ccDev` is what -public-cache=false
-// turns the other two into, so that iterating locally does not mean
+// The three lifetimes a /v1 response can carry. `ccDev` is what
+// -public-cache=false turns the other two into, so local iteration does not mean
 // hard-reloading after every rebuild.
 //
-// **`max-age` is the browser's number and `s-maxage` is the edge's, and they
-// are two numbers because the two caches are corrected by different means.** A
-// deploy is a new Worker version, Workers Cache is keyed by version, so the
-// edge starts empty and can be trusted with a year — that is deployment.md
-// §5's argument and it is sound. Nothing corrects a browser. It holds the URL
-// it was given for as long as it was told to, and these URLs are not
-// content-addressed: `/v1/node/{key}` is the same string across every build
-// there will ever be.
-//
-// This line used to end `immutable`, which tells a browser not even to ask.
-// Under it the corrected ETag above is a validator for a request that is never
-// sent — v0.23.0's field would have gone on missing every warm cache for a
-// year. An hour is what makes the validator worth having. It is not paid for
-// at the container: the conditional request is answered by the edge out of its
-// own fresh copy, so a revalidation is a round trip to the nearest colo and
-// not a wake (§6.1 is why that distinction is the one that matters here).
+// `max-age` (browser) and `s-maxage` (edge) differ because the two caches are
+// corrected differently: a deploy is a new Worker version and the edge is keyed
+// by version, so it starts empty and can hold a year, but nothing corrects a
+// browser holding a non-content-addressed URL. So an hour, not `immutable`,
+// which would make the ETag a validator for a request never sent. The
+// revalidation is answered by the edge out of its own fresh copy, not a
+// container wake.
 const (
 	ccLongLived  = "public, max-age=3600, s-maxage=31536000"
 	ccShortLived = "public, max-age=60, must-revalidate"
@@ -256,14 +216,9 @@ func (s *Server) shortLivedCC() string {
 	return ccDev
 }
 
-// stampCacheable writes the ETag and the lifetime, and reports whether the
-// request may be answered 304.
-//
-// It exists because this pair was written out by hand in three places —
-// writeJSON, /v1/timescale and /v1/silhouette — and the ETag was wrong in all
-// three for the same reason. One of them had also quietly dropped the
-// If-None-Match check, so a silhouette carried a validator nothing ever used.
-// A fourth caller now cannot drift.
+// stampCacheable writes the ETag and lifetime and reports whether the request
+// may be answered 304. One place, so the three callers cannot drift the ETag or
+// drop the If-None-Match check.
 func (s *Server) stampCacheable(w http.ResponseWriter, r *http.Request, cc string) (notModified bool) {
 	tag := s.etag()
 	h := w.Header()
@@ -294,33 +249,17 @@ func (s *Server) writeJSON(w http.ResponseWriter, r *http.Request, code int, v a
 
 // writeShortLivedJSON emits a response that is cacheable but not immutable.
 //
-// It exists for /v1/about, and its argument is writeVolatileJSON's turned
-// around. About *is* a function of the build, so the ETag above is a correct
-// validator for it and the immutable path was never wrong about the data — it
-// was wrong about the question. /v1/about is what a deploy check, a monitor or
-// a person asks "what is running", and a year-long `immutable` turns "the
-// deploy did not land" into a permanent answer: production reported the
-// previous release for ten minutes after v0.23.0 rolled, and would have gone
-// on reporting it to a warm browser indefinitely. Fixing the ETag does not fix
-// that on its own, because the endpoint's whole job is to be asked again.
+// It exists for /v1/about, which a deploy check or monitor asks "what is
+// running": a year-long `immutable` would turn "the deploy did not land" into a
+// permanent answer. Not `no-store` either (nothing on /v1 is), because that
+// disables the edge's request collapsing and this is the boot path every reader
+// hits. A minute of freshness keeps the collapsing and bounds staleness below
+// any deploy.
 //
-// Not `no-store` either, and there is now nothing on /v1 that is. The store
-// counts about's age statistics at startup precisely because it is fetched on
-// every page load — this is the boot path for every reader — and `no-store`
-// also turns off the edge's request collapsing, on a container with half a vCPU
-// (deployment.md §2) where a cold burst is the one thing worth protecting. A
-// minute of freshness keeps the collapsing and bounds the staleness to a
-// minute, which is shorter than any deploy.
-//
-// **It is also the request that wakes a sleeping container**, and that is worth
-// stating where the lifetime is chosen rather than leaving it to be inferred.
-// `sleepAfter` is 1h, the frontend asks this first on boot, and a minute of
-// edge freshness means the first reader back after an idle period reaches the
-// container rather than a cache. There was a `/healthz` probe that looked like
-// it did this job and could not: nothing routes a path outside `/v1/*` to this
-// mux, so in production it was answered by the static host with the app's own
-// HTML and a 200. Shortening this lifetime, or making this response immutable,
-// silently removes the warm-up along with the freshness.
+// It is also the request that wakes a sleeping container: the frontend asks it
+// first on boot, so a minute of edge freshness means the first reader back after
+// idle reaches the container. Shortening this lifetime or making it immutable
+// silently removes the warm-up.
 func (s *Server) writeShortLivedJSON(w http.ResponseWriter, r *http.Request, v any) {
 	h := w.Header()
 	h.Set("Content-Type", "application/json; charset=utf-8")
@@ -332,20 +271,9 @@ func (s *Server) writeShortLivedJSON(w http.ResponseWriter, r *http.Request, v a
 	s.encode(w, r, v)
 }
 
-// There is no writeVolatileJSON any more, and its absence is the point.
-//
-// It existed for `/v1/random`, the one response in this API that was not a
-// function of the build: sending a draw through writeJSON would have stamped it
-// with the build's ETag and a year's `Cache-Control`, so the second press of
-// the command would have been answered from cache with the first press's
-// answer, forever — an endpoint that appears to work and never picks twice.
-//
-// The draw now happens on the client, from a pool that *is* a function of the
-// build (`handlePool`), so every response this server sends is cacheable by the
-// same rule and there is no exception for a reader of this file — or of
-// `worker/index.ts`, or `wrangler.jsonc` — to keep in mind. The rule those
-// files state, that nothing may grow into a list of paths the cache should
-// treat specially, is now true with an empty list rather than a list of one.
+// There is no writeVolatileJSON: /v1/random (the one non-cacheable response) is
+// gone, the draw now happening on the client from a build-keyed pool
+// (handlePool), so every response this server sends is cacheable by one rule.
 
 func (s *Server) encode(w http.ResponseWriter, r *http.Request, v any) {
 	if err := json.NewEncoder(w).Encode(v); err != nil {
@@ -383,21 +311,11 @@ type Entry struct {
 	Name  *string `json:"name"`
 	Rank  *string `json:"rank"`
 	// The name this taxon goes by, for a canvas drawing common names instead of
-	// scientific ones. Absent — not empty — wherever there is no such name.
-	//
-	// It carries two restrictions, both of them deliberate and both of them
-	// applied here rather than left to a client. It is the name ranked *first*
-	// by use and never a lower-ranked one (store.HeadlineVernaculars), and it is
-	// populated only for **genus, species and subspecies**. The second is the
-	// one worth defending: a common name higher up the tree names a group rather
-	// than a kind of animal, so Metazoa reads "animals" and Ferae reads "bug" —
-	// the demotions `docs/name-ranking.md` §3 records exist precisely because
-	// those words' ordinary referents are something else. 97.1% of the ranked
-	// names sit at these three ranks anyway, so the restriction costs the canvas
-	// almost nothing and removes the whole class of label that would be wrong.
-	//
-	// A caller that wants every name a node has wants /v1/node's Vernaculars,
-	// which is a list and is not restricted.
+	// scientific ones. Absent (not empty) where there is none. Two restrictions,
+	// applied here: it is the rank-1 name only (store.HeadlineVernaculars), and
+	// only for genus, species and subspecies — a common name higher up names a
+	// group, not a kind of animal (Metazoa would read "animals"). A caller
+	// wanting every name uses /v1/node's Vernaculars.
 	Vernacular          *string  `json:"vernacular,omitempty"`
 	AgeMa               *float64 `json:"age_ma"`
 	AgeLayout           *float64 `json:"age_layout"`
@@ -406,55 +324,34 @@ type Entry struct {
 	Depth               int64    `json:"depth"`
 	PhylopicID          *string  `json:"phylopic_id"`
 	SilhouetteSourceIdx *int     `json:"silhouette_source_idx"`
-	// The smallest clade containing both this node and the drawing, which is
-	// what the picture actually stands for. Its tip count is the size of the
-	// claim — 3,153 at the median — and it is the number the client applies its
-	// suppression rule to, since a silhouette standing for a million tips
-	// misinforms where a blank merely withholds. The name is null for
-	// `mrcaott…` clades, which have none to give.
+	// The smallest clade containing both this node and the drawing — what the
+	// picture stands for. Its tip count is the size of the claim, which the
+	// client applies its suppression rule to. Name is null for `mrcaott…` clades.
 	SilhouetteCladeIdx  *int    `json:"silhouette_clade_idx,omitempty"`
 	SilhouetteCladeTips *int64  `json:"silhouette_clade_tips,omitempty"`
 	SilhouetteCladeName *string `json:"silhouette_clade_name,omitempty"`
-	// How far the silhouette was borrowed, and by what rule. Climb is hops up
-	// to the clade, not to the source, so climb 0 is not an exact match: an
-	// unseeded genus holding a drawn species sits at 0. Mean is 4.24.
+	// How far the silhouette was borrowed and by what rule. Climb is hops to the
+	// clade, not the source, so climb 0 is not an exact match.
 	SilhouetteClimb  *int   `json:"silhouette_climb,omitempty"`
 	SilhouetteMethod string `json:"silhouette_method,omitempty"`
 
-	// The fossil range, present only on the `occurrence` tier. It is not an
-	// age: AgeMa stays null on these nodes, by construction in the pipeline
-	// and checked there against the array rather than the code that wrote it.
-	// A client must render it as a range and never as a point.
+	// The fossil range, present only on the `occurrence` tier. Not an age (AgeMa
+	// stays null on these nodes); a client must render it as a range, not a point.
 	Occurrence *store.Occurrence `json:"occurrence,omitempty"`
 
-	// The divergence witness: a second silhouette for a fork, of a **fossil
-	// taxon from below it** whose stratigraphic bracket puts it at the split.
-	// Never on a node that carries its own image. Where the fork itself is
-	// undated the match was made against where it is *drawn*, so a client must
-	// not caption those as a date; Tier says which, since age_ma is null on
-	// exactly those nodes.
+	// The divergence witness: a second silhouette for a fork, of a fossil taxon
+	// from below it whose bracket puts it at the split. Never on a node with its
+	// own image. Where the fork is undated the match was against where it is
+	// drawn, so a client must not caption those as a date (Tier says which).
 	//
-	// A client must not draw it *instead of* PhylopicID everywhere. The two
-	// answer different questions and which one applies depends on how the
-	// reader arrived at the node: a node they picked wants its clade's
-	// exemplar, a node they arrived at by splitting wants the witness. Only
-	// the client knows which.
+	// A client must not draw it instead of PhylopicID everywhere: which applies
+	// depends on how the reader reached the node (a picked node wants its clade's
+	// exemplar, a split wants the witness), and only the client knows which.
 	//
-	// **The claim is weaker than it used to be and the wording must be too.** A
-	// witness was once a node inside the clade, so the picture could say "a
-	// member of this group". It is now a PBDB taxon attached below the fork,
-	// and architecture §3.4 fixes the honest phrasing for that: *this taxon
-	// belongs somewhere below node X, and existed between these dates.* Not
-	// *this taxon is the sister of that one.* DivergenceAttachWalk is how loose
-	// the placement is — how many PBDB `parent_no` hops it took to reach a node
-	// in the synthesis tree. Zero means PBDB's own taxon is in the tree;
-	// eleven is a statement about a family rather than a lineage.
-	//
-	// DivergenceRange is the taxon's own bracket and is what makes the picture
-	// legible — "Sahelanthropus, 7.2–5.3 Ma" beside a split dated 6.7 Ma is a
-	// statement a reader can check. Drawing the silhouette without it restates
-	// the problem this replaced, an unexplained shape. It is a range and never
-	// a point, exactly as Occurrence is.
+	// DivergenceAttachWalk is how loose the placement is (PBDB `parent_no` hops to
+	// a node in the tree; zero means PBDB's own taxon is in the tree).
+	// DivergenceRange is the taxon's own bracket, which makes the picture legible
+	// and is a range, never a point.
 	DivergencePhylopicID *string  `json:"divergence_phylopic_id,omitempty"`
 	DivergenceTaxonNo    *int     `json:"divergence_pbdb_taxon_no,omitempty"`
 	DivergenceSourceName *string  `json:"divergence_source_name,omitempty"`
@@ -750,44 +647,23 @@ func (s *Server) handleAbout(w http.ResponseWriter, r *http.Request) {
 type searchBody struct {
 	Query   string               `json:"query"`
 	Results []store.SearchResult `json:"results"`
-	// PBDB taxa the tree does not contain, matching the same query.
-	//
-	// They stay in an array of their own because they are a different *shape* —
-	// a stratigraphic bracket and an occurrence count where a node has an
-	// ancestry and a subtree — not because they are a lesser answer. Both
-	// arrays carry `order`, the row's position in the single ranking
-	// `store.Interleave` computed over the two of them, and the client draws
-	// one list in that order. It used to draw two, with these pinned below
-	// however well they matched, which answered "triceratops" with every
-	// species that nearly matches the word before the animal itself.
+	// PBDB taxa the tree does not contain, matching the same query. A separate
+	// array because they are a different shape (a bracket and occurrence count vs
+	// an ancestry and subtree), not a lesser answer: both arrays carry `order`
+	// from store.Interleave and the client draws one list in that order.
 	Fossils []store.Fossil `json:"fossils"`
 	// False when the fossil table has not been built, so an empty list can be
 	// told apart from "nothing matched".
 	FossilsAvailable bool `json:"fossils_available"`
-	// The spelling these results are actually for, when the typed query
-	// returned nothing and a corrected one returned something.
-	//
-	// `Query` stays what the reader typed, always. The two fields together are
-	// the whole of the promise: the client shows the substitution rather than
-	// performing it silently, because a search that quietly answers a different
-	// question than the one asked is the same mistake as a confident number on
-	// an undated node. Absent whenever nothing was corrected, which is every
-	// query that worked.
+	// The spelling these results are for, when the typed query returned nothing
+	// and a corrected one returned something. `Query` stays what the reader
+	// typed; the client shows the substitution rather than performing it. Absent
+	// when nothing was corrected.
 	Corrected string `json:"corrected,omitempty"`
-	// A spelling that answers better than the typed one — with the typed one's
-	// rows left exactly where they are.
-	//
-	// The difference from `Corrected` is the whole reason there are two fields,
-	// and it is not a shade of confidence. `Corrected` says *these rows are for
-	// a different string*, which is only ever honest when the typed string had
-	// no rows of its own to lose. This says *there is a better string, and here
-	// is what you asked for*. Substituting here would be destructive rather than
-	// merely wrong: the reader part-way through "Sahelanthropus" is holding
-	// three real rows, and replacing them mid-word takes away the thing they are
-	// typing towards.
-	//
-	// Never set together with `Corrected` — an answer either had rows to keep or
-	// it did not.
+	// A spelling that answers better than the typed one, with the typed one's rows
+	// left in place. Unlike Corrected (which replaces rows, honest only when there
+	// were none to lose), this only suggests, so it does not take away the rows a
+	// reader mid-word is typing towards. Never set together with Corrected.
 	Suggested string `json:"suggested,omitempty"`
 }
 
@@ -808,29 +684,11 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, http.StatusInternalServerError, "search failed")
 		return
 	}
-	// The answer was no good, so — and only so — ask whether the query was
-	// misspelled.
-	//
-	// The gate used to be `no rows at all`, and it assumed a typo produces
-	// none. Over 2.3M names plus 523k fossil taxa it usually produces *one*:
-	// `elefant` returns a single ciliate, on a substring of its synonym
-	// *Paradileptus elefantinus*, and a reader looking for elephants was
-	// politely handed a protozoan with no correction offered, because the list
-	// was not empty. {@link store.Answer.Weak} is the same gate asked properly —
-	// nothing matched as a whole word, and there is almost nothing there — and
-	// the empty list is the bottom of that scale rather than a case beside it.
-	//
-	// It is still the *last* thing tried rather than a wider net cast at the
-	// start, and it still costs the reader whose query worked exactly nothing.
-	// That is the half-vCPU argument and it survives the widening intact:
-	// measured over 870 prefixes of real corpus words, the weak ones never come
-	// back with fewer than a full page, so not one of them reaches this branch.
-	//
-	// A correction that leads nowhere is not a correction, and a correction that
-	// leads somewhere no better is not one either. That guard is what keeps
-	// `hard maple` — a real name for *Acer saccharum* that phase 6 simply lacks
-	// — from acquiring a plausible-looking wrong answer, though `hard maple` is
-	// in fact refused a step earlier still, by the phonetic key.
+	// Only when the answer was no good, ask whether the query was misspelled.
+	// The gate is Answer.Weak, not "no rows": a typo usually returns one row
+	// (`elefant` reaches a ciliate through a synonym substring), and the empty
+	// list is the bottom of that scale. Last thing tried, so a query that worked
+	// pays nothing.
 	if ans.Weak() {
 		if fixed, err := s.St.Suggest(r.Context(), q); err != nil {
 			s.Log.Warn("spelling", "q", q, "err", err)
@@ -888,46 +746,21 @@ func (s *Server) searchBoth(r *http.Request, q string, limit int) (searchBody, s
 // --- /v1/hits ------------------------------------------------------------
 
 // hitsBody is a set of search rows for taxa named by key rather than matched.
-//
-// `results` and not a bare array, matching /v1/search: a JSON array as a
-// top-level response is the one shape that cannot grow a field later without
-// breaking every client at once.
+// `results` and not a bare array, matching /v1/search, so the shape can grow a
+// field later.
 type hitsBody struct {
 	Results []store.SearchResult `json:"results"`
 }
 
 // handleHits dresses a caller's chosen taxa as palette rows.
 //
-// The endpoint exists for the species palette's empty state, and the reason it
-// is a *general* key lookup rather than a `/v1/starters` with the list baked in
-// is that the list is editorial. Which animals a curious reader recognises is a
-// product judgement that changes with the copy around it; it belongs in `web/`
-// beside that copy, and an endpoint encoding it here would mean a wording
-// change needed a container rebuild and a new image tag. See
-// {@link store.HitsForKeys} for the other half of that split.
-//
-// **Cached long-lived, and that is the whole performance story.** The response
-// is a pure function of the key set and the build, so it carries the ordinary
-// ETag and `s-maxage=31536000`: one fixed URL, one edge entry, and the
-// container answers it about once per Worker version however many readers
-// arrive. That matters more here than on most endpoints — this is fetched on
-// boot by every session, and `standard-1` is half a vCPU with
-// `max_instances: 1`, so an uncacheable version of this would spend the CPU the
-// reader's first keystroke needs. It also keeps the rule /v1/random-pool just
-// bought: there is no `no-store` JSON on /v1 at all, and a new endpoint is
-// exactly where that would come back.
-//
-// **The build id is not in the path, and the contrast with /v1/random-pool is
-// the point.** The pool answers with bare `idx` values, which mean nothing
-// outside the build that assigned them, so a client holding that list across a
-// deploy would be reading the wrong animals — hence the path segment and the
-// 404 on a stale one. Here the *request* is OTT keys, which survive a rebuild,
-// and the *response* is consumed immediately rather than held. What is held is
-// `palette/recent.ts`'s stored rows, and those carry the build id for precisely
-// the pool's reason.
-//
-// Unknown keys are skipped rather than 404ing the response; the contract and
-// its reasoning are on HitsForKeys.
+// A general key lookup rather than a `/v1/starters` with the list baked in,
+// because the list is editorial and belongs in `web/` beside its copy (see
+// store.HitsForKeys). Cached long-lived: a pure function of the key set and
+// build, so one edge entry serves every session's boot fetch on a half-vCPU
+// container. The build id is not in the path (unlike /v1/random-pool) because
+// the request is OTT keys, which survive a rebuild, and the response is consumed
+// immediately. Unknown keys are skipped rather than 404ing (see HitsForKeys).
 func (s *Server) handleHits(w http.ResponseWriter, r *http.Request) {
 	keys, ok := s.batchKeys(w, r)
 	if !ok {
@@ -945,38 +778,22 @@ func (s *Server) handleHits(w http.ResponseWriter, r *http.Request) {
 // --- /v1/random-pool -----------------------------------------------------
 
 // poolBody is the two lists a client draws from, plus the build they describe.
-//
-// `build_id` is repeated in the body although it is already in the path, and
-// that is not redundancy: the path segment is what makes the URL unique per
-// build so a year-long lifetime is safe to put on it, and the body is what a
-// client checks the lists against once it holds them.
+// `build_id` repeats the path segment: the segment makes the URL unique per
+// build; the body is what a client checks the lists against once it holds them.
 type poolBody struct {
 	BuildID string  `json:"build_id"`
 	Nodes   []int32 `json:"nodes"`
 	Fossils []int64 `json:"fossils"`
 }
 
-// handlePool serves the pools a random pick is drawn from.
+// handlePool serves the pools a random pick is drawn from (see store/random.go).
 //
-// This replaced `/v1/random`, which drew server-side and was the one
-// uncacheable response in the API. `store/random.go` is the full account; the
-// two things that belong here are why the draw moved and why the build id is
-// in the path.
-//
-// **The draw moved because the filter could not.** Which taxa are already on
-// the canvas is a fact about the reader's canvas, and no request carries it —
-// which is why the old endpoint over-asked twelve candidates so the client
-// could throw eleven away. With the pool in hand the client filters the whole
-// of it before choosing, so a pick is always usable and always one request.
-//
-// **The build id is in the path because an index is only meaningful within a
-// build.** This response is `ccLongLived`, so a browser holds it an hour and
-// the edge a year; a reader who kept build A's pool across a deploy and drew
-// from it would be handed a different, entirely plausible animal, with nothing
-// on screen to say so. A mismatched id is refused rather than answered with the
-// current pool, because answering would let the edge store build B's list under
-// build A's URL and hand it to everyone still on A. The client re-reads
-// `/v1/about` — 60 s stale at worst, by design — and asks again.
+// This replaced `/v1/random`, the one uncacheable response. The draw moved to
+// the client because the exclusion filter (which taxa are already on the canvas)
+// is a fact no request carries, so with the pool in hand the client filters
+// before choosing. The build id is in the path because the lists are bare `idx`
+// values, meaningless across a build: a mismatched id is refused rather than
+// answered, so the edge cannot store build B's list under build A's URL.
 func (s *Server) handlePool(w http.ResponseWriter, r *http.Request) {
 	want := r.PathValue("build")
 	if want != s.St.BuildID {
@@ -1009,10 +826,9 @@ type pathBody struct {
 	Path          []Entry `json:"path"`
 }
 
-// brokenBody is returned with HTTP 200 for a non-monophyletic taxon. This is
-// deliberate: the live Open Tree API silently answers about the substituted
-// MRCA instead, and management.md is explicit that we must explain rather than
-// quietly answer a different question.
+// brokenBody is returned with HTTP 200 for a non-monophyletic taxon, so the
+// client can explain it rather than silently answer about the substituted MRCA
+// the way the live Open Tree API does.
 type brokenBody struct {
 	Key               string          `json:"key"`
 	Broken            bool            `json:"broken"`
@@ -1170,18 +986,11 @@ type layoutBound struct {
 
 // layoutSpread names the dated taxa above and below an undated node.
 //
-// **Below is null far more often than it is set, and a client must say
-// something different in that case rather than omitting a clause.** Every age
-// in the artifact set comes from a chronogram of extant species, so a dated
-// descendant is usually a tip at the present; measured over the 186,317
-// structural nodes, only 5,168 (2.8%) have one older than zero. For the other
-// 97.2% the lower end of the span *is* the present, which is a fact about the
-// axis rather than a missing value — see topo.LayoutSpread.
-//
-// Above is never null on the shipped build (measured: zero of 186,317 lack a
-// dated ancestor) but is typed as absent-able because a partially dated build
-// could produce one, and a client printing a name for idx -1 is the failure
-// that would follow.
+// Below is usually null: every age comes from a chronogram of extant species, so
+// a dated descendant is usually a tip at the present and the lower end of the
+// span is the present, not a missing value (see topo.LayoutSpread). Above is
+// never null on the shipped build but is typed absent-able so a partially dated
+// build cannot make a client print a name for idx -1.
 type layoutSpread struct {
 	Above *layoutBound `json:"above"`
 	Below *layoutBound `json:"below"`

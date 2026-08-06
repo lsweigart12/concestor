@@ -57,28 +57,25 @@ type Store struct {
 	CountVernaculars int
 	CountSilhouettes int
 
-	// Age statistics, counted once at startup. /v1/about is served on every
-	// page load; recounting 2.7M nodes per request cost 21 ms of pure waste.
+	// Age statistics, counted once at startup: /v1/about is served on every page
+	// load and recounting 2.7M nodes per request is pure waste.
 	NodesWithAge int
 	TierCounts   map[string]int
 
-	// The 9,839 broken taxa are small enough to hold in memory and must be
-	// searchable (management.md: explain them rather than silently answering a
-	// different question the way the live API does).
+	// The broken taxa, held in memory so they are searchable (they must be
+	// explained rather than silently answered like the live API does).
 	broken     []BrokenTaxon
 	brokenByID map[int64]int
 	log        *slog.Logger
 
-	// A rank for the ~2,000 nodes the taxonomy leaves unranked and PBDB does
-	// not, keyed by idx. Loaded once because the join is on a name and `fossil`
-	// has no index on one. See rank.go.
+	// A rank for the ~2,000 nodes the taxonomy leaves unranked and PBDB does not,
+	// keyed by idx. Loaded once (the join is on a name; `fossil` has no index on
+	// one). See rank.go.
 	pbdbRank map[int]string
 
-	// The two random pools, built on first request rather than at open. Both
-	// queries are full scans and the result is a pure function of the build, so
-	// this is the difference between two scans per process and two per press —
-	// which, measured against production, was 1.2 s of a half vCPU every time
-	// somebody asked to be surprised. See random.go.
+	// The two random pools, warmed off the request path. Both queries are full
+	// scans and a pure function of the build, so this is two scans per process,
+	// not per press. See random.go.
 	poolMu     sync.Mutex
 	poolLoaded bool
 	pool       *Pool
@@ -97,12 +94,9 @@ type BrokenTaxon struct {
 	IntrudingTaxa     json.RawMessage `json:"intruding_taxa"`
 
 	fold string // case-folded name, for search
-	// The abbreviated binomial, case-folded — "Escherichia coli" -> "e. coli".
-	// A broken taxon is not a node, so `search.py` never generated one for it:
-	// the abbreviation corpus is built from `node`, and these are exactly the
-	// taxa rejected from synthesis. Without it "E. coli" answered *Entamoeba
-	// coli* and never mentioned *Escherichia coli* at all, which is the taxon
-	// almost everyone typing it means.
+	// The abbreviated binomial, case-folded ("Escherichia coli" -> "e. coli").
+	// A broken taxon is not a node, so search.py never generated one; without it
+	// "E. coli" answered *Entamoeba coli* and never *Escherichia coli*.
 	foldAbbr string
 }
 
@@ -456,9 +450,7 @@ func (s *Store) Metas(ctx context.Context, idxs []int) (map[int]NodeMeta, error)
 			}
 			m.Name = nullStr(name)
 			// The taxonomy's rank where it has one, PBDB's where it does not.
-			// Here rather than at each caller because a rank that differs
-			// between the canvas label and the card is the kind of thing this
-			// audience notices, and `Metas` is what both of them read.
+			// Here (in Metas, which both the label and card read) so the two agree.
 			m.Rank = s.rankFor(m.Idx, nullStr(rank))
 			m.Flags = nullStr(flags)
 			out[m.Idx] = m

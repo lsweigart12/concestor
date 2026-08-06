@@ -1,11 +1,8 @@
 """Phase 1 — parse the synthesis Newick into preorder-indexed topology arrays.
 
-Output is the hot-path data described in architecture §3.2, plus the `node`
-table that carries everything not on the hot path.
-
-The gate on tip count is the single best structural check in the build: one
-number validates the whole parse. Every figure here was measured during
-research, so a mismatch means a real parse bug, not a stale constant.
+Output is the hot-path array data plus the `node` table for everything else.
+The structural gates (tip count above all) validate the parse; a mismatch means
+a real parse bug, not a stale constant.
 """
 
 from __future__ import annotations
@@ -43,8 +40,6 @@ type NodeRow = tuple[int, int | None, str, str | None, str | None, str | None, i
 # ott_id, node_key, name, mrca_node_key, mrca_idx, n_points, points, intruders
 type BrokenRow = tuple[int, str, str | None, str, int | None, int, str, str]
 
-# Measured 2026-07-31; corroborated by OTT's own out-degree distribution and
-# input_output_stats.json shipped in the synthesis output tarball.
 EXPECT_TIPS = 2_385_875
 EXPECT_INTERNAL = 339_807
 EXPECT_TOTAL = 2_725_682
@@ -60,10 +55,8 @@ EXPECT_BROKEN = 9_839
 def load_forwards() -> dict[int, int]:
     """Load `forwards.tsv` and collapse every chain to its terminal id.
 
-    OTT id forwarding is silent and can chain, and can point "backwards"
-    relative to release order because the project has restored previously
-    changed ids. So resolution is transitive, with cycle detection rather than
-    an assumed single hop.
+    Forwarding can chain and can point "backwards", so resolution is transitive
+    with cycle detection rather than a single hop.
     """
     raw: dict[int, int] = {}
     with FORWARDS.open() as fh:
@@ -135,9 +128,7 @@ def run(oracle: bool = True, oracle_samples: int = 200) -> int:
 
     n_tips = int(topo.is_tip.sum())
     n_internal = tree.n_nodes - n_tips
-    # "Root-to-tip depth" in data-sources.md is over tips, not over all nodes;
-    # including internal nodes pulls the mean to 41.67 because internal nodes
-    # sit deeper on average (44.14).
+    # Root-to-tip depth is measured over tips, not all nodes.
     tip_depth = topo.depth[topo.is_tip]
     mean_depth = float(tip_depth.mean())
     n_unary = int((topo.child_count == 1).sum())
@@ -220,8 +211,7 @@ def run(oracle: bool = True, oracle_samples: int = 200) -> int:
     np.save(OUT / "ott_id.npy", tree.ott_id)
     np.save(OUT / "child_count.npy", topo.child_count)
 
-    # ott_id -> idx, as a sorted pair of arrays for O(log n) lookup without
-    # materialising a 2.4M-entry Python dict at runtime.
+    # ott_id -> idx as a sorted pair of arrays, for O(log n) lookup.
     order = np.argsort(ott_ids, kind="stable")
     order = order[ott_ids[order] != NO_OTT]
     np.save(OUT / "ott_sorted.npy", ott_ids[order])
@@ -229,8 +219,8 @@ def run(oracle: bool = True, oracle_samples: int = 200) -> int:
 
     write_db(tree, topo, taxonomy, broken, forwards)
 
-    # Structural gates count nodes; they say nothing about whether the columns
-    # carry data. A rename once emptied `rank` and every gate still passed.
+    # Content gates: structural gates count nodes but not whether columns carry
+    # data. A rename once emptied `rank` and every structural gate still passed.
     con = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
     n_named, n_ranked = con.execute(
         "SELECT count(*), count(rank) FROM node WHERE ott_id IS NOT NULL"
@@ -302,13 +292,9 @@ def write_db(
           depth      INTEGER NOT NULL
         );
 
-        -- Broken taxa are NOT nodes. A non-monophyletic taxon is rejected from
-        -- synthesis outright — `input_output_stats.json` calls it
-        -- `num_taxa_rejected` — so none of the 9,839 appears as a node_key and
-        -- an `is_broken` flag on `node` would be permanently zero.
-        -- They need their own table: the UI's job is to explain that the taxon
-        -- has no single position and offer the attachment points, rather than
-        -- silently answering about `mrca_node_key` the way the live API does.
+        -- Broken taxa are NOT nodes: a non-monophyletic taxon is rejected from
+        -- synthesis, so an `is_broken` flag on `node` would be permanently
+        -- zero. They get their own table with their attachment points.
         CREATE TABLE broken_taxon (
           ott_id            INTEGER PRIMARY KEY,
           node_key          TEXT NOT NULL,

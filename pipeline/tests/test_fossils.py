@@ -549,7 +549,7 @@ def test_a_bound_reaches_every_ancestor_of_the_fossil():
 
 def test_only_exact_attachments_count():
     """A bracket attached at a parent belongs to some taxon below it and names
-    no child, so it constrains none of them — handoff §7's Neanderthal case."""
+    no child, so it constrains none of them."""
     age = np.full(8, NAN, dtype=np.float32)
     con = _bound_db([(3, 1, 66.0)])
     bound, direct, *_ = fossils.layout_bounds(con, LAYOUT_PARENT, age)

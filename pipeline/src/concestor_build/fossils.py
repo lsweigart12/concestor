@@ -1,30 +1,24 @@
 """Phase 4 — attach PBDB taxa to the synthesis tree.
 
-Fossils are **not placed in** the tree, they are **attached to** it. Only 0.5%
-of OTT taxa flagged `extinct` appear in the synthetic tree at all, so the fossil
-record is a parallel corpus with no topology of its own. Each PBDB taxon gets an
-*attachment point* — the deepest node that is an ancestor-or-self of it — found
-by walking PBDB's own `parent_no` hierarchy upward until a taxon resolves
-through phase 3's `xref` to an in-synth `idx`.
+Fossils are not placed in the tree, they are attached to it: only ~0.5% of
+extinct OTT taxa appear in the synthesis tree, so the fossil record is a
+parallel corpus with no topology of its own. Each PBDB taxon gets an attachment
+point — the deepest node that is an ancestor-or-self of it — found by walking
+PBDB's `parent_no` hierarchy upward until a taxon resolves through phase 3's
+`xref` to an in-synth `idx`. The claim is weak by design: this taxon belongs
+somewhere below node X, and existed between these dates. Nothing more.
 
-The claim that makes is deliberately weak and honest: *this taxon belongs
-somewhere below node X, and existed between these dates.* Not *this taxon is the
-sister of that one.* The UI must not imply more.
+Three things this phase must not get wrong, all recorded as gates:
 
-Three things this phase must not get wrong, all of them recorded as gates:
+- Key on `accepted_no`, display `accepted_name`.
+- Never group by `taxon_rank`: rank does not survive resolution (*Aublysodon*
+  is a genus whose accepted name is a family).
+- Carry all four appearance bounds uncollapsed: `fea/fla` and `lea/lla` are two
+  uncertainty brackets, and a single range is a different, wrong claim.
 
-- **Key on `accepted_no`, display `accepted_name`.** 10.1% of records have
-  `accepted_no != orig_no`.
-- **Never group by `taxon_rank`.** *Aublysodon* is a genus whose accepted name
-  is a family, so rank does not survive resolution.
-- **Carry all four appearance bounds uncollapsed.** `fea/fla` and `lea/lla` are
-  two uncertainty brackets and the drill-down draws both; a single range is a
-  different, wrong claim.
-
-A ceiling binds the parent-walk and it is not a bug: GBIF's backbone has 11
-ranks against PBDB's 25, so 32,629 PBDB taxa (6.2%) sit at ranks the backbone
-cannot express and are *unmatchable* rather than unmatched. They skew toward the
-notable end. The walk handles it; it just walks further than expected.
+The parent-walk ceiling is not a bug: GBIF's backbone has fewer ranks than PBDB,
+so some PBDB taxa sit at ranks it cannot express and are unmatchable rather than
+unmatched. The walk just walks further.
 """
 
 from __future__ import annotations
@@ -55,57 +49,39 @@ TOPOLOGY = BUILD / "topology"
 BASELINE = BUILD / "phase4_baseline.json"
 LAYOUT_BASELINE = BUILD / "phase4_layout.json"
 # Phase 2's un-fossil-informed layout, kept so the two can be diffed and so a
-# re-run of this phase clamps the original rather than compounding its own
-# output. Without it, running phase 4 twice would be indistinguishable from
-# running it once — which is exactly the class of silent bug this repo keeps
-# finding.
+# re-run of this phase clamps the original rather than compounding its output.
 LAYOUT_PHASE2 = TOPOLOGY / "age_layout_phase2.npy"
 
-# Float32 positions and REAL bounds do not compare exactly, and a violation of
-# a few thousand years is a rounding artefact rather than a trilobite in the
-# Neogene. 0.01 Ma is well below the resolution of any PBDB interval.
+# Float32 positions and REAL bounds do not compare exactly; 0.01 Ma is well
+# below the resolution of any PBDB interval.
 LAYOUT_TOLERANCE_MA = 0.01
 
 PBDB_SINGLE = "https://paleobiodb.org/data1.2/taxa/list.json"
 
-# --- measured baselines, 2026-07-31 -------------------------------------------
+# --- measured baselines -------------------------------------------------------
 
 EXPECT_ROWS = 523_112
-# 411,039 rows carry a first-appearance bound. ingest.md's "≥ 78%" gate is
-# 411,039 / 523,112 = 78.58%.
-EXPECT_WITH_INTERVAL = 411_039
+EXPECT_WITH_INTERVAL = 411_039  # rows carrying a first-appearance bound
 MIN_INTERVAL_PCT = 78.0
 EXPECT_ACCEPTED_DIFFERS = 52_595  # 10.1%
 EXPECT_EXTANT_UNKNOWN = 9_059  # 1.7%, genuinely unknown rather than false
-EXPECT_UNMATCHABLE_RANK = 32_629  # 6.2% at ranks GBIF's backbone cannot express
+EXPECT_UNMATCHABLE_RANK = 32_629  # at ranks GBIF's backbone cannot express
 
-# GBIF's backbone expresses 11 ranks. These are the PBDB ranks that survive the
-# translation; everything else is unmatchable *by construction*, which is why
-# the parent-walk exists. `unranked clade` is counted as unmatchable to
-# reproduce docs/phase3-pbdb-path.md §3's 32,629 exactly.
+# The PBDB ranks that survive translation to GBIF's backbone; everything else is
+# unmatchable by construction, which is why the parent-walk exists.
 GBIF_EXPRESSIBLE_RANKS = frozenset(
     {"species", "genus", "family", "subspecies", "order", "class", "phylum", "kingdom"}
 )
 
-# The occurrence tier's size, measured on build abe88f49f5eef91d. It was an
-# `observe` with `expected: null` until #92, which is how the documentation
-# carried 2,133 in six files for a build that produced 2,128: nothing compared
-# the prose to anything, and nothing compared the pipeline to itself either.
-#
-# A floor rather than an equality. What this gate is for is a *regression* —
-# a refusal added upstream that quietly empties the tier, which is exactly what
-# phase 3's disagreement sweep did to the candidate pool. The count moving by a
-# few dozen because PBDB published is not a bug and must not block a build. The
-# exact figure has a different guard: `tests/test_doc_figures.py` holds the
-# prose to `build/manifest.json`, where equality is the right test because both
-# sides describe the same artifact.
+# The occurrence tier's size — a floor, not an equality. It guards against a
+# regression (an upstream refusal quietly emptying the tier); a few dozen rows
+# moving because PBDB published is not a bug and must not block a build.
 MIN_OCCURRENCE_NODES = 2_000
 
 SPOT_TYRANNOSAURUS = 38613
 SPOT_AUBLYSODON = 38614
-# ingest.md asks for "at or below Dinosauria". Dinosauria is ott 90215 in the
-# taxonomy but is **not a node in the synthesis tree**, so the containment test
-# uses the deepest named ancestor that is — which is a strictly stronger claim.
+# Dinosauria is not a node in the synthesis tree, so the containment test uses
+# the deepest named ancestor that is — a strictly stronger claim.
 SPOT_CONTAINER = "Tyrannosauridae"
 SPOT_APPEARANCE = (83.6, 72.2, 72.2, 66.0)
 
@@ -114,9 +90,8 @@ ORACLE_SEED = 20_260_731
 ORACLE_MIN_AGREEMENT = 95.0
 
 # --- attachment provenance ----------------------------------------------------
-# Dictionary-encoded, per architecture §3.4's `attach_method INTEGER`. Code 0 is
-# the terminal fallback: every fossil attaches *somewhere*, and the root is
-# where a taxon lands when nothing on its parent chain resolved.
+# Dictionary-encoded. Code 0 is the terminal fallback: the root, where a taxon
+# lands when nothing on its parent chain resolved.
 ATTACH_ROOT = 0
 ATTACH_METHOD_CODE: dict[str, int] = {"root_fallback": ATTACH_ROOT} | {
     m: i for i, m in enumerate(METHOD_ORDER, start=1)
@@ -153,10 +128,9 @@ class FossilRow(NamedTuple):
     lla: float | None
     n_occs: int
     is_extant: int | None
-    # The youngest last appearance an *identified* member reaches, the
-    # occurrences sitting at it, and where this taxon may be drawn. See
-    # `young_ends`. `lla_identified > lla` is the exact test for a young end
-    # no identified member supports; `lla_drawn != lla` says the clamp fired.
+    # The identified young end, occurrences at it, and where this taxon may be
+    # drawn — see `young_ends`. `lla_identified > lla` is the exact unwitnessed
+    # test; `lla_drawn != lla` says the clamp fired.
     lla_identified: float | None
     young_end_occs: int
     lla_drawn: float | None
@@ -177,11 +151,10 @@ def load_xref_pbdb(con: sqlite3.Connection) -> dict[int, tuple[int, int]]:
 
 
 class Attacher:
-    """Walks PBDB's `parent_no` chain to the deepest node the tree actually has.
+    """Walks PBDB's `parent_no` chain to the deepest node the tree has.
 
-    Memoised per `taxon_no`, because the chain above a genus is shared by every
-    species in it and the top of the chain is walked hundreds of thousands of
-    times otherwise.
+    Memoised per `taxon_no`: the chain above a genus is shared by every species
+    in it.
     """
 
     __slots__ = ("_memo", "parent_of", "resolved")
@@ -236,98 +209,54 @@ class Attacher:
 
 # --- the unwitnessed young end ------------------------------------------------
 #
-# PBDB's `lastapp_min_ma` for a taxon aggregates its whole subtree. So when a
-# taxon's young end is *younger than every one of its descendants'*, that end
-# cannot be coming from any identified member — it can only rest on material
-# catalogued no finer than the taxon itself, an "sp." or an "indet.". The test
-# is structural, exact, and needs no threshold or occurrence data.
+# PBDB's `lastapp_min_ma` aggregates a taxon's whole subtree. When a taxon's
+# young end is younger than every one of its descendants', that end rests only on
+# material catalogued no finer than the taxon itself (an "sp." or "indet.") — an
+# exact, structural test. Left alone, *Stegosaurus* draws in the Cenomanian,
+# 50 Myr after the animal.
 #
-# It is not a rare curiosity. Measured over the whole corpus, 9,402 accepted
-# taxa are like this, and inside Dinosauria — where 50 Myr is visible to the
-# naked eye — 71 taxa are stretched by 10 Ma or more and **not one** of those 71
-# has its young end supported by an identified species. 52 of the 71 rest on a
-# single occurrence and 20 rest entirely on records the identifier themself
-# hedged with "?", "cf." or "aff.". The cases are recognisable:
-#
-#     Stegosaurus      143.1 -> 93.9    one `Stegosaurus sp.`, Cedar Mountain Fm
-#     Iguanodon        119.57 -> 66.0   one `? Iguanodon sp.`
-#     Megalosaurus     119.57 -> 66.0   one `cf. Megalosaurus sp.`
-#     Camarasauridae   143.1 -> 66.0    one `? Camarasauridae indet.`
-#
-# Left alone, a graft draws *Stegosaurus* in the Cenomanian, 50 Myr after the
-# animal, and a witness bracket widened at the young end cannot fail to contain
-# a recent split — the same failure `HOLOCENE_MA` exists to stop, arriving
-# through a different door.
-#
-# **Detecting it is exact; correcting it is not**, and the two must not be
-# conflated. Moving the drawn position needs the identified young end to be
-# worth trusting, and two things can make it worthless:
-#
-# - **Form and ichno taxa.** For *Gyrolithes*, *Deltapodus* or *Dinehichnus* a
-#   genus-level identification is the finest one that exists — there is no
-#   finer unit to be had — so their own young end is their real one and a
-#   Cambrian-to-Recent range is simply true. PBDB flags them, and the flag is
-#   clean: every ichnogenus checked carries `I` or `F` and *Stegosaurus*,
-#   *Iguanodon* and *Camarasauridae* carry neither.
-# - **Sparse linkage.** *Tasmanites* has 56 occurrences but only two species
-#   entered, one with none of them and one with a single Proterozoic record.
-#   Its "identified young end" is therefore 1600 Ma against an own end of 5.33,
-#   and clamping to it would be a 1,595 Myr error — far worse than the one
-#   being fixed.
-#
-# The share of the record identified to species does *not* separate these:
-# *Stegosaurus* is only 20.9% identified, so most of its own record is
-# "Stegosaurus sp." too. What separates them is whether the identified young end
-# is **corroborated** — how many occurrences actually sit at it:
-#
-#     Camarasauridae 167   Iguanodon 23   Stegosaurus 18   Megalosaurus 10
-#     Krausella 2   Tasmanites 1   Leiofusa 1   Tortunema 1   Emiliodonta 1
-#
-# Hence `MIN_YOUNG_END_OCCS`. It is a threshold on *whether to act*, never on
-# whether the young end is unwitnessed, and refusing to act falls back to
-# PBDB's own number — the status quo — rather than to a worse one.
+# Detecting it is exact; correcting it is not. Moving the drawn position needs
+# the identified young end to be worth trusting, and two things spoil it:
+#   - Form/ichno taxa (PBDB `I`/`F`): a genus-level id is the finest that exists,
+#     so their own young end is real.
+#   - Sparse linkage: *Tasmanites*'s only species-level record is Proterozoic,
+#     so clamping would be a ~1,595 Myr error.
+# The share identified to species does not separate these; corroboration at the
+# identified end (how many occurrences sit there) does — hence
+# `MIN_YOUNG_END_OCCS`, a threshold on whether to act, falling back to PBDB's
+# own number rather than a worse one.
 MIN_YOUNG_END_OCCS = 5
 
-# PBDB's `flags` is a character set: `I` ichnotaxon, `F` form taxon, `V`
-# variant. Only the first two matter here.
+# PBDB `flags`: `I` ichnotaxon, `F` form taxon; only these two matter here.
 FORM_TAXON_FLAGS = frozenset("IF")
 
-# --- measured, 2026-08-02 -----------------------------------------------------
+# --- measured baselines -------------------------------------------------------
 EXPECT_UNWITNESSED = 10_655  # accepted taxa whose young end no descendant reaches
 EXPECT_CLAMPED = 4_819  # of those, the ones the drawn position moves for
-# PBDB's aggregate read the other way: a child reaching younger than its parent.
-# Not zero, which the first version of this gate assumed — see `young_ends`.
+# PBDB's aggregate is not monotone (a child reaching younger than its parent);
+# not zero, which the first version of this gate wrongly assumed.
 EXPECT_NON_MONOTONE = 440
 
-# The case this exists for, pinned by PBDB id because names are not unique.
+# Pinned by PBDB id because names are not unique.
 SPOT_STEGOSAURUS = 38814
 SPOT_STEGOSAURUS_LLA = 93.9  # PBDB's own, kept
 SPOT_STEGOSAURUS_DRAWN = 143.1  # where the named animal's record actually ends
-# The case the guard exists for: an identified young end resting on one
-# occurrence, where clamping would be far worse than leaving it alone.
+# The guard case: an identified young end on one occurrence, where clamping
+# would be worse than leaving it alone.
 SPOT_TASMANITES = 264674
 
 
 class YoungEnd(NamedTuple):
     """What a taxon's last-appearance young end is worth, and where to draw it.
 
-    Three fields rather than one for the same reason `age_ma`, `age_tier` and
-    `age_layout` are three arrays: what PBDB says, how to read it, and where to
-    put it are different claims and merging them loses the one that matters.
-
-    - `identified` — the youngest last appearance any *identified* member of
-      this taxon reaches. `None` where nothing below it carries a bracket.
-      `identified > lla` is the exact test for an unwitnessed young end.
-    - `occs` — occurrences sitting at `identified`. How much the alternative is
-      worth, and the only thing separating *Stegosaurus* from *Tasmanites*.
-    - `drawn` — where the taxon may be drawn. `lla` everywhere except the taxa
-      the clamp is trusted for.
-    - `identified_lea` / `drawn_lea` — the *other* end of the same bracket.
-      `[lea, lla]` is one last-appearance bracket and both of its ends come
-      from the same occurrences, so moving `lla` alone leaves the older end of
-      the very record being refused: *Stegosaurus* has `lea` 100.5 and `lla`
-      93.9, and both are the single Cenomanian `Stegosaurus sp.`. Where the
-      young end moves, the pair moves with it.
+    - `identified` — youngest last appearance any identified member reaches;
+      `None` where nothing below carries a bracket. `identified > lla` is the
+      exact test for an unwitnessed young end.
+    - `occs` — occurrences sitting at `identified`; separates *Stegosaurus* from
+      *Tasmanites*.
+    - `drawn` — where the taxon may be drawn: `lla` except where the clamp fires.
+    - `identified_lea` / `drawn_lea` — the older end of the same `[lea, lla]`
+      bracket, moved as a pair with `drawn` since both ends share occurrences.
     """
 
     identified: float | None
@@ -341,13 +270,9 @@ class YoungEnd(NamedTuple):
 def young_ends(taxa: Sequence[PbdbTaxon]) -> tuple[dict[int, YoungEnd], JsonDict]:
     """Per accepted taxon, whether its young end is witnessed and where to draw it.
 
-    Two reverse passes over PBDB's own `parent_no` hierarchy, both linear:
-    the youngest last appearance among descendants, then the occurrences
-    sitting at it. Nothing here talks to the network — the whole diagnostic
-    falls out of `pbdb_taxa.csv`, which phase 0 already pinned.
-
-    Keyed on accepted taxa only. Synonyms carry their accepted taxon's bounds
-    and would otherwise each contribute themselves as their own descendant.
+    Two linear reverse passes over PBDB's `parent_no` hierarchy: youngest last
+    appearance among descendants, then the occurrences at it. Keyed on accepted
+    taxa only, so a synonym is not its own descendant.
     """
     lla: dict[int, float] = {}
     lea: dict[int, float] = {}
@@ -389,25 +314,18 @@ def young_ends(taxa: Sequence[PbdbTaxon]) -> tuple[dict[int, YoungEnd], JsonDict
         order.append(cur)
         stack.extend(kids.get(cur, ()))
 
-    # Occurrences identified *exactly* at a taxon rather than below it. PBDB's
-    # `n_occs` is a subtree total, so the difference is what the taxon's own
-    # `sp.`/`indet.` material amounts to — and subtracting keeps a genus from
-    # being counted once for itself and again for every species in it.
+    # Occurrences identified exactly at a taxon rather than below it. `n_occs`
+    # is a subtree total, so subtract to avoid counting a genus once for itself
+    # and again for each species in it.
     own_occs = {
         t: max(0, occs.get(t, 0) - sum(occs.get(c, 0) for c in kids.get(t, ())))
         for t in parent
     }
 
-    # One reverse pass. Children are settled before their parent, so a parent
-    # reads its children's *corrected* positions and the correction carries up
-    # the hierarchy: clamping Stegosaurus to 143.1 is what lets Stegosauridae
-    # see 143.1 rather than the 93.9 its own aggregate carries. Without that,
-    # the fix is defeated one rank up and the reader meets the same error by
-    # selecting the family.
-    #
-    # `sub_min` is the youngest position anything in a subtree may be drawn at
-    # and `sub_at` the occurrences sitting there; both are about the subtree,
-    # while `identified` and `drawn` are about the taxon itself.
+    # One reverse pass, so a parent reads its children's corrected positions and
+    # the correction carries up (else the fix is defeated one rank up).
+    # `sub_min`/`sub_at` are about the subtree; `identified`/`drawn` about the
+    # taxon itself.
     out: dict[int, YoungEnd] = {}
     sub_min: dict[int, float] = {}
     sub_lea: dict[int, float | None] = {}
@@ -417,12 +335,9 @@ def young_ends(taxa: Sequence[PbdbTaxon]) -> tuple[dict[int, YoungEnd], JsonDict
     for cur in reversed(order):
         child_mins = [sub_min[c] for c in kids.get(cur, ()) if c in sub_min]
         end = min(child_mins) if child_mins else None
-        # The *pair*, not just the young end. `[lea, lla]` is one bracket and
-        # both ends come from the same occurrences, so correcting `lla` alone
-        # leaves the other end of the same bad record in place: Stegosaurus'
-        # `lea` is 100.5, from the very Cenomanian occurrence its `lla` of 93.9
-        # comes from. Adopting the identified member's whole last-appearance
-        # bracket is the only reading that stays internally consistent.
+        # The pair, not just the young end: `[lea, lla]` is one bracket sharing
+        # occurrences, so adopt the identified member's whole last-appearance
+        # bracket rather than correcting `lla` alone.
         end_lea = next(
             (
                 sub_lea.get(c)
@@ -437,23 +352,16 @@ def young_ends(taxa: Sequence[PbdbTaxon]) -> tuple[dict[int, YoungEnd], JsonDict
             else 0
         )
         own = lla.get(cur)
-        # PBDB's aggregate is *not* monotone: 445 parent/child pairs have the
-        # child reaching younger than the parent, concentrated in ichnotaxa
-        # (*Planolites montanus* at 66.0 under a genus PBDB stops at 468.0).
-        # Nothing here depends on monotonicity — the test only ever fires when
-        # the identified end is *older* — but the count is worth pinning,
-        # because assuming it was zero is what this gate caught.
+        # PBDB's aggregate is not monotone (a child can reach younger than its
+        # parent). Nothing here depends on monotonicity — the test only fires
+        # when the identified end is older — but count it; assuming zero is the
+        # bug this gate caught.
         if own is not None and end is not None and end < own:
             inverted += 1
         unwitnessed = own is not None and end is not None and end > own
         is_form = bool(FORM_TAXON_FLAGS & set(flags.get(cur, "")))
-        # A clamp may never put a taxon *older than its own first appearance*.
-        # PBDB's genus row for *Coelurus* reads 119.57-113.2 while its species
-        # reach 143.1, so the whole bracket disagrees with its own children and
-        # not just the young end. Drawing the glyph outside the bracket beside
-        # it would be inventing a position; keeping PBDB's number is merely
-        # repeating theirs. 34 rows, and the invariant it buys —
-        # `lla <= lla_drawn <= fea` — is one the UI can rely on.
+        # A clamp may never put a taxon older than its own first appearance,
+        # which keeps the invariant `lla <= lla_drawn <= fea`.
         contradicts = end is not None and cur in fea and end > fea[cur]
         clamped = (
             unwitnessed
@@ -466,9 +374,7 @@ def young_ends(taxa: Sequence[PbdbTaxon]) -> tuple[dict[int, YoungEnd], JsonDict
             if is_form:
                 refused_form += 1
                 if n_at >= MIN_YOUNG_END_OCCS:
-                    # An alternative that *is* corroborated, refused anyway
-                    # because the taxon is an ichno- or form taxon. The only
-                    # population the table may show unclamped-yet-corroborated.
+                    # Corroborated but refused because it is an ichno/form taxon.
                     refused_form_ok += 1
             elif contradicts:
                 refused_contradiction += 1
@@ -488,8 +394,7 @@ def young_ends(taxa: Sequence[PbdbTaxon]) -> tuple[dict[int, YoungEnd], JsonDict
         if here:
             m = min(here)
             sub_min[cur] = m
-            # The lea belonging to whichever end won, so a parent inherits the
-            # pair rather than reassembling one from two different records.
+            # The lea of whichever end won, so a parent inherits the pair intact.
             sub_lea[cur] = (
                 (end_lea if clamped else lea.get(cur)) if drawn == m else end_lea
             )
@@ -502,9 +407,7 @@ def young_ends(taxa: Sequence[PbdbTaxon]) -> tuple[dict[int, YoungEnd], JsonDict
         "unreached": len(parent) - len(seen),
         "unwitnessed": unwitnessed_n,
         "clamped": sum(1 for ye in out.values() if ye.clamped),
-        # Why the rest were left alone. `refused_form` is the ichnotaxon case
-        # and `refused_sparse` the Tasmanites one; they are counted apart
-        # because they are different arguments and only one is a judgement.
+        # Why the rest were left alone: form/ichno taxa vs sparse linkage.
         "refused_form": refused_form,
         "refused_form_corroborated": refused_form_ok,
         "refused_sparse": refused_sparse,
@@ -516,22 +419,13 @@ def young_ends(taxa: Sequence[PbdbTaxon]) -> tuple[dict[int, YoungEnd], JsonDict
 
 
 def _drawn_for(t: PbdbTaxon, ye: YoungEnd | None) -> float | None:
-    """Where one *row* may be drawn, holding `lla <= lla_drawn <= fea`.
+    """Where one row may be drawn, holding `lla <= lla_drawn <= fea`.
 
     The accepted taxon decides whether to move; this decides whether this row
-    can follow it there, and the test is against *this row's* bounds because
-    PBDB lets them differ from the accepted taxon's in both directions:
-
-    - Too old. Three *Paronychodon* rows carry first appearances of 154.8,
-      85.7 and 72.2 against one accepted taxon, so a clamp to 89.8 is inside
-      the first bracket and outside the other two.
-    - Too young. *Crassispira* is a living genus, `lla` 0, whose identified end
-      is 0.0117 — but its synonym *Tripia* is a fossil row ending at 37.71, and
-      a "correction" to 0.0117 would drag an Eocene shell to the Holocene.
-      414 rows, all of this shape, and the gate is what found them.
-
-    Either way the row keeps PBDB's own number, which is the same fallback
-    every other refusal in `young_ends` takes.
+    can follow it there, tested against this row's own bounds because PBDB lets
+    them differ from the accepted taxon's in both directions (a clamp too old for
+    a narrow-bracket synonym, or too young for a living genus whose synonym is a
+    fossil). Either way the row keeps PBDB's own number.
     """
     if ye is None or not ye.clamped or ye.identified is None:
         return t.lla
@@ -545,8 +439,7 @@ def _drawn_for(t: PbdbTaxon, ye: YoungEnd | None) -> float | None:
 def _lea_drawn_for(t: PbdbTaxon, ye: YoungEnd | None) -> float | None:
     """The older end of the last-appearance bracket, moved only when `lla` was.
 
-    Held to `lla_drawn <= lea_drawn <= fea` for the same reason `_drawn_for`
-    is held to its own bounds: the pair has to stay a bracket.
+    Held to `lla_drawn <= lea_drawn <= fea` so the pair stays a bracket.
     """
     if ye is None or not ye.clamped or _drawn_for(t, ye) != ye.identified:
         return t.lea
@@ -574,24 +467,16 @@ def build_rows(
         a = attacher.attach(t)
         walks[a.walk] += 1
         methods[a.method] += 1
-        # The verdict belongs to the accepted taxon; a synonym is the same
-        # animal and inherits it — but the *bounds* are the row's own, and
-        # they can be narrower. PBDB files three *Paronychodon* rows with
-        # first appearances of 154.8, 85.7 and 72.2 against one accepted
-        # taxon, so a clamp legitimate for the accepted row would put two of
-        # them older than their own first appearance. Enforced per row, which
-        # is where the invariant `lla <= lla_drawn <= fea` has to hold.
-        # `drawn` still falls back to the row's own
-        # `lla` so a row whose bounds differ from its accepted taxon's is
-        # never handed somebody else's position.
+        # The verdict belongs to the accepted taxon; a synonym inherits it, but
+        # the bounds are the row's own (they can be narrower), so the invariant
+        # `lla <= lla_drawn <= fea` is enforced per row.
         ye = ends.get(t.accepted_no or t.taxon_no)
         rows.append(
             FossilRow(
                 pbdb_taxon_no=t.taxon_no,
                 pbdb_orig_no=t.orig_no,
                 accepted_no=t.accepted_no or t.taxon_no,
-                # Display the accepted name and its rank; keep the record's own
-                # pair beside it, because rank does not survive resolution.
+                # Display the accepted name/rank; keep the record's own beside it.
                 name=t.accepted_name or t.name,
                 rank=t.accepted_rank or None,
                 own_name=t.name,
@@ -623,12 +508,9 @@ def write_db(con: sqlite3.Connection, rows: Sequence[FossilRow]) -> None:
         DROP TABLE IF EXISTS fossil;
         DROP TABLE IF EXISTS fossil_attach_method;
 
-        -- architecture §3.4 specifies `pbdb_orig_no INTEGER PRIMARY KEY`. That
-        -- cannot work: `orig_no` is **not** unique in `pbdb_taxa.csv` (407,634
-        -- distinct values over 523,112 rows; *Dinosauria* alone has ten rank
-        -- variants sharing orig_no 52775). `taxon_no` is unique, and it is also
-        -- what `parent_no`, `accepted_no` and GBIF's `sourceId` all reference,
-        -- so it is the key. `orig_no` is kept as a column.
+        -- Keyed on `taxon_no`, not `orig_no`: `orig_no` is not unique, while
+        -- `taxon_no` is and is what `parent_no`/`accepted_no`/GBIF's `sourceId`
+        -- reference. `orig_no` is kept as a column.
         CREATE TABLE fossil (
           pbdb_taxon_no INTEGER PRIMARY KEY,
           pbdb_orig_no  INTEGER NOT NULL,
@@ -649,16 +531,11 @@ def write_db(con: sqlite3.Connection, rows: Sequence[FossilRow]) -> None:
 
           -- The young end of the last-appearance bracket, read for what it is
           -- worth. `lla` stays PBDB's own number and is never overwritten.
-          --   lla_identified  youngest last appearance an *identified* member
+          --   lla_identified  youngest last appearance an identified member
           --                   reaches; NULL where nothing below carries one.
-          --                   `lla_identified > lla` proves the taxon's own
-          --                   young end rests on `sp.`/`indet.` material.
           --   young_end_occs  occurrences sitting at `lla_identified`.
-          --   lla_drawn       where the taxon may be drawn: `lla` except where
-          --                   the clamp is trusted. See `young_ends`.
+          --   lla_drawn       where the taxon may be drawn (see `young_ends`).
           --   lea_drawn       the other end of the same bracket, moved with it.
-          --                   `[lea, lla]` is one bracket and both ends come
-          --                   from the same occurrences.
           lla_identified REAL,
           young_end_occs INTEGER NOT NULL DEFAULT 0,
           lla_drawn      REAL,
@@ -693,10 +570,7 @@ def oracle_appearances(
 ) -> JsonDict:
     """Check baked appearance bounds against PBDB's live API.
 
-    Phase 1 validates its parse against a live induced-subtree oracle; this is
-    the same idea applied to the one thing phase 4 copies verbatim. It is a
-    handful of requests, and it catches a snapshot that has drifted from the
-    service it came from.
+    A handful of requests, catching a snapshot that has drifted from its source.
     """
     rng = random.Random(ORACLE_SEED)
     pool = [r for r in rows if r.fea is not None and r.n_occs > 0]
@@ -843,9 +717,7 @@ def run(use_api: bool = True) -> int:
         "accepted_name.",
     )
 
-    # --- content gates --------------------------------------------------------
-    # Counting rows is not checking them. Every column below carries something a
-    # downstream consumer reads directly.
+    # --- content gates: every column below is read by a downstream consumer ---
     print("\n--- content gates ---", flush=True)
     with_interval = con.execute(
         "SELECT count(*) FROM fossil WHERE fea IS NOT NULL"
@@ -1222,50 +1094,25 @@ def run(use_api: bool = True) -> int:
 # Bounding the layout by the fossil record
 # ------------------------------------------------------------------------------
 #
-# `age_layout` is finite everywhere so that undated nodes can be drawn at all,
-# and phase 2 fills an undated run by spreading it between the nearest dated
-# ancestor and the *deepest dated descendant*. An extinct lineage has no dated
-# descendant — every age in the artifact set comes from a chronogram of extant
-# species — so the fill drags it toward the present. Measured: *T. rex* is drawn
-# at 25.9 Ma against a last occurrence at 66, 1,078 undated nodes sit younger
-# than their own last fossil, and Cambrian trilobites land in the Neogene.
+# Phase 2 fills an undated run by spreading it between the nearest dated ancestor
+# and the deepest dated descendant. An extinct lineage has no dated descendant
+# (every age comes from a chronogram of extant species), so the fill drags it
+# toward the present — *T. rex* drawn at 25.9 Ma against a last occurrence at 66.
+# The dashed spine says the position is ordinal, not that it is wrong by 450 Ma.
 #
-# The dashed spine says the position is ordinal. It does not say the position is
-# wrong by 450 Ma, and a reader has no way to tell those apart.
-#
-# This runs here because phase 4 is the first point in the build where a fossil
-# bound exists at all — hence a rewrite of `age_layout.npy` rather than an edit
-# to `layout_ages`, which runs four phases earlier. **`age_ma` is not touched
-# and no node gains a number.** The three arrays are separate precisely so a
-# position and a displayable age can disagree.
+# This runs here because phase 4 is the first point a fossil bound exists, hence
+# a rewrite of `age_layout.npy`. `age_ma` is not touched and no node gains a
+# number: the three arrays are separate so a position and an age can disagree.
 
 
 def _pick_bracket_end() -> str:
-    """Documentation of a decision, in the one place it is applied.
+    """Which appearance bound bounds the layout: `lla`.
 
-    ingest.md phase 4 step 6 calls for "an occurrence-count floor or an outlier
-    rule" as a prerequisite, because `fea` is frequently junk-wide — *Homo
-    erectus* carries `fea = 5.333`, the base of the Zanclean, against a true
-    first appearance near 2 Ma. **Measured, an occurrence-count floor does not
-    work**: the first-appearance bracket does not narrow as occurrences
-    accumulate, it widens, from a median 5.24 Ma at one occurrence to 6.20 Ma
-    at fifty or more. The "one bad record" theory is wrong. `fea` is wide
-    because it is a genuinely conservative earliest bound, and more occurrences
-    mean more chances to include a poorly resolved one.
-
-    What does discriminate is *which end of the bracket* is read. PBDB gives
-    two per appearance — earliest and latest possible — and the latest end is
-    the trustworthy one throughout:
-
-        Homo erectus   fea   5.33  ->  fla   1.80   (true ~2 Ma)
-        Trilobita      fea 538.80   ->  fla 521.00   (true ~521 Ma)
-        Dimetrodon     fea 298.90   ->  fla 293.52   (true ~295 Ma)
-
-    So no floor is applied and `fea` is never read. The layout bound uses
-    `lla` alone — the *latest* possible last appearance, the weakest and safest
-    of the four numbers. Its error direction is what makes it safe: a
-    spuriously young occurrence makes `lla` more recent, which only weakens the
-    bound, while a spuriously old one moves `fea` and is therefore not read.
+    `fea` is frequently junk-wide and an occurrence-count floor does not fix it
+    (the bracket widens, not narrows, with more occurrences). What discriminates
+    is which end is read: the latest possible last appearance (`lla`) is the
+    weakest and safest of the four numbers, and a spuriously old occurrence only
+    moves `fea`, which is never read.
     """
     return "lla"
 
@@ -1280,10 +1127,8 @@ def layout_bounds(
     since a lineage's origin precedes its occurrences. That is the propagation.
 
     Exact attachments only (`attach_walk = 0`). A bracket attached at a parent
-    belongs to *some* taxon below that parent and records no clue which, so it
-    constrains no particular child; borrowing it would put a Neanderthal range
-    on any undated sibling. handoff.md §7 records why the apparent fix for that
-    is an `xref` rank-resolution gap and not a relaxed walk.
+    belongs to some taxon below it and names no child, so it constrains none;
+    borrowing it would put a Neanderthal range on any undated sibling.
     """
     n = parent.size
     bound = np.zeros(n, dtype=np.float64)
@@ -1296,23 +1141,11 @@ def layout_bounds(
         if 0 <= idx < n and val is not None:
             bound[idx] = float(val)
 
-    # A last-appearance bound is only ever evidence about a lineage that
-    # *ended*. Where a node has a dated descendant its position is already
-    # pinned by something still alive, and a bound saying it last appeared in
-    # the Ediacaran is not a conflict to resolve — it is a bad attachment.
-    #
-    # Measured, and worth recording because it is a phase 3 defect this pass
-    # only happened to surface: `xref` resolved PBDB to OTT by name, and OTT
-    # carries **homonyms across kingdoms**. PBDB's *Ivesia* is a rangeomorph
-    # and OTT's is a rose-family plant, so a 538.8 Ma bound landed on a living
-    # genus. PBDB's *Heraultia* is the Cambrian mollusc *Watsonella*; OTT's is
-    # not. Phase 3's `refuse_disagreements` withdraws these now, and this guard
-    # stayed: the sweep took 17,068 rows and the statement below is true of the
-    # rest regardless of how they resolved.
-    #
-    # So this is not a plausibility threshold — there is no defensible one —
-    # but the statement that makes the bound meaningful at all. It also happens
-    # to catch every homonym whose OTT node is extant, which is most of them.
+    # A last-appearance bound is evidence about a lineage that ended. Where a
+    # node has a dated descendant its position is already pinned by something
+    # still alive, so a bound there is a bad attachment (usually a cross-kingdom
+    # homonym), not a conflict to resolve. Phase 3's `refuse_disagreements`
+    # withdraws most of these; this guard keeps the statement true regardless.
     p_l = parent.astype(np.int64).tolist()
     d_l = np.isfinite(age_ma).tolist()
     for i in range(n - 1, 0, -1):
@@ -1321,9 +1154,8 @@ def layout_bounds(
     dated_below = np.array(d_l, dtype=bool)
     refused = int(((bound > 0) & dated_below).sum())
 
-    # The same comparison, read as evidence about phase 3 rather than as a
-    # guard. Counted before the bounds are cleared, because clearing them is
-    # what hides it.
+    # The same comparison read as evidence about phase 3, counted before the
+    # bounds are cleared (clearing them hides it).
     ancient = homonyms = 0
     for idx, lla in con.execute(
         "SELECT attach_idx, max(lla) FROM fossil WHERE attach_walk = 0 "
@@ -1353,13 +1185,10 @@ def bound_layout(
 ) -> tuple[F32Array, int, int]:
     """Push undated nodes back to their fossil bound, then restore monotonicity.
 
-    Only undated nodes move. A dated node's position *is* its displayed number,
-    and moving one would make the figure on the card disagree with where the
-    reader sees it — a worse failure than the one being fixed, and a different
-    kind. Where a dated ancestor is younger than a fossil beneath it, the
-    monotonicity sweep pulls the descendant back down and the conflict is
-    counted rather than silently resolved: it is a real disagreement between
-    the chronogram and the rock, and the number of them is worth knowing.
+    Only undated nodes move: a dated node's position is its displayed number.
+    Where a dated ancestor is younger than a fossil beneath it, the monotonicity
+    sweep pulls the descendant back down and the conflict is counted (a real
+    chronogram/rock disagreement), not silently resolved.
     """
     out = layout.astype(np.float64).copy()
     undated = ~np.isfinite(age_ma)
@@ -1391,20 +1220,13 @@ def layout_gates(
     moved: int,
     conflicts: int,
 ) -> JsonDict:
-    """The gate ingest.md phase 4 names, over the population it can act on.
+    """The layout-bound gate, over the population it can act on.
 
-    The claim is "no **undated** node is laid out younger than its own last
-    fossil". Written over *every* bounded node instead, it reads 27,951 before
-    and 25,843 after and looks like a failure — but 24,415 of those are dated
-    nodes, and this pass deliberately does not move a dated node, because its
-    layout position *is* the figure printed on its card. Blocking on a number
-    the step is not allowed to change would be a gate measuring the wrong
-    thing, which this project has now done twice.
-
-    So the requirement is the undated population and the dated one is an
-    observation — and a substantial finding in its own right: PBDB attaching a
-    stem fossil to a crown node older than the chronogram dates it is common,
-    not exceptional.
+    The claim is "no undated node is laid out younger than its own last fossil".
+    Dated nodes are excluded because this pass does not move them — a dated
+    node's layout position is the figure printed on its card — so gating on them
+    would measure a number the step is not allowed to change. The dated
+    population is reported as an observation instead.
     """
     has = bound > 0
     undated = ~np.isfinite(age_ma)
@@ -1415,13 +1237,10 @@ def layout_gates(
     viol_after = int((has & undated & late_after).sum())
     dated_before = int((has & ~undated & late_before).sum())
 
-    # What the pass can actually reach. A node cannot be drawn older than its
-    # parent without inverting the tree, and a *dated* parent does not move,
-    # because its position is the figure printed on its card. So the achievable
-    # target is the fossil bound capped by the parent's final position, and
-    # that — not the raw bound — is the blocking claim. The gap between the two
-    # is reported below rather than absorbed, because it is a real conflict
-    # between the chronogram and the rock and not a shortfall in this pass.
+    # What the pass can reach: a node cannot be drawn older than its parent, and
+    # a dated parent does not move. So the achievable target is the fossil bound
+    # capped by the parent's final position — that, not the raw bound, is the
+    # blocking claim; the gap is a real chronogram/rock conflict, reported below.
     par = parent.astype(np.int64)
     par[0] = 0  # the root's parent is the NO_PARENT sentinel, not an index
     reach = np.minimum(bound, after[par])
@@ -1573,15 +1392,11 @@ def layout_gates(
 OCCURRENCE_BOUNDS = ("fea", "fla", "lea", "lla")
 TIER_PHASE2 = TOPOLOGY / "age_tier_phase2.npy"
 
-# handoff §7 says the range "gets its own array, so nothing downstream can
-# mistake a range for a divergence age". It gets its own **table** instead, and
-# the constraint is met identically: what matters is that it is not `age_ma`
-# and cannot be reached by anything reading `age_ma`. A dense (n, 4) float32
-# array would be 43.6 MB to carry 2,128 useful rows, against an artifact set
-# already 2 GB over its estimate, and the Go reader is 1-D only — so it would
-# also have been four files. The dense array is still built in memory and every
-# gate below runs against *it* rather than against the rows written, because
-# the array is where a transposed column or a stray finite value would show.
+# The occurrence range gets its own table (not `age_ma`) so nothing reading
+# `age_ma` can mistake a range for a divergence age. A dense (n, 4) float32
+# array would be wasteful for ~2,128 rows and the Go reader is 1-D only. The
+# dense array is still built in memory and every gate below runs against it,
+# because that is where a transposed column or a stray finite value would show.
 
 
 def occurrence_ranges(
@@ -1589,26 +1404,17 @@ def occurrence_ranges(
 ) -> tuple[F32Array, U8Array, JsonDict]:
     """The best-attested fossil range for each node that has one, and the tier.
 
-    "Best-attested" is the single PBDB taxon with the most occurrences
-    attaching exactly here, **not** a union across several. A union would
-    produce a bracket no source asserts — the envelope of two taxa is not a
-    taxon's envelope — and inventing a range is the one thing this tier exists
-    not to do. Where PBDB itself aggregates, as it does for a genus, its own
-    aggregate row is the one with the most occurrences and wins on its own.
-
-    Only `structural` nodes are eligible. A node with a real divergence
-    estimate keeps it; this tier answers the question asked of taxa nobody
-    estimated, and overwriting a measured age with a stratigraphic range would
-    be a strictly worse answer.
+    "Best-attested" is the single PBDB taxon with the most occurrences attaching
+    exactly here, not a union across several (which would invent a bracket no
+    source asserts). Only `structural` nodes are eligible: a node with a real
+    divergence estimate keeps it.
     """
     n = parent.size
     out = np.full((n, 4), np.nan, dtype=np.float32)
     new_tier = tier.copy()
 
-    # The same rule the layout bound uses: a fossil range is evidence about a
-    # lineage that ended. A node with a dated descendant is still alive, and
-    # "last seen in the Ediacaran" said of a living plant genus is a phase 3
-    # homonym, not an observation. See `layout_bounds`.
+    # A fossil range is evidence about a lineage that ended; a node with a dated
+    # descendant is still alive. See `layout_bounds`.
     p_l = parent.astype(np.int64).tolist()
     d_l = np.isfinite(age_ma).tolist()
     for i in range(n - 1, 0, -1):
@@ -1616,12 +1422,8 @@ def occurrence_ranges(
             d_l[p_l[i]] = True
     alive = np.array(d_l, dtype=bool)
 
-    # The last-appearance bracket as it may be *drawn*. This table is what a
-    # node on the `occurrence` tier prints, and a node showing PBDB's raw young
-    # end beside a graft of the same taxon showing the corrected one is the
-    # same number disagreeing with itself on one screen — which is exactly what
-    # *Stegosaurus* did: the node read 162–94 Ma and the fossil hanging off it
-    # read 162–143. `fea`/`fla` are untouched here as everywhere.
+    # The last-appearance bracket as it may be drawn, so the node-level range
+    # agrees with a graft of the same taxon. `fea`/`fla` are untouched.
     cols = "fea, fla, coalesce(lea_drawn, lea), coalesce(lla_drawn, lla)"
     rows = con.execute(
         f"SELECT attach_idx, {cols}, n_occs, name FROM fossil "
@@ -1684,8 +1486,8 @@ def occurrence_gates(
         note=(
             "The reason the tier exists. The remainder have no PBDB taxon "
             "attaching at the node itself; a bracket attached at a parent "
-            "names no child, so it constrains none — handoff §7's Neanderthal "
-            "case, whose real fix is an `xref` rank gap in phase 3."
+            "names no child, so it constrains none (the Neanderthal case, "
+            "whose real fix is an `xref` rank gap in phase 3)."
         ),
     )
     g.observe(
@@ -1714,8 +1516,7 @@ def occurrence_gates(
             "weaker claim in the same units — when a taxon is observed in the "
             "rock, not when lineages parted. A floor, and blocking: an "
             "upstream refusal that empties the tier is the failure worth "
-            "catching, and the tier's exact size is pinned to the prose by "
-            "tests/test_doc_figures.py instead."
+            "catching."
         ),
     )
     g.require(
@@ -1803,11 +1604,9 @@ def occurrence_gates(
 def write_occurrence(con: sqlite3.Connection, ranges: F32Array, tier: U8Array) -> int:
     """One row per node carrying a fossil range.
 
-    Deliberately not a column on `node`: that table has 2.7M rows and other
-    phases write it, and 2,128 of those rows would carry a value. The four
-    bounds stay four columns — a single `range` column would have to collapse
-    two brackets into one, which is the claim architecture §7 says never to
-    make.
+    Its own table, not a column on `node` (2.7M rows, few carrying a value). The
+    four bounds stay four columns; one `range` column would collapse two
+    brackets into one.
     """
     con.executescript(
         """

@@ -1,13 +1,9 @@
 """Validation gates.
 
-A gate is a named assertion with an expected value, an observed value, and a
-verdict. Gates are collected rather than raised so that a phase reports every
-failure at once instead of stopping at the first; the phase then refuses to
-write its output if any gate failed.
-
-The distinction that matters: `require` gates fail the build, `observe` gates
-are recorded for the manifest but never block. Nothing in this module ever
-downgrades a failure to a warning on its own.
+A gate is a named assertion with expected/observed values and a verdict. Gates
+are collected rather than raised, so a phase reports every failure at once and
+then refuses to write output if any gate failed. `require` gates fail the
+build; `observe` gates are recorded but never block.
 """
 
 from __future__ import annotations

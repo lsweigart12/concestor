@@ -1,15 +1,8 @@
-"""A deliberately ugly renderer. Not the real UI.
+"""A throwaway renderer to prove the premise end to end. Not the real UI.
 
-It exists to prove the premise end to end: pick some species, walk their
-ancestor paths through the baked arrays, suppress degree-2 nodes, and draw the
-induced subtree against a time axis. If this produces a recognisable tree with
-plausible dates, the architecture's load-bearing claim — that everything is
-ancestor paths (architecture §2) — holds.
-
-Everything here is throwaway: inline SVG, no build step, no interaction, no
-attempt at the typography or provenance rendering the real UI needs. The one
-thing it does take seriously is not lying about ages, because that is the
-failure mode the whole design is organised around.
+Pick some species, walk their ancestor paths through the baked arrays, suppress
+degree-2 nodes, and draw the induced subtree against a time axis. Inline SVG, no
+interaction. The one thing it takes seriously is not lying about ages.
 """
 
 from __future__ import annotations
@@ -36,10 +29,7 @@ OUT_SVG = BUILD / "skeleton.svg"
 # root) and the degree-2 nodes suppressed between them.
 type Segments = dict[int, tuple[int | None, list[int]]]
 
-# A deliberately awkward set: two primates, a rodent, a bird, one of the 1,129
-# extinct taxa that do survive into the synthesis tree, a fish, a mollusc, an
-# insect, two plants and a fungus. If the layout holds across 1.5 Ga of
-# divergence it will hold for anything the UI throws at it.
+# A deliberately awkward set spanning ~1.5 Ga of divergence.
 DEFAULT_SELECTION = [
     ("Homo sapiens", 770315),
     ("Pan troglodytes", 417950),
@@ -60,7 +50,7 @@ SYMLOG_T0 = 1.0  # Ma; below this the axis is linear, above it logarithmic
 
 
 def path_to_root(parent: U32Array, idx: int) -> list[int]:
-    """The load-bearing primitive. Root-first ancestor chain."""
+    """Root-first ancestor chain."""
     out = [idx]
     cur = idx
     sentinel = int(NO_PARENT)
@@ -77,11 +67,10 @@ def path_to_root(parent: U32Array, idx: int) -> list[int]:
 def induced_subtree(
     parent: U32Array, selection: list[int]
 ) -> tuple[set[int], Segments]:
-    """Marked set, rendered set and segments, per architecture §2."""
+    """Marked set, rendered set and suppression segments."""
     paths = {leaf: path_to_root(parent, leaf) for leaf in selection}
 
-    # The MRCA is the last common element of the paths — interaction 1 falls
-    # out of the same primitive, with no separate endpoint (architecture §2).
+    # The MRCA is the last common element of the paths.
     first = paths[selection[0]]
     mrca_depth = min(len(p) for p in paths.values())
     while mrca_depth > 0:
@@ -113,8 +102,7 @@ def induced_subtree(
     rendered.add(mrca)
 
     # Each rendered node's nearest rendered ancestor, plus the suppressed nodes
-    # between them. Those intermediates are interaction 3's content — already
-    # computed, already ordered, and dropped by the suppression rule.
+    # between them.
     segments: Segments = {}
     for v in rendered:
         chain: list[int] = []
@@ -136,8 +124,7 @@ def induced_subtree(
 def symlog(age: float, max_age: float) -> float:
     """Fraction of the axis for an age, linear under t0 and log above.
 
-    log(0) is undefined at the present, which is where a naive implementation
-    emits -Infinity and the layout silently collapses.
+    Linear near the present avoids log(0) = -Infinity collapsing the layout.
     """
     if age <= SYMLOG_T0:
         lin = age / SYMLOG_T0
@@ -177,7 +164,7 @@ def run() -> int:
             continue
         selection.append(idx)
         labels[idx] = label
-    selection.sort()  # preorder order == canonical vertical order (§3.1)
+    selection.sort()  # preorder == canonical vertical order
 
     rendered, segments = induced_subtree(parent, selection)
     for idx in rendered:
@@ -243,10 +230,8 @@ def _draw(
             return float("nan")
         return MARGIN_L + plot_w * (1 - symlog(a, max_age))
 
-    # Nodes with no matched age get an ordinal position between their nearest
-    # dated ancestor and descendant, and are drawn dashed — never with a
-    # number attached. This is architecture §3.5's `structural` tier, and it
-    # is the whole reason the renderer is worth building.
+    # Undated nodes get an ordinal position between nearest dated ancestor and
+    # descendant, drawn dashed, never with a number attached.
     ordinal: dict[int, float] = {}
     for v in rendered:
         if math.isfinite(x_of(v)):

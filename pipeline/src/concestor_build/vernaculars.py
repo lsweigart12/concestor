@@ -1,67 +1,44 @@
 """Phase 6 — vernacular names, the palette's front door.
 
-OTT carries no common names at all. "Tyrannosaurus" resolves; "T. rex", "dog"
-and "shark" do not. When a `⌘K` palette *is* the interface (design-reference.md)
-that is not a rough edge, it is the product failing at first contact — which is
-why handoff.md §1 moves this from deferred to priority-one.
-
-Three sources are ingested, in preference order.
+OTT carries no common names: "Tyrannosaurus" resolves; "T. rex", "dog" and
+"shark" do not. When the palette is the interface, that is the product failing
+at first contact. Three sources are ingested, in preference order.
 
 **Wikidata property P9157** carries an OTT id, so the join needs no name
-matching at all — the whole class of homonym errors that makes phase 3 hard
-simply does not arise. 2,035,788 items carry it (measured against the live
-endpoint 2026-07-31). Three predicates are harvested per item:
+matching and the homonym problem does not arise. Three predicates per item:
 
     wdt:P1843     taxon common name — the curated one, "harvestmen", "rhubarb"
     rdfs:label    the item label; for famous taxa this *is* the vernacular
                   ("dog", "lion"), for the rest it repeats the binomial
     skos:altLabel aliases — "domestic dog", "sea spider", and abbreviations
 
-Labels that merely repeat the scientific name are dropped, so the vernacular
-column stays a vernacular column and an exact binomial can never be outranked
-by a "vernacular" that is the same string.
+Labels that merely repeat the scientific name are dropped.
 
 **Wikidata again, keyed on `P225` (taxon name)** for the most inclusive clades
-only — because P9157 turns out to have a hole exactly where it hurts most. The
-`animal` item carries no OTT id at all, so the id join alone answers "dog" and
-then returns nothing for "animal". Details and the rule this pass obeys are
-with the code.
+only, because P9157 has a hole where it hurts: the `animal` item carries no OTT
+id, so the id join answers "dog" but not "animal". The rule is with the code.
 
-**PBDB's ColDP archive** ships `VernacularName.tsv` — 9,245 English names
-keyed by PBDB `taxon_no`, already on disk in `snapshot/`, free, and covering
-*fossil* groups, which is the hard case. They are joined by **exact scientific
-name against `node.name`, accepted only where that yields exactly one
-candidate**: 6,745 of 9,245 (72.9%) resolve, 52 are ambiguous and 2,448 have
-no match at all. Ambiguous and unmatched rows are still written, with `idx`
-NULL and the PBDB `taxon_no` in `source_id`, so a later pass can resolve them
-without a re-ingest. There is no fuzzy matching here, per architecture §5.
+**PBDB's ColDP archive** ships `VernacularName.tsv` — English names keyed by
+PBDB `taxon_no`, already in `snapshot/`, covering fossil groups. Joined by exact
+scientific name against `node.name`, accepted only where that yields exactly one
+candidate. Ambiguous and unmatched rows are still written (`idx` NULL, PBDB
+`taxon_no` in `source_id`) so a later pass can resolve them. No fuzzy matching.
 
-Phase 3's `xref` was expected to do better than that and does not. Measured
-against the built table 2026-07-31: `xref` resolves **4,816** of the same
-9,245, *fewer* than the name join, because the taxa that carry a common name
-are high-level groups — Porifera, Scyphozoa, Trilobita — whose names sit in
-OTT verbatim, while the GBIF chain `xref` depends on favours the obscure tail.
-Where both resolve they agree 99.2% of the time (4,652 of 4,689), and the
-union reaches 6,872 (74.3%) — **+1.4 points**. That is not worth coupling this
-phase to another phase's table, so it is recorded here rather than built.
+Phase 3's `xref` resolves fewer of these than the name join, because the taxa
+carrying a common name are high-level groups whose names sit in OTT verbatim,
+while the GBIF chain favours the obscure tail; the union is only +1.4 points, so
+it is recorded here rather than built.
 
-**GBIF vernaculars are not free**, contrary to ingest.md phase 6 and
-management.md. `topology.py` does not parse OTT's `sourceinfo` column at all,
-so there is no GBIF id in the database to join on; and the frozen backbone we
-snapshotted is `simple.txt.gz`, which is 30 columns of nomenclature carrying no
-vernacular names. Harvesting them would mean a fresh crawl of GBIF's
-`/species/{key}/vernacularNames` — a second multi-hundred-thousand-request
-crawl against the same small service phase 3 is already queued to hit. It is
-not implemented here; see the report in `build/phase6_gates.json`.
+GBIF vernaculars are not free: there is no GBIF id in the database to join on and
+the frozen backbone carries no vernacular names, so harvesting them would mean a
+fresh multi-hundred-thousand-request crawl. Not implemented; see
+`build/phase6_gates.json`.
 
-Both Wikidata crawls are **resumable**: every page is checkpointed under
-`build/vernaculars/wikidata/` and `build/vernaculars/wikidata_by_name/`, each
-guarded by a digest of the plan it was fetched against, and a re-run re-fetches
-nothing. The id-keyed crawl is also **budgeted** — if the endpoint degrades the
-phase stops cleanly, ingests what it has and says so, because partial coverage
-that includes the famous animals is worth far more than completeness. Its page
-order is chosen so that a partial crawl is still a working palette; see
-`_plan`.
+Both Wikidata crawls are resumable: every page is checkpointed and guarded by a
+digest of its plan, so a re-run re-fetches nothing. The id-keyed crawl is also
+budgeted — if the endpoint degrades the phase ingests what it has and says so,
+because partial coverage that includes the famous animals beats completeness.
+Its page order keeps a partial crawl a working palette; see `_plan`.
 """
 
 from __future__ import annotations
@@ -95,21 +72,14 @@ NAME_PAGES = OUT / "wikidata_by_name"
 
 WIKIDATA_ENDPOINT = "https://query.wikidata.org/sparql"
 
-# WDQS has a hard 60 s query timeout and does rate-limit (429), despite the
-# common claim that it does not. Measured 2026-07-31 against the live endpoint:
-# a VALUES batch of 10,000 OTT ids returns in 8.7 s, 20,000 in 21.1 s, and the
-# obvious LIMIT/OFFSET paging degrades superlinearly (13.5 s at offset 0, 26.9 s
-# at offset 20,000) as well as being unstable without an ORDER BY that costs
-# more than it saves. Binding the OTT id with VALUES turns each page into an
-# indexed literal lookup instead of a scan, which is why it is both fast and
-# exactly reproducible.
+# WDQS has a hard 60 s query timeout and does rate-limit (429). Binding the OTT
+# id with VALUES turns each page into an indexed literal lookup instead of a
+# scan, which is why it is both fast and exactly reproducible; LIMIT/OFFSET
+# paging degrades superlinearly.
 WIKIDATA_PAGE = 10_000
-# The by-name pass is small by design; see the section that uses it. 50,000
-# names reaches every clade down to `tip_count = 8`, in 25 queries. Measured
-# return is steeply diminishing — the first 20,000 (down to `tip_count = 30`)
-# supply 423 of the 560 accepted names and every one of the top-100 gains,
-# because below that P9157 already has the taxon. Widening further is cheap
-# but pointless; narrowing costs the mid-sized clades.
+# The by-name pass is small by design (see the section that uses it): 50,000
+# names reaches every clade down to `tip_count = 8`. Return is steeply
+# diminishing below tip_count 30, because P9157 already has the taxon there.
 WIKIDATA_NAME_BUDGET = 50_000
 WIKIDATA_NAME_PAGE = 2_000
 WIKIDATA_PAUSE_S = 1.5
@@ -117,7 +87,7 @@ WIKIDATA_BUDGET_S = 14_400.0
 WIKIDATA_ATTEMPTS = 6
 
 # BCP-47. Everything downstream keys on this column, so adding a language later
-# is a re-crawl of one constant rather than a schema change.
+# is a re-crawl rather than a schema change.
 LANGS = ("en",)
 
 # ISO 639-3, which is what ColDP uses, onto BCP-47.
@@ -147,29 +117,16 @@ SPOT_CHECKS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("sponge", ("Porifera",)),
 )
 
-# The words above are carried *bare* by the taxon a person means. These three
-# are not, and no amount of crawling will change that:
-#
-#   butterfly  the bare word is on a Caribbean reef fish and nowhere else;
-#              Papilionidae is "swallowtail butterflies"
-#   eagle      the bare word is PBDB's category label on a fossil genus;
-#              Haliaeetus is "Sea eagles"
-#   oak        **no node carries it at all.** *Quercus* is non-monophyletic in
-#              the synthesis and is a broken taxon, so it is not a node and is
-#              never asked for by the crawl. The oaks are reachable only one
-#              species at a time, through names like "Pedunculate Oak"
-#
-# So the corpus claim they need is a weaker one, and it is the claim the
-# server's ranking rests on: some taxon a person means carries an English name
-# whose **head word** is the query. `server/internal/store/band.go` is
-# authoritative on what a head word is; `_head_word` here asserts only that the
-# names exist, which is phase 6's business rather than the ranking's.
+# Words no taxon carries *bare* (butterfly, eagle, oak). The corpus claim they
+# need is weaker and is what the server's ranking rests on: some taxon a person
+# means carries an English name whose *head word* is the query. band.go is
+# authoritative on what a head word is; `_head_word` here only asserts the names
+# exist.
 GROUP_WORD_CHECKS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("butterfly", ("Papilionidae", "Danaini", "Libytheinae")),
     ("eagle", ("Haliaeetus", "Aquila chrysaetos", "Hieraaetus pennatus")),
     ("oak", ("Quercus petraea", "Quercus robur", "Quercus castaneifolia")),
-    # Held alongside them so the head-word claim is not tested only where it
-    # was needed: these already worked and must keep working.
+    # Already worked; held so the head-word claim is not tested only where needed.
     ("frog", ("Anura", "Hylidae", "Ranidae")),
     ("bird", ("Aves",)),
 )
@@ -223,9 +180,8 @@ def _sparql(ott_ids: Sequence[int]) -> str:
         "SELECT ?o ?q ?c ?k ?sci WHERE {\n"
         f"  VALUES ?o {{ {values} }}\n"
         "  ?q wdt:P9157 ?o .\n"
-        # The item's own taxon name, which is what makes a mis-tagged P9157
-        # detectable at all. Optional because a few items carry P9157 and no
-        # P225; those simply cannot be checked and are kept.
+        # The item's own taxon name, which makes a mis-tagged P9157 detectable.
+        # Optional: a few items carry P9157 and no P225 and cannot be checked.
         "  OPTIONAL { ?q wdt:P225 ?sci }\n"
         '  { ?q wdt:P1843 ?c     BIND("v" AS ?k) }\n'
         '  UNION { ?q rdfs:label ?c    BIND("l" AS ?k) }\n'
@@ -273,22 +229,11 @@ def _query(client: httpx.Client, query: str, log: Log) -> JsonDict:
 def _plan(con: sqlite3.Connection) -> list[int]:
     """Every OTT id worth asking about, most-notable first.
 
-    Order matters, because a crawl that is interrupted must still leave the
-    palette able to answer "dog". `tip_count` descending puts the 134,801
-    clades first — the same corpus signal architecture §4 ranks search on —
-    and then, since every tip ties at 1, the secondary `ott_id` key takes over
-    and turns out to be a good notability proxy in its own right: OTT numbers
-    taxa roughly in the order its source taxonomies were ingested, so NCBI's
-    well-studied organisms get low ids and IRMNG's bulk tail gets high ones.
-    Measured: *Canis lupus familiaris* is the 82,865th tip in this order,
-    *Arabidopsis thaliana* the 103,746th, *Caenorhabditis elegans* the
-    132,559th, *Drosophila melanogaster* the 169,995th, *Tyrannosaurus rex*
-    the 222,878th and *Homo sapiens* the 258,583rd — every one of them inside
-    the first 11% of 2,464,863 tips.
-
-    Retired ids come last: OTT id forwarding is silent, and a Wikidata item
-    edited before the retirement still cites the old id. `forward` maps them
-    back, so asking for both costs one extra page in ten and cannot mis-resolve.
+    Order matters: an interrupted crawl must still answer "dog". `tip_count`
+    descending puts clades first; ties break on `ott_id`, which is a good
+    notability proxy since OTT numbers well-studied organisms low. Retired ids
+    come last — forwarding is silent, so items edited before a retirement cite
+    the old id, and `forward` maps them back.
     """
     ids = [
         int(r[0])
@@ -380,9 +325,8 @@ def crawl_wikidata(con: sqlite3.Connection, log: Log = print) -> JsonDict:
                                 "k": b["k"]["value"],
                                 "c": b["c"]["value"],
                                 "g": b["c"].get("xml:lang", LANGS[0]),
-                                # The item's own taxon name. Absent for the
-                                # few items with P9157 and no P225, which are
-                                # kept rather than refused.
+                                # The item's own taxon name; absent for items
+                                # with P9157 and no P225.
                                 "s": b.get("sci", {}).get("value"),
                             },
                             separators=(",", ":"),
@@ -426,17 +370,15 @@ def read_wikidata_pages(log: Log = print) -> Iterator[RawRow]:
                 name = d["c"].strip()
                 if not name:
                     continue
-                # P9157 is a free-text external identifier, so a malformed
-                # value is the editor's mistake, not a reason to fail a build.
+                # P9157 is free-text, so a malformed value is an editor mistake.
                 if not d["o"].isdigit():
                     continue
                 yield RawRow(
                     ott_id=int(d["o"]),
                     source="wikidata",
                     source_id=d["q"],
-                    # Carried so the P225 mismatch check can run. Pages written
-                    # before that check existed have no "s" and are simply not
-                    # checked; the next crawl replaces them.
+                    # Carried so the P225 mismatch check can run; absent on pages
+                    # written before that check existed.
                     sci_name=(d.get("s") or "").strip() or None,
                     name=name,
                     lang=d.get("g", LANGS[0]),
@@ -450,20 +392,13 @@ def read_wikidata_pages(log: Log = print) -> Iterator[RawRow]:
 # Wikidata, keyed on the taxon name rather than the OTT id
 # --------------------------------------------------------------------------
 #
-# P9157 is not a complete map of OTT, and the holes are not where you would
-# guess. Verified against the live endpoint 2026-07-31: **Wikidata's `animal`
-# item Q729 carries no P9157 statement at all**, and neither do Metazoa
-# (691846), Bilateria (117569) or `cellular organisms` (93302). The property
-# was populated from the species end, so the deepest, most-typed clades are
-# exactly the ones it misses — a palette built only on the id join answers
-# "dog" and "shark" and then returns nothing for "animal".
+# P9157 was populated from the species end, so the deepest clades miss it:
+# `animal`, Metazoa, Bilateria and `cellular organisms` carry no P9157, and a
+# palette built only on the id join answers "dog" but nothing for "animal".
 #
-# So a second, deliberately small pass keys on `wdt:P225` (taxon name) instead,
-# for the most inclusive clades only. It is a *name* match and therefore a
-# weaker method, and it obeys architecture §5's rule for those exactly: the
-# name must yield **one** Wikidata item and **one** node, or it is dropped
-# rather than guessed at. It gets its own `source` value so nothing downstream
-# has to take it on the id join's authority.
+# So a second, small pass keys on `wdt:P225` (taxon name) for the most inclusive
+# clades only. Being a name match it is weaker, so the name must yield one
+# Wikidata item and one node or it is dropped. It gets its own `source` value.
 
 
 def _sparql_by_name(names: Sequence[str]) -> str:
@@ -497,20 +432,16 @@ def _plan_by_name(con: sqlite3.Connection) -> list[str]:
 def crawl_wikidata_by_name(con: sqlite3.Connection, log: Log = print) -> JsonDict:
     """Fetch common names for the top clades by taxon name. Resumable.
 
-    Guarded by the same plan digest as the id-keyed crawl: page *n* means
-    "names 2000n..2000n+1999 of this exact ordered list", so a checkpoint
-    directory left over from a different plan would silently ingest the wrong
-    names against the right taxa. Widening `WIKIDATA_NAME_BUDGET` alone does
-    not invalidate anything — the ordering is stable and only appends — but
-    the digest is what makes that a checked property rather than a hope.
+    Guarded by a plan digest: a checkpoint directory from a different plan would
+    ingest the wrong names against the right taxa. Widening the budget only
+    appends and is safe.
     """
     NAME_PAGES.mkdir(parents=True, exist_ok=True)
     names = _plan_by_name(con)
     n_pages = (len(names) + WIKIDATA_NAME_PAGE - 1) // WIKIDATA_NAME_PAGE
 
-    # Digest the first page only. That prefix is what every already-fetched
-    # page is positioned against, and it is invariant under widening the
-    # budget — which is the one change that should *not* throw work away.
+    # Digest the first page only: every fetched page is positioned against that
+    # prefix, and it is invariant under widening the budget.
     plan_path = NAME_PAGES / "plan.json"
     prefix_digest = hashlib.sha256(
         f"{WIKIDATA_NAME_PAGE}|{','.join(LANGS)}|".encode()
@@ -590,9 +521,8 @@ def crawl_wikidata_by_name(con: sqlite3.Connection, log: Log = print) -> JsonDic
 def read_wikidata_name_pages(log: Log = print) -> list[RawRow]:
     """Replay the by-name pages, dropping every ambiguous taxon name.
 
-    A name that two Wikidata items both claim as their `P225` is not resolved
-    to one of them — it is dropped whole. That is architecture §5 method 5's
-    rule, and 16% of PBDB genus names are why it exists.
+    A name two Wikidata items both claim as their `P225` is dropped whole rather
+    than resolved to one.
     """
     by_name: dict[str, list[JsonDict]] = {}
     for path in sorted(NAME_PAGES.glob("page_*.jsonl")):
@@ -636,11 +566,9 @@ def read_wikidata_name_pages(log: Log = print) -> list[RawRow]:
 def read_pbdb(log: Log = print) -> list[RawRow]:
     """`VernacularName.tsv` joined to `NameUsage.tsv` for the scientific name.
 
-    ColDP gives *synonym* names a compound id of the form `txn:{accepted}#{name}`
-    — the trap that produced an 11% error rate in phase-3 testing. It does not
-    bite here: all 9,245 vernacular `col:taxonID` values are plain `txn:N`,
-    checked below rather than assumed, because a vernacular attaches to a taxon
-    and never to a name.
+    ColDP gives synonym names a compound id `txn:{accepted}#{name}`; the check
+    below asserts every vernacular `col:taxonID` is a plain `txn:N` rather than
+    assuming it, since a vernacular attaches to a taxon, not a name.
     """
     with zipfile.ZipFile(PBDB_ZIP) as z:
         with z.open("VernacularName.tsv") as fh:
@@ -657,7 +585,7 @@ def read_pbdb(log: Log = print) -> list[RawRow]:
             raise ValueError(
                 f"{compound} vernacular rows carry a ColDP compound synonym id; "
                 "joining those to a taxon_no would map a synonym onto the "
-                "accepted taxon (see docs/management.md)"
+                "accepted taxon"
             )
 
         sci: dict[str, str] = {}
@@ -703,19 +631,16 @@ CREATE TABLE vernacular (
   source     TEXT NOT NULL,  -- 'wikidata' | 'pbdb_coldp' | 'wikidata_p225'
   source_id  TEXT,           -- Wikidata QID, or PBDB 'txn:N'
   -- How the name reached us: 'v' a declared common name (Wikidata P1843 or
-  -- PBDB ColDP), 'l' the Wikidata item's own label, 'a' an altLabel. This
-  -- used to be computed during dedup and thrown away, which left `is_primary`
-  -- as the only surviving trace of the strongest evidence we hold about a
-  -- name. Ranking needs it, so it is a column.
+  -- PBDB ColDP), 'l' the Wikidata item's own label, 'a' an altLabel. Ranking
+  -- needs it, so it is a column.
   kind       TEXT NOT NULL DEFAULT 'a',
-  -- How many independent sources carried this exact string for this taxon.
-  -- Also discarded by the old dedup, and it is real corroboration: two
-  -- catalogues agreeing on "blue whale" is worth more than one.
+  -- How many independent sources carried this exact string for this taxon; real
+  -- corroboration (two catalogues agreeing on "blue whale").
   n_sources  INTEGER NOT NULL DEFAULT 1,
   -- What English Wikipedia does with this name, written by `name_rank.py`:
-  -- 'title' | 'redirect' | 'elsewhere' | 'none'. NULL is a fifth state and
-  -- means the question could not be asked — the taxon has no English article
-  -- to compare an answer against. Absent evidence is not evidence of absence.
+  -- 'title' | 'redirect' | 'elsewhere' | 'none'. NULL is a fifth state meaning
+  -- the taxon has no English article to compare against (absent evidence, not
+  -- evidence of absence).
   wiki_evidence TEXT,
   -- 1-based position within (idx, lang), most used first. NULL where idx is.
   usage_rank INTEGER,
@@ -752,9 +677,7 @@ def stage(con: sqlite3.Connection, rows: Iterable[RawRow]) -> int:
 def load(con: sqlite3.Connection, log: Log = print) -> JsonDict:
     """Resolve staged rows to `idx`, deduplicate, and write `vernacular`.
 
-    Resolution is done in SQL rather than in Python dictionaries: the maps
-    involved are 2.6M entries wide and the indexes that answer them already
-    exist on `node`.
+    Done in SQL, since the maps are 2.6M wide and the indexes already exist.
     """
     con.executescript(SCHEMA)
 
@@ -770,9 +693,7 @@ def load(con: sqlite3.Connection, log: Log = print) -> JsonDict:
                v.source AS source,
                v.source_id AS source_id,
                v.kind AS kind,
-               -- What Wikidata says the item's own taxon is, for the P225
-               -- mismatch check below. Null on the PBDB rows and on pages
-               -- crawled before the check existed.
+               -- Wikidata's own taxon name, for the P225 mismatch check below.
                v.sci_name AS sci_name
           FROM v_raw v
           LEFT JOIN node n
@@ -810,8 +731,7 @@ def load(con: sqlite3.Connection, log: Log = print) -> JsonDict:
         """
     )
 
-    # A "vernacular" that repeats the binomial is not one, and leaving it in
-    # would let a vernacular-column hit tie an exact scientific hit.
+    # A "vernacular" that repeats the binomial is not one.
     dropped = con.execute(
         """
         DELETE FROM v_res
@@ -822,20 +742,10 @@ def load(con: sqlite3.Connection, log: Log = print) -> JsonDict:
         """
     ).rowcount
 
-    # Nor is *another taxon's* scientific name a vernacular of this one. Two
-    # Wikidata items can claim the same OTT id — 770315 is claimed by both
-    # Homo sapiens and Homo floresiensis — and without this a search for
-    # "Homo floresiensis" would confidently return Homo sapiens. The rule is
-    # exact and data-driven rather than a pattern guess: if the string is a
-    # name `node` already carries for a different idx, it belongs to the
-    # scientific column, not the vernacular one. OTT's own synonyms.tsv
-    # carries the legitimate cases (`Canis familiaris`) already.
-    #
-    # **It reaches only names that are in the tree, and that is not enough.**
-    # *Homo floresiensis* is extinct and so is not a node, so it survived this
-    # and shipped: the card read "Homo sapiens — also known as Human, Homo
-    # floresiensis, man, men, humans, Flores Man". The arbitration below is
-    # what catches the rest of the family.
+    # Nor is another taxon's scientific name a vernacular of this one: if the
+    # string is a name `node` carries for a different idx, it belongs to the
+    # scientific column. Reaches only names in the tree, so an extinct name like
+    # *Homo floresiensis* is not caught here — the arbitration below does that.
     shadowed = con.execute(
         """
         DELETE FROM v_res
@@ -846,36 +756,14 @@ def load(con: sqlite3.Connection, log: Log = print) -> JsonDict:
         """
     ).rowcount
 
-    # One taxon has one Wikidata item, so a node claimed by two QIDs is a
-    # conflict rather than a richer harvest — and 4,262 nodes were. P9157 is a
-    # free-text external identifier and nothing stops an item carrying somebody
-    # else's OTT id: Q186266 (*Homo floresiensis*) carries *Homo sapiens*'s,
-    # and Q387319 (*Pyxicephalus adspersus*) carries **Archaea's**, which put
-    # "Giant Bullfrog" on a domain of 2,080 archaea and returned it second for
-    # a search on "frog".
-    #
-    # The item's own `wdt:P225` settles it: if Wikidata says the item is
-    # *Pyxicephalus adspersus* and OTT says the node is *Archaea*, the item is
-    # not about this node whatever its P9157 says. No arbitration, no
-    # heuristic, and it costs no extra requests — one OPTIONAL triple on a
-    # query that was already being made.
-    #
-    # **Three cheaper rules were tried against the real data first and all
-    # three fail**, which is worth recording so nobody re-derives them:
-    #
-    #   - *Refuse a name that is another taxon's scientific name.* Already
-    #     present above, and it reaches only names that are in the tree.
-    #     *Homo floresiensis* is extinct, so it is not a node, so it shipped.
-    #   - *Keep the QID contributing the most names.* Fits *Homo sapiens*
-    #     (6 against 2) and **fails on Archaea**, where the bullfrog item
-    #     carries four English names and the real one carries four — handing
-    #     the domain to the frog and deleting "archaeans".
-    #   - *Drop every claimant.* Correct in principle and too expensive in
-    #     fact: it takes "Dog" off *Canis lupus familiaris* and fails the
-    #     `dog` spot check, which is the single most important query here.
-    #
-    # A row with no P225 is kept rather than refused: not every item has one,
-    # and absent evidence of a bad claim is not evidence of one.
+    # P9157 is free-text, so an item can carry another taxon's OTT id: the
+    # *Homo floresiensis* item carries *Homo sapiens*'s, and a bullfrog item
+    # carries Archaea's. The item's own `wdt:P225` settles it: if Wikidata says
+    # the item is a bullfrog and OTT says the node is Archaea, the item is not
+    # about this node. A row with no P225 is kept (absent evidence is not
+    # evidence of a bad claim). Three cheaper rules were tried and all fail —
+    # "most names" hands Archaea to the frog, "drop every claimant" takes "Dog"
+    # off *Canis lupus familiaris*.
     contested = con.execute(
         """
         DELETE FROM v_res
@@ -888,20 +776,11 @@ def load(con: sqlite3.Connection, log: Log = print) -> JsonDict:
         """
     ).rowcount
 
-    # Deduplicate. Precedence is source first, ordered by how the row reached
-    # its taxon rather than by how good the string is: `wikidata` came through
-    # an explicit OTT id and — once the arbitration above has run — is not
-    # pointing at the wrong taxon; `pbdb_coldp` came through an exact unique
-    # name match against a curated vernacular list; `wikidata_p225` came
-    # through an exact unique name match against a Wikidata item that merely
-    # claims the same taxon name. Then kind, where a declared `P1843` taxon
-    # common name beats an item label, which beats an alias.
-    #
-    # **The row that survives now carries what the losers said.** `kind` is the
-    # strongest kind any source claimed, and `n_sources` counts how many
-    # distinct sources carried this string for this taxon at all. Both used to
-    # be computed here and dropped on the floor, which is why the only ordering
-    # evidence downstream had was one boolean.
+    # Deduplicate. Precedence is source first, by how the row reached its taxon
+    # (`wikidata` via OTT id, `pbdb_coldp` via a curated name match,
+    # `wikidata_p225` via a taxon-name match), then kind (declared P1843 beats
+    # label beats alias). The surviving row carries the strongest `kind` any
+    # source claimed and an `n_sources` count of how many carried the string.
     con.execute(
         """
         WITH scored AS (
@@ -910,10 +789,7 @@ def load(con: sqlite3.Connection, log: Log = print) -> JsonDict:
                              WHEN 'pbdb_coldp' THEN 1 ELSE 2 END AS src_rank,
                  CASE kind WHEN 'v' THEN 0 WHEN 'l' THEN 1 ELSE 2 END
                    AS kind_rank,
-                 -- The identity a duplicate is a duplicate *of*. Left as three
-                 -- grouping expressions rather than glued into one key: with
-                 -- no separator, idx 1 + lang 'en' and idx '1e' + lang 'n' are
-                 -- the same string.
+                 -- The identity a duplicate is a duplicate *of*.
                  COALESCE(CAST(idx AS TEXT), 'u:' || source || ':' ||
                           COALESCE(source_id, '')) AS dedup_owner
             FROM v_res
@@ -978,10 +854,8 @@ def load(con: sqlite3.Connection, log: Log = print) -> JsonDict:
 def _coverage(con: sqlite3.Connection) -> JsonDict:
     """Plain coverage, and coverage weighted by `tip_count`.
 
-    The weighted figure is the one that matters for a palette: a person types
-    "mammal", not "Nannospalax golani". Weighting by subtree size is the same
-    corpus signal architecture §4 ranks on, so it measures the same notion of
-    notable that search will.
+    The weighted figure is what matters for a palette: a person types "mammal",
+    not "Nannospalax golani".
     """
     total, weight = con.execute(
         "SELECT count(*), sum(tip_count) FROM node WHERE name IS NOT NULL"
@@ -996,10 +870,8 @@ def _coverage(con: sqlite3.Connection) -> JsonDict:
         "WHERE v.idx = n.idx AND v.lang = 'en')) "
         "FROM node n WHERE n.name IS NOT NULL AND n.tip_count = 1"
     ).fetchone()
-    # The clearest statement of the same thing: of the N most inclusive named
-    # clades, how many can a person name in English? This is what the palette
-    # is actually judged on, and unlike the weighted share it needs no
-    # explanation of what a weighted share of a nested hierarchy means.
+    # Of the N most inclusive named clades, how many can a person name in
+    # English? What the palette is actually judged on.
     top: dict[str, float] = {}
     for n in (100, 1_000, 10_000, 100_000):
         hit = con.execute(
@@ -1032,9 +904,8 @@ def run(use_api: bool = True) -> int:
 
     con = sqlite3.connect(DB, timeout=120.0)
     con.execute("PRAGMA busy_timeout = 120000")
-    # `synchronous = OFF` only; the rollback journal stays on, because other
-    # phases write this database too and journal_mode = OFF is only safe for
-    # the single-writer, build-from-scratch case topology.py is.
+    # `synchronous = OFF` only; the rollback journal stays on because other
+    # phases write this database too.
     con.execute("PRAGMA synchronous = OFF")
 
     print("--- wikidata P9157 ---", flush=True)
@@ -1285,10 +1156,10 @@ def run(use_api: bool = True) -> int:
         "not ingested",
         "free via ott_sourceinfo",
         note=(
-            "ingest.md phase 6 and management.md are wrong about this. "
-            "topology.py does not parse OTT's sourceinfo column, so no GBIF id "
-            "exists in the database to join on, and the snapshotted backbone "
-            "(simple.txt.gz) carries no vernacular names. Harvesting them means "
+            "Not free, contrary to the plan: topology.py does not parse OTT's "
+            "sourceinfo column, so no GBIF id exists in the database to join on, "
+            "and the snapshotted backbone (simple.txt.gz) carries no vernacular "
+            "names. Harvesting them means "
             "a fresh /species/{key}/vernacularNames crawl — optional, lowest "
             "priority, and a second large crawl against the service phase 3 "
             "already queues."

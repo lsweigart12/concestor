@@ -9,49 +9,21 @@ import (
 
 // Forgiving a typo, without pretending that also fixes a missing name.
 //
-// Three of eighteen real queries pulled from Workers Logs returned nothing.
-// `ardvark` and `betual` are typos, one and two edits from a string the corpus
-// holds. `hard maple` is a correctly spelled common name for *Acer saccharum*
-// that the corpus does not carry at all, and its distance to the nearest real
-// name is 3–4 on a ten-character string — so a matcher loose enough to reach it
-// would be matching at 30–40% divergence and would be wrong far more often than
-// right. This file fixes the first kind. `pipeline/src/concestor_build/
-// spelling.py` is the design, the measurements and the reason the key is what
-// it is; the short version is below.
+// A typo (`ardvark`, `betual`) is one or two edits from a real string; a missing
+// name (`hard maple`, not in the corpus) is 3–4 edits from anything, and a
+// matcher loose enough to reach it would be wrong more often than right. This
+// fixes the first; `pipeline/.../spelling.py` is the design and measurements.
 //
-// # Nothing here is on the hot path
+// Nothing here is on the hot path: `/v1/search` answers as it did, and only when
+// its answer is Answer.Weak does Store.Suggest run and the unchanged search run
+// again on the corrected string. The reader who pays for the second pass is the
+// one who was getting nothing usable anyway.
 //
-// `/v1/search` answers exactly as it did. Only when it has come back with an
-// answer {@link Answer.Weak} calls no good — nothing matched as a whole word
-// and there are almost no rows — does {@link Store.Suggest} run, and then the
-// *unchanged* search runs a second time on the corrected string. Bands,
-// `Interleave`'s ordering, `notInTree` and the ranking are untouched.
-//
-// The gate was `no rows at all` until it was measured against real typos, half
-// of which land one junk substring match and so silently suppressed the
-// correction. What replaced it is not looser on the hot path: a reader part-way
-// through a name the corpus holds gets a full page of prefix matches, never a
-// handful, so the widening reaches typos and not typing. The reader who pays
-// for the second pass is still the one who was going to get nothing usable,
-// which matters on a `standard-1` container with half a vCPU.
-//
-// # Two implementations of one key, and the test that holds them together
-//
-// `spellingKey` is a second implementation of the pipeline's `spelling_key`,
-// in the same way `abbreviateBinomial` is a second implementation of
-// `abbreviate`. The pipeline computes the key for 1.2M corpus words; this
-// computes it for the query; and if the two ever disagree the lookup silently
-// returns nothing, which looks exactly like a word nobody misspelled. So the
-// agreement is not left to care: `spelling_test.go` samples rows out of the
-// built table and requires this function to reproduce the stored key, over the
-// real corpus rather than over invented vectors.
-//
-// That risk is also why the key is fifteen lines rather than Double Metaphone.
-// The measurements are in the Python; the summary is that plain vowel-dropping
-// scores 16/20 on ordinary misspellings, `ph`→`f` and silent `h` take it to
-// 19/20, and every further English sound rule tried bought nothing and cost
-// precision — folding `z` and `q` alone puts this project's own benchmark
-// string `zzzqqq` in a bucket with 69 candidates.
+// `spellingKey` is a second implementation of the pipeline's `spelling_key`
+// (like `abbreviateBinomial`): the pipeline keys the corpus, this keys the
+// query, and a disagreement returns nothing silently, so `spelling_test.go`
+// samples the built table and requires this to reproduce the stored key. That
+// risk is why the key is fifteen lines rather than Double Metaphone.
 
 // SpellingSchema is the built typo index: one row per distinct word across
 // every name the search can match, keyed phonetically.
@@ -84,26 +56,20 @@ func (s *Schema) resolveSpelling() {
 }
 
 const (
-	// A word shorter than this is never corrected. The floor is where all the
-	// precision lives: every false correction measured came from a short word
-	// one legal edit from another — `suag`→`sag`, `about`→`abut`, `abot`→`abt`
-	// — and this one rule takes the false-correction rate on random junk from
-	// 25.3% to 0.5%. It costs nothing real, because every misspelling in the
-	// measured query corpus is six characters or longer.
+	// A word shorter than this is never corrected: every measured false
+	// correction was a short word one edit from another, and this floor takes the
+	// false-correction rate on junk from 25.3% to 0.5% while costing nothing
+	// (every real misspelling is six characters or longer).
 	minCorrectedWord = 6
 
-	// The edit budget, relative to length rather than absolute: one edit is
-	// generous on six characters and meaningless on twenty. Two edits on six
-	// characters is 33% divergence, which is the `hard maple` mistake wearing a
-	// smaller number.
+	// The edit budget, relative to length: one edit is meaningless on twenty
+	// characters, two on six is the `hard maple` mistake with a smaller number.
 	longWord         = 10
 	maxDistanceShort = 1
 	maxDistanceLong  = 2
 
-	// A bucket is 2.19 words on average and 571 at the worst key, so the scan
-	// below is bounded by arithmetic rather than by this. It is here because an
-	// unbounded loop over an index this code did not build is a promise nobody
-	// checked.
+	// A guard on the bucket scan; buckets are tiny, but an unbounded loop over an
+	// index this code did not build is a promise nobody checked.
 	spellingBucketCap = 4096
 )
 
@@ -114,15 +80,10 @@ func distanceCap(word string) int {
 	return maxDistanceLong
 }
 
-// spellingWords splits a query into the words the index holds.
-//
-// Returns nothing at all for a string containing any non-ASCII character,
-// rather than splitting around it: `aapajärvensis` must not become `aapaj` and
-// `rvensis`, which are not words and would be corrected to other things. The
-// pipeline applies the identical test, and it is what lets both sides agree on
-// spelling without `golang.org/x/text` — 3,424 of 1,250,845 distinct words are
-// affected, 0.27%, which is a cheaper price than a Unicode normaliser that has
-// to match Python's NFKD exactly.
+// spellingWords splits a query into the words the index holds. Returns nothing
+// for any non-ASCII string rather than splitting around it (`aapajärvensis` must
+// not become `aapaj` + `rvensis`); the pipeline applies the same test, which
+// lets both sides agree without a Unicode normaliser.
 func spellingWords(text string) []string {
 	for i := range len(text) {
 		if text[i] >= 0x80 {
@@ -165,33 +126,16 @@ func isSpellingVowel(c byte) bool {
 	return false
 }
 
-// spellingKey is the phonetic key of one already-lowercased ASCII word: `ph`
-// becomes `f`, non-initial `h` is dropped, the first letter is kept, and then
-// vowels and runs of the same letter go.
-//
-//	aardvark, ardvark     -> ardvrk
-//	betula,   betual      -> btl
-//	rhinoceros, rinoceros -> rncrs
-//
-// Mirrored exactly by `spelling_key` in the pipeline. Do not change one without
-// the other; `spelling_test.go` is what tells you that you have.
-// foldPH is the one sound rule both the key and the distance apply: `ph` and
-// `f` are the same sound, and English spells it both ways in exactly the words
-// this corrector exists for.
-//
-// It has to be in both places or it is in neither, and it *was* in neither.
-// Folding it into the key alone puts `elefant` in `elephant`'s bucket and then
-// lets the distance charge two edits for the difference the bucket was built to
-// forgive — over a cap of one, on a seven-character word. So the corpus's own
-// examples all failed at the last step: `elefant` reached nothing, `dolfin`
-// reached *dolfyn* (a real genus, one ordinary edit away), and `phasianus` was
-// unreachable from `fasianus`. The key's measured 19/20 was a claim about which
-// bucket a word lands in, and nothing was checking what happened after.
-//
-// This is not a wider cap. The cap is untouched and every other difference still
-// costs what it cost; one substitution stops being counted twice.
+// foldPH folds `ph`→`f` for both the key and the distance. It must be in both:
+// folding it into the key alone puts `elefant` in `elephant`'s bucket, then the
+// distance charges two edits over a cap of one. Not a wider cap — one
+// substitution just stops being counted twice.
 func foldPH(word string) string { return strings.ReplaceAll(word, "ph", "f") }
 
+// spellingKey is the phonetic key of one lowercased ASCII word: `ph`→`f`,
+// drop non-initial `h`, keep the first letter, drop vowels and repeated letters
+// (aardvark/ardvark -> ardvrk). Mirrored exactly by `spelling_key` in the
+// pipeline; `spelling_test.go` holds the two together.
 func spellingKey(word string) string {
 	folded := foldPH(word)
 	if folded == "" {
@@ -213,14 +157,10 @@ func spellingKey(word string) string {
 	return b.String()
 }
 
-// damerau is optimal string alignment distance, abandoning once every cell in a
-// row exceeds cap.
-//
-// Transpositions count as one edit, and that is load-bearing rather than
-// thorough. `betual`→`betula` is a single swap; under plain Levenshtein it is
-// two, which puts it level with `betual`→`betel` — a different plant — and the
-// shorter string then wins the tie. Counting the swap once is what makes the
-// right answer the only answer inside the cap.
+// damerau is optimal string alignment distance, abandoning once a whole row
+// exceeds the budget. Transpositions count as one edit: `betual`→`betula` is one
+// swap, and under plain Levenshtein it is two, tying with `betual`→`betel` (a
+// different plant) where the shorter string would win.
 func damerau(a, b string, budget int) int {
 	la, lb := len(a), len(b)
 	if la-lb > budget || lb-la > budget {
@@ -257,17 +197,10 @@ func damerau(a, b string, budget int) int {
 
 // Suggest returns a better spelling of q, or "" when there is nothing to fix.
 //
-// Word by word, because with typeahead the misspelling that matters is in the
-// *leading* token: a trailing one still has the prefix's results on screen,
-// while `betual` kills the query before `pendula` is ever typed. Whole-name
-// matching was built and measured first and is 7× the index — 362 MB against
-// 50.6 MB — and cannot correct `betual pendula` at all.
-//
-// It is a suggestion and not an answer. The caller re-runs the search on it and
-// reports it only if it produced results, so a correction that leads nowhere is
-// never shown; and the reader is told the substitution happened, because a
-// search that silently answers a different question is the same mistake as a
-// confident date on an undated node.
+// Word by word, since with typeahead the misspelling that matters is in the
+// leading token (`betual` kills the query before `pendula` is typed), which
+// whole-name matching cannot correct. A suggestion, not an answer: the caller
+// re-runs the search and reports it only if it produced results.
 func (s *Store) Suggest(ctx context.Context, q string) (string, error) {
 	sp := s.Schema.Spelling
 	if sp == nil {
@@ -316,8 +249,7 @@ func (s *Store) suggestWord(ctx context.Context, word string) (string, error) {
 	defer rows.Close() //nolint:errcheck
 
 	budget := distanceCap(word)
-	// Both sides folded, because the bucket these candidates came out of was
-	// built on the folded form. See foldPH.
+	// Both sides folded, since the bucket was built on the folded form. See foldPH.
 	folded := foldPH(word)
 	bestWord := ""
 	bestDist, bestUse := budget+1, int64(-1)
@@ -327,10 +259,7 @@ func (s *Store) suggestWord(ctx context.Context, word string) (string, error) {
 		if err := rows.Scan(&cand, &use); err != nil {
 			return "", err
 		}
-		// A word the corpus already holds is a word somebody registered, not a
-		// typo. `racoon`, `squirel` and `tyranosaurus` are all real taxon names,
-		// so the search answers them and this must not take the reader off a
-		// real name and onto a guess.
+		// A word the corpus holds is registered, not a typo, so never correct it.
 		if cand == word {
 			return "", nil
 		}
@@ -338,9 +267,8 @@ func (s *Store) suggestWord(ctx context.Context, word string) (string, error) {
 		if d > budget {
 			continue
 		}
-		// Distance, then the more widely used spelling, then the shorter
-		// string, then lexicographic — so the answer never depends on the order
-		// SQLite returns rows in.
+		// Distance, then more widely used, then shorter, then lexicographic — so
+		// the answer never depends on SQLite's row order.
 		if bestWord == "" || betterSuggestion(d, use.Int64, cand, bestDist, bestUse, bestWord) {
 			bestWord, bestDist, bestUse = cand, d, use.Int64
 		}

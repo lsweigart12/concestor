@@ -5,10 +5,8 @@ pure functions and are tested directly; the corrector is run over a miniature
 index built in memory, so the rules are proved without a 1.9 GB database. The
 tests that need the real corpus are marked and skip without it.
 
-The refusal tests matter at least as much as the recall ones. A corrector is
-easy to make *more* forgiving and the pressure to do so is one-directional —
-somebody will meet `hard maple` returning nothing and reach for the threshold.
-`test_refuses_*` is what makes that reach fail.
+The refusal tests matter as much as the recall ones: `test_refuses_*` is what
+stops a future loosening of the matcher to reach `hard maple`.
 """
 
 import sqlite3

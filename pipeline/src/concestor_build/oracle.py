@@ -1,17 +1,12 @@
 """Validate our baked topology against the live Open Tree API.
 
-This is the strongest correctness test available: generate induced subtrees for
-random tip sets via `/v3/tree_of_life/induced_subtree` and diff them against
-what our parse produces.
+Generate induced subtrees for random tip sets via
+`/v3/tree_of_life/induced_subtree` and diff them against our parse. Comparison
+is by clade set, not by string: for each internal node take the set of query
+tips beneath it; two topologies agree iff those sets agree. That normalises
+away unnamed-node labelling and collapses degree-2 chains for free.
 
-Comparison is by **clade set**, not by string. For each internal node, take the
-set of query tips beneath it; two topologies agree iff those sets agree. That
-normalises away unnamed-node labelling and suppresses degree-2 chains for free,
-since a unary chain yields duplicate clades that collapse in a set.
-
-The API is one `waitress` process behind a small academic project with no rate
-limiting — because nobody implemented it, not because none is wanted. Requests
-are sequential and paced.
+The API has no rate limiting, so requests are sequential and paced.
 """
 
 from __future__ import annotations
@@ -99,10 +94,9 @@ def check_induced_subtrees(
                 continue
 
             try:
-                # label_format "id" yields bare `ott770315` / `mrcaott…`
-                # labels, matching our node_key convention exactly. The
-                # default format interpolates names, which can contain
-                # apostrophes and so arrive Newick-quoted.
+                # label_format "id" yields bare `ott770315` / `mrcaott…` labels,
+                # matching our node_key convention; the default interpolates
+                # names that can arrive Newick-quoted.
                 r = client.post(ENDPOINT, json={"ott_ids": picks, "label_format": "id"})
             except Exception:
                 skipped += 1
@@ -117,9 +111,8 @@ def check_induced_subtrees(
                 continue
             d = r.json()
 
-            # The API silently substitutes broken taxa and follows forwards.
-            # Those samples answer a different question, so they are excluded
-            # and counted rather than scored.
+            # The API silently substitutes broken taxa and follows forwards;
+            # those samples are excluded and counted rather than scored.
             if d.get("unknown"):
                 skipped += 1
                 skips["unknown_ott_id"] = skips.get("unknown_ott_id", 0) + 1

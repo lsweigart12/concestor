@@ -1,64 +1,40 @@
-"""The FTS5 index and the baked ranking behind the ⌘K palette.
+"""The FTS5 index and the baked ranking behind the palette.
 
-ingest.md phase 1 step 8 specifies this index and phase 1 never built it —
-`.schema` on a freshly built `concestor.db` has no `node_fts`. It is separated
-out here rather than folded back into `topology.py` because it consumes phase 6
-as well as phase 1, and because rebuilding the index must not mean reparsing a
-31 MB Newick.
+Separated from `topology.py` because it consumes phase 6 as well as phase 1, and
+because rebuilding the index must not mean reparsing a 31 MB Newick.
 
-**Five corpora, five columns, one query.** Keeping them in separate FTS5
-columns is what lets ranking weight them, which is the whole requirement in
-ingest.md phase 6 — an exact binomial must always beat a vernacular match:
+Five corpora, five columns, one query. Separate FTS5 columns are what let
+ranking weight them (an exact binomial must beat a vernacular match):
 
-| column | kind | rows | source |
-|---|---|---|---|
-| `sci`    | 0 | 2,599,664 | `node.name` |
-| `abbr`   | 1 | 2,231,456 | generated abbreviated binomials — `T. rex` |
-| `syn`    | 2 | 2,226,375 | `synonyms.tsv`, joined by OTT id through `forward` |
-| `vern`   | 3 | phase 6   | the `vernacular` table |
-| `broken` | 4 | 9,839     | `broken_taxon` — names that are *not* nodes |
+| column | kind | source |
+|---|---|---|
+| `sci`    | 0 | `node.name` |
+| `abbr`   | 1 | generated abbreviated binomials — `T. rex` |
+| `syn`    | 2 | `synonyms.tsv`, joined by OTT id through `forward` |
+| `vern`   | 3 | the `vernacular` table |
+| `broken` | 4 | `broken_taxon` — names that are *not* nodes |
 
-Each FTS row populates exactly one column, so `kind` alone says which corpus a
-hit came from and the ordering stays legible.
+Each FTS row populates exactly one column, so `kind` says which corpus a hit
+came from.
 
-**The fifth column exists because of *Escherichia coli*.** It is one of the
-9,839 non-monophyletic taxa that synthesis rejects outright, so it is not a
-node, has no name in `node.name`, and without this column the palette returns
-absolutely nothing for the single most famous bacterium there is — the same
-failure as returning nothing for "dog", arrived at from a different direction.
-A `broken` row carries the searched name and points at the substituted MRCA,
-and `kind` tells the client that this is a taxon to *explain* rather than an
-answer to assert. management.md is explicit that the app must not silently
-answer a different question the way the live API does; this is what lets it
-say the true thing instead.
+The `broken` column exists because *Escherichia coli* is a non-monophyletic
+taxon synthesis rejects, so it is not a node and has no name in `node.name`.
+The row carries the searched name and points at the substituted MRCA, and `kind`
+tells the client this is a taxon to explain rather than an answer to assert.
 
-**"T. rex" gets two independent paths, deliberately.** Wikidata already carries
-`T. rex`, `T-Rex` and `T rex` as aliases of OTT 664349, so phase 6 alone
-answers it. But that is one upstream's editorial choice, and the palette cannot
-be built on it: abbreviated binomials are therefore *generated* for every
-multi-word scientific name, from the name itself. FTS5 cannot help here —
-prefix matching is only legal on the final token of a phrase, so `"t* rex"`
-matches nothing and `sci:t* AND sci:rex` is an unbounded scan over every token
-beginning with `t` and loses word order. Generating the alias is the only
-approach that is both correct and one index lookup. It costs ~2.3M extra rows;
-13 taxa in this tree abbreviate to `T. rex` and ranking is what picks the
-right one.
+Abbreviated binomials are *generated* for every multi-word scientific name
+rather than relying on Wikidata's aliases, because FTS5 prefix matching is only
+legal on a phrase's final token (`"t* rex"` matches nothing). Ranking picks the
+right one of the taxa that abbreviate the same way.
 
-**Ranking is baked, not computed at request time.** architecture §4 names the
-corpus signals — exact match, then `tip_count` descending, then has-silhouette,
-then has-measured-age — so `search_rank` materialises one score per `idx` and
-the serving binary does an FTS query and a join, never a computation. It is
-baked twice over: `search_name.id` is *assigned* in descending rank order, so
-FTS5's natural rowid ordering is already the ranking and a prefix scan can stop
-at the first k matches instead of sorting every one. That is worth 40× on the
-short prefixes a palette sees on every keystroke — `"can"*` goes from 82 ms to
-1.8 ms — and it is the difference between the interaction feeling instant and
-feeling like a search box. Session signals (recency, frequency) stay
-client-side per architecture §7; they are not this table's job.
+Ranking is baked, not computed at request time: `search_rank` materialises one
+score per `idx`, and `search_name.id` is assigned in descending rank order so
+FTS5's rowid ordering is already the ranking and a prefix scan can stop at the
+first k matches (~40x on short prefixes). Session signals stay client-side.
 
-Silhouettes (phase 5) and `age_tier` (phase 2) may not exist in a given build.
-Both are feature-detected and degrade to zero rather than failing, and the
-gates record which signals were actually available.
+Silhouettes (phase 5) and `age_tier` (phase 2) may not exist in a given build;
+both are feature-detected and degrade to zero, and the gates record which
+signals were available.
 """
 
 from __future__ import annotations
@@ -94,18 +70,14 @@ KIND_NAMES = {
     KIND_BROKEN: "broken",
 }
 
-# Measured 2026-07-31 from the phase-1 database and OTT 3.7.3.
+# Measured from the phase-1 database and OTT 3.7.3.
 EXPECT_SCI = 2_599_664
 EXPECT_SYNONYM_ROWS = 2_226_375
 EXPECT_BROKEN = 9_839
 
-# Ranking weights. Unlike the gate thresholds these are design choices rather
-# than measurements, and they are tuned to one property: `log1p(tip_count)`
-# separates clades by orders of magnitude, while the three boolean signals only
-# ever break ties between taxa of comparable size. `log1p(1) = 0.69` and
-# `log1p(19) = 3.00`, so no combination of bonuses can promote a species over a
-# family. What they *do* decide is which of the 13 taxa spelled `T. rex`, all of
-# them tips with `tip_count = 1`, comes first.
+# Ranking weights, tuned so `log1p(tip_count)` dominates: the boolean signals
+# only ever break ties between taxa of comparable size, never promoting a
+# species over a family.
 W_SILHOUETTE = 0.50
 W_MEASURED_AGE = 0.25
 W_VERNACULAR = 0.60
@@ -143,18 +115,11 @@ CREATE TABLE search_rank (
 );
 """
 
-# The fossil corpus gets its own index, and it is deliberately not a sixth
-# column of `node_fts`.
-#
-# `node_fts` is keyed by `search_name.id`, which is a *node* name's id assigned
-# in descending node rank order. A PBDB taxon has no node and no rank_score, so
-# a fossil row in that table would either need a fabricated idx — the
-# `node_fts.rowid` trap, which joins cleanly to an unrelated node and returns
-# confident nonsense — or would break the "id is in rank order" invariant that
-# every short-prefix query depends on. Two corpora, two indexes, one query each.
-#
-# `rowid` is `fossil.pbdb_taxon_no`, so no mapping table is needed; the server
-# verifies that identity at startup rather than trusting it.
+# The fossil corpus gets its own index, not a sixth column of `node_fts`:
+# `node_fts` is keyed by `search_name.id` (a node id in rank order), and a PBDB
+# taxon has no node, so a fossil row there would need a fabricated idx or break
+# the rank-order invariant. `rowid` is `fossil.pbdb_taxon_no`, so no mapping
+# table is needed; the server verifies that identity at startup.
 FOSSIL_SCHEMA = """
 DROP TABLE IF EXISTS fossil_fts;
 
@@ -166,14 +131,9 @@ CREATE VIRTUAL TABLE fossil_fts USING fts5(
 INDEXES = """
 CREATE INDEX search_name_idx ON search_name(idx);
 """
-# There is deliberately no index on `search_rank(rank_score)`. Ordering the
-# whole corpus by score is what the palette's pre-typing state needs, and
-# `renumber_by_rank` already answers that from `search_name` alone:
-#
-#   SELECT name, idx FROM search_name WHERE kind = 0 ORDER BY id LIMIT 20
-#
-# 0.18 ms, against 421 ms for the same list via `search_rank` with its index —
-# which SQLite declines to use once the query joins `node` — and 47 MB smaller.
+# No index on `search_rank(rank_score)`: the pre-typing "top by score" list is
+# already answered from `search_name` alone (ORDER BY id, which is rank order),
+# 0.18 ms and 47 MB smaller than the indexed join.
 
 
 # --------------------------------------------------------------------------
@@ -237,13 +197,9 @@ def synonym_rows(log: Log = print) -> Iterator[tuple[int, str]]:
 def load_synonyms(con: sqlite3.Connection, log: Log = print) -> int:
     """Stage synonyms and resolve them to `idx`, chasing forwards.
 
-    Forwards come from the `forward` table phase 1 already wrote rather than a
-    second parse of `forwards.tsv` — the same 297,070 entries, with their
-    chains already collapsed to a terminal id.
-
-    A synonym string identical to the taxon's own accepted name is dropped: it
-    would be a second row competing with the scientific one and could only
-    make an exact binomial rank lower.
+    Forwards come from phase 1's `forward` table (chains already collapsed). A
+    synonym identical to the taxon's own accepted name is dropped, so it cannot
+    compete with the scientific row.
     """
     con.execute("CREATE TEMP TABLE syn_raw (ott_id INTEGER, name TEXT)")
     n = 0
@@ -292,10 +248,8 @@ def _column_exists(con: sqlite3.Connection, table: str, column: str) -> bool:
 def measured_age_flags(n: int, log: Log = print) -> tuple[F32Array, str]:
     """Per-node has-measured-age, feature-detected from whatever phase 2 wrote.
 
-    `age_tier.npy` is the honest source: tier 0 is `measured`. If only
-    `age_ma.npy` exists the signal degrades to *has a displayable age*, which
-    per `age_provenance.json` means measured **or** interpolated — a weaker
-    claim, recorded as such rather than quietly relabelled.
+    `age_tier.npy` (tier 0 = measured) is the honest source; if only `age_ma.npy`
+    exists the signal degrades to "has a displayable age", recorded as such.
     """
     tier_path = TOPO_OUT / "age_tier.npy"
     age_path = TOPO_OUT / "age_ma.npy"
@@ -394,31 +348,15 @@ def build_rank(con: sqlite3.Connection, log: Log = print) -> JsonDict:
 def renumber_by_rank(con: sqlite3.Connection, log: Log = print) -> None:
     """Reassign `search_name.id` so that rowid order *is* rank order.
 
-    This is the difference between a palette that feels instant and one that
-    does not, and it is free. FTS5 returns matches in rowid order, so
-    `ORDER BY rowid LIMIT k` terminates as soon as it has k of them instead of
-    scanning and sorting every match. Measured on the built index, for the
-    kind of short prefix a palette sees on every keystroke:
+    FTS5 returns matches in rowid order, so `ORDER BY rowid LIMIT k` stops at k
+    instead of sorting every match (~40x on short prefixes). The ordering is the
+    baked one — `rank_score` desc, then `kind`, then shorter string — so nothing
+    moves to request time.
 
-    | query | ranked at request time | rowid order |
-    |---|---:|---:|
-    | `"a"*`   | 1,434 ms | 75 ms |
-    | `"ca"*`  |   ~90 ms | 17 ms |
-    | `"can"*` |    82 ms |  2 ms |
-
-    The ordering is the baked one — `rank_score` descending, then `kind`, then
-    the shorter string — so nothing about ranking moves to request time. It
-    just stops being a sort.
-
-    **Broken names sort last, whatever their score.** A `broken` row's `idx` is
-    the *substituted MRCA*, so it inherits that node's `tip_count` and lands
-    near the top of the corpus — which is how typing "can" came back
-    Canalipalpata, Canthocamptidae, Canthocamptus, three taxa that are not in
-    the tree, ahead of every real one. The score is true of the substitute and
-    says nothing about the rejected taxon, and there is no honest size for the
-    rejected taxon because it has no position. So a name that is not a node is
-    the last resort: still reachable, still exact-matchable — which is how
-    "Escherichia coli" and "Dinosauria" work — but never ahead of a real name.
+    Broken names sort last whatever their score: a `broken` row's `idx` is the
+    substituted MRCA, so it inherits that node's `tip_count` and would otherwise
+    rank near the top. Still reachable and exact-matchable, but never ahead of a
+    real name.
     """
     t0 = time.monotonic()
     con.execute(
@@ -437,33 +375,18 @@ def renumber_by_rank(con: sqlite3.Connection, log: Log = print) -> None:
 def build_fossil_index(con: sqlite3.Connection, log: Log = print) -> int:
     """Index every PBDB taxon name, so `/v1/search` stops scanning the table.
 
-    `SearchFossils` matched with `lower(name) LIKE '%q%'` against 523,112 rows
-    and no index on `name`, ordering the survivors. That is a full scan of the
-    69 MB table on **every keystroke**, measured at 100–117 ms in the serving
-    binary and flat against match count — `zzzqqq`, which matches nothing, cost
-    100 ms. It was 90% of the endpoint. Against the deployed container, which is
-    a `standard-1` instance with **half a vCPU**, that is several times worse
-    again, and it is the whole reason search feels fine locally and slow in
-    production. This index answers the same queries in 0.1–15 ms.
+    `SearchFossils` matched `lower(name) LIKE '%q%'` against 523,112 rows with no
+    index — a full scan on every keystroke, ~90% of the endpoint. This index
+    answers the same queries in 0.1–15 ms.
 
-    **Every row is indexed, not just the searchable ones.** `SearchFossils`
-    only ever returns taxa with `is_primary = 1 AND attach_walk <> 0` — see
-    `notInTree` in the serving binary — and restricting the index to those would
-    make it 40% smaller. It is refused because that filter is a *serving*
-    policy, argued out in one place and revisable there, and an index that
-    quietly encodes it is an index that goes wrong without anything failing on
-    the day the policy changes. This table means one thing: the names in
-    `fossil`, tokenised. The server keeps its own WHERE.
+    Every row is indexed, not just the serveable ones: `notInTree`'s filter is a
+    serving policy, and an index encoding it would go wrong silently the day it
+    changes. The server keeps its own WHERE.
 
-    **What this cannot match, and why that is the right trade.** FTS5 matches
-    whole tokens and token prefixes; `LIKE '%q%'` also matched inside a word, so
-    "rex" reached *Aulacorexia* and 525 others. Measured over nine real queries
-    the index returns **no row LIKE would not** — it is a strict subset — and
-    the rows it drops are exactly those the serving binary's `matchBand` already
-    scores `bandNone`, its worst band, which `Interleave` then ranks behind
-    every node. They could not reach a 24-row page. The one `matchBand` rule a
-    prefix cannot reproduce is `samePlural`, and it is inert here: PBDB names
-    are Linnean, not vernacular, so there are no plurals to miss.
+    FTS5 matches whole tokens and prefixes, so it drops the mid-word substring
+    matches `LIKE` found (`rex` reaching *Aulacorexia*) — but those are exactly
+    the rows `matchBand` scores `bandNone` and `Interleave` ranks behind every
+    node, so they could never reach a page.
     """
     if not _table_exists(con, "fossil"):
         log("  fossil: table absent — run `concestor-build fossils`")
@@ -482,11 +405,9 @@ def build_fossil_index(con: sqlite3.Connection, log: Log = print) -> int:
     return int(n)
 
 
-# The words the fossil index is gated on. Real queries rather than synthetic
-# ones, and chosen to cover the shapes that behave differently: a taxon the tree
-# does not contain (`triceratops`), one it does (`tyrannosaurus`), a bare genus
-# fragment (`stegosaur`), a word that is a token inside many names (`rex`), and
-# a two-character prefix, which is the shortest the palette ever sends.
+# Real queries the fossil index is gated on, chosen to cover shapes that behave
+# differently: not-in-tree, in-tree, a genus fragment, a shared token, a short
+# prefix.
 FOSSIL_GATE_QUERIES = (
     "tyrannosaurus",
     "triceratops",
@@ -503,15 +424,10 @@ FOSSIL_GATE_QUERIES = (
 def fossil_index_miskeyed(con: sqlite3.Connection, per_end: int = 16) -> int:
     """Count sampled taxa the index does not return under their own name.
 
-    Zero is the only acceptable answer, and the question has to be asked this
-    way round. `fossil_fts` is `content=''`, so its columns read back as NULL
-    and any gate phrased as "join on the key and compare the names" is vacuous
-    — it answers 0 whatever the index was built from. Looking each taxon up *by
-    its own name* and requiring its own key in the answer is a question the
-    index can actually be wrong about.
-
-    Sampled from both ends of the keyspace, because a key that partly overlaps
-    the right one agrees across a whole region and diverges outside it.
+    Asked this way round because `fossil_fts` is `content=''`, so a
+    join-and-compare gate reads NULL and passes vacuously; looking each taxon up
+    by its own name and requiring its own key is a question the index can be
+    wrong about. Sampled from both ends of the keyspace.
     """
     rows: list[tuple[int, str]] = []
     for direction in ("ASC", "DESC"):
@@ -572,11 +488,9 @@ def fossil_index_recall(
 def match_expression(text: str, prefix: bool = True) -> str:
     """User text → an FTS5 MATCH expression.
 
-    A phrase, with the final token treated as a prefix so the palette answers
-    while the user is still typing. `T. rex` becomes `"t rex"*`, which is why
-    the abbreviated aliases are indexed as their own rows: FTS5 permits `*`
-    only on a phrase's last token, so no query shape can turn `T.` into a
-    prefix match against `Tyrannosaurus`.
+    A phrase with the final token as a prefix, so the palette answers mid-type.
+    `T. rex` becomes `"t rex"*`; FTS5 permits `*` only on a phrase's last token,
+    which is why the abbreviated aliases are indexed as their own rows.
     """
     tokens = [t for t in _TOKEN.split(text.strip().lower()) if t]
     if not tokens:
@@ -595,13 +509,8 @@ _SELECT = """
 """
 
 # Exact hits first, ordered by kind so an exact binomial beats an exact
-# vernacular. The non-prefixed phrase keeps this cheap: only names actually
-# containing the whole typed sequence are scanned.
-#
-# Two forms are compared, not one. The indexed string keeps its punctuation
-# (`T. rex`) while the tokenised needle has lost it (`t rex`), so a single
-# equality test would mean `T. rex` never matched itself exactly and every
-# abbreviation fell through to the ranked pool.
+# vernacular. Two forms are compared because the indexed string keeps its
+# punctuation (`T. rex`) while the tokenised needle has lost it (`t rex`).
 _SQL_EXACT = _SELECT + " AND lower(sn.name) IN (?, ?) ORDER BY sn.kind, sn.id LIMIT ?"
 
 # Then everything else, in the baked order that `search_name.id` encodes.
@@ -613,18 +522,15 @@ def query(
 ) -> list[JsonDict]:
     """Rank candidates for `text`, deduplicated to one row per taxon.
 
-    Two FTS queries, in architecture §4's order.
+    Two FTS queries:
 
-    1. **Exact matches**, ordered by `kind` — this is what guarantees an exact
-       binomial beats a vernacular, and it is a separate query rather than an
-       `is_exact DESC` sort key because an exact hit on an unremarkable taxon
-       can otherwise sit far below thousands of higher-ranked prefix hits.
-    2. **Everything else**, in `search_name.id` order, which `renumber_by_rank`
-       has already made equal to `rank_score` descending then `kind` then
-       length. No ranking happens at request time; the pool arrives sorted.
+    1. Exact matches, ordered by `kind` (a separate query, not an `is_exact`
+       sort key, so an exact hit on an unremarkable taxon is not buried under
+       higher-ranked prefix hits).
+    2. Everything else in `search_name.id` order, which `renumber_by_rank` has
+       already made equal to the ranking. No ranking at request time.
 
-    Deduplication happens here rather than in SQL because `GROUP BY` would pick
-    an arbitrary row from each group and the point is to keep the *best* one.
+    Deduplication is here rather than in SQL so the best row per taxon is kept.
     """
     tokens = [t for t in _TOKEN.split(text.strip().lower()) if t]
     if not tokens:
@@ -649,13 +555,9 @@ def query(
                     "idx": idx,
                     "kind": KIND_NAMES[row[1]],
                     "matched": row[2],
-                    # A `broken` row is *about* the rejected taxon, not about
-                    # the node it was substituted with, so it must be labelled
-                    # with the name that was searched. Showing `Sauria` for
-                    # "dinosaur" would be the live API's mistake — silently
-                    # answering a different question — reproduced in the
-                    # palette. `idx` still points at the substitute, which is
-                    # what the client draws once it has explained itself.
+                    # A `broken` row is about the rejected taxon, so it is
+                    # labelled with the searched name; `idx` still points at the
+                    # substitute the client draws once it has explained itself.
                     "name": row[2] if row[1] == KIND_BROKEN else (row[3] or row[2]),
                     "rank": row[4],
                     "tip_count": row[5],
@@ -672,17 +574,12 @@ def query(
 # Phase entry point
 # --------------------------------------------------------------------------
 
-# Every one of these must return a taxon a person means, first. They are the
-# palette's reason to exist: one exact binomial, four everyday words, and one
-# abbreviated binomial that thirteen taxa in this tree spell identically. The
-# third element says whether the check depends on phase 6 having been run; the
-# ones that do become observations rather than blockers without it, because a
-# build with no vernaculars is an intermediate state and not a broken one.
+# Each must return a taxon a person means, first. The third element says whether
+# the check needs phase 6; those become observations, not blockers, without it.
 SEARCH_CHECKS: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     ("Homo sapiens", ("Homo sapiens",), False),
     ("dog", ("Canis lupus familiaris", "Canis familiaris", "Canis lupus"), True),
-    # Both the species (Wikidata `P1843`) and the genus (PBDB) carry
-    # "human", and both are right; the palette shows both.
+    # Both the species (Wikidata P1843) and the genus (PBDB) carry "human".
     ("human", ("Homo sapiens", "Homo"), True),
     ("shark", ("Selachii", "Selachimorpha", "Elasmobranchii", "Chondrichthyes"), True),
     ("T. rex", ("Tyrannosaurus rex",), True),
@@ -786,9 +683,8 @@ def run() -> int:
     print("\n--- fossil names ---", flush=True)
     n_fossil_fts = build_fossil_index(con, log=print)
 
-    # Last, because it reads both catalogues and so needs `fossil_fts`'s source
-    # table to have been decided on. See `spelling.py` — it is the fallback for
-    # a query that returned nothing, and touches no path that returned anything.
+    # Last, because it reads both catalogues. It is the fallback for a query
+    # that returned nothing; see `spelling.py`.
     print("\n--- spelling ---", flush=True)
     spell_counts = spelling.build(con, log=print)
 

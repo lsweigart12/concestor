@@ -2,28 +2,17 @@ package store
 
 import "strings"
 
-// How closely a query sits inside a name. This refines architecture §4's
-// "exact match, then tip_count" with the two distinctions that actually
-// separate the taxon a person means from the one with the larger subtree:
+// How closely a query sits inside a name. Refines "exact, then tip_count" with
+// the two distinctions that separate the taxon a person means from the one with
+// the larger subtree:
 //
-//	"dog" in "dog family"     is a whole word          -> bandToken
-//	"dog" in "dogbane family" is a prefix of a word    -> bandPrefix
+//	"dog" in "dog family"     is a whole word       -> bandToken
+//	"dog" in "dogbane family" is a prefix of a word -> bandPrefix
 //
-// Both are legitimate matches, and without the first distinction they fall
-// through to tip_count, where a 7,050-tip plant family beats the dogs.
-//
-// The second distinction is **head position**, and it is the one that answers
-// "oak". An English compound noun is named by its last word: "oak moss" is a
-// moss, "sessile oak" is an oak. Without it, "oak" ranked Usnea (a lichen,
-// 1,569 tips) and Enaphalodes (a beetle) above every actual oak, because
-// nothing separated a name the word *modifies* from a name it *is*. Measured
-// over 77 everyday words it also takes "frog" off the froghoppers, "lizard"
-// off the booklice, "deer" off the deer flies and "tiger" off the tiger
-// beetles — the whole class of compound names where the query word qualifies
-// something unrelated.
-//
-// All of this is orthogonal to search_name.kind, which says *which sort of
-// name* matched rather than *how well*.
+// and head position, which answers "oak": an English compound is named by its
+// last word ("oak moss" is a moss, "sessile oak" is an oak), so without it "oak"
+// ranks a lichen and a beetle above every actual oak. Orthogonal to
+// search_name.kind, which says which sort of name matched, not how well.
 const (
 	bandExact  = 0 // the name is the query
 	bandHead   = 1 // whole words, ending at the last word of the name
@@ -32,12 +21,9 @@ const (
 	bandNone   = 4 // matched some other way (a synonym, an FTS stem, …)
 )
 
-// tokens lower-cases, splits on whitespace, and trims punctuation from each
-// end. Hyphens and apostrophes stay *inside* a token deliberately: a hyphen
-// binds a compound word. Splitting on it made "can" a whole-word match inside
-// "Can-opener Smoothdream", which then outranked Cantharellales — the token
-// band is supposed to capture "the user typed a real word", and "can-opener"
-// is one word, not two.
+// tokens lower-cases, splits on whitespace, and trims punctuation from each end.
+// Hyphens and apostrophes stay inside a token: "can-opener" is one word, so "can"
+// must not match it as a whole word.
 func tokens(s string) []string {
 	fields := strings.Fields(strings.ToLower(s))
 	out := fields[:0]
@@ -58,33 +44,18 @@ func isAlnum(r rune) bool {
 	return r > 127 // keep accented letters together; the index folds diacritics
 }
 
-// samePlural reports whether two tokens are the same English word, one of them
-// pluralised. Order does not matter, so it covers both "the corpus is plural
-// and the user typed singular" and the reverse.
+// samePlural reports whether two tokens are the same English word, one
+// pluralised (either order). Needed because vernaculars are stored plural
+// ("animals", "sharks") while a person types the singular; without it "animal"
+// is a mere prefix match and Metazoa falls off the result list.
 //
-// This is the one piece of morphology the band needs, and it needs it because
-// vernaculars are overwhelmingly stored plural — "animals", "spiders", "sharks"
-// — while a person types the singular. Without it a plural is merely a *prefix*
-// match, one band below a whole word, and that inverted the most basic query in
-// the product: searching "animal" ranked Arthropoda first, on a Wikidata alias
-// reading "arthropod animal" where "animal" happens to stand as its own word.
-// Metazoa, whose English name is "animals" and which holds 1.49M tips, fell
-// below five-tip bacteria and off the end of the result list entirely.
-//
-// Kept to "s", "es" and consonant-y → -ies on purpose. Real English plurals
-// this misses — mouse, genus, larva — are all cases where nothing regular
-// relates the two strings, so they need a stemmer rather than a longer list of
-// suffixes. The -ies case is here because it is the one irregularity the
-// corpus leans on: "swallowtail butterflies" and "Milkweed Butterflies" are
-// the names Papilionidae and Danaini are headlined by, and neither matched
-// "butterfly" at all until it landed. What matters is that none of these
-// *invent* a match: every one is a pair a reader would call the same word.
+// Kept to "s", "es" and consonant-y → -ies: the plurals it misses (mouse, genus)
+// need a stemmer, not a longer suffix list, and none of these invent a match.
 func samePlural(a, b string) bool {
 	if len(a) < len(b) {
 		a, b = b, a
 	}
-	// Three characters before the suffix, so "do"/"does" and "go"/"goes" are
-	// not declared the same word. Nothing shorter is a taxon's common name.
+	// Three chars before the suffix, so "do"/"does" are not the same word.
 	if len(b) < 3 {
 		return false
 	}
@@ -95,16 +66,13 @@ func samePlural(a, b string) bool {
 		}
 		return false
 	}
-	// butterfly → butterflies. The singular is not a prefix of the plural, so
-	// this cannot ride on the branch above.
+	// butterfly → butterflies (singular is not a prefix of the plural).
 	return strings.HasSuffix(b, "y") && a == b[:len(b)-1]+"ies"
 }
 
-// rankWords are the words a common name ends with when it is naming a *rank*
-// rather than a thing: "dog family", "owl order", "sea eagle genus". 577 of
-// the 162,466 vernaculars end in one. They have to be stepped over before the
-// head is read, or Canidae's "dog family" is headed by "family" and falls
-// behind every one-species taxon called something-dog.
+// rankWords are the words a common name ends with when naming a rank rather than
+// a thing ("dog family", "owl order"). Stepped over before the head is read, or
+// Canidae's "dog family" is headed by "family".
 var rankWords = map[string]bool{
 	"family": true, "families": true, "order": true, "orders": true,
 	"genus": true, "genera": true, "class": true, "classes": true,
@@ -176,16 +144,10 @@ func matchBand(name, q string) int {
 	return best
 }
 
-// abbreviateBinomial renders "Tyrannosaurus rex" as "T. rex", matching the form
-// `search.py` generates for real nodes. Returns "" for anything not in the
-// Linnean shape — uninomials, already-abbreviated names, and the long
-// connective strings OTT carries for a few unplaced taxa.
-//
-// This is a second implementation of the pipeline's `abbreviate`, and it exists
-// rather than a fifth search_name column because the row would have to be filed
-// against some node's idx, and a broken taxon has none — filing it against the
-// substituted MRCA is what made "Dinosauria" answer *Sauria*. Keeping it in the
-// broken path means an abbreviation can only ever produce an explanation.
+// abbreviateBinomial renders "Tyrannosaurus rex" as "T. rex", matching search.py.
+// Returns "" for anything not in the Linnean shape. A second implementation of
+// the pipeline's `abbreviate`, kept in the broken path rather than a search_name
+// column because a broken taxon has no idx to file the row against.
 func abbreviateBinomial(name string) string {
 	parts := strings.Fields(name)
 	if len(parts) < 2 || len(parts) > 4 {

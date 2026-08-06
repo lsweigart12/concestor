@@ -1,104 +1,60 @@
 """Forgiving a typo, and refusing to forgive a missing name.
 
-Three of eighteen real queries pulled from Workers Logs returned nothing, and
-they were two different problems. `ardvark` and `betual` are **typos** — one and
-two edits from a string the corpus holds. `hard maple` is a correctly spelled
-common name for *Acer saccharum* that the corpus simply **does not have**; its
-distance to the nearest real name is 3–4 on a ten-character string, so a matcher
-loose enough to reach it would be matching at 30–40% divergence and would be
-wrong far more often than right. This module fixes the first kind and is
-designed so that no amount of tuning can make it pretend to fix the second.
+A typo (`ardvark`, `betual`) is one or two edits from a string the corpus holds.
+A missing name (`hard maple` for *Acer saccharum*, not in the corpus) is 3–4
+edits from anything real, and a matcher loose enough to reach it would be wrong
+more often than right. This fixes the first and is designed so no tuning fixes
+the second.
 
 # The shape
 
-**Correct the query; never relax the matcher.** Nothing here runs on the hot
-path. `/v1/search` answers exactly as it did, and only when it has come back
-with nothing at all does the serving binary ask this index for a better
-spelling and run the *unchanged* pipeline again. Bands, `Interleave`,
-`notInTree` and the client are untouched, and a query that was going to cost the
-reader nothing but disappointment is the only one that pays for the second pass.
+Correct the query; never relax the matcher. Nothing here runs on the hot path:
+`/v1/search` is unchanged, and only when it returns nothing does the server ask
+this index for a spelling and re-run the same pipeline. Recall and ranking are
+separate:
 
-Recall and ranking are separate, because neither works alone:
-
-1. **Recall is a phonetic key**, computed here and stored as an indexed column.
-   `spellfix1` and `editdist3` are not available — the server is
-   `modernc.org/sqlite`, pure Go, and cannot load SQLite's C extensions — so the
-   textbook answer is off the table and this is the cheap half of it: a plain
-   B-tree lookup returning a handful of candidates.
-2. **Ranking is Damerau-Levenshtein**, in Go, over that handful.
+1. Recall is a phonetic key, an indexed column (the server is pure-Go
+   `modernc.org/sqlite` and cannot load `spellfix1`/`editdist3`).
+2. Ranking is Damerau-Levenshtein, in Go, over the handful the key returns.
 
 # The key, and why it is not Double Metaphone
 
-Double Metaphone is the obvious choice and it was refused on a cost the obvious
-choice does not carry here: **the key has to exist in two languages**. Python
-computes it for the corpus, Go computes it for the query, and the two must agree
-character for character or the lookup silently returns nothing. Double Metaphone
-is several hundred lines of dense, order-dependent rules; two ports of it are
-two chances to disagree on a corpus of 1.2M words, and the failure is invisible
-— a missed correction looks exactly like a word nobody misspelled.
-
-So the key is the smallest thing that answers the measured cases, in fifteen
-lines that port without judgement:
+The key must be computed identically in Python (corpus) and Go (query), or the
+lookup silently returns nothing. Double Metaphone is hundreds of order-dependent
+rules — two ports, two chances to disagree invisibly — so the key is fifteen
+lines instead:
 
     lowercase, ASCII only, split on non-alphanumerics; then per word —
     `ph` -> `f`, drop non-initial `h`, keep the first letter, drop vowels
     (including `y`) and collapse runs of the same letter.
 
-    aardvark, ardvark          -> ardvrk
-    betula,   betual           -> btl
-    rhinoceros, rinoceros      -> rncrs
-    dolphin,  dolfin           -> dlfn
+    aardvark, ardvark  -> ardvrk    ;    dolphin, dolfin -> dlfn
 
-The two folding rules are not decoration and are not a slippery slope toward
-re-deriving Metaphone one rule at a time. Measured over twenty misspellings,
-plain vowel-dropping alone scores 16/20; `ph`->`f` and silent `h` take it to
-19/20, and the twentieth was not a key failure at all. Every further English
-sound rule that was tried — `c`/`k`, `z`/`s`, `v`/`f`, `x`/`ks` — bought
-nothing and cost precision: folding `z` and `q` puts this project's own
-benchmark string `zzzqqq` in a bucket with 69 candidates, where under this key
-it has none.
+Plain vowel-dropping scores 16/20 on measured misspellings; `ph`->`f` and silent
+`h` take it to 19/20. Every further sound rule was refused for costing precision
+(folding `z`/`q` puts the benchmark `zzzqqq` in a 69-candidate bucket).
 
-**Non-ASCII words are not indexed and never corrected.** That is 3,424 of
-1,250,845 distinct words, 0.27%, and it buys the whole of the Unicode question:
-without it Go needs `golang.org/x/text` to normalise before it can agree with
-Python's `NFKD`, which is a dependency and a second thing to keep in step for a
-quarter of one percent of a corpus nobody misspells.
+Non-ASCII words (0.27% of the corpus) are not indexed, which avoids a Unicode
+normalisation dependency in Go for a slice nobody misspells.
 
-# Words, not whole names, and the floor that makes that safe
+# Words, not whole names
 
-The unit is the **word**. Whole-name matching was built and measured first and
-is 7x larger — 362 MB against 50.6 MB — because it stores 6.16M complete names
-where this stores 1.25M distinct words, and it cannot correct `betual pendula`
-at all, since the misspelling is in the leading token and the complete string is
-not within an edit of anything.
+The unit is the word. Whole-name matching is 7x larger and cannot correct
+`betual pendula` at all, since the misspelling is in the leading token. Words are
+denser, so the precision cost is short words: every measured false correction was
+a single edit on four or five characters, so a word shorter than `MIN_CORRECTED`
+is never corrected — taking the false-correction rate from 25.3% to 0.5% while
+costing nothing (every real misspelling is six characters or longer).
 
-Words are denser than names, though, and that is a precision cost paid in one
-place: short words. Every false correction measured came from one — `suag` ->
-`sag`, `about` -> `abut`, `abot` -> `abt`, each a single legal edit on four or
-five characters. **So a word shorter than {@link MIN_CORRECTED} is never
-corrected**, and that one rule takes the false-correction rate on random junk
-from 25.3% to 0.5% while costing nothing real: every misspelling in the measured
-corpus is six characters or longer. It is the same judgement `matchBand` makes
-in `samePlural` — below a few characters, nothing regular relates two strings
-and a rule that fires there is inventing a match.
-
-The remaining guards, each of which refuses rather than approximates:
-
-- **A word the corpus already holds is never a typo.** `racoon`, `squirel` and
-  `tyranosaurus` are all real taxon names somebody registered, so the search
-  answers them and this never runs.
-- **A correction that yields nothing is not a correction.** The serving binary
-  re-runs the search and reports the correction only if it produced results.
-- **The cap is relative to length** — one edit under ten characters, two at ten
-  or more. Two edits on six characters is 33% divergence, which is the `hard
-  maple` mistake with a smaller number on it.
+Other guards: a word the corpus already holds is never a typo; a correction that
+yields nothing is not reported; the edit cap is length-relative (one under ten
+characters, two at ten or more).
 
 # What this deliberately does not fix
 
-`hard maple` produces **no candidates at all**: its key is `hrd mpl`, `sugar
-maple`'s is `sgr mpl`, and no threshold in this file connects them. That is the
-correct outcome and the reason the key is checked before the distance. It is a
-phase 6 coverage gap and belongs to its own work; see the issue.
+`hard maple` produces no candidates: its key `hrd mpl` does not connect to
+`sugar maple`'s `sgr mpl`. That is correct — a phase 6 coverage gap, not a
+matcher failure.
 """
 
 from __future__ import annotations
@@ -158,10 +114,9 @@ def distance_cap(word: str) -> int:
 def words(text: str) -> list[str]:
     """Split a name into the words this index holds.
 
-    Returns nothing at all for a string containing any non-ASCII character,
-    rather than splitting around it — `aapajärvensis` must not become
-    `aapaj` and `rvensis`, which are not words and would be corrected to
-    other things. The Go side applies the identical test.
+    Returns nothing for any non-ASCII string rather than splitting around it
+    (`aapajärvensis` must not become `aapaj` + `rvensis`). Go applies the same
+    test.
     """
     if not text.isascii():
         return []
@@ -169,20 +124,12 @@ def words(text: str) -> list[str]:
 
 
 def fold_ph(word: str) -> str:
-    """`ph` and `f` are the same sound, folded for both the key and the distance.
+    """`ph`/`f` are the same sound, folded for both the key and the distance.
 
-    It has to be in both or it is in neither, and it was in neither. Folding it
-    into the key alone puts `elefant` in `elephant`'s bucket and then lets the
-    distance charge two edits for the difference the bucket was built to
-    forgive — over a cap of one, on a seven-character word. Every example this
-    rule exists for failed at that last step: `elefant` reached nothing and
-    `dolfin` reached *dolfyn*, a real genus one ordinary edit away. The key's
-    measured 19/20 is a claim about which bucket a word lands in, and nothing
-    was checking what happened after it landed.
-
-    This is not a wider cap. The cap is untouched and every other difference
-    costs exactly what it cost; one substitution stops being counted twice.
-    Mirrored by `foldPH` in the serving binary.
+    Must be in both: folding it into the key alone puts `elefant` in `elephant`'s
+    bucket, then the distance charges two edits over a cap of one. Not a wider
+    cap — one substitution just stops being counted twice. Mirrored by `foldPH`
+    in the serving binary.
     """
     return word.replace("ph", "f")
 
@@ -209,11 +156,9 @@ def spelling_key(word: str) -> str:
 def damerau(a: str, b: str, cap: int) -> int:
     """Optimal string alignment distance, abandoning once it exceeds `cap`.
 
-    Transpositions count as one edit and that is load-bearing rather than
-    thorough: `betual` -> `betula` is a single transposition, and under plain
-    Levenshtein it is two — which puts it level with `betual` -> `betel`, a
-    different plant, and the shorter string wins the tie. Counting the swap
-    once is what makes the right answer the only answer within the cap.
+    Transpositions count as one edit: `betual` -> `betula` is one swap, and
+    under plain Levenshtein it is two, tying with `betual` -> `betel` (a
+    different plant) where the shorter string would win.
     """
     la, lb = len(a), len(b)
     if abs(la - lb) > cap:
@@ -253,9 +198,8 @@ def _table_exists(con: sqlite3.Connection, name: str) -> bool:
 def corpus_names(con: sqlite3.Connection) -> Iterator[str]:
     """Every distinct string `/v1/search` can match, from both catalogues.
 
-    `search_name` and `fossil` both, because a corrector that can only reach one
-    of them corrects toward the wrong catalogue: *Triceratops* is not a node at
-    all — it is a PBDB taxon — and `triceratopps` has to be able to find it.
+    Both `search_name` and `fossil`, so `triceratopps` can reach *Triceratops*
+    (a PBDB taxon, not a node).
     """
     seen: set[str] = set()
     sources = ["SELECT DISTINCT name FROM search_name"]
@@ -307,20 +251,18 @@ def correct_word(con: sqlite3.Connection, word: str) -> str | None:
     rows = con.execute(
         "SELECT word, n FROM spelling WHERE key = ?", (spelling_key(word),)
     ).fetchall()
-    # Both sides folded, because the bucket these came out of was built on the
-    # folded form. See fold_ph.
+    # Both sides folded, since the bucket was built on the folded form.
     folded = fold_ph(word)
     best: tuple[int, int, int, str] | None = None
     for candidate, n in rows:
-        # A word the corpus holds is a word somebody registered, not a typo.
-        # `racoon`, `squirel` and `tyranosaurus` are all real taxon names.
+        # A word the corpus holds is registered, not a typo.
         if candidate == word:
             return None
         d = damerau(folded, fold_ph(candidate), cap)
         if d > cap:
             continue
-        # Distance first, then the more widely used spelling, then the shorter
-        # string, then lexicographic — so the answer never depends on row order.
+        # Distance, then more widely used, then shorter, then lexicographic —
+        # so the answer never depends on row order.
         scored = (d, -n, len(candidate), candidate)
         if best is None or scored < best:
             best = scored
@@ -330,9 +272,8 @@ def correct_word(con: sqlite3.Connection, word: str) -> str | None:
 def correct(con: sqlite3.Connection, text: str) -> str | None:
     """A better spelling of the whole query, or None if nothing was misspelled.
 
-    Word by word, because with typeahead the misspelling that matters is in the
-    *leading* token: a trailing one still has the prefix's results on screen,
-    while `betual` kills the query before `pendula` is ever typed.
+    Word by word, since with typeahead the misspelling that matters is in the
+    leading token (`betual` kills the query before `pendula` is typed).
     """
     parts = words(text)
     if not parts:

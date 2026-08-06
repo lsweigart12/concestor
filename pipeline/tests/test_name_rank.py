@@ -82,12 +82,8 @@ def test_a_name_that_is_no_page_at_all():
 
 
 def test_elsewhere_is_demoted_one_band_and_never_removed():
-    """The rule `docs/handoff.md` records for search exactness, applied here.
-
-    `man` is a name humans go by, however much the article `Man` is about
-    something narrower. A reader who searched it deserves to be told why they
-    arrived rather than to conclude the search misheard.
-    """
+    """`elsewhere` is demoted one band, never removed: `man` is a name humans go
+    by even though the article `Man` is about something narrower."""
     plain = c("man", kind="a")
     elsewhere = c("man", kind="a", wiki=EV_ELSEWHERE)
     assert band(elsewhere) == band(plain) + 1
