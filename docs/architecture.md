@@ -1,12 +1,11 @@
-# Concestor — architecture proposal
+# Concestor — architecture
 
 A web app for exploring the tree of life: pick species, see the minimal subtree that
 connects them through their common ancestors, drill into the fossil record along any
 branch, all laid out against deep time.
 
-This document proposes the data model, storage, backend, and rendering. It assumes the
-findings in [data-sources.md](data-sources.md), which corrects several assumptions in
-the original spec. The ingest pipeline is specified separately in
+This document covers the data model, storage, backend, and rendering. It assumes the
+findings in [data-sources.md](data-sources.md). The ingest pipeline is specified in
 [ingest.md](ingest.md).
 
 ---
@@ -16,52 +15,34 @@ the original spec. The ingest pipeline is specified separately in
 **Everything is baked at build time. The runtime is read-only and stateless.**
 
 The dataset is static — a fixed release of a synthetic tree, a fixed taxonomy snapshot,
-a fixed fossil database export. Nothing a user does writes to it. That single fact
-determines the whole architecture: there is no database to operate, no cache to
-invalidate, no write path to make consistent. A rebuild produces a new immutable
-artifact set, which ships as a new container image, which deploys atomically.
+a fixed fossil database export. Nothing a user does writes to it. There is no database to
+operate, no cache to invalidate, no write path to make consistent. A rebuild produces a
+new immutable artifact set, ships as a new container image, and deploys atomically.
 
 ```
-  BUILD (offline, ~hours, run on a release cadence)
-  ┌────────────────────────────────────────────────────────────────┐
-  │ OTT synth v16.1 ─┐                                             │
-  │ OTT taxonomy 3.7.3┤                                            │
-  │ Duke et al. dates ┼─→ resolve ─→ normalize ─→ emit artifacts   │
-  │ PBDB snapshot    ─┤   (xref)                                   │
-  │ PhyloPic mirror  ─┤                                            │
-  │ ICS chart.ttl    ─┘                                            │
-  └────────────────────────────────────────────────────────────────┘
-                              │
-              ┌───────────────┼────────────────┐
-              ▼               ▼                ▼
-      topology/*.npy    concestor.db     silhouettes/
-       (mmap'd)         (SQLite, RO)     (SVG, on CDN)
-              │               │                │
-  RUNTIME     └───────┬───────┘                │
-  ┌──────────────────────────────────┐         │
-  │  read API (single static binary) │         │
-  │  stateless · N replicas · no DB  │         │
-  └──────────────────────────────────┘         │
-              │                                │
-              ▼                                ▼
-  ┌────────────────────────────────────────────────────────────────┐
-  │  client: SVG chronogram · owns topology after first paint      │
-  └────────────────────────────────────────────────────────────────┘
+  BUILD (offline, ~hours, on a release cadence)
+      OTT synth v16.1, OTT taxonomy 3.7.3, Duke et al. dates,
+      PBDB snapshot, PhyloPic mirror, ICS chart.ttl
+        → resolve (xref) → normalize → emit artifacts
+        → topology/*.npy (mmap'd), concestor.db (SQLite RO), silhouettes/
+
+  RUNTIME
+      read API (single static Go binary) · stateless · N replicas · no DB
+        → client: SVG chronogram, owns topology after first paint
 ```
 
-The Open Tree live API appears nowhere in the runtime. It is used at build time as a
-validation oracle only — see §9.
+The Open Tree live API appears nowhere in the runtime. It is a build-time validation
+oracle only (§9).
 
 ---
 
 ## 2. The load-bearing idea: everything is ancestor paths
 
-Interactions 1 and 2 look like they need a tree-traversal service. They don't. They need
-one primitive:
+Interactions 1 and 2 need one primitive:
 
 > **`path(node) → [root, …, node]`** — the ancestor chain, root-first.
 
-Mean length 41, max 111 (measured; see data-sources). About 450 bytes on the wire.
+Mean length 41, max 111 (see data-sources). About 450 bytes on the wire.
 
 Given a selected set `L`, fetch `path(l)` for each `l ∈ L`. Then:
 
@@ -72,30 +53,20 @@ edges    = each rendered node → its nearest rendered ancestor
 ```
 
 That is the induced subtree with degree-2 nodes suppressed. It is `O(|L| × depth)` —
-for ten selections, about 410 array reads. Sub-millisecond, in the browser, with no
-server round trip.
+sub-millisecond in the browser, no server round trip.
 
-Three consequences follow, and they are why this is the right foundation:
+- **Interaction 1 is a special case.** The LCA of two leaves is the last common element
+  of their two paths. No separate MRCA endpoint.
+- **Interaction 2 reflows smoothly.** Adding an Nth node fetches one path (~450 bytes)
+  and re-runs the same computation. The client owns the topology, so the new layout is
+  available in the same frame as the click.
+- **Interaction 3's content falls out of the same structure.** A rendered edge `u → v`
+  is a **segment** carrying the ordered list of suppressed intermediate nodes between its
+  endpoints — the "notable intermediate entries", already computed, already ordered,
+  already carrying ages. Drilling in renders data you already have, plus a fossil query.
 
-**Interaction 1 is a special case.** The LCA of two leaves is the last common element of
-their two paths. No separate MRCA endpoint, no separate code path. Two selections is
-just `|L| = 2`.
-
-**Interaction 2 is free, and reflow is genuinely smooth.** Adding an Nth node fetches
-one path (~450 bytes) and re-runs the same computation. The client owns the topology, so
-the new layout is available in the same frame as the click — before the network even
-settles, if the path is cached. Nothing about the reflow is waiting on a server, which
-is exactly the difference between an animated transition and a jump-cut.
-
-**Interaction 3's content falls out of the same structure.** The nodes *dropped* by the
-suppression rule are the interesting ones. A rendered edge `u → v` is not an edge; it is
-a **segment** carrying the ordered list of suppressed intermediate nodes between them.
-Those are the "notable intermediate entries" — already computed, already ordered,
-already carrying ages. Drilling into a branch means rendering data you already have,
-plus a fossil query keyed on it.
-
-So `path()` is the only topology primitive the API needs to expose. Everything else is
-set operations on its output.
+`path()` is the only topology primitive the API exposes; everything else is set
+operations on its output.
 
 ---
 
@@ -105,65 +76,48 @@ set operations on its output.
 
 The synthetic tree has two kinds of node. Named ones carry an OTT id (`ott770315`).
 Unnamed internal nodes carry a synthesized label (`mrcaott83926ott3607676`) and have no
-OTT id at all. Both appear constantly in induced subtrees — they are the divergence
-points with no name attached.
+OTT id. Both appear constantly in induced subtrees — they are the divergence points.
 
-So OTT id **cannot** be the primary key. The model uses a **dense internal index**
-(`idx`, a `u32` assigned by preorder traversal) as the primary key, and carries OTT id
-as an indexed secondary attribute that is nullable.
+OTT id **cannot** be the primary key. The model uses a **dense internal index** (`idx`,
+a `u32` assigned by preorder traversal) as the primary key, and carries OTT id as an
+indexed, nullable secondary attribute.
 
-This matters more than it looks. `idx` being preorder-assigned means:
+Preorder-assigned `idx` gives:
 
-- `parent[idx] < idx` always, so the parent array delta-encodes to almost nothing
-- subtree containment is an interval test: `v` is under `u` iff
-  `in[u] ≤ in[v] < out[u]`
-- **tip ordering is inherent.** Sorting selected leaves by `idx` gives a stable,
-  canonical vertical order. Adding a leaf inserts it in its correct place and never
-  permutes the others — which is precisely what makes reflow animate rather than
-  reshuffle. Getting this for free from the numbering scheme, rather than maintaining
-  it in layout code, is worth the indirection.
+- `parent[idx] < idx` always, so the parent array delta-encodes to almost nothing.
+- Subtree containment is an interval test: `v` is under `u` iff `in[u] ≤ in[v] < out[u]`.
+- **Tip ordering is inherent.** Sorting selected leaves by `idx` gives a stable canonical
+  vertical order; adding a leaf inserts it in place and never permutes the others, which
+  is what makes reflow animate rather than reshuffle.
 
-OTT ids are also **not stable**: `forwards.tsv` carries 297,070 retirements in this
-release alone, and the live API follows them silently. The resolution layer (§5) chases
-forwards transitively at build time and records every hop.
+OTT ids are **not stable**: `forwards.tsv` carries 297,070 retirements in this release,
+and the live API follows them silently. The resolution layer (§5) chases forwards
+transitively at build time and records every hop.
 
-### 3.2 Core arrays — ~~`topology.bin`, `meta.bin`~~ `build/topology/*.npy`
+### 3.2 Core arrays — `build/topology/*.npy`
 
-Hot-path data lives in flat typed arrays, memory-mapped by the API process. No SQL on
-the path lookup.
+Hot-path data lives in flat typed arrays, memory-mapped by the API process. No SQL on the
+path lookup. There is no `topology.bin`/`meta.bin`: a `.npy` file is a 128-byte ASCII
+header followed by the raw little-endian array, so phase 1's output already *is* this
+format and `server/internal/npy` mmaps it directly. The dtypes are load-bearing.
 
-**Those two filenames were never built and never will be.** A `.npy` file is a 128-byte
-ASCII header followed by exactly the raw little-endian array this section describes, so
-phase 1's output already *is* this format; `server/internal/npy` mmaps it directly.
-Concatenating a second on-disk copy would double the disk cost and give the most
-load-bearing array in the system two candidate sources of truth. Read the names below as
-naming a *format*; `package.py`'s docstring is the decision and ingest.md phase 1 states
-the output.
+| Array | Type | Bytes/elem |
+|---|---|---:|
+| `parent` | u32 | 4 |
+| `depth` | u8 | 1 |
+| `subtree_out` | u32 | 4 |
+| `tip_count` | u32 | 4 |
+| `age_ma` | f32 | 4 |
+| `age_tier` | u8 | 1 |
+| `age_layout` | f32 | 4 |
 
-| Array | Type | Bytes | Size |
-|---|---|---:|---:|
-| `parent` | u32 | 4 | 10.9 MB |
-| `depth` | u8 | 1 | 2.7 MB |
-| `subtree_out` | u32 | 4 | 10.9 MB |
-| `tip_count` | u32 | 4 | 10.9 MB |
-| `age_ma` | f32 | 4 | 10.9 MB |
-| `age_tier` | u8 | 1 | 2.7 MB |
-| `flags` | u16 | 2 | 5.5 MB |
-
-~~**~55 MB total**~~ for 2,725,682 nodes. `path()` is a 41-step walk through a mmap'd
-`u32` array — nanoseconds, no allocation, no query planner.
-
-**Measured on the built set it is 137.5 MB**, and the difference is arrays this table
-predates rather than any of these growing. `flags` never became an array — it is a
-`TEXT` column on `node` — and what shipped instead is `age_layout` (§3.5), `ott_id`,
-`child_count`, the `ott_sorted`/`ott_to_idx` lookup pair, and phase 2's `age_layout`
-and `age_tier` kept under `_phase2` names so phase 4's rewrite can be diffed against
-them and re-run without compounding its own output. Thirteen files; `build/manifest.json`
-lists every one with its byte count, and eleven of the thirteen are mmap'd at startup.
-The paragraph still holds — 137.5 MB is nothing beside `concestor.db` — but §11 sized a
-machine off the smaller number, and see the correction there.
-
-`subtree_in` is `idx` itself, so it isn't stored.
+For 2,725,682 nodes. `path()` is a ~41-step walk through a mmap'd `u32` array —
+nanoseconds, no allocation, no query planner. `subtree_in` is `idx` itself, so it is not
+stored. Phase 2's `age_layout` and `age_tier` are also kept under `_phase2` names so
+phase 4's rewrite can be diffed against them and re-run without compounding its output
+(§3.5). Thirteen files ship; `build/manifest.json` lists every one with its byte count,
+and eleven are mmap'd at startup. `flags` is not an array — it is a `TEXT` column on
+`node`.
 
 ### 3.3 `concestor.db` — SQLite, read-only
 
@@ -177,40 +131,35 @@ CREATE TABLE node (
   node_key     TEXT NOT NULL,         -- 'ott770315' | 'mrcaott83926ott3607676'
   name         TEXT,
   rank_id      INTEGER,               -- dictionary-encoded
-  -- `is_broken` was specified here and CANNOT WORK. A non-monophyletic taxon
-  -- is *rejected* from synthesis — `input_output_stats.json` calls it
-  -- `num_taxa_rejected: 9839` — so none of the 9,839 is a node at all and the
-  -- flag would be permanently zero while every gate passed. They live in
-  -- `broken_taxon` instead (9,839 rows), carrying the substituted MRCA, its
-  -- resolved `idx`, the attachment points and the intruding taxa, which is
-  -- what the UI needs in order to explain the substitution rather than
-  -- silently answer a different question.
-  phylopic_id  TEXT,                  -- resolved at build time
+  phylopic_id  TEXT,
   source       INTEGER NOT NULL       -- 0=taxonomy-only, 1=phylogeny-supported
 );
 CREATE UNIQUE INDEX node_ott ON node(ott_id) WHERE ott_id IS NOT NULL;
+```
 
--- Two columns as specified; FIVE as built. `synonyms` is `syn`, and three
--- more arrived with the front door: `abbr` (the *T. rex* form), `vern`
--- (common names, phase 6) and `broken` — because the 9,839 rejected taxa have
--- no `node.name` and so were completely unsearchable, and *Escherichia coli*
--- and *Dinosauria* are two names a curious person is entirely likely to type.
--- It is `content=''`, one row per *name* rather than per node, and
--- `node_fts.rowid` is a `search_name.id` and never a `node.idx`.
+There is no `is_broken` column: a non-monophyletic taxon is *rejected* from synthesis
+(`num_taxa_rejected: 9839`), so none of the 9,839 is a node and the flag would be
+permanently zero. They live in **`broken_taxon`** (9,839 rows) carrying the substituted
+MRCA, its resolved `idx`, the attachment points, and the intruding taxa, so the UI can
+explain the substitution rather than silently answer a different question.
+
+```sql
+-- one row per *name*; content='', node_fts.rowid is a search_name.id, never node.idx
 CREATE VIRTUAL TABLE node_fts USING fts5(
   sci, abbr, syn, vern, broken,
   content='', tokenize='unicode61 remove_diacritics 2'
 );
+```
 
+Five FTS columns as built: `abbr` (the *T. rex* form), `syn` (synonyms), `vern` (common
+names, phase 6), and `broken` (the 9,839 rejected taxa, which otherwise have no
+`node.name` and are unsearchable).
+
+```sql
 -- fossil taxa, attached to the tree rather than placed in it
 CREATE TABLE fossil (
-  -- Keyed on `taxon_no`, NOT `orig_no`. `orig_no` is not unique — 407,634
-  -- distinct values over 523,112 rows, 86,302 of them repeated, and
-  -- Dinosauria alone has ten rank-variant records sharing 52775. `taxon_no`
-  -- is unique and is what `parent_no`, `accepted_no` and GBIF's `sourceId`
-  -- all reference. `orig_no` is kept as an ordinary column.
-  pbdb_taxon_no   INTEGER PRIMARY KEY,
-  pbdb_orig_no    INTEGER NOT NULL,
+  pbdb_taxon_no   INTEGER PRIMARY KEY, -- unique; parent_no/accepted_no/GBIF sourceId ref it
+  pbdb_orig_no    INTEGER NOT NULL,    -- NOT unique; kept as ordinary column
   accepted_no     INTEGER NOT NULL,
   name            TEXT NOT NULL,
   rank            TEXT,
@@ -219,9 +168,9 @@ CREATE TABLE fossil (
   fea, fla, lea, lla  REAL,           -- the two appearance brackets
   lla_identified  REAL,               -- youngest end an *identified* member reaches
   young_end_occs  INTEGER NOT NULL,   -- occurrences sitting at it
-  lla_drawn       REAL,               -- where it may be drawn. see §7 and fossil-grafts §3
+  lla_drawn       REAL,               -- where it may be drawn. see §7
   n_occs          INTEGER NOT NULL,   -- notability signal
-  is_extant       INTEGER             -- nullable: 1.7% are genuinely unknown
+  is_extant       INTEGER             -- nullable: 1.7% genuinely unknown
 );
 CREATE INDEX fossil_attach ON fossil(attach_idx, n_occs DESC);
 
@@ -240,326 +189,201 @@ CREATE TABLE silhouette (
   phylopic_id TEXT PRIMARY KEY,
   license_url TEXT NOT NULL,
   attribution TEXT,                   -- original creator
-  contributor TEXT,                   -- uploader; differs 50% of the time,
-                                      -- not 31%. Measured across the whole
-                                      -- 12,863-image corpus: 6,437 disagree.
+  contributor TEXT,                   -- uploader; differs ~50% of the time
   commercial_ok INTEGER NOT NULL
 );
 ```
 
-~~Estimated ~600 MB with the FTS index. Combined with the arrays, the whole dataset is
-**under 700 MB**~~ — see the correction in §11. Measured on the built set the artifact
-set is **2,062.6 MB**: `concestor.db` is 1,925.0 MB and the arrays 137.5 MB. It still
-fits in a container image, but "stays resident in page cache on a small instance" needs
-a bigger small instance than this sentence had in mind, and `deployment.md` §1 is where
-that was sized against a real machine.
+The database is ~1.9 GB. `concestor-build package` reports the current artifact size
+every build — treat it as a reading, not a constant. It fits in a container image;
+`deployment.md` sizes it against a real machine.
 
 ### 3.4 Fossils attach to segments; they are not placed in the tree
 
-This is the design point the spec's caveat was reaching for, and the data supports it
-more strongly than expected: **only 0.5% of OTT taxa flagged `extinct` appear in the
-synthetic tree at all**. Fossils are not gaps in an otherwise complete topology. They
-are a parallel corpus with no topology of its own.
+Only 0.5% of OTT taxa flagged `extinct` appear in the synthetic tree at all. Fossils are
+a parallel corpus with no topology of its own.
 
-So at build time each PBDB taxon gets an **attachment point**: the deepest node in the
-synthetic tree that is an ancestor-or-self of it. Computed by walking PBDB's own
-`parent_no` classification hierarchy upward until a taxon resolves to an in-synth OTT
-node. *Tyrannosaurus* attaches to itself (it happens to be in the tree);
-*Triceratops* attaches to whatever its nearest in-synth ancestor is — Dinosauria, say.
+At build time each PBDB taxon gets an **attachment point**: the deepest node in the
+synthetic tree that is an ancestor-or-self of it, computed by walking PBDB's own
+`parent_no` classification upward until a taxon resolves to an in-synth OTT node.
+*Tyrannosaurus* attaches to itself; *Triceratops* attaches to its nearest in-synth
+ancestor (Dinosauria).
 
-The claim being made is therefore weak and honest: *"this taxon belongs somewhere below
-node X, and existed between these dates."* Not *"this taxon is the sister of that one."*
-The UI must not imply more.
+The claim is weak and honest: *"this taxon belongs somewhere below node X, and existed
+between these dates."* Not *"this taxon is the sister of that one."* The UI must not imply
+more.
 
-Segment query becomes an index scan:
+Segment query is an index scan on `attach_idx`, ordered by `n_occs DESC`. `n_occs` is the
+notability ranking — a genus with 400 occurrences is one people have heard of; a genus
+with 1 is a single paper.
 
-```sql
-SELECT * FROM fossil
- WHERE attach_idx IN (…suppressed nodes on this segment, plus its lower endpoint…)
- ORDER BY n_occs DESC;
-```
+### 3.5 Age provenance is a first-class field
 
-`n_occs` is the notability ranking. It is a real signal — a genus with 400 occurrences
-is one people have heard of; a genus with 1 is a single paper.
+Only 6.7% of the tree's tips are phylogenetically placed; the rest come from taxonomy
+alone. Any dating is overwhelmingly interpolating ages onto taxonomy-derived structure, so
+`age_tier` is stored per node and rendered visually — a date shown without that context
+misleads.
 
-### 3.5 Age provenance is a first-class field, not a footnote
-
-**Only 6.7% of the synthetic tree's tips are phylogenetically placed.** The other ~2.23M
-come from taxonomy alone. Any dating of this tree, including Duke et al.'s, is
-overwhelmingly interpolating ages onto taxonomy-derived structure.
-
-A date rendered without that context is a lie of omission, and this app's entire premise
-is putting dates on an axis. So `age_tier` is stored per node and rendered visually:
+**Four tiers.** `measured`, `interpolated` and `structural` all answer "when did these
+lineages part", from a chronogram of **extant** species. An extinct taxon never joins the
+chronogram, so it is `structural` by construction, not by measurement.
 
 | Tier | Meaning | Rendering |
 |---|---|---|
 | **measured** | matched a published chronogram node | solid, age label shown |
 | **interpolated** | between two measured nodes | lighter, age shown with a range |
-| **structural** | inside a taxonomy-only region | dashed spine, no numeric age; position is ordinal |
+| **structural** | taxonomy-only region, or extinct taxon | dashed spine, no numeric age; position ordinal |
+| **occurrence** | fossil appearance interval attached at the node | range mark spanning the interval; **never a point** |
 
-The third tier is the important one. In a structural region the horizontal axis stops
-meaning "time" and starts meaning "nesting depth", and the rendering has to say so. A
-dashed spine costs nothing and prevents the app from confidently asserting that two
-beetle genera diverged 46.3 Ma when nobody has ever estimated that.
+`occurrence` answers a different and weaker question than the first three: when the taxon
+is observed in the rock. It is written by **phase 4** (the `fossil` table does not exist
+until then), lives in the **`occurrence` table** rather than in `age_ma`, and renders as a
+range — no midpoint is computed anywhere. A stratigraphic range is an observation, not an
+estimate of divergence; keeping it out of `age_ma` is what stops a confident divergence
+number appearing on a dashed node.
 
-**All three rows describe divergence times, and the source has no extinct taxa in it.**
-That is a limit of the table, not of the data available to us. An extinct taxon never
-joins the chronogram, so it lands in row three by construction — 1,742 of the 1,743
-extinct-flagged nodes in the tree are `structural`, including *T. rex* and *Homo
-erectus*, which report "not estimated". Meanwhile §3.4's `fossil` table holds a
-first/last appearance bracket for most of them.
+**Three age arrays ship and must stay separate:**
 
-A fourth row is **decided and unbuilt**:
+- `age_ma` — what may be shown; NaN where nothing may be.
+- `age_tier` — how it renders.
+- `age_layout` — where to draw; finite everywhere.
 
-| Tier | Meaning | Rendering |
-|---|---|---|
-| **occurrence** | extinct, with a fossil appearance interval attached at the node itself | range mark spanning the interval; **never a point**, labelled as fossil occurrences rather than as an age |
-
-A stratigraphic range is an *observation of occurrence*, not an estimate of divergence:
-one says "specimens of this were in the ground between these dates", the other says
-"these two lineages parted". They are only superficially the same kind of number, which
-is why the row is separate and why the interval **lives in its own array and never in
-`age_ma`** — a rule that then costs no discipline to keep. The channel it needs reads as
-*bounded but not pinned* (§7), not as a fourth dash density.
-
-It is worth it because the alternative is worse. Every extinct taxon currently reports
-"not estimated", which to a curious reader is the app claiming to know nothing about
-dinosaurs — while §3.4's table holds a sourced range for most of them. Declining to show
-a real observation is not honesty; it is a different inaccuracy with better manners.
-Scope, measurements and the `fea` trap in handoff.md §7.
+Merging `age_ma` and `age_layout` to save space would put a confident number on every
+dashed node, the exact failure this split prevents. Phase 4 rewrites `age_layout` with the
+fossil brackets (so *T. rex* draws at 66.0 Ma, not 25.9), while `age_ma` stays untouched.
 
 ---
 
 ## 4. Backend
 
-### Recommendation: one static binary over mmap'd arrays plus read-only SQLite
-
-Go or Rust — **Go, decided; `serving-binary.md` has the reasoning.** The
-~~`topology.bin` / `meta.bin`~~ `build/topology/*.npy` arrays are mmap'd at startup;
-`concestor.db` is opened `immutable=1`. Both are baked into the container image.
+**One static Go binary over mmap'd arrays plus read-only SQLite.** The `.npy` arrays are
+mmap'd at startup; `concestor.db` is opened `immutable=1`. Both are baked into the
+container image. mmap ergonomics and mature read-only SQLite decided Go over Rust.
 
 - **No database server.** Nothing to provision, back up, fail over, or migrate.
 - **Stateless replicas.** Scale horizontally by adding containers.
-- **Atomic releases.** A rebuild is a new image tag. Rollback is a previous image tag.
-- **Version pinning is structural**, not conventional: the artifact set and the code that
-  reads it ship together, so there is no way to serve v16.1 dates against a v15.1
-  topology.
+- **Atomic releases.** A rebuild is a new image tag; rollback is a previous tag.
+- **Version pinning is structural**: the artifact set and the code that reads it ship
+  together, so v16.1 dates can never be served against a v15.1 topology.
 
-~~Image size ~700 MB.~~ **Measured, the deployable payload is 2,229 MB** — 2,062.6 MB of
-artifact set, 155.9 MB of mirrored silhouettes the server resolves and serves itself, and
-the 10.4 MB binary. That is large for a container and still fine for one that deploys on
-a release cadence rather than per-commit, but it is not the number this paragraph was
-written against; `deployment.md` §1 has the table and the RSS it actually needs.
+The deployable payload is ~2.2 GB — the artifact set, ~156 MB of mirrored silhouettes the
+server resolves and serves itself, and the ~10 MB binary. Large for a container, fine for
+one that deploys on a release cadence. `deployment.md` §1 has the RSS it actually needs
+(≈361 MB after startup).
 
 ### Endpoints
 
-| Route | Returns | Cost |
-|---|---|---|
-| `GET /v1/path/{key}` | ancestor chain: idx, key, name, rank, age, tier, tip_count, phylopic | 41 array reads + one batched SQLite lookup |
-| `GET /v1/search?q=` | typeahead candidates | one FTS5 query; a query that matches **nothing** costs a second one, on a corrected spelling — see below |
-| `GET /v1/segment/{upper}/{lower}` | intermediates + ranked fossils with brackets | one index scan |
-| `GET /v1/node/{key}` | detail panel: synonyms, sources, xref provenance, attribution | a few indexed lookups |
-| `GET /v1/timescale` | ICS intervals, ~40 KB, `immutable` | static |
-| `GET /v1/random-pool/{build_id}` | the two pools a random pick is drawn from — bare identifier lists, 13,918 nodes and 1,935 fossils, 114 KB of JSON | two full scans, 303 ms, run at most **once per process** — warmed in the background at startup, never on the request |
+| Route | Returns |
+|---|---|
+| `GET /v1/path/{key}` | ancestor chain: idx, key, name, rank, age, tier, tip_count, phylopic |
+| `GET /v1/search?q=` | typeahead candidates (one FTS5 query; a zero-match query costs a second, on a corrected spelling) |
+| `GET /v1/segment/{upper}/{lower}` | intermediates + ranked fossils with brackets |
+| `GET /v1/node/{key}` | detail panel: synonyms, sources, xref provenance, attribution |
+| `GET /v1/timescale` | ICS intervals, ~40 KB, `immutable` |
+| `GET /v1/random-pool/{build_id}` | the two pools a random pick draws from — bare id lists (13,918 nodes, 1,935 fossils, 114 KB); two full scans run once per process, warmed in the background at startup |
+| `GET /v1/about` | what is running; also the frontend boot probe and warm-up |
 
-All responses are long-lived and ETag'd by build id, because the data cannot change
-within a build. A CDN in front absorbs essentially all traffic — on Cloudflare that is
-Workers Cache, enabled in `web/wrangler.jsonc`, and `deployment.md` §5 is why the
-header alone was not enough to earn this sentence.
+**Caching.** All responses are ETag'd by build id. The ETag is `<build_id>-<code_id>`:
+`store.computeBuildID` hashes only the on-disk artifacts, so an ETag keyed on the dataset
+alone would let a code change to a response shape go unrevalidated. `/v1/about` publishes
+`build_id` (dataset) and `commit` (code) separately.
 
-**Long-lived, not `immutable`, and the lifetime is two numbers.**
-`public, max-age=3600, s-maxage=31536000`: a year for the edge, an hour for the
-browser. The data is immutable within a build and the *URL* names no particular
-build, which is the distinction the original header missed. A deploy is a new Worker
-version and Workers Cache is keyed by version, so the edge starts empty and can be
-trusted with the year; nothing corrects a browser, so it must be able to ask. The
-revalidation it then makes is answered by the edge out of its own fresh copy — a
-round trip to the nearest colo, not a container wake, which is the cost that matters
-(`deployment.md` §6.1).
+Most endpoints are `public, max-age=3600, s-maxage=31536000` — a year for the edge, an
+hour for the browser. The data is immutable within a build; a deploy is a new Worker
+version and Workers Cache (enabled in `web/wrangler.jsonc`) is keyed by version, so the
+edge starts empty and can be trusted with the year. Two special cases:
 
-**The build id in that ETag is the dataset's *and* the binary's**, written
-`<build_id>-<code_id>` — the container image tag's shape, for the container image
-tag's reason. `store.computeBuildID` hashes only the artifacts on disk, so an
-`immutable` keyed on it alone is a promise the server cannot keep about its own
-output: v0.23.0 added a field to `/v1/node` against an unmoved dataset and every
-warm cache went on serving the old shape, with `immutable` telling clients not to
-revalidate and so not to find out. `deployment.md` §5 has the account, including
-what it does not fix. The two ids stay separate everywhere else — `/v1/about`
-publishes `build_id` as the *dataset*'s name and `commit` as the code's, and
-merging them would change what the first one means to every consumer.
-
-**One endpoint is an exception now, and it used to be two.**
-
-This paragraph used to say that `/v1/random` is not cacheable **at all** and
-that this must stay true. It was right about the endpoint and wrong about the
-endpoint: a server-side draw is not a function of the build, so `no-store` with
-no ETag was the only honest header for it, and through the long-lived path a
-browser would have answered every later press from cache with the first pick —
-an endpoint that appears to work and never picks twice. The header was never the
-problem. **Drawing on the server was.**
-
-`/v1/random-pool/{build_id}` serves the two *pools* instead — bare identifier
-lists, which are a pure function of the build — and the client draws. It is
-`public, max-age=3600, s-maxage=31536000` with the ordinary ETag, and there is no
-`no-store` JSON on `/v1` any more. Three things follow:
-
-- The endpoint was **the most expensive in the app by 10–30×** in production and
-  is now two scans per container process. `deployment.md` §1 has the figures and
-  why they were invisible locally.
-- "Every pick this round is already on the canvas" became **structurally
-  impossible**. Which taxa are already drawn is a fact no request ever carried,
-  so the server had to over-ask candidates and hope; with the pool in hand the
-  exclusion happens before the choice.
-- The build id has to be **in the path**. A node index means nothing outside the
-  build that assigned it, and a year at the edge is long enough for a reader to
-  draw a plausible wrong animal out of a stale list. A mismatched id is refused
-  `404` + `no-store` rather than answered from the current pool, because
-  answering files build B's list under build A's URL.
-
-`handoff.md` §3 has the pools, the filters and the eleven things not to redo.
-
-`/v1/about` is cacheable but **short-lived**: `max-age=60, must-revalidate`, with
-the same ETag as everything else. It is a function of the build, so the validator
-is correct and the data was never the problem — the *question* was. This is the
-endpoint a deploy check, a monitor or a person asks "what is running", and even an
-hour is too long to answer it wrongly. It is not `no-store`, because it is fetched
-on every page load and that is the one path where a cold burst on half a vCPU is
-worth collapsing. It is also the frontend's **boot probe and warm-up**: a minute
-with `must-revalidate` is what makes it reach the container on every boot, so
-asking it first is what wakes a sleeping one. The `/healthz` fetch that used to
-do that job is deleted — it is a route on the Go mux, nothing routes a
-non-`/v1/*` path to the container, and in production it was answered
-`200 text/html` by the app's own shell, so it could not fail.
-`deployment.md` §5 has the account.
+- **`/v1/random-pool/{build_id}`** serves the two *pools* (pure functions of the build) so
+  the client draws; there is no `no-store` JSON on `/v1`. The build id is in the path
+  because a node index means nothing across builds; a mismatched id is refused
+  `404 + no-store` rather than answered from the current pool. Scans are warmed in a
+  background goroutine at startup. Exclusion of already-drawn taxa happens client-side
+  before the choice.
+- **`/v1/about`** is short-lived: `max-age=60, must-revalidate` — an hour is too long to
+  answer "what is running" wrongly. `must-revalidate` makes it reach the container on every
+  boot, so it doubles as the boot probe and warm-up; asking it first wakes a sleeping
+  container. (There is no `/healthz` probe: nothing routes a non-`/v1/*` path to the
+  container, and it was answered `200 text/html` by the SPA shell.)
 
 ### Search ranking
 
-FTS5 over names plus 2.2M synonyms, ranked by: exact match, then `tip_count`
-descending, then has-silhouette, then has-measured-age. Ranking ambiguous prefixes by
-subtree size is what makes "can" surface Canidae before *Cania*.
+FTS5 over names plus synonyms, ranked by: exact match, then `tip_count` descending, then
+has-silhouette, then has-measured-age. Ranking ambiguous prefixes by subtree size is what
+surfaces Canidae before *Cania*.
 
-**Known gap: OTT carries no vernacular names.** "Tyrannosaurus" works; "T. rex" and
-"dog" do not. For an app whose premise is inviting exploration, that is a serious UX
-hole, not a rough edge. **Closed.** Vernaculars are ingest ~~phase 5~~ **phase 6**, and
-they came from Wikidata rather than GBIF: `topology.py` never parses `sourceinfo` into
-the database and the snapshotted `simple.txt.gz` carries no vernacular names at all, so
-the GBIF half was never free. See [ingest.md](ingest.md) phase 6 and
-[name-ranking.md](name-ranking.md), which is how they are ordered.
+**Vernacular names** are ingest **phase 6**, from Wikidata (not GBIF: `topology.py` never
+parses `sourceinfo` and the snapshotted `simple.txt.gz` carries no vernaculars). Ordering
+is in [name-ranking.md](name-ranking.md).
 
-**A misspelled query is corrected, and the correction is shown.** This is the one
-place a request does more than "an FTS query and a join", and it is confined to the
-case where that query answered with nothing: `store.Suggest` looks the words up in a
-phonetic index built by the search phase, ranks the handful sharing a key by Damerau
-distance, and the *unchanged* pipeline above runs a second time on the result. So
-nothing about ranking moves and no query that worked pays anything — which is what
-makes it affordable on half a vCPU. `corrected` rides on the response beside
-`query`, because the palette must say the substitution happened rather than perform
-it silently; that is the same rule §6 states for an undated node. What it explicitly
-does **not** do is reach a name the corpus lacks — `hard maple` is a real name for
-*Acer saccharum* that phase 6 does not carry, it is refused by the key rather than
-by any threshold, and it stays a coverage gap. `handoff.md` §3 is the account.
+**A misspelled query is corrected, and the correction is shown, never performed.** Only
+when the query answers with nothing does `store.Suggest` run: it looks the words up in a
+phonetic index built by the search phase, ranks candidates sharing a key by Damerau
+distance, and re-runs the unchanged search on the result. `corrected` rides on the
+response beside `query`. It does not reach names the corpus lacks (`hard maple`, a real
+name for *Acer saccharum* not carried by phase 6, is refused by the key, not a threshold).
 
-### Rejected alternatives
+### Rejected data structures
 
-**Postgres.** Nothing here needs a query planner, transactions, concurrent writes, or
-connection pooling. It would add an operational dependency to serve data that never
-changes.
-
-**Fully static via `sql.js-httpvfs`** (SQLite over HTTP range requests, no backend at
-all). Genuinely tempting for a static dataset, and worth revisiting if the app ever
-needs to run offline. Rejected for now because FTS5 over 2.4M names through range
-requests is slow and unpredictable, and the segment drill-down is join-heavy enough to
-turn into a request storm. A 40 MB binary is a smaller price than that.
-
-**Graph database.** The tree is a tree. A parent pointer array is the correct data
-structure and it is four bytes per node.
+Postgres, `sql.js-httpvfs`, and a graph database were all considered and rejected: nothing
+here needs a query planner or transactions, FTS5 over 2.4M names through HTTP range
+requests is slow and unpredictable, and a parent-pointer array is the correct structure
+for a tree at four bytes per node.
 
 ### Progressive client-side topology
 
-~~`topology.bin`~~ **`parent.npy`** delta-encodes extremely well — preorder numbering
-guarantees
-`parent[i] < i` and usually close, so `i - parent[i]` varint-encodes to roughly
-**3–4 MB, ~2 MB Brotli**. Fetched in the background after first paint. Once resident,
-the client computes paths locally and stops calling `/path` entirely.
-
-This is a **progressive enhancement, not a requirement**. The app is fully functional
-against the server endpoint from the first frame; the download just removes the last
-network dependency from the interaction loop and enables a whole-tree context ribbon
-later. Never block first paint on it.
+`parent.npy` delta-encodes extremely well (preorder numbering guarantees
+`parent[i] < i`), varint-encoding to roughly 3–4 MB, ~2 MB Brotli. Fetched in the
+background after first paint; once resident, the client computes paths locally and stops
+calling `/path`. This is a **progressive enhancement**, never blocking first paint.
 
 ---
 
 ## 5. Identifier resolution
 
-You asked for an explicit resolution layer with a persisted mapping table and manual
-override, not fuzzy matching at query time. Agreed, and here is the specification.
-
 **All resolution happens at build time. The runtime never matches names.** The `xref`
 table is an artifact, reviewed like code.
 
-### Methods, in strict precedence order
+### Methods, in strict precedence order (as shipped in `fossil_attach_method`)
 
-| # | Method | Source | Confidence |
-|---|---|---|---|
-| 1 | `manual` | curated TSV in the repo | 1.00 |
-| 2 | `ott_sourceinfo` | OTT's own `sourceinfo` column | 0.99 |
-<!-- This resolves *ids*, and it is the reason three documents claimed GBIF
-     vernacular names arrive free with no new resolution work. They do not:
-     `topology.py` never parses `sourceinfo` into the database, and the
-     snapshotted `simple.txt.gz` carries no vernacular names at all. Common
-     names come from Wikidata P9157 and the PBDB ColDP archive. -->
-| ~~3~~ **5** | `phylopic_resolve` | PhyloPic `/resolve/opentreeoflife.org/taxonomy/{ott}` | 0.98 |
-| ~~4~~ **3** | `gbif_pbdb_chain` | PBDB `taxon_no` → GBIF legacy `taxonID` → `nubKey` → OTT | 0.90 |
-| **4** | **`gbif_backbone_provenance`** | the offline half of the same chain — `simple.txt.gz` cols 8 and 10 | 0.85 |
-| ~~5~~ **6** | `name_exact` | exact string, **unique** candidate only | 0.70 |
-| ~~6~~ **7** | — | ambiguous or unmatched → `idx = NULL`, candidates recorded | 0.00 |
+| Method | Source | Confidence |
+|---|---|---|
+| `manual` | curated TSV in the repo | 1.00 |
+| `ott_sourceinfo` | OTT's own `sourceinfo` column (resolves ids only) | 0.99 |
+| `gbif_pbdb_chain` | PBDB `taxon_no` → GBIF legacy `taxonID` → `nubKey` → OTT | 0.90 |
+| `gbif_backbone_provenance` | offline half of the same chain (`simple.txt.gz` cols 8, 10) | 0.85 |
+| `phylopic_resolve` | PhyloPic `/resolve/opentreeoflife.org/taxonomy/{ott}` | 0.98 |
+| `name_exact` | exact string, **unique** candidate only | 0.70 |
+| — | ambiguous or unmatched → `idx = NULL`, candidates recorded | 0.00 |
 
-**Two corrections to that table, neither of which changes an argument.** It disagreed
-with ingest.md phase 3 on where `phylopic_resolve` ranks — 3rd here against 5th there —
-and it omitted `gbif_backbone_provenance` entirely. The build follows **ingest.md's
-order** and **this document's confidences**, and `fossil_attach_method` in the database
-is the order as shipped. It is moot in practice, because the source namespaces are
-disjoint: nothing PhyloPic resolves is ever a candidate for the PBDB chain.
+The build follows **ingest.md's ordering** and **this document's confidences**; the
+namespaces are disjoint, so PhyloPic and PBDB never compete. `ott_sourceinfo` is
+**many-to-one** (*Amanita muscaria* carries six NCBI ids), so the table holds a list.
 
-Method 2 is nearly free and covers a lot: OTT already stores NCBI, GBIF, IRMNG, WoRMS,
-Index Fungorum, and SILVA ids verbatim. Note it is **many-to-one** — *Amanita muscaria*
-carries six NCBI ids — so the table holds a list, never a scalar.
+The PBDB chain is what makes fossils work, at ~48.2% end-to-end yield. **There is no fuzzy
+method.** `name_exact` requires exactly one candidate; a name yielding two goes to review
+with its candidates recorded, because 16% of PBDB genus names hit multiple GBIF keys
+including cross-kingdom homonyms.
 
-The PBDB chain is the one that makes fossils work, at ~~59%~~ **48.2%** end-to-end
-yield — measured on 253 checklist records against the 120 the ~59% came from, with the
-first hop *better* than recorded (92.9%) and the second materially worse (51.9%). See
-data-sources §4 and phase3-pbdb-path.md §5 for the verified chain and its decay risk,
-and ingest.md phase 3's gates for why the two hops are scored separately.
-
-**There is no fuzzy method.** Method 5 requires an exact string match yielding exactly
-one candidate. If a name yields two, it is not resolved — the candidates are recorded in
-the `candidates` column and the row goes to review. This is the whole point: 16% of PBDB
-genus names hit multiple GBIF keys, including cross-kingdom homonyms like `Laminarites`
-in both Chromista and Plantae. A system that silently picks one is worse than a system
-that admits it doesn't know.
+**`refuse_disagreements`** (phase 3) withdraws a resolution where PBDB calls a taxon
+extinct, OTT's same-named taxon carries no extinct flag, and the node still has a
+chronogram-dated descendant — this catches homonyms across kingdoms (PBDB's *Ivesia* is an
+Ediacaran rangeomorph; OTT's is a rose-family plant). Load-bearing ordering: the extancy
+sweep runs **before** the ambiguity sweep (so `Scopus` keeps the hamerkop instead of
+losing both); it needs phase 2's `age_ma` as a living-lineage guard (without it 1,162
+correct attachments go); and `manual` overrides are exempt.
 
 ### Manual override
 
-Overrides live in `data/overrides.tsv`, git-tracked, one row per decision with a
-required `reason` column:
-
-```
-source  source_id  ott_id   reason
-pbdb    38613      664348   verified via GBIF nubKey 4822631, 2026-07-31
-pbdb    52983      NULL     Brontosaurus/Apatosaurus synonymy unstable; suppress
-```
-
-Git-tracked rather than in the database, deliberately. An override is a judgement call
-about contested taxonomy, and judgement calls need review, attribution, and history —
-all of which a database row silently loses.
+Overrides live in `data/overrides.tsv`, git-tracked, one row per decision with a required
+`reason` column. Git-tracked rather than in the database because an override is a judgement
+call about contested taxonomy, and judgement calls need review, attribution, and history.
 
 ### Reconciliation report
 
 Every build emits `build/reconciliation.json`: resolution counts by method, new
-ambiguities since the last build, **regressions** (previously-resolved ids that now
-fail), and forwards chased. The regression count is the one to gate on. A build that
-loses 10,000 previously-working PBDB mappings has a broken upstream snapshot, and that
-should fail the build rather than quietly degrade the fossil layer.
+ambiguities, **regressions** (previously-resolved ids that now fail), and forwards chased.
+The regression count is the one to gate on — a build that loses previously-working
+mappings has a broken upstream snapshot and should fail rather than degrade quietly.
 
 ---
 
@@ -568,476 +392,241 @@ should fail the build rather than quietly degrade the fossil layer.
 ### Source
 
 Duke et al. 2026 `equal_splits_median_tree.tre` (Zenodo `10.5281/zenodo.19049120`,
-CC-BY), keyed to OTT 3.7.3 against synthesis v16.1 — the same release we build the
-topology from. Ages join by node, with no grafting step. `birth_model_median_tree.tre`
-is ingested alongside as a comparison layer.
+CC-BY), keyed to OTT 3.7.3 against synthesis v16.1 — the same release the topology comes
+from. Ages join by node, with no grafting step. `birth_model_median_tree.tre` is ingested
+alongside as a comparison layer.
 
-This replaces the congruification pipeline the spec anticipated. That pipeline
-(hash-matching shared taxon sets between incongruent topologies, then BLADJ
-interpolation) is retained only as a documented fallback if phase-2 validation rejects
-the Duke tree. See ingest.md.
+**The Duke et al. dated tree is accepted** (phase 2, 32/32 gates). A bifurcating
+chronogram cannot be node-for-node compatible with a ~12,964-way polytomy, so the criterion
+was restated rather than the data changed: the 947 genuinely contradicted nodes are demoted
+to the `structural` tier and render without a number. **Do not start the fallback
+congruification pipeline** (hash-matching shared taxon sets, then BLADJ interpolation) — it
+is weeks of work for a less defensible time axis, retained only as a documented fallback.
 
-Build-time validation: every node's age must be ≥ its children's. Violations are
-counted and reported; a nonzero count in a region we intend to render as `measured`
-fails the build.
+Build-time validation: every node's age must be ≥ its children's. A nonzero violation
+count in a region intended to render as `measured` fails the build.
 
-**The source is extant-only, and that has a layout consequence, not just a coverage
-one.** Undated runs are positioned by spreading them between the nearest dated ancestor
-and the deepest dated *descendant*. An extinct lineage has no dated descendant, so the
-spread has nothing to anchor its lower end and drags the whole run toward the present:
-*T. rex* is drawn at 25.9 Ma, and Cambrian trilobites land in the Neogene. This is not
-the ordinal-position caveat working as intended — an ordinal position between two real
-bounds is honest, and a position 450 Ma past the taxon's last fossil is not, while the
-two render identically. The fix belongs to the fossil layer (§3.4) and cannot live in
-this phase; handoff.md §7 has the measurements and the phase-ordering constraint.
+**The source is extant-only**, which has a layout consequence: undated runs are positioned
+by spreading them between the nearest dated ancestor and deepest dated *descendant*. An
+extinct lineage has no dated descendant, so the spread drags toward the present (*T. rex*
+would draw at 25.9 Ma, Cambrian trilobites in the Neogene). The fix belongs to the fossil
+layer (§3.4, phase 4's `age_layout` rewrite) and cannot live in phase 2.
 
 ### Scale
 
-Linear and logarithmic, toggleable, as specified. Two things to get right:
+Linear and logarithmic, toggleable. **Log of time-before-present is undefined at the
+present** (`log(0) = -Infinity`), so the mapping is a **symlog**: linear from 0 to a
+threshold `t₀` (1 Ma default), logarithmic above. The knee is marked with a visible tick.
+Log mode is what makes the app usable — linear time puts every hominin divergence inside
+one pixel next to the Cambrian. `ageFrac(age, maxAge, mode)` in `web/src/tree/layout.ts`
+is the single mapping; `layout()`, `toScreenX` and its inverse all take the mode.
+`AxisMode` is defined once, in `layout.ts`.
 
-**Log of time-before-present is undefined at the present.** `log(0)` is where a naive
-implementation produces `-Infinity` and the layout silently collapses. Use a **symlog**:
-linear from 0 to a threshold `t₀` (1 Ma is a reasonable default), logarithmic above.
-
-**Mark the transition.** The axis changes character at `t₀`, and a scale that bends
-without saying so misleads. A visible tick treatment at the breakpoint costs one
-gridline and keeps the chart honest.
-
-The log mode is what makes this app work at all: linear time puts every hominin
-divergence inside one pixel next to the Cambrian. The point of the toggle is to make the
-last 10 Ma legible without losing the other 4,000.
-
-**The toggle is a scale and not a caption.** It shipped once as neither — `axisMode`
-reached the axis strip, where it removed the knee marker and changed one word in the
-footer, and never reached the layout, which computed `x` from `symlogFrac` in both
-modes. "Linear" was therefore the symlog view with its warning taken off, which is the
-one arrangement worse than either scale. `ageFrac(age, maxAge, mode)` in
-`web/src/tree/layout.ts` is now the single mapping, and `layout()`, `toScreenX` and its
-inverse all take the mode. `AxisMode` has one definition, in `layout.ts`; the copy that
-used to sit in `state/store.ts` re-exports it.
-
-**The axis belongs to the canvas, not to the selection.** It ran from the present to
-`maxAge` — the deepest node in whatever is currently drawn — so it began abruptly and
-unlabelled wherever that root happened to fall, and moved every time a species was
-added. It now runs to the **Big Bang, 13787 Ma** (Planck 2018's ΛCDM figure, quoted in
-Ma to match the rest of the axis), and stops there: no rule, no tick, no band beyond it.
-`maxAge` still normalises the *scale* — it is what puts the deepest node at the left of
-the plot — and the layout is unchanged.
-
-The geologic band does **not** run that far. `chart.ttl` starts at the Hadean's
-`begin_ma`, so the coloured strip stops at 4567 Ma and 9,220 Ma of bare axis runs on
-beyond it. That stretch is most of the diagram rather than a gap in it, and both of its
-ends carry a marker the way the knee does — *Earth forms* where the band starts and
-*Big Bang* where the axis does. The two labels share the bare stretch, so they take
-different rows (the Earth's in the band's row, which is empty exactly there) and drop
-their figures on the same measure rather than one running under the other's marker.
-
-The general rule this is an instance of: **an edge a reader cannot account for is worse
-than one that runs off the screen.** Where the axis genuinely continues past the
-viewport — a shallow selection puts 4567 Ma far off to the left — it is left to run off,
-and nothing is drawn to suggest otherwise.
-
-**The present is named, not numbered.** The tick at 0 reads "present", in the same lower
-case an extant tip already carries on the canvas (*Homo sapiens* · present). It is a
-place on the axis rather than a quantity, and "0" made a reader work out which end they
-were looking at. Tick collision is consequently measured between label *boxes* rather
-than centre to centre — a flat gap was fine while every tick was one to four characters
-and stopped being fine the moment one of them was seven.
-
-**Ticks come from the visible window, not from the tree.** A fixed set of ten ages
-(`[0, 1, 10, 66, 100, 252, 541, 1000, 2500, 4000]`) fails twice over: nothing between 1
-and 10 means human-and-chimp, whose whole tree is inside 7 Ma, draws an axis carrying the
-single number `0`; and any zoom past the fit pushes all ten off-screen and leaves the
-strip blank. The axis now inverts screen x back to age, generates a 1–2–5 ladder over
-what is actually on screen, and places candidates by *priority* — the present, then the
-boundaries a reader recognises (66, 252, 541), then powers of ten — so 50 Ma never
-crowds out the K–Pg.
+**The axis belongs to the canvas, not the selection.** It runs to the Big Bang
+(13787 Ma) and stops — no rule, tick, or band beyond it; `maxAge` (deepest drawn node)
+still normalises the scale. The geologic band stops at 4567 Ma (`chart.ttl` starts at the
+Hadean's `begin_ma`); both ends carry a marker (*Earth forms*, *Big Bang*). Where the axis
+continues past the viewport it is left to run off — an edge a reader cannot account for is
+worse than one off-screen. **The present is named, not numbered** (the 0 tick reads
+"present"); collision is measured between label boxes. **Ticks come from the visible
+window**: the axis inverts screen x to age, generates a 1–2–5 ladder over what is on
+screen, and places candidates by priority (present, then boundaries 66/252/541, then
+powers of ten), so a zoom follows the view.
 
 ### Geologic scale bar
 
-From ICS `chart.ttl` (v2026/06, CC-BY, 178 concepts, 100% with official CGMW colors),
-parsed once at build into ~40 KB of JSON. Rendered as bands with level of detail driven
-by pixels-per-Ma — **per region, not per axis**.
+From ICS `chart.ttl` (v2026/06, CC-BY, 178 concepts, official CGMW colors), parsed once at
+build into ~40 KB of JSON. Bands with level of detail driven by pixels-per-Ma **per region,
+not per axis** (on a log scale one rank across the whole strip is never right). The band is
+grown down the ICS containment tree (`parent` is in the payload): a node hands over to its
+children when the children that carry their own names cover ≥ 70% of its width. Zooming
+refines it; panning does not. **A band is labelled with its whole name or not at all** —
+every abbreviation is worse than silence, and the name-aware tiling never makes a split that
+would leave its children unnameable.
 
-One rank across the whole strip is what this originally said, and it cannot be right
-anywhere on a log scale: the same view that gives the Cenozoic 225 px gives the
-Neoproterozoic 29. Picking the rank by the median band width therefore chooses between
-"PHANEROZOIC" written across two thirds of the screen and a Precambrian of unreadable
-slivers. The band is instead grown down the ICS containment tree (`parent` is in the
-payload) from its roots, and a node hands over to its children when the children that
-can carry *their own names* cover ≥ 70% of its width. So one strip reads Proterozoic,
-Paleozoic, Mesozoic, Paleogene, Miocene, Pliocene, Pleistocene — every band named in
-full, coarse at the deep end and fine at the recent one. Zooming refines it; panning
-does not change it, because legibility is measured on the whole interval rather than on
-the part on screen.
-
-Two cheaper split rules are wrong on real intervals and were tried: "all children fit"
-lets one 37-pixel Paleozoic hold the entire Phanerozoic at Eon, and counting legible
-children rather than measuring them fails on the Quaternary, whose two children are a
-screen-wide Pleistocene and an 11,700-year Holocene.
-
-A band is labelled with its whole name or not at all. Every abbreviation available here
-is worse than silence: a fixed three-character truncation puts "NEO" on a strip holding
-both a Neogene and a Neoproterozoic, and the shortest-unambiguous-prefix rule produces
-"Jura", "Lowe" and "Upper C". Making the *tiling* name-aware is what makes that
-affordable — a split that would leave its own children unnameable does not happen.
-
-**This is the one genuine collision with [design-reference.md](design-reference.md).**
-The official CGMW palette is warm and highly saturated — Permian orange, Triassic purple,
-Jurassic blue, Devonian brown — and the design language is emphatic: cool throughout, low
-saturation, no warm-orange palette, and "the glow comes from the data, nowhere else."
-
-The design language wins, with the convention preserved where it still pays. The original
-argument for exact CGMW colour was that it "reads as authoritative to someone who knows
-the field" — which is precisely the audience this product is *not* for. So:
-
-- **Keep the official hue *relationships*, drop the official saturation and luminance.**
-  Periods stay distinguishable and stay in their familiar relative order, but the band is
-  dim, desaturated and recessive.
-
-  ~~Periods stay distinguishable~~ — **not everywhere, and the two claims in this
-  section are in tension.** ICS separates the four Paleoproterozoic periods (Siderian
-  → Statherian) almost entirely by a *lightness* ramp, which is the exact channel this
-  bullet instructs us to drop: they span 10.5° of hue, and their **official** minimum
-  pairwise distance is 0.022 — already at the edge of a just-noticeable difference before
-  we touch it. After contraction it is 0.0049, below it. No value of the contraction
-  factor that keeps the band recessive fixes that, because the flatness is ICS's rather
-  than ours. The next bullet is the resolution, and a reader should not have to discover
-  that for themselves. So the timescale phase gates the contraction as **faithful** —
-  every pairwise distance scaled by exactly `K = 0.22`, hue bit-preserved — rather than
-  gating a distinguishability it cannot deliver; `period sibling min ΔE` reports the
-  number as an `observe` so it cannot be lost. `timescale.py`'s module docstring is the
-  full derivation.
-- **The band never glows.** It is a reference scale at the edge of the canvas, not data.
-  Nothing in it should compete with a trace for attention.
-- Wayfinding comes from labels and hairline dividers first, hue second.
-
-A geologist will still recognise the column. Nobody will mistake it for the subject.
+**Palette.** The design language wins over CGMW convention: keep the official hue
+*relationships*, drop the saturation and luminance (dim, desaturated, recessive). Every
+pairwise distance is scaled by `K = 0.22`, hue bit-preserved, gated as **faithful** rather
+than as a distinguishability the flat ICS Paleoproterozoic ramp cannot deliver. The band
+never glows; wayfinding is labels and hairline dividers first, hue second.
 
 ---
 
 ## 7. Rendering
 
-**[design-reference.md](design-reference.md) is authoritative on the visual language,
-the command surface, motion, and the stack.** This section records only what is specific
-to *this* data — the parts a general design language cannot know — and the three places
-where the two documents had to be reconciled.
+[design-reference.md](design-reference.md) is authoritative on the visual language, command
+surface, motion, and stack. This section records only what is specific to *this* data.
 
-### The rendered set is tiny, which is what makes the whole approach affordable
+### The rendered set is tiny
 
-The dataset is 2.4M leaves. **The rendered set is not.** `|L|` selections produce at most
-`2|L| − 1` nodes after suppression: ten species is nineteen nodes, verified exactly by
-the walking-skeleton renderer. A drill-down lane adds tens more. We are drawing dozens to
-low hundreds of elements.
+The dataset is 2.4M leaves; the rendered set is not. `|L|` selections produce at most
+`2|L| − 1` nodes after suppression — ten species is nineteen nodes; a drill-down lane adds
+tens more. Drawing dozens to low hundreds of elements is what makes xyflow v12 viable (real
+text, `getTotalLength()` draw-on animation, inline SVG silhouettes, native hit-testing,
+accessibility). The large source dataset is the wrong number to optimize against.
 
-That is what makes React Flow / xyflow v12 viable, and it is the number to watch. React
-Flow renders edges as SVG paths, which keeps everything the visual-quality requirement
-needs: real text with proper font features, `getTotalLength()` draw-on animation, inline
-SVG silhouettes, native hit-testing, and accessibility that works without
-reimplementation. Reaching for WebGL because the *source* dataset is large would be
-optimizing the wrong number. WebGL becomes relevant only if the whole-tree context ribbon
-gets built, which is a separate view with a separate renderer.
+### Layout — do not use a graph-layout engine
 
-### Layout — the one place the design reference must not be taken literally
-
-design-reference.md calls for a deterministic hierarchical layout, no force-direction,
-positions computed and never simulated, nodes not draggable. **All of that holds.** But
-it also suggests `d3-hierarchy / ELK / dagre`, and a graph-layout engine would assign `x`
-by *depth*. Here `x` is *time*:
+The layout is deterministic, computed, not simulated; nodes are not draggable. A graph
+engine (dagre/ELK/d3-hierarchy) would assign `x` by depth, but here:
 
 ```
 x = f(age_ma)      symlog, linear below t₀ = 1 Ma, logarithmic above   (§6)
 y = tip lane       assigned by preorder idx                            (§3.1)
 ```
 
-Running dagre or ELK over this would silently destroy the time axis, which is the one
-thing the layout is for. Use them for nothing, or at most for `y`-packing. The layout is
-already deterministic and already computed — it does not need a solver, and it must not
-get one.
+A solver would silently destroy the time axis. Two properties fall out of preorder
+numbering: lane assignment is stable by construction (adding a leaf inserts in place), and
+an internal node's `y` is the midpoint of its children's extent (so a lane keeps its
+position and hue across renders). Edges are orthogonal with a small corner radius
+(`M x1 y1 L x1 y2 L x2 y2`); convergent branches are ambiguous under bezier.
 
-Two properties fall out of preorder numbering and are worth naming, because the design
-language depends on both:
+### Provenance needs a channel luminance has already taken
 
-- **Lane assignment is stable by construction.** Sorting selected leaves by `idx` gives a
-  canonical vertical order; adding a leaf inserts it in place and never permutes the
-  others. That is exactly the "motion preserves object identity" requirement, obtained
-  from the numbering scheme rather than maintained in layout code.
-- **Internal node `y` is the midpoint of its children's extent**, so a lane keeps its
-  position — and therefore its hue — across renders.
+Brightness is reserved for recency and selection, never data value. Provenance (§3.5) is a
+data value the app must render, so it gets:
 
-Edges are orthogonal with a small consistent corner radius, per the design reference. The
-skeleton renderer already draws them this way (`M x1 y1 L x1 y2 L x2 y2`); convergent
-branches are genuinely ambiguous under bezier.
+- **`structural` tier — no numeric age at all.** The hard requirement: a dashed edge and an
+  absent number, never a confident figure where nobody estimated one.
+- **Dash pattern** for the edge (not stroke width, so it keeps uniform stroke weight; reads
+  as inferred).
+- **Desaturation** for `interpolated`, between measured and structural.
 
-### Provenance needs a channel that luminance has already taken
-
-design-reference.md reserves brightness for **recency and selection, never data value**.
-But age provenance (§3.5) *is* a data value, and one the app is obliged to render, since
-the whole premise is putting dates on an axis.
-
-So provenance does not get luminance. It gets:
-
-- **`structural` tier — no numeric age at all.** This is the hard requirement and the
-  only one that really matters. A dashed edge and an absent number, never a confident
-  figure where nobody has estimated one.
-- **Dash pattern for the edge.** Dash is not stroke *width*, so it does not violate
-  "uniform stroke weight, encode meaning in luminance and hue", and it reads
-  conventionally as inferred rather than measured.
-- **Desaturation for `interpolated`**, sitting between measured and structural.
-
-`structural`-tier nodes are positioned ordinally between their nearest dated ancestor and
-descendant. In those regions the horizontal axis stops meaning time and starts meaning
-nesting depth, and the rendering has to say so.
-
-**"And descendant" is true of 2.8% of them, and any prose repeating this sentence to a
-reader is wrong about the other 97.2%.** Every age in the artifact set comes from a
-chronogram of *extant* species, so a dated descendant is nearly always a tip sitting at
-the present and the fill runs from the ancestor down to zero. Measured over the 186,317
-structural nodes in build `854cdfa42f77e78e`:
-
-| | nodes | share |
-|---|---|---|
-| dated descendant older than the present | 5,168 | 2.8% |
-| lower end of the span **is** the present | 181,149 | 97.2% |
-| upper bound is an `mrcaott…` node, so has no name to print | 45,428 | 24.4% |
-| upper bound sits at the present itself — **no span at all** | 49,240 | 26.4% |
-| upper bound both nameable and older than the present | 91,680 | 49.2% |
-| no dated ancestor | 0 | 0% |
-
-Two consequences. The last row is what lets any surface promise to name *something*: the
-ancestor side is always answerable. And the fourth row is a case the sentence above does
-not describe at all — where the bounds coincide `layout_ages` collapses the node onto the
-bound rather than inventing room, so it was not positioned "between" anything.
-`topo.LayoutSpreadFor` recovers both bounds from the arrays (a contiguous subtree scan;
-preorder makes it `[idx, subtree_out[idx])`, and a structural subtree is 1 node at the
-median and 38 at the 99th percentile), `/v1/node` serves them as `layout_spread`, and
-`web/src/detail/spread.ts` turns them into the four sentences the four cases need.
-`server/internal/topo/bounds_test.go` pins the census, so this table fails a build rather
-than going quietly stale.
-
-**The channel is one bit short and it shows on extinct taxa.** Dash currently says only
-"this position is ordinal". It cannot distinguish an ordinal position sitting between two
-real bounds from one that has no lower bound at all and has drifted to the present — and
-the second is where *T. rex* renders in the Oligocene (§6). If the fourth tier in §3.5 is
-ever built, it needs a treatment that reads as *bounded but not pinned* — a range mark, a
-bracketed extent — rather than a fourth dash density, because dash density is already
-carrying an ordering the eye reads as confidence and a fossil bound is more certain than
-what sits above it, not less.
+`structural` nodes are positioned ordinally between nearest dated ancestor and descendant.
+Because the source is extant-only, a dated descendant is nearly always a tip at the present,
+so most structural fills run from the ancestor down to zero; the ancestor side is always
+answerable. `/v1/node` serves `layout_spread` (both bounds, recovered from the arrays by a
+contiguous subtree scan); `web/src/detail/spread.ts` turns them into the sentence each case
+needs. The dash channel cannot distinguish an ordinal position between two real bounds from
+one with no lower bound that has drifted to the present; the `occurrence` tier's range mark
+(§3.5) is the treatment for that, reading as *bounded but not pinned*.
 
 ### The signature interaction
 
-design-reference.md specifies it in full and it is the product; that spec governs. Two
-notes from the data side:
-
-**The MRCA is free.** It is the last common element of the two ancestor paths (§2), which
-are already in memory from the layout pass. There is no separate query and no server
-round trip, so the `t=80` flare can fire in the same frame as the click.
-
-**Draw order is root-ward → leaf-ward, lightly staggered**, and the segment list for that
-is already computed: a rendered edge carries the ordered list of suppressed intermediate
-nodes between its endpoints (§2). Stagger over those.
-
-Honor `prefers-reduced-motion` by cutting to the final state and keeping the glow static.
+design-reference.md specifies it in full. Two notes from the data side: **the MRCA is
+free** (the last common element of the two ancestor paths, already in memory), so the flare
+fires in the same frame as the click; and **draw order is root-ward → leaf-ward, lightly
+staggered** over the segment's already-computed suppressed nodes. Honor
+`prefers-reduced-motion` by cutting to the final state.
 
 ### Drill-down (interaction 3)
 
 Clicking a segment expands it into a lane beneath the main chronogram, sharing the time
-axis so everything stays comparable:
+axis:
 
-- **Intermediate OTT nodes** on the spine at their ages, ranked by `tip_count` and
-  whether they carry a named rank. These are the "notable entries" — Synapsida,
-  Therapsida, Cynodontia on the way to mammals.
-- **PBDB fossil taxa** as time-range bars beside the spine, ranked by `n_occs`, drawn
-  with the **double bracket**: faded envelope `fea→lla` (maximal possible extent), solid
-  bar `fla→lea` (minimal certain extent). Anything else misrepresents PBDB's uncertainty
-  model.
+- **Intermediate OTT nodes** on the spine at their ages, ranked by `tip_count` and named
+  rank — Synapsida, Therapsida, Cynodontia on the way to mammals.
+- **PBDB fossil taxa** as time-range bars, ranked by `n_occs`, drawn with the **double
+  bracket**: faded envelope `fea→lla` (maximal possible extent), solid bar `fla→lea`
+  (minimal certain extent).
 
-  > **Amended by the build.** The four bounds do *not* form a chain. `fea ≥ fla`,
-  > `lea ≥ lla`, `fea ≥ lea` and `fla ≥ lla` each hold for all 410,615 rows carrying
-  > four bounds; **`fla ≥ lea` holds for 39.6%**. A taxon known from one stratigraphic
-  > interval has both appearances inside it, so the two cross. For the other **60.4%
-  > there is no certain extent at all** and the solid bar must be left *undrawn* — not
-  > zero-width, which reads as precision, and not inverted. Three cases, not two.
+The four bounds do **not** form a chain. `fea ≥ fla`, `lea ≥ lla`, `fea ≥ lea` and
+`fla ≥ lla` all hold, but **`fla ≥ lea` holds for only 39.6%** of rows (a taxon known from
+one stratigraphic interval has both appearances inside it). For the other 60.4% there is no
+certain extent and the solid bar must be left *undrawn* — not zero-width (reads as
+precision), not inverted.
 
-  > **Also amended: the young end is not always a fact about the named taxon.**
-  > PBDB's `lastapp_min_ma` aggregates a taxon's whole subtree, so a young end below
-  > every descendant's can only rest on material catalogued no finer than the taxon
-  > itself — a `Stegosaurus sp.` **10,655 taxa** are like this, and the bracket above
-  > is still drawn from PBDB's four bounds unchanged. What moves is the *position*:
-  > `lla_drawn` is the only column a mark's x may read, and on **7,802 rows** it
-  > differs from `lla`. *Stegosaurus* drawn at `lla` sits in the Cenomanian, 50 Myr
-  > after the animal, on the strength of one occurrence. The card prints PBDB's range
-  > and says the difference in words. See fossil-grafts.md §3.
-- Visually distinct from the spine, because they are annotations on a segment, not
-  resolved positions within it. Offset lane, different mark, no connecting edges to
-  siblings.
-- ~21% of PBDB taxa have no appearance interval at all. They get an explicit
-  "no range recorded" treatment, not a zero-width bar.
+**The young end is not always a fact about the named taxon.** PBDB's `lastapp_min_ma`
+aggregates a taxon's whole subtree, so a young end below every descendant's rests on
+material catalogued no finer than the taxon itself (a `Stegosaurus sp.`). `lla_drawn` is the
+only column a mark's x may read; where it differs from `lla`, the card prints PBDB's range
+unchanged and states the difference in words. ~21% of PBDB taxa have no interval — an
+explicit "no range recorded" treatment, not a zero-width bar. See
+[fossil-grafts.md](fossil-grafts.md) §3.
 
 ### Silhouettes
 
-Priority-one work. For a curious non-specialist an image is what makes a clade mean
-anything, and it is the third of the three things this product is for.
+Priority-one work: for a non-specialist an image is what makes a clade mean anything.
+PhyloPic SVGs from the local mirror (~136 MB corpus). Monochrome, so `fill: currentColor`
+lets them take the trace colour including the selection bloom. A silhouette legitimately
+represents a *clade*, where a photograph represents one member.
 
-PhyloPic SVGs from the local mirror (~136 MB for the full corpus — mirroring removes a
-runtime dependency and the build-number churn described in data-sources).
+Resolution is baked; there is no client-side climb. It lives in `node_image` (not
+`node.phylopic_id`), which carries the drawing's own node, the shared clade, the climb, and
+the method. Coverage is 100% and is **not** the thing to measure — every node resolving to
+*an* image says nothing about whether the image is about anything. The size of the claim is
+`node_image.clade_idx`, the smallest clade containing both the node and the drawing, and
+that is what the UI renders. Only 12,863 drawings exist for 2.7M nodes, so a borrowed
+drawing is drawn with the group it speaks for and how large that group is rather than
+withheld.
 
-Silhouettes are monochrome, so `fill: currentColor` drops them straight into a dark
-instrument and lets them take the trace colour, including the selection bloom. That is a
-real advantage over photographs, alongside the one that matters more: a silhouette
-legitimately represents a *clade*, where a photograph can only represent one member.
-Rendering a mole for "Mammalia" is worse than rendering nothing.
+**A divergence carries a second picture.** `node_image` prefers the most inclusive drawing
+beneath a node, which at a *split* is a crown group that did not exist yet. So internal
+nodes also carry a **witness** in `node_divergence_witness`: a fossil taxon from *somewhere
+below the fork* whose stratigraphic bracket puts it at the split (*Acanthostega gunnari*,
+*Eohippus*, *Pakicetus*, *Sahelanthropus* — 885 forks). It hangs off phase 4's
+`attach_idx`, so it makes §3.4's weaker claim, and the caption renders `attach_walk` as
+bands. Four refusals: the fork must be dated (falling back to `age_layout`), the taxon must
+carry a bracket, the fork must lack its own image, and the taxon must be **extinct AND have
+ended before the Holocene** (`is_extant` alone is not enough — PBDB flags the living turtle
+grass extinct, and a range running to the present cannot fail to contain a recent split).
 
-> **Amended by the build.** That last sentence is right and was read too widely. It is
-> about a *specific* node wearing a picture of something far broader, and the number
-> that decides it is `node_image.clade_idx` — the smallest clade containing both the
-> node and the drawing. Mammalia has an image of its own and draws it, so the mole case
-> never arises; a riffle beetle shares Elminae's 987 species with the drawing beside it,
-> which is a fact about the beetle. Only 12,863 drawings exist for 2.7M nodes, so
-> withholding every borrowed picture means withholding nearly all of them. The rule that
-> ships is: draw it, and say what group it speaks for and how large that group is.
-> Measured before and after the resolution change, and the reasoning, in handoff.md §5.
+The two tables stay separate because which applies depends on how the reader reached the
+node — only the client knows. A leaf they chose keeps its group's exemplar; a divergence
+draws its witness, its own image, or nothing — **never a borrow** (Caniformia's 57 Ma split
+would draw raccoons, 25 Ma too young). A node's own drawing is exempt.
 
-> **A divergence gets a second picture.** The rule above answers "what does something
-> in this clade look like", and it answers it by preferring the most inclusive drawing
-> beneath a node. At a *split* that is the wrong end of the branch every time: the
-> human–chimp divergence drew the generic *Homo*, the whale–hippo divergence drew the
-> Cetacea dolphin, and neither existed when the lineages parted. So internal nodes also
-> carry a **witness** in `node_divergence_witness` — a *fossil taxon from somewhere
-> below the fork* whose stratigraphic bracket puts it at the split. *Acanthostega
-> gunnari*, *Eohippus*, *Pakicetus*, *Sahelanthropus*. The two tables stay separate
-> because which one applies depends on how the reader reached the node, which only the
-> client knows: a species they chose wants its group's exemplar, a divergence they
-> arrived at wants the witness. It is refused where the split is undated, where the node
-> draws its own image, and where nothing drawn, dated and extinct hangs below it — 885
-> forks, not 2.7M nodes. See handoff.md §5 and witness-ceiling.md.
->
-> **A witness is not a node, so it makes §3.4's weaker claim and must be worded as
-> one.** It hangs off `fossil.attach_idx`, so the honest sentence is *this taxon belongs
-> somewhere below this node, and existed between these dates* — not *this taxon is
-> inside this group*, which is what the earlier node-only version could say. Requiring a
-> node capped the layer at 2,552 forks whatever the image budget, because only 0.5% of
-> OTT taxa flagged extinct are in synthesis; `attach_walk` is what replaces that
-> certainty, and the caption renders it as three bands rather than a number.
->
-> **And a fork draws its witness or nothing** — never a borrow. That reverses "draw
-> everything" above for internal nodes, on a ground that rule does not address: it
-> judges a borrowed picture by the size of the clade shared with the drawing, and what
-> is wrong with a borrow beside a fork is not size but *time*. Caniformia's 57 Ma split
-> drew Procyonidae, 469 species and comfortably inside the threshold, and raccoons
-> postdate that fork by 25 Ma. Most forks therefore now carry no picture, which is the
-> honest answer rather than a gap.
-
-A silhouette is drawn at every scale and in every label mode, including with the words
-switched off. This paragraph used to file them "at the upper tiers of semantic zoom",
-which was backwards for this element and is now moot: pulled back, type is too small to
-read and a shape is not, so the picture is the *last* thing carrying meaning rather than
-the first to go. With the words deliberately off it is the whole label, which is most of
-why that state is worth having. design-reference.md's *Zoom* has the rest.
-
-Resolution is baked, so there is no client-side climb — though not in
-`node.phylopic_id`: it lives in `node_image`, which carries the drawing's own node, the
-shared clade, the climb and the method. `primaryImage` is not used either; one call per
-node is 2.7M requests against a volunteer service, and crawling the index instead is 269
-(ingest.md phase 5). **Coverage is 100% and is not the thing to measure** — every node
-resolving to *an* image says nothing about whether that image is about anything. See
-handoff.md §5.
-
-**Attribution renders in the UI**, not in a licence file: creator and licence in the node
-detail card, plus a credits view enumerating everything currently displayed. CC-BY
-requires it regardless of commercial use. Per design-reference.md the credits view is a
-**command**, not a settings panel. It is a two-field problem — `attribution` is the
-original creator, `_links.contributor.title` the uploader, and they differ ~~31%~~ **50%**
-of the time — 6,437 of the 12,863-image corpus, enumerated rather than sampled.
+**Attribution renders in the UI**, per design-reference.md, as a **command**: creator and
+licence in the node detail card, plus a credits view enumerating everything displayed.
+CC-BY requires it regardless of commercial use. `attribution` is the original creator and
+`contributor` the uploader; they differ ~50% of the time.
 
 ### Typography
 
-design-reference.md governs: one geometric or grotesque sans for UI, one mono for
-identifiers and all numerics, two weights maximum, hierarchy from size and opacity and
-glow rather than weight. **Numerics are tabular-figure mono** — this supersedes the
-old-style figures this document originally called for, which belong to a print-adjacent
-aesthetic rather than an instrument.
-
-One requirement survives from the data side and is not negotiable: **scientific naming
-convention is not decoration.** Species and genus names are italic, higher taxa roman,
-authority strings smaller and dimmer. It costs one rule keyed on `rank`, and getting it
-wrong is visible to exactly the audience most likely to share the thing. So the UI sans
-needs a genuine italic, not a synthesised oblique — worth checking when the face is
-chosen.
+design-reference.md governs. **Numerics are tabular-figure mono.** One data-side
+requirement is not negotiable: **scientific naming convention is not decoration** — species
+and genus names italic, higher taxa roman, authority strings smaller and dimmer, keyed on
+`rank`. The UI sans needs a genuine italic, not a synthesised oblique.
 
 ### Search and the command surface
 
-The palette *is* the interface (design-reference.md), which puts real weight on ranking
-and makes one gap load-bearing.
-
-**Ranking blends two signals that live in different places.** Corpus signals are baked:
-exact match, then `tip_count` descending, then has-silhouette, then has-measured-age —
-which is what makes "can" surface Canidae before *Cania*. Session signals — recency and
-frequency, per the Raycast model — are client-side and layered on top. Neither alone is
-right.
-
-**Vernacular names are the front door.** A command palette that returns nothing for
-"dog", "T. rex" or "shark" is broken at first contact, and OTT carries no common names at
-all. This is why they moved from deferred to priority-one; see
-[handoff.md](handoff.md) §1.
+The palette *is* the interface. Ranking blends baked corpus signals (exact match, then
+`tip_count`, then has-silhouette, then has-measured-age) with client-side session signals
+(recency, frequency). Vernacular names are the front door — a palette returning nothing for
+"dog" or "T. rex" is broken at first contact, and OTT carries no common names, which is why
+vernaculars are priority-one (phase 6).
 
 ### URL state
 
 `/?n=770315,153563,664349&axis=log&seg=1234-5678`
 
-The selected set is the application state. Encoding it in the URL makes every view
-shareable and back-button-correct, which for something visual is most of its
-distribution — and design-reference.md extends this to *all* view state, so zoom, scope
-and isolation belong here too.
+The selected set is the application state; encoding it in the URL makes every view
+shareable and back-button-correct. design-reference.md extends this to all view state — zoom,
+scope, and isolation belong here too.
 
 ---
 
 ## 8. The four interactions, end to end
 
-**1 — Two leaves → minimal connecting subtree.** Search resolves two `idx` values.
-`path()` each. LCA is the last common element. Render the two paths from the LCA down,
-suppressing degree-2 nodes. One round trip, or zero once the client has the parent array
-(~~`topology.bin`~~ — see §3.2; there is no such file, and this is the delta-encoded
-`parent.npy` above, which is not built either).
-
-**2 — Add an Nth node → induced subtree, animated.** Fetch one path. Re-run the
-suppression rule over the enlarged marked set. New tip slots in at its preorder position;
-existing nodes spring to new coordinates; the new lineage grows from its attachment
-point. No layout recomputation on the server, no jump-cut.
-
-**3 — Click a branch → drill into intermediates.** The segment's suppressed nodes are
-already in memory from the layout pass. One `/segment` call fetches ranked fossils. Lane
-opens below, sharing the time axis, spine plus double-bracket range bars.
-
-**4 — Time axis.** `x` from `age_ma` under linear or symlog — both real, and both
-driving the layout, not just the strip. Ticks and ICS bands are generated from the age
-range under the viewport, so the axis follows a zoom in rather than sliding off it.
-Provenance tiers rendered so measured, interpolated, and structural ages are visually
-distinguishable at a glance.
+1. **Two leaves → minimal connecting subtree.** Search resolves two `idx`; `path()` each;
+   LCA is the last common element; render from the LCA down, suppressing degree-2 nodes. One
+   round trip, zero once the client has `parent.npy`.
+2. **Add an Nth node → induced subtree, animated.** Fetch one path, re-run the suppression
+   rule. The new tip slots in at its preorder position; no server layout recomputation, no
+   jump-cut.
+3. **Click a branch → drill into intermediates.** The segment's suppressed nodes are already
+   in memory; one `/segment` call fetches ranked fossils. Lane opens below, spine plus
+   double-bracket range bars.
+4. **Time axis.** `x` from `age_ma` under linear or symlog, both driving the layout. Ticks
+   and ICS bands generated from the age range under the viewport. Provenance tiers rendered
+   so measured, interpolated, and structural are distinguishable at a glance.
 
 ---
 
 ## 9. What is deliberately absent
 
-**The Open Tree live API is not a runtime dependency.** It maps onto interactions 1 and 2
-directly, and using it would still be wrong. There is no rate limiting because
-[nobody implemented it](https://github.com/OpenTreeOfLife/germinator/issues/1268) — open
-since 2021 — no terms-of-use page, and it is one `waitress` process behind a small
-academic project. Beyond the courtesy problem: it serves whatever synthesis version it
-currently has, while our ages and fossil attachments are pinned to v16.1. A silent
-upstream bump would produce node ids that don't join, and the failure would be a
-subtly wrong tree rather than an error.
+**The Open Tree live API is not a runtime dependency.** There is no rate limiting (nobody
+implemented it), no terms-of-use page, and it is one `waitress` process behind a small
+academic project; it serves whatever synthesis version it currently has, while our ages and
+fossil attachments are pinned to v16.1, so a silent upstream bump would produce a subtly
+wrong tree rather than an error. Its real role is a **build-time oracle**: generate induced
+subtrees for a few hundred random tip sets via `/tree_of_life/induced_subtree` and diff them
+against the baked artifacts.
 
-It has a real role at **build time**, as an oracle: generate induced subtrees for a few
-hundred random tip sets via `/tree_of_life/induced_subtree` and diff them against what
-our baked artifacts produce. That is a genuinely strong correctness test — it caught
-nothing during design because nothing is built yet, and it is the first thing to wire up.
+**TimeTree is absent entirely** — its terms prohibit redistributing the data "and its
+transformations", which a tree carrying its ages is.
 
-**TimeTree is absent entirely.** Its terms prohibit redistributing the data "and its
-transformations", which a tree carrying its ages plainly is. It is simultaneously the
-best-identified source and the one we are least permitted to ship.
-
-**No fuzzy matching anywhere in the runtime**, per §5.
+**No fuzzy matching anywhere in the runtime** (§5).
 
 ---
 
@@ -1045,38 +634,28 @@ best-identified source and the one we are least permitted to ship.
 
 | Risk | Severity | Mitigation |
 |---|---|---|
-| Duke et al. tree fails to validate against v16.1 | **high** — it is the entire time axis | Phase-2 gate in ingest with explicit accept/reject criteria; congruification + BLADJ fallback documented but not built |
-| GBIF legacy backbone withdrawn | **high** — it is the only PBDB→OTT id path | Snapshot it in phase 1, not later. It is frozen as of 2023-08-28 and GBIF has moved on to CoL Extended Release |
-| Users read interpolated ages as measured | **high** — it is a credibility failure, not a bug | Provenance tiers rendered visually (§3.5); structural regions never show a numeric age |
-| No vernacular names in search | **medium** — blocks casual exploration | ~~Ingest phase 5 pulls vernaculars from GBIF/Wikidata~~ **Closed.** Ingest **phase 6** pulls them from Wikidata; the GBIF half was never free (§5's note) |
-| Broken taxa (9,839) answer a different question silently | **medium** | ~~`is_broken` baked~~ — it cannot be, see §3.3. **`broken_taxon` holds all 9,839**, and they are a fifth `node_fts` column so the names are at least *findable*; UI explains and offers the attachment points rather than substituting |
-| PhyloPic NC/SA licensing in a commercial context | **medium** | License stored per image; `--commercial-safe` build flag filters NC at 93.7% coverage |
-| A 12,964-child polytomy reaches the layout | **low** | Never rendered in full — suppression means only marked children appear. Guard the drill-down lane with a cap and an explicit "showing N of M" |
+| Duke et al. tree fails to validate against v16.1 | **high** — the entire time axis | Phase-2 gate with explicit accept/reject criteria; congruification+BLADJ fallback documented but not built |
+| GBIF legacy backbone withdrawn | **high** — the only PBDB→OTT id path | Snapshot it in phase 1. Frozen as of 2023-08-28 |
+| Users read interpolated ages as measured | **high** — credibility | Provenance tiers rendered visually (§3.5); structural regions never show a numeric age |
+| No vernacular names in search | **medium** | Phase 6 pulls them from Wikidata |
+| Broken taxa (9,839) silently answer a different question | **medium** | `broken_taxon` holds all 9,839, plus a fifth `node_fts` column so names are findable; UI explains and offers attachment points |
+| PhyloPic NC/SA licensing in a commercial context | **medium** | Licence stored per image; `--commercial-safe` build flag filters NC at 93.7% coverage |
+| A 12,964-child polytomy reaches the layout | **low** | Never rendered in full — suppression means only marked children appear; cap the drill-down lane with "showing N of M" |
 | PBDB license ambiguity (API says CC0, FAQ says NC-ND) | **low** | Email `admin@paleobiodb.org` before any commercial launch |
 
 ---
 
 ## 11. Cost
 
-Build: hours, on a release cadence, on one machine. Runtime: two small instances
-( ~~700 MB image~~ **2,229 MB**, mostly page cache) behind a CDN that absorbs nearly
-everything, since all responses are immutable. Storage: ~~700 MB of artifacts~~
-**2,062.6 MB** plus ~~136 MB~~ **155.9 MB** of mirrored silhouettes.
+Build: hours, on a release cadence, one machine. Runtime: two small instances (~2.2 GB
+image, mostly page cache) behind a CDN that absorbs nearly everything, since all responses
+are immutable. Storage: ~2 GB of artifacts plus ~156 MB of mirrored silhouettes.
 
-**The 700 MB estimate predates the resolution layer and the silhouette map, and it is
-short by a factor of three.** `concestor-build package` reports the artifact figure every
-build and it moves with every pipeline run — treat it as a reading, not a constant.
-`dbstat` on the built database, largest first: `xref` 258.5 MB, `search_name` 220.5 MB,
-`broken_taxon` 180.7 MB, `node_image` 169.2 MB, `node` 152.9 MB, `node_fts_docsize`
-98.8 MB, `xref_idx` 96.6 MB, `node_fts_data` 82.3 MB, plus the rest of the FTS index.
-None of this changes the architecture — everything is still immutable, still baked, still
-deployable as an image — but this paragraph is the one anyone sizes a machine from, so
-**re-derive it before you do**, and read `deployment.md` §1, which measures the payload
-and the RSS on a real container rather than summing a table. Two things there are worth
-knowing here: the silhouettes are not in the artifact set and have to be wherever the
-binary is, and RSS after startup is 361 MB rather than anything near the artifact size.
-The size gate in `package.py` is an **`observe` deliberately** — the right response to it
-is to decide what to trim, not to fail a build.
+`concestor-build package` reports the artifact size every build — treat it as a reading and
+re-derive it before sizing a machine. Silhouettes are not in the artifact set and must be
+wherever the binary is; RSS after startup is ≈361 MB, far below the artifact size. The size
+gate in `package.py` is an `observe`: the right response is to decide what to trim, not to
+fail a build.
 
-This is a very cheap system to run. That is the payoff for pushing all the difficulty
-into a build pipeline that runs when a new synthesis release lands — roughly annually.
+This is a very cheap system to run — the payoff for pushing all the difficulty into a build
+pipeline that runs roughly annually when a new synthesis release lands.

@@ -1,52 +1,31 @@
 # Fossils drawn in the tree
 
-**Status: shipped.** A PBDB taxon can now be drawn against the tree as a
-*graft* — placed at its own date, hanging off the branch it belongs to, showing
-its own silhouette. `web/src/tree/graft.ts` is the whole of the placement rule
-and `graft.test.ts` pins it.
-
-Measured against build `b48553b2b8a4a2ed` on 2026-08-02.
+**Status: shipped.** A PBDB taxon can be drawn against the tree as a *graft* —
+placed at its own date, hanging off the branch it belongs to, showing its own
+silhouette. `web/src/tree/graft.ts` is the placement rule and `graft.test.ts`
+pins it.
 
 ---
 
 ## 1. The question this answers
 
-"Why can't I add *Homo floresiensis* or *Homo georgicus*?"
+"Why can't I add *Homo floresiensis* or *Homo georgicus*?" Because neither is a
+node — the synthesis tree carries six *Homo* species and these are simply absent
+from the supertree (*H. floresiensis* is worse: OTT's `synonyms.tsv` maps it onto
+*Homo sapiens*). Both are in the `fossil` table with brackets and PhyloPic
+drawings, and can now be drawn.
 
-Because neither is a node. The synthesis tree carries six *Homo* species —
-`antecessor`, `erectus`, `habilis`, `heidelbergensis`, `rudolfensis`, `sapiens`
-— against seventeen in OTT 3.7.3, and `opentree16.1` was built against that same
-taxonomy, so this is not version skew. *H. georgicus* (ott 3607679) and
-*H. naledi* (ott 6145143) carry flags identical to the six that made it in and
-are simply absent from the supertree. *H. floresiensis* is worse: OTT's
-`synonyms.tsv` maps it onto ott 770315, *Homo sapiens*, so searching it silently
-returns the wrong species.
+## 2. Why grafts are not baked into the arrays
 
-Both, however, are in the `fossil` table with brackets and PhyloPic drawings.
-They were reachable only through a drill-down lane. Now they can be drawn.
-
-## 2. What was rejected, and why
-
-**Grafting into the baked arrays.** The obvious reading of "put them in the
-tree". It fails on the thing this product exists to get right. A fossil has no
-resolved sister group — `attach_walk` is how many PBDB `parent_no` hops the
-resolution took, and *H. georgicus* took one, meaning the only supported claim
-is *somewhere inside genus Homo*. Graft it as a polytomy child and
-`MRCA(H. sapiens, H. georgicus)` becomes the attach node, whose **crown** age is
-an *upper bound* on the split rendered as a point. Across the credible candidate
-set (walk ≤ 1, dated, extinct, ended pre-Holocene: 50,605 fossils over 10,044
-attach nodes) **7,251 of those nodes carry a real `age_ma`** — so it would have
-put a confident number on ~7,000 divergences that nobody has dated. That is the
-exact failure the three-array design exists to prevent.
-
-It also costs: every array in `build/topology/` extends, `tip_count` shifts for
-every ancestor and feeds `search_rank.rank_score`, `ott_id` has no answer for a
-PBDB taxon while `ott_to_idx` assumes one id space, **2,251 of the 10,044 attach
-nodes are currently tips** and would become internal, and `induced_subtree` is
-pinned in three places by tests built from the real baked arrays.
-
-**A separate "fossil lane" band.** Already exists, as `DrillLane`. The request
-was for the tree, not another strip.
+A fossil has no resolved sister group — `attach_walk` is how many PBDB
+`parent_no` hops the resolution took. Grafting a fossil as a polytomy child makes
+`MRCA(sister, fossil)` the attach node, whose **crown** age is an upper bound on
+the split, and rendering that as a point would **put a confident number on ~7,000
+divergences nobody has dated** — the exact failure the three-array age design
+exists to prevent. It would also extend every topology array, shift `tip_count`
+for every ancestor (which feeds `search_rank.rank_score`), break the single OTT
+id space (`ott_to_idx`), turn ~2,251 tips internal, and disturb the three-place
+`induced_subtree` pin. So a graft is client-side and never enters the baked data.
 
 ## 3. What shipped
 
@@ -62,31 +41,18 @@ enters `Induced`.
 | **tier** | `occurrence`, so `markAge` prints a range and never a figure |
 | **mark** | the ammonite from `AgeGlyph`, not a dot |
 
-**x needed no invention.** On this canvas x is time, and a fossil is the one
-thing in the corpus that carries its own date — every node has to be *estimated*
-onto the axis and a fossil is simply observed there. `lla` alone, matching phase
-4's clamp: `fea` is junk-wide and widens with occurrence count, and the latest
-end is the one that holds throughout.
+**x is `lla` alone**, matching phase 4's clamp: a fossil is the one thing in the
+corpus observed on the time axis rather than estimated onto it, `fea` is
+junk-wide, and the latest end is the end that holds throughout.
 
-**The join is the fossil's own first appearance.** It was the attach node's
-`age_layout` in the first cut, and that was arbitrary in the precise sense —
-`age_layout` is documented as *x-position only, never a label*, and for genus
-*Homo* it is 3.37 against an `age_ma` of NaN. So the connector left the lineage
-at a synthesized coordinate. The first appearance is measured, and it is the
-right measurement: a lineage that was already a distinct taxon at time T parted
-from its neighbours at or before T, so it is the *youngest* the split can be —
-the least the data allows rather than a number nobody estimated.
-
-A consequence worth having: the connector's horizontal run now spans first
-appearance to last, so where it is unclamped **that run is the taxon's observed
-extent**. On the hominin case *H. georgicus* joins at 2.58 and ends at 0.774,
-and *H. neanderthalensis* joins at exactly the x *H. georgicus* ends at, because
-both are 0.774 Ma. The vertical drop is the part nobody knows.
+**The join is the fossil's own first appearance** — measured, and the youngest
+the split can be (a lineage distinct at time T parted from its neighbours at or
+before T). Where it is unclamped, the connector's horizontal run spans first
+appearance to last, which is the taxon's observed extent.
 
 ### The clamp has two ends and they mean opposite things
 
-`joinAt` is a three-way, not a boolean, and the boolean it replaced put the
-reverse of the truth on screen.
+`joinAt` is a three-way, not a boolean:
 
 | `joinAt` | when | what the caption says |
 |---|---|---|
@@ -94,477 +60,226 @@ reverse of the truth on screen.
 | `anchor` | first appearance is *younger* than the anchor | split is **below** the anchor, off the drawn branches |
 | `branch-top` | first appearance is *older* than the whole branch | split is **earlier** than anything drawn |
 
-*Dimetrodon* is the `anchor` case — 299–267 Ma hanging off Amniota at 323 — and
-a single "clamped" flag captioned it "its lineage parted somewhere earlier",
-which is backwards. It parted later, inside Amniota.
-
 ### The young end a graft sits at is not always PBDB's
 
-A graft is placed at the young end of the last-appearance bracket, and for
-**7,802 rows** that end is one *no identified member of the taxon reaches*.
+PBDB's `lastapp_min_ma` aggregates a taxon's whole subtree. When a taxon's young
+end is younger than every one of its descendants', it cannot come from any
+identified member — it rests only on material catalogued no finer than the taxon
+itself (an `sp.` or `indet.`). **That test is structural and exact** and falls
+out of `pbdb_taxa.csv`. (*Stegosaurus* stops at 93.9 Ma on one `Stegosaurus sp.`
+occurrence while every named species ends at 143.1.)
 
-PBDB's `lastapp_min_ma` aggregates a taxon's whole subtree. So when a taxon's
-young end is younger than every one of its descendants', it cannot be coming
-from any identified member — it can only rest on material catalogued no finer
-than the taxon itself, an `sp.` or an `indet.`. **That test is structural and
-exact**: no threshold, no occurrence-level data, and the whole of it falls out
-of `pbdb_taxa.csv`, which phase 0 already pins.
-
-*Stegosaurus* is the case it was built for. PBDB stops the genus at 93.9 Ma on
-the strength of **one** occurrence — `Stegosaurus sp.`, Mussentuchit Member of
-the Cedar Mountain Formation, a "small collection" — while every named species
-ends at 143.1. Drawn at 93.9, a Late Jurassic animal sits in the Cenomanian,
-50 Myr after it lived, beside things it never met.
-
-It is not a curiosity. Inside Dinosauria, 71 taxa are stretched by ≥10 Ma and
-**not one** of the 71 has its young end supported by an identified species; 52
-rest on a single occurrence and 20 on records the identifier themself hedged
-with `?`, `cf.` or `aff.`. *Iguanodon* and *Megalosaurus* — the two classic
-wastebasket genera — were both drawn at **66.0 Ma**, each on one hedged record.
-
-**Detecting it is exact; correcting it is a judgement**, and the two are kept
-apart. `lla` is never overwritten. Three columns carry the reading, on the same
-principle that keeps `age_ma`, `age_tier` and `age_layout` separate — what PBDB
-says, how to read it, and where to draw are different claims:
+**Detecting it is exact; correcting it is a judgement, and the two are kept
+apart. `lla` is never overwritten.** Four columns carry the reading, on the same
+principle that keeps `age_ma`/`age_tier`/`age_layout` separate:
 
 | column | meaning |
 |---|---|
-| `lla` | PBDB's own young end. Untouched, and named in the card's disclosure |
+| `lla` | PBDB's own young end. Untouched, named in the card's disclosure |
 | `lla_identified` | youngest end an *identified* member reaches. `> lla` is the exact test |
 | `young_end_occs` | occurrences sitting at it — how much the alternative is worth |
-| `lla_drawn` | where the taxon may be drawn. `lla` except where the clamp is trusted |
+| `lla_drawn` | where the taxon may be drawn. **The only column a mark's x may read** |
 | `lea_drawn` | the **other end of the same bracket**, moved with it |
 
-The position moves only when the alternative survives four refusals, and each
-one falls back to PBDB's own number rather than to a worse one:
+The position moves only when the alternative survives four refusals, each falling
+back to PBDB's own number:
 
-- **Ichno- and form taxa** (PBDB's `I`/`F` flags), 327. For *Gyrolithes* or
-  *Deltapodus* a genus-level identification is the *finest that exists*, so a
-  Cambrian-to-Recent range is simply true. The flag is clean: every ichnogenus
-  checked carries it and *Stegosaurus*, *Iguanodon* and *Camarasauridae* carry
-  neither.
-- **Uncorroborated alternatives**, 5,497 — fewer than `MIN_YOUNG_END_OCCS` = 5
-  occurrences at the identified end. *Tasmanites* has 56 occurrences but two
-  species entered, one with none of them and one with a single Proterozoic
-  record, so its "identified young end" is 1600 Ma against an own end of 5.33.
-  Clamping would be a **1,595 Myr** error, far worse than the one being fixed.
-- **Contradicting the taxon's own first appearance**, 12. Where the identified
-  end is older than `fea` the whole bracket disagrees with its own children,
-  not just the young end.
-- **Per row, bounds that cannot hold it.** The verdict belongs to the accepted
-  taxon and the bounds are the row's own, and PBDB lets them differ in both
-  directions — three *Paronychodon* rows carry first appearances of 154.8, 85.7
-  and 72.2 against one accepted taxon, and *Crassispira* is a living genus
-  whose synonym *Tripia* is an Eocene row ending at 37.71. The invariant
-  `lla ≤ lla_drawn ≤ fea` is enforced per row, and it is what a gate found:
-  414 rows would otherwise have been dragged to the Holocene.
+- **Ichno- and form taxa** (PBDB's `I`/`F` flags): a genus-level id is the finest
+  that exists, so the wide range is true.
+- **Uncorroborated alternatives** — fewer than `MIN_YOUNG_END_OCCS` = 5
+  occurrences at the identified end. (*Tasmanites*'s "identified young end" is
+  1600 Ma against an own end of 5.33; clamping would be a 1,595 Myr error.) The
+  discriminator is corroboration at the identified end, **not** the share of the
+  record identified to species.
+- **Contradicting the taxon's own first appearance** — identified end older than
+  `fea` means the whole bracket disagrees with its children.
+- **Per row, the invariant `lla ≤ lla_drawn ≤ fea` enforced on the row's own
+  bounds** — PBDB lets bounds differ across rows for one accepted taxon, and
+  without this 414 rows would be dragged to the Holocene.
 
-**The share of a record identified to species is not the discriminator** and
-was tried first. *Stegosaurus* is only 20.9% identified — most of its own
-record is `Stegosaurus sp.` too, exactly like *Tasmanites*. What separates them
-is corroboration at the identified end: *Camarasauridae* 167, *Iguanodon* 23,
-*Stegosaurus* 18, *Megalosaurus* 10, against *Krausella* 2 and *Tasmanites* 1.
+**The correction propagates and has to** — a parent reads its children's
+*corrected* positions, or the fix is defeated one rank up. Propagation stops at a
+parent's youngest genuinely identified member.
 
-**The correction propagates**, and has to. The single occurrence stretching
-*Stegosaurus* stretches *Stegosauridae* through it, so a parent reads its
-children's *corrected* positions; otherwise the fix is defeated one rank up and
-a reader meets the same error by selecting the family. Propagation does not
-overshoot — a family stops at its youngest genuinely identified member, which
-is why a real Early Cretaceous stegosaurid still holds *Stegosaurinae* where it
-is.
+**The `[lea, lla]` bracket moves as a pair.** Both ends come from the same
+occurrences, so correcting `lla` alone would rebuild the bracket out of the very
+occurrence being refused. **Three consumers print the pair and all read the
+corrected one:** the graft's own `occurrence` block, the card's range, and
+**phase 4's `occurrence` table** (the node-level range for the `occurrence`
+tier). Missing the last put a *Stegosaurus* node reading `162–94 Ma` above a
+graft of the same taxon reading `162–143`.
 
-**The last-appearance bracket moves as a pair, and every surface that prints
-it has to move with it.** `[lea, lla]` is one bracket and both ends come from
-the same occurrences: *Stegosaurus* has `lea` 100.5 and `lla` 93.9, and both
-are the single Cenomanian record. Correcting `lla` alone rebuilds the bracket
-out of the very occurrence being refused, and the solid bar still runs into the
-Cretaceous under a glyph sitting in the Jurassic. Three consumers print it and
-all three read the corrected pair — the graft's own `occurrence` block, the
-card's range, and **phase 4's `occurrence` table**, which is the node-level
-range for the `occurrence` tier. The last of those was missed at first and it
-showed: the *Stegosaurus* node read `162–94 Ma` directly above a graft of the
-same taxon reading `162–143`, the same number disagreeing with itself on one
-screen. 45 node ranges move.
+**`fea`/`fla` are never touched** — a coarse `"Late Jurassic"` occurrence
+reaching 161.5 Ma is stratigraphic resolution, not misidentification, and the
+faded envelope is already the honest rendering of it. **PBDB's aggregate is not
+monotone** (a descendant can reach younger than its parent); the test fires only
+when the identified end is *older*.
 
-**`fea` and `fla` are never touched, and the reason is worth stating** because
-it looks like the same problem and is not. *Stegosaurus* reaches **161.5 Ma**
-at the old end, ~6 Myr before the animal, and that comes from **one** of its 86
-occurrences being logged only as `"Late Jurassic"` — an epoch whose base is
-161.5. No specimen is dated there; the record is simply coarse. That is
-*stratigraphic resolution*, not misidentification, and the faded envelope is
-already the honest rendering of it (architecture §7). 84 of the 86 occurrences
-are Kimmeridgian–Tithonian, 154.8–143.1, which is the animal.
+### Row order among grafts
 
-Two things the card must do, and does: **name PBDB's own young end in the
-disclosure**, so nothing is hidden, and say in words that the later end is not
-one any identified member reaches.
+Several fossils on one branch is ordinary (PBDB resolves most hominins to one
+node). `joinAge` is clamped no younger than the anchor, so `joinX` is never right
+of the anchor: every connector leaves the lineage at or above the branch top and
+travels right, and the one that leaves furthest back has furthest to travel.
+Sorting **deepest join lowest** (ascending `joinAge`, so it holds under both axis
+modes and every zoom) makes a graft-on-graft crossing unsatisfiable.
+`graft.test.ts` asserts it as intersecting segments, not an expected order.
 
-**PBDB's aggregate is not monotone**, which the first version of this gate
-assumed. 440 taxa have a descendant reaching younger than they do —
-*Planolites montanus* at 66.0 under a genus PBDB stops at 468.0. Nothing acts
-on those; the test only ever fires when the identified end is *older*.
+### `terminal`, not `isLeaf`, for label placement
 
-### Row order among grafts, and why it is not a matter of taste
+`placeLabels` picks its candidate list from a **geometry** question — a terminal
+mark tries right-at-`dy:0` first because nothing continues past it. A graft is
+terminal (its connector arrives from the left and stops) without being *chosen*
+(the meaning `isLeaf` carries on `Placed`, deciding whether a borrowed exemplar
+may be drawn — a graft's may not). So the field is `terminal`, set from
+`p.isLeaf || p.graft !== undefined`.
 
-Several fossils on one branch is the ordinary case, not the exotic one: PBDB
-resolves most hominins to the same node, so asking for three at once puts three
-connectors on the same point. Ordering them by last appearance — the obvious
-choice, and the one that shipped first — drew this:
+**The mark is the ammonite** (the `AgeGlyph` that already means *fossils* in the
+label's age slot), stroked — a filled form beside a node is a silhouette. **The
+negative index is load-bearing:** `nodeMap.get()` misses, `Arrays.parent[]` is
+undefined, `IsAncestor()` refuses, so any path mistaking a graft for a node fails
+immediately rather than answering about a neighbour. **The connector says what is
+not known** — widest dashes, no halo, no hit target (there is nothing between a
+graft's ends to drill into). A `fossil_image` matches PBDB and PhyloPic on the
+same name and never inherits, so a graft's picture is an unhedged portrait; only
+the placement is qualified, by `placementNote`.
 
-> *H. sapiens*, *H. erectus* selected; *H. georgicus*, *H. floresiensis* and
-> *H. neanderthalensis* grafted. georgicus took the first fossil row and its
-> horizontal run cut straight through the vertical carrying the other two down.
+## 4. Three refusals
 
-The crossing is not a near-miss to be nudged apart. It follows from where the
-connectors start. `joinAge` is clamped to be no younger than the anchor, so
-**`joinX` is never right of the anchor**: every connector leaves the lineage at
-or above the branch's top and then has to travel right. georgicus first appears
-at 2.58 Ma, *older* than the fork it hangs from, so its join sits up the branch;
-floresiensis and neanderthalensis first appear at 0.129 and 0.774, *younger* than
-the fork, so both clamp to the fork itself. The one that leaves furthest back has
-furthest to travel, and anything drawn below it is in the way.
+| Reason | Behaviour |
+|---|---|
+| `no-range` (21.4% of PBDB) | no appearance interval, so no x |
+| `off-tree` | attach node is not on a drawn branch |
+| `no-identity` | no `pbdb_taxon_no` to key a URL on |
 
-So the order is forced. For two grafts on one slot, `i` above `j`, the only
-possible crossing is `j`'s vertical through `i`'s horizontal, which needs
-`joinX(i) < joinX(j) < x(i)`. Sorting so `joinX` only ever *decreases* down the
-rows makes that unsatisfiable, and `i`'s own vertical stops at `i`'s row so it
-can never reach `j`'s run either. **Deepest join lowest**, stated as ascending
-`joinAge` so it holds under both axis modes and at every zoom.
-
-The same argument covers the tree, which is why nothing else had to change:
-`joinX ≤ anchorX`, and every horizontal in the anchor's subtree starts at or
-right of `anchorX`, so a connector cannot cross the clade it hangs from. Grafts
-crossing *each other* was the only case left open, and it is now closed by
-construction rather than by tuning. `graft.test.ts` asserts it as intersecting
-segments rather than as an expected order, so the test measures the picture and
-not the implementation of the picture.
-
-`buildGrafts`' sort survives as the *base* order — it is what makes the picture a
-function of the URL — with the layout's stable sort on top of it.
-
-### `isLeaf` means *chosen*, and label placement wanted the other question
-
-The same hominin view showed every fossil's silhouette, name and range sitting
-half a row above the ammonite it belonged to. With three fossils stacked, the
-pairing had to be guessed.
-
-`placeLabels` picks a candidate list from `LabelInput.isLeaf`, and a graft was
-passed `false` — correctly, because on `Placed` that flag means *one of the
-reader's selections*, which is what decides whether a mark may draw a borrowed
-exemplar and a graft may not. But the candidate list is a question about
-**geometry**: a leaf tries right-at-`dy: 0` first because nothing continues past
-it, while a clade defaults above-left and does not offer `dy: 0` until its ninth
-entry. Anything terminal sent down the clade list is displaced by half a row even
-when the space beside it is completely clear.
-
-A graft is terminal without being chosen: its connector arrives from the left and
-stops at the fossil. So the field is now `terminal`, named for what it actually
-asks, and `layout` sets it from `p.isLeaf || p.graft !== undefined`. The two
-meanings had been the same thing only because grafts did not exist yet.
-
-**The mark is the ammonite, not a shape of its own.** Every circle on the canvas
-is a position in the topology and a graft is not one, so it may not wear the
-same mark; but inventing a third shape leaves the reader two vocabularies. The
-glyph already means *fossils* in the age slot of the graft's own label, so the
-figure beside the range and the figure that is the mark are the same figure.
-Stroked, per `AgeGlyph`'s note: a filled form beside a node is a silhouette.
-
-**The negative index is load-bearing.** `nodeMap.get()` misses,
-`Arrays.parent[]` is undefined, `IsAncestor()` refuses. Any code path that
-mistakes a graft for a node fails immediately rather than returning a silently
-wrong answer about a neighbouring taxon.
-
-**The connector says what is not known.** It is drawn with the widest dashes in
-the file, no halo, and **no hit target** — a segment's one interaction is a
-drill-down, and there is nothing between a graft's ends to drill into. The
-legend earns a new row for it: *fossil · attaches somewhere along*.
-
-**A fossil's drawing is the only unhedged caption in the app.** `borrowedTitle`
-must explain that a silhouette is of a relative; `witnessTitle` must explain
-that the taxon merely sits below a fork. `fossil_image` matches PBDB and PhyloPic
-on the same name and never inherits, so a graft's picture is a portrait. The
-only thing left to qualify is the placement, which `placementNote` does in the
-same three bands a witness uses.
-
-## 4. Three refusals, no approximations
-
-| Reason | Count | Behaviour |
-|---|---:|---|
-| `no-range` | **112,073** of 523,112 (21.4%) | no appearance interval, so no x |
-| `off-tree` | situational | attach node is not on a drawn branch |
-| `no-identity` | 0 on this build | no `pbdb_taxon_no` to key a URL on |
-
-`off-tree` is recoverable and says so: the fossil stays in the URL and the
-notice names the remedy, because removing the species a fossil hung from is an
-ordinary thing to do and putting one back brings the fossil with it.
-
-**The refusal notice is gated on the tree having resolved.** `off-tree` is
-computed against the induced subtree, which is empty until the paths land — so
-on a cold load with fossils in the URL every graft is briefly off-tree. Without
-the gate, *Dimetrodon* was announced as undrawable one frame before being drawn.
+`off-tree` is recoverable: the fossil stays in the URL and the notice names the
+remedy (adding back the species it hangs from brings the fossil with it). The
+notice is **gated on the tree having resolved** — `off-tree` is computed against
+the induced subtree, which is empty until paths land, so without the gate a graft
+is briefly announced undrawable one frame before being drawn.
 
 ## 5. Reach
 
-- **411,039** of 523,112 PBDB taxa (78.6%) carry at least one appearance bound
-  and can therefore be placed in time.
-- **9,951** of those also carry a PhyloPic drawing.
-- No cap. Grafts are added one at a time by name, so there is no lane-style
-  explosion to bound, and an arbitrary limit would only be arbitrary.
+411,039 of 523,112 PBDB taxa (78.6%) carry at least one appearance bound and can
+be placed in time; 9,951 of those also carry a PhyloPic drawing. No cap — grafts
+are added one at a time by name.
 
 ## 6. Surface
 
-- `GET /v1/fossil/{pbdb_taxon_no}` — one taxon by its own key. The segment query
-  is keyed on the branch and cannot serve a cold load that arrives holding an id.
-- `f=108454,91487` in the URL, beside `n=`. Deliberately a **separate list**:
-  a selection is a node and induces a subtree, a graft is an annotation and
-  induces nothing. A fossil in `keys` would be sent to `/v1/paths`.
-- The drill-down lane's rows **select**, exactly as a mark on the canvas does:
-  one press puts `sel=pbdb<taxon_no>` in the URL and opens the fossil card,
-  whose own button draws it. There was an action menu here — a palette scope
-  with *Draw … on the tree* at the top — and it was written before the card
-  existed. Every action it offered is on the card, and a row with no
-  `pbdb_taxon_no` is now not pressable at all, because there is no key to
-  address a card by and the palette already refuses such a row for the same
-  reason.
+- `GET /v1/fossil/{pbdb_taxon_no}` — one taxon by its own key (the segment query
+  is keyed on the branch and cannot serve a cold load holding an id).
+- `f=108454,91487` in the URL, beside `n=`. Deliberately a **separate list**: a
+  selection is a node and induces a subtree, a graft is an annotation and induces
+  nothing. A fossil in `keys` would be sent to `/v1/paths`.
+- Drill-down lane rows **select**, exactly as a canvas mark does: one press puts
+  `sel=pbdb<taxon_no>` in the URL and opens the fossil card, whose button draws
+  it. A row with no `pbdb_taxon_no` is not pressable.
 
 ## 7. Searchable, and selectable
 
-**Fossils are in the palette**, ranked among the species rather than beneath
-them, and the first version needed no pipeline run: `SearchFossils` was a full
-scan of the 523,112-row table, since the table is keyed on
-`(attach_idx, n_occs DESC)` for the segment query and had no index on `name`.
-That was accepted on a measurement of **~40ms**, comfortably inside the
-palette's 110ms debounce, against which an in-memory prefix index costing ~15MB
-and a slower boot bought nothing anyone could perceive.
+**Fossils are in the palette**, ranked among the species. Phase 6 builds
+`fossil_fts`, an FTS5 index over the fossil names (18 MB, 1.0 s build); queries
+cost **0.1–15 ms** against a full-scan alternative that is 100–117 ms and flat
+against match count on a `standard-1` half-vCPU container. `SearchFossils` uses
+the index where it exists and falls back to the scan where it does not. Three
+load-bearing points:
 
-**The 40ms was wrong, and the conclusion with it.** Measured through the
-serving binary the scan is **100–117 ms**, and flat against match count —
-`zzzqqq`, which matches nothing, costs 100 ms — because the cost is the scan
-and not the matching. It was roughly **90%** of `/v1/search`; every other stage
-of the endpoint, FTS included, is between 0.02 ms and 11 ms. Worse, the figure
-came from a laptop, and the deployed container is a `standard-1` instance with
-**half a vCPU**. That gap is the whole of why search felt fine in development
-and slow in production, and no amount of local benchmarking would have shown
-it.
+- **The index covers every row, not just the searchable ones.** Encoding
+  `notInTree`'s serving policy (§9) into the index would make it 40% smaller and
+  go wrong silently the day the policy changes.
+- **The rowid is a `pbdb_taxon_no`, and the server proves it** — a wrong key does
+  not error, it joins cleanly and describes a different animal. `verifyFossilFTS`
+  samples both ends of the keyspace and requires each taxon to be returned by a
+  search for its own name; a mismatch skips the index and keeps the scan.
+- **The check must go through `MATCH`.** The index is `content=''`, so selecting a
+  column off it yields NULL and a join-and-compare gate passes on a corrupted
+  index alike.
 
-So phase 6 now builds `fossil_fts`, an FTS5 index over the fossil names, and
-`SearchFossils` uses it where it exists and falls back to the scan where it does
-not. It costs **18 MB** and **1.0 s** of build time, and the same queries come
-back in **0.1–15 ms** — the worst case being a two-character prefix, which is
-the shortest the palette ever sends. Three things about it are load-bearing:
+The index **narrows recall** (FTS5 matches whole tokens and prefixes, not
+mid-word substrings like `LIKE '%q%'`), which is safe only because those dropped
+rows score `bandNone` in `matchBand` and `Interleave` ranks them behind every
+node. SQL generates candidates by a coarse tier (exact, prefix, contains) then
+`notability`; the rows are re-banded in Go by `matchBand` and merged by
+`store.Interleave`, with truncation *after* the re-band.
 
-- **The index covers every row, not just the searchable ones.** Restricting it
-  to `is_primary = 1 AND attach_walk <> 0` would make it 40% smaller, and is
-  refused: that filter is a *serving* policy — `notInTree`, argued out in §9 —
-  and an index that quietly encodes it goes wrong without anything failing on
-  the day the policy changes.
-- **The rowid is a `pbdb_taxon_no`, and the server proves it rather than
-  trusting it.** This is the `node_fts.rowid` trap with a different table: a
-  wrong key does not error, it joins cleanly and describes a different animal.
-  `verifyFossilFTS` samples taxa from both ends of the keyspace and requires
-  each to be returned by a search for its own name; a mismatch skips the index
-  and keeps the scan, because a slow search beats a confident wrong one.
-- **The check has to go through `MATCH`.** The index is `content=''`, so
-  selecting a column off it yields NULL, `NULL <> t.name` is NULL rather than
-  true, and the obvious join-and-compare gate reports 0 for a correct index and
-  a corrupted one alike. Both the pipeline gate and the server probe were
-  written that way first and passed against an index built from the wrong key.
-
-**What the index cannot match.** FTS5 matches whole tokens and token prefixes;
-`LIKE '%q%'` also matched inside a word, so "rex" reached *Aulacorexia* and 525
-others, and "triceratops" reached *Eotriceratops*. Measured over nine real
-queries the index returns **no row the scan would not** — a gate requires it —
-and the 47,490 rows it drops across those queries are exactly the ones
-`matchBand` scores `bandNone`, its worst band, which `store.Interleave` then
-ranks behind every node. They could not reach a 24-row page from either path.
-The one `matchBand` rule a prefix cannot reproduce is `samePlural`, and it is
-inert here: PBDB names are Linnean, not vernacular, so there are no plurals to
-miss.
-
-SQL orders by a coarse match tier — exact, prefix, contains — then the same
-`notability` a drill-down lane uses. That is candidate *generation*: the rows
-are re-banded in Go by `matchBand`, the same function that ranks nodes, and then
-`store.Interleave` merges the two lists into one order. Truncation happens after
-the re-band, or the coarse tier drops the row the fine one was about to promote.
-
-> The section used to be **pinned last** whatever it scored, on the argument
-> that a species is a node you can build a tree from and a fossil is an
-> observation that hangs off one. That is a true statement about plumbing and a
-> poor one about the reader: typing "triceratops" returned nine orchids, beetles
-> and termites named *something triceratops* before the animal, which the tree
-> has never heard of. §9 is what replaced it.
-
-Picking one draws it, **and adds the clade it hangs below when that clade is
-not on the canvas** — otherwise the one thing the reader asked for produces no
-visible change and a notice explaining why. The added clade is named in the
-toast rather than slipped in silently.
-
-Undated taxa are a **note, not a row** — the `BrokenNote` pattern, for the same
-reason: 21.4% of PBDB has no interval, nothing Enter could do would work, and
-"nothing matched" is a worse answer than the true one. *Homo naledi* is exactly
-this case.
+Picking a fossil draws it, **and adds the clade it hangs below when that clade is
+not on the canvas** (named in the toast, or the reader's press produces no
+visible change). Undated taxa are a **note, not a row** (`BrokenNote`) — 21.4% of
+PBDB has no interval and "nothing matched" is a worse answer than the true one.
 
 ### A graft is selectable like a node
 
-Same click, same `sel=` in the URL, same card slot. The key namespaces keep the
-two apart without a second parameter — `pbdb108454` cannot collide with an OTT
-id or a node key — and `focusedIdx` becomes the negative graft index so the mark
-highlights and the lineage dims exactly as a node's would. A focused graft's
-"lineage" is its anchor's, since it has none of its own.
-
-The card is **not** the node card with fields blanked. A node card leads with an
-age, a species count and a depth; a fossil has none of those. It carries the
-range, the occurrence count, the attachment point, and the two uncertainties —
-where it hangs and when it lived — stated separately.
-
-**It also closes a licensing gap.** A graft puts a PhyloPic image on the canvas
-and CC-BY applies to whatever is on screen; until this card existed there was
-nowhere for the credit to go. The credit was silently blank at first, because
-the server sends `creator`/`uploader` and every card in the app reads
-`attribution`/`contributor` — a rename `normalise()` was doing for `/v1/node/`
-only. That is now one helper covering all three call sites, which is what the
-existing comment there had already warned about.
+Same click, same `sel=` in the URL, same card slot. Key namespaces keep them
+apart — `pbdb108454` cannot collide with an OTT id — and `focusedIdx` becomes the
+negative graft index so the mark highlights and the lineage dims. The card is
+**not** the node card with fields blanked: a fossil has no age, species count or
+depth; it carries the range, occurrence count, attachment point, and the two
+uncertainties (where it hangs, when it lived) stated separately. It is where the
+PhyloPic credit lives — `normalise()` renames the server's
+`creator`/`uploader` to the card's `attribution`/`contributor` for all three call
+sites (it did so for `/v1/node/` only, which left the credit blank).
 
 ## 8. The synonym, explained rather than fixed
 
-OTT files *Homo floresiensis* as a synonym of ott770315, *Homo sapiens*. That is
-upstream and not ours to change, so the **species** section still answers with a
-different species — but it no longer does so silently.
-
-`matched_on` was already sent and already typed and rendered nowhere.
-`matched_name` is new: the string that actually matched, carried in lockstep
-with the kind that was already being reported, and **omitted when the row
-already shows it** — captioning *Homo sapiens* with "matched Homo sapiens" is a
-caption on the obvious. The row now reads:
+OTT files *Homo floresiensis* as a synonym of *Homo sapiens*. That is upstream,
+so the **species** row still answers with a different species but no longer
+silently: `matched_name` carries the string that actually matched, in lockstep
+with `matched_on`, **omitted when the row already shows it**.
 
 > *Homo sapiens* · Human · species · 2 species
 > matched *Homo floresiensis*, which the taxonomy files under this name
 
-**Synonyms only.** `abbreviation` looked like it belonged and does not: "T. rex"
-returns eight rows that all matched the same way, so the line repeats down the
-list without distinguishing anything, and *Tyrannosaurus rex* with `rex`
-highlighted already explains itself. A synonym is the one case where the typed
-string appears nowhere on the row.
-
-The wording is the taxonomy's filing, not a fact about the animal. **"Also known
-as" is the exact phrasing a Wikidata bug once put on this exact pair** — see the
-vernacular fix in `handoff.md` — and it would be no more true coming from OTT. A
-deprecated name is not an alias.
-
-Together with §7 this closes the original question: the species row explains
-itself, and the real *Homo floresiensis* is a row of its own in the same list,
-drawable — see §9.
+**Synonyms only** — an abbreviation like `rex` matches every "T. rex" row the
+same way and distinguishes nothing. The wording is the taxonomy's filing, not a
+claim about the animal: a deprecated name is not an alias, so "also known as" is
+refused.
 
 ## 9. One corpus at the front door
 
-The palette had a Species section and a Fossils section, `R` and `⇧R`, and two
-commands. Every one of those pairs asked the reader the same question, and it
-is a question only the app can answer: **is the animal you have in mind one the
-synthesis tree happens to contain?**
-
-### What the relationship actually is
-
-The two catalogues are not "living things" and "extinct things", and they are
-not disjoint.
+The two catalogues are not "living" and "extinct" and are not disjoint:
 
 | | the synthesis tree | the Paleobiology Database |
 |---|---|---|
-| size | 2,725,682 nodes, 2,385,875 tips | 523,112 rows, **365,038** accepted |
-| holds extinct taxa? | yes — *Tyrannosaurus rex* is a node | yes |
-| holds living taxa? | yes | yes — **93,686** rows are flagged extant |
+| holds extinct taxa? | yes — *T. rex* is a node | yes |
+| holds living taxa? | yes | yes |
 | what a row has | an ancestry, a subtree, an MRCA | a stratigraphic bracket, an `attach_idx` |
 
-They **overlap**: `attach_walk = 0` means phase 3 took zero `parent_no` hops to
-reach a node, i.e. the PBDB taxon *is* that node, and that is true of **32,386**
-accepted rows. *Tyrannosaurus*, *Tyrannosaurus rex* and *Stegosaurus* are all in
-it. So "Tyrannosaurus" used to return the same animal twice — once as something
-that joins the tree, once as something that hangs off it — with nothing on
-either row saying why it was being offered two futures. *Triceratops*, nine hops
-from the nearest node, was buried under nine orchids and beetles.
+They **overlap**: `attach_walk = 0` means the PBDB taxon *is* a node (32,386
+accepted rows — *Tyrannosaurus*, *T. rex*, *Stegosaurus* among them). So a search
+used to return such an animal twice with two different futures.
 
-### The line, and what it cost
+**`store.notInTree` refuses `attach_walk = 0` from `SearchFossils` and
+`RandomFossils`.** The node wins on the merits: phase 4 has already written the
+taxon's PBDB bracket onto the node as its `occurrence` row, so the node carries
+the dates *and* an ancestry *and* an MRCA. That costs 8.9% of the accepted
+corpus, all reachable by the same name through the node path. Name equality is
+deliberately **not** also required — 1,320 rows are spelled differently from
+their node (`Animalia`/`Metazoa`) and are the same taxon written twice.
 
-`store.notInTree` refuses `attach_walk = 0` from `SearchFossils` **and**
-`RandomFossils`. The node wins that duplicate on the merits and not on a
-preference: phase 4 has already written the taxon's PBDB bracket onto the node
-as its `occurrence` row, so the node row carries the fossil's dates *and* an
-ancestry *and* the ability to induce an MRCA. There was nothing the graft added.
-
-| | before | after |
-|---|---:|---:|
-| accepted fossil corpus | 365,038 | **332,652** |
-| random fossil pool | 2,114 | **1,946** |
-
-8.9%, all of it reachable by the same name through the node path. Name equality
-is deliberately **not** also required: 1,320 of these rows are spelled
-differently from their node — PBDB's `Animalia` against OTT's `Metazoa`,
-`Haplorhini` against `Haplorrhini` — and those are the same taxon written twice,
-which is exactly the case a graft has nothing to add to. OTT carries the
-alternatives as synonyms.
-
-That exclusion is what earns the sentence the badge makes:
+That exclusion earns the badge's one sentence:
 
 > **A fossil row is a species the tree has no lineage for.**
 
-Not "extinct", which would be wrong about *T. rex*. The badge therefore reads
-**"on a branch"** and its tooltip says what will happen, because that is the
-only difference the reader will ever see: a node joins the tree, and this is
-pinned to the branch it belongs below, at its own date.
+Not "extinct" (wrong about *T. rex*). The badge reads **"on a branch"**.
 
-### One order over two shapes
+`/v1/search` answers with two arrays (a node and a PBDB taxon are different
+*shapes*); `store.Interleave` stamps every pickable row in both with `order`, and
+the client sorts on that integer — reading a rank, never computing one, and never
+re-sorting `/v1/search`. The ranking:
 
-`/v1/search` still answers with two arrays, because a node and a PBDB taxon are
-different *shapes*. `store.Interleave` stamps every pickable row in both with
-`order`, its position in the single ranking, and the client sorts on that
-integer. **The `handoff.md` §7 rule is unchanged and now covers the merge:**
-taking an order the server computed is the opposite of the client-side fuzzy
-score that used to outweigh four server ranks it could not see.
+1. **Band** — `matchBand`, over both corpora. It does nearly all the work.
+2. **Position within the row's own corpus** — each list arrives ranked on signals
+   the other has no counterpart for; comparing positions asks each corpus how
+   good a row is relative to its own best.
+3. **Node before fossil** — the last tiebreak and smallest claim (any earlier is
+   the pinned tail under a new name; `TestANodeOnlyBeatsAFossilOnAnOtherwiseExactTie`
+   catches it).
 
-The rule, and why the parts are in this order:
+`R` rolls a die with a **20%** chance of drawing from the fossil pool
+(`web/src/corpora.ts`) — weighted because a graft usually drags in a clade. An
+empty fossil roll falls through to a species silently. `⇧R` is unbound.
 
-1. **Band** — `matchBand`, run over both corpora. It does nearly all the work,
-   because it is the one signal both catalogues can be asked about.
-2. **Position within the row's own corpus** — each list arrives ranked on
-   signals the other has no counterpart for (subtree size and vernaculars
-   against occurrence counts and stratigraphy). Inventing a common scale for
-   those would be inventing a number; comparing positions asks each corpus how
-   good a row is relative to its own best, which both can answer.
-3. **Node before fossil** — the last tiebreak and the smallest claim. Any
-   earlier and this is the pinned tail again under a new name, which is what
-   `TestANodeOnlyBeatsAFossilOnAnOtherwiseExactTie` exists to catch.
-
-### `⇧R` is gone, and `R` rolls a die
-
-One command, one key, and a **20%** chance of drawing from the fossil pool —
-`web/src/corpora.ts`. Weighted rather than even because the two picks do not
-cost the same: a species joins the tree alone, while a graft usually drags in
-the clade it hangs below, which is a larger change to a canvas somebody has
-spent time on. A fossil roll that comes back empty **falls through to a species
-silently**; the reader pressed *surprise me*, and "the pool you did not choose
-was empty" answers a question they never asked.
-
-`⇧R` is left unbound rather than reassigned, so fingers that remember it get
-nothing instead of something else.
-
-### The three checks worth keeping
-
-- `TestSearchNeverOffersATaxonTheTreeAlreadyHas` — the duplicate, on the four
-  names everybody types.
-- `TestFossilOnlyTaxaAreStillFound` — the exclusion removed the duplicates and
-  not the corpus. *Triceratops*, *Dimetrodon*, *Anomalocaris*.
-- `TestInterleaveStampsOneContiguousOrder` — every pickable row gets exactly one
-  position and the run has no gaps. A collision is a row drawn twice; a gap is
-  one drawn not at all. Broken taxa are unstamped on purpose: they render as
-  notes, and a position in a list of pickable things would be a position in a
-  list they are not in.
-
-## 10. A note on running the tests in a worktree
-
-`testenv.BuildDir` walks six parents looking for `build/concestor.db`. From
-`<worktree>/server/internal/store` that reaches `.claude/` and stops one level
-short of the main checkout, so **70 of 87 Go tests silently skipped** and the
-suite still printed `ok`. `scripts/serve.sh` borrows `build/` explicitly; the
-tests do not.
-
-Symlinking `build` into the worktree root — it is gitignored — makes all 87 run
-against the real database. Worth doing before trusting a green suite here.
+Three checks worth keeping: `TestSearchNeverOffersATaxonTheTreeAlreadyHas`,
+`TestFossilOnlyTaxaAreStillFound` (*Triceratops*, *Dimetrodon*, *Anomalocaris*),
+`TestInterleaveStampsOneContiguousOrder` (no collision, no gap; broken taxa are
+unstamped because they render as notes).
