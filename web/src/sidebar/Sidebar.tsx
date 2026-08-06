@@ -57,6 +57,8 @@ import { TimeScaleToggle } from "../chrome/TimeScaleToggle";
 import { SourceLinks } from "../chrome/SourceLinks";
 import { useTip } from "../chrome/Tooltip";
 import { PendingLine } from "../chrome/Pending";
+import { PanelToggle } from "../chrome/CanvasChrome";
+import { SearchEntry } from "./SearchEntry";
 import { TaxaList, type TaxaListProps } from "./TaxaList";
 import { SIDEBAR_ID } from "./useSidebar";
 import { BrandMark } from "../chrome/BrandMark";
@@ -64,6 +66,11 @@ import { BrandMark } from "../chrome/BrandMark";
 export interface SidebarProps {
   open: boolean;
   docked: boolean;
+  onToggle: () => void;
+  /** Open the palette. The field in the column is one of its two doors. */
+  onSearch: () => void;
+  /** The invitation's words, when an opening has just answered its question. */
+  tip?: string;
   taxa: TaxaListProps;
   /** The canvas modes, all four of them, in one place for the first time. */
   labels: LabelMode;
@@ -104,17 +111,37 @@ export function Sidebar(p: SidebarProps) {
       {...(p.open ? {} : { inert: true })}
     >
       <div className="side-inner">
-        <Brand onAbout={p.onAbout} />
-        {p.busy && (
-          <PendingLine className="side-busy mono">resolving…</PendingLine>
-        )}
         {/*
-          The room the search pill occupies. The pill itself is in a fixed layer
-          of App's, so this is what stops the first section sliding under it —
-          one spacer reading the same two custom properties the pill's own rule
-          reads, rather than a magic padding on the section below.
+          The wordmark, and the panel's own switch beside it.
+
+          The switch was a bordered tile floating on the canvas at the panel's
+          edge, which is where every shipped sidebar puts it — and it was the
+          loudest object on the screen while the panel was open, a control with
+          a backdrop blur announcing a thing the reader is already looking at.
+          Open, it belongs in the header of the thing it closes, beside the name
+          of the app: one row, one rule, nothing floating.
+
+          Shut, it is back on the canvas — in a cluster with the search, drawn by
+          the same component as the three viewport actions in the opposite
+          corner. `chrome/CanvasChrome.tsx` is that pair.
         */}
-        <div className="side-search-gap" aria-hidden="true" />
+        <div className="side-head">
+          <Brand onAbout={p.onAbout} />
+          <PanelToggle onToggle={p.onToggle} />
+          {p.busy && (
+            <PendingLine className="side-busy mono">resolving…</PendingLine>
+          )}
+        </div>
+
+        {/*
+          Native to the column, at the normal inset, spaced by the same gap as
+          everything else. It used to be a pill in a fixed layer that bulged out
+          past the panel's edge; `sidebar/SearchEntry.tsx` records why that went.
+        */}
+        <SearchEntry
+          onOpen={p.onSearch}
+          {...(p.tip === undefined ? {} : { tip: p.tip })}
+        />
 
         {/*
           The taxa list is the only thing that scrolls, and everything below it

@@ -49,25 +49,27 @@ describe("the DOM contract", () => {
    * `SOURCES` that quietly emptied, or an entry scoped to a panel that is not
    * the one it names, would leave that test iterating over nothing and passing.
    *
-   * **Three where there were four**, and both changes are the sidebar. The
-   * command used to be two entries because it was two elements — a button on
-   * the control bar above 620px and a round palette button below it, never both
-   * — and the search pill is one object at every width. The wordmark moved out
-   * of the empty canvas's panel and into the sidebar, so it is `page`-scoped
-   * now with the condition carried in the selector instead.
+   * **Two where there were four, and both losses are geometry rather than
+   * taste.** Every light is measured with `getBoundingClientRect` and brought
+   * back into canvas space through `originX`, which is the panel's width while
+   * the panel is docked and open — so an element *inside* the panel resolves to
+   * a negative x and lights nothing, and the panel is opaque and beside the
+   * canvas anyway. The wordmark went that way when it moved into the column.
+   * The command was two entries when it was two elements at two widths and is
+   * one now: the copy of the search that is genuinely over the water, drawn in
+   * the left-hand cluster while the panel is shut.
    */
-  it("names three sources, one of them inside the panel", () => {
-    expect(SOURCES).toHaveLength(3);
+  it("names two sources, one of them inside the panel", () => {
+    expect(SOURCES).toHaveLength(2);
     expect(SOURCES.filter((s) => s.scope === "boot")).toHaveLength(1);
     for (const s of SOURCES) {
       expect(
         s.sel.trim(),
         "an empty selector matches the whole document",
       ).not.toBe("");
-      // Every one is anchored on a class. The wordmark's carries `.is-open` and
-      // the qualifier is deliberate: a shut panel is translated off-screen and
-      // `inert`, not removed, so a bare `.side-wordmark` would light a
-      // rectangle nobody can see at a negative x.
+      // Every one is anchored on a class. The command's is qualified on
+      // `.is-left` deliberately: that cluster is drawn only while the panel is
+      // shut, which is exactly when a light in that corner can be seen at all.
       expect(s.sel.startsWith("."), `${s.sel} is not anchored on a class`).toBe(
         true,
       );

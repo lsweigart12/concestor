@@ -37,9 +37,9 @@
  *
  * **And one piece of chrome does emit**, which is a boundary this file used to
  * draw absolutely — not the sidebar, not the axis, not the palette. That still
- * holds for all of them except the control that *opens* the palette, which is
- * the search pill — spanning the panel when it is open and the round cap left
- * standing on the canvas when it is shut, one element either way. The
+ * holds for all of them except the control that *opens* the search, and only
+ * the copy of it that is genuinely over the water: the button in the left-hand
+ * cluster, which is drawn while the panel is shut. The
  * exception earns itself: everything else in the chrome acts on something that
  * is already there, so on an empty canvas it is furniture, while this is the
  * way **in** — the one control whose whole job is that nothing has happened
@@ -107,29 +107,31 @@ export const SOURCES: readonly {
    */
   scope: "boot" | "page";
 }[] = [
+  { kind: "card", sel: ".carousel-card", first: true, scope: "boot" },
   /*
-    The wordmark is in the sidebar now, and the `.is-open` in the selector is
-    load-bearing rather than decorative. A shut panel is still measurable — it
-    is translated off-screen and `inert`, not removed — so a bare
-    `.side-wordmark` would light a rectangle nobody can see, at a negative x.
-    The selector carries the condition, which is the same job `scope: "boot"`
-    does for the two below it.
+    The way in, and it is the *canvas's* copy of it rather than the panel's.
+
+    This is the one selector here that has to be qualified, and the reason is
+    geometry rather than taste. Every light is measured with
+    `getBoundingClientRect` and brought back into canvas space through
+    `originX`, which is the panel's width while the panel is docked and open —
+    so an element **inside** the panel resolves to a negative x and lights
+    nothing. The panel is also opaque and sits beside the canvas rather than
+    over it, so even at x = 0 there would be nothing to see.
+
+    That is why the wordmark is no longer a source at all. It was one while it
+    was the empty canvas's own `h1`, floating over the water; it moved into the
+    panel with everything else and became a light computed every frame and
+    hidden behind a wall. The `.viewport-slot.is-left` copy of the search is
+    the only chrome left that is genuinely over the water, and it is drawn only
+    while the panel is shut — which is exactly when a light there can be seen.
   */
   {
-    kind: "wordmark",
-    sel: ".sidebar.is-open .side-wordmark",
+    kind: "command",
+    sel: ".viewport-slot.is-left button:last-child",
     first: true,
     scope: "page",
   },
-  { kind: "card", sel: ".carousel-card", first: true, scope: "boot" },
-  /*
-    One selector where there were two. The command used to be two elements —
-    the control bar's button above 620px and a round palette button below it,
-    never both — and the search pill is one object at every width: expanded it
-    spans the panel, shut it is the circle left standing where the panel's edge
-    was. There is nothing left for a second selector to name.
-  */
-  { kind: "command", sel: ".side-search-btn", first: true, scope: "page" },
 ];
 
 /**

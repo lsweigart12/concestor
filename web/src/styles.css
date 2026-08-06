@@ -109,13 +109,11 @@
    * first painted frame a full-width canvas rather than a canvas with a strip
    * of void down the side of it.
    *
-   * The rest are constants two files have to agree about and only one of them
-   * can measure. `--search-out` is how far past the panel's edge the pill
-   * hangs, and `--search-out` minus `--rail-pad` is the diameter of the circle
-   * left standing when the panel shuts — so those two are what make the
-   * collapsed control exactly `--search-h` across. `--side-pad-t`, `--brand-h`
-   * and `--side-gap` are what the pill's own `top` is computed from, because
-   * the pill is in a fixed layer and cannot inherit the column's flow.
+   * The rest are the panel's own vertical rhythm — `--side-pad-t`, `--brand-h`,
+   * `--side-gap` and `--search-h`. They were also what the search pill's `top`
+   * was computed from while it lived in a fixed layer and bulged out past the
+   * panel's edge; it is an ordinary control in the column now, so the flow
+   * places it and nothing outside the panel has to know these numbers.
    */
   --sidebar-w: 0px;
   /*
@@ -151,8 +149,7 @@
   --side-gap: clamp(14px, 2.4vh, 30px);
   --side-pad-t: 16px;
   --brand-h: 38px;
-  --search-h: 40px;
-  --search-out: 52px;
+  --search-h: 36px;
 }
 
 * {
@@ -1795,26 +1792,31 @@ body {
  * only one of them can be read from the DOM, so both are constants and this is
  * where they meet.
  */
-.side-brand {
+/*
+ * The wordmark, and the panel's own switch at the far end of the same row.
+ *
+ * The switch was a bordered, backdrop-blurred tile floating on the canvas at
+ * the panel's edge. Open, that is a control announcing a thing the reader is
+ * already looking at, and it was the loudest object on the screen. In the
+ * header of the thing it closes it needs no border at all: it has a heading to
+ * sit against and a whole row to itself.
+ */
+.side-head {
+  position: relative;
   flex: 0 0 auto;
   height: var(--brand-h);
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+
+.side-brand {
+  flex: 1 1 auto;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   justify-content: center;
   gap: 1px;
-}
-
-/*
- * The room the pill occupies, and nothing more.
- *
- * It used to carry a trailing 16px of its own; the column's `gap` supplies the
- * space on both sides now, which is what makes the wordmark→search gap and the
- * search→list gap the same measurement rather than two that happen to look
- * alike.
- */
-.side-search-gap {
-  flex: 0 0 auto;
-  height: var(--search-h);
 }
 
 .side-wordmark {
@@ -1838,7 +1840,7 @@ body {
   flex-direction: column;
   align-items: flex-start;
   gap: 1px;
-  width: 100%;
+  min-width: 0;
   margin: 0 -6px;
   padding: 3px 6px;
   border: 0;
@@ -1912,44 +1914,37 @@ body {
 /* --------------------------------------------------------- the way in -- */
 
 /*
- * The search pill, which hangs out over the canvas and is the whole control
- * when the panel is shut.
+ * A field in the column, at the column's own inset.
  *
- * Its right edge is `--sidebar-w` plus `--search-out`, and its left edge is a
- * constant, so the width falls out of the panel's. Shut, `--sidebar-w` is `0px`
- * and what is left is a circle exactly `--search-h` across, sitting directly
- * under the toggle — one element in two states rather than a control and a
- * stand-in for it. `sidebar/SearchEntry.tsx` argues why that had to be one
- * element.
+ * It was a pill in a fixed layer that spanned the panel and kept going past its
+ * right edge, ending in a round cap that was all that remained when the panel
+ * shut — one element in two states, the collapsed diameter falling out of
+ * `--search-out − --rail-pad = --search-h`. The arithmetic worked and it read
+ * as a bulge: a lozenge poking out of a straight edge is the one shape in this
+ * layout that nothing else explains, and it drew the eye to the panel's border
+ * rather than to the field. `sidebar/SearchEntry.tsx` records the trade.
+ *
+ * What is left is an ordinary control the flow places, so nothing outside the
+ * panel has to know where it is.
  */
 .side-search {
-  position: fixed;
-  left: var(--rail-pad);
-  /* The pill is in a fixed layer, so it cannot inherit the column's flow and
-     has to be told where the flow would have put it: the top padding, the
-     wordmark, and one gap. Its slot in the column is `--search-h` tall and
-     starts here. */
-  top: calc(var(--side-pad-t) + var(--brand-h) + var(--side-gap));
-  z-index: 32;
-  width: calc(var(--chrome-left) + var(--search-out) - var(--rail-pad));
-  height: var(--search-h);
-  transition: width 220ms var(--spring);
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .side-search-btn {
   width: 100%;
-  height: 100%;
+  height: var(--search-h);
   display: flex;
   align-items: center;
   gap: 9px;
-  padding: 0 12px;
-  /* Fully round, which is what makes the collapsed state a circle without a
-     second rule and what makes the overhanging end read as a cap rather than
-     as a panel that failed to stop. */
-  border-radius: 999px;
-  border: 1px solid var(--hairline-strong);
+  padding: 0 10px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
   background: var(--void-3);
-  color: var(--ink-2);
+  color: var(--ink-3);
   font: inherit;
   font-size: 12.5px;
   text-align: left;
@@ -1957,35 +1952,27 @@ body {
   overflow: hidden;
   white-space: nowrap;
   /*
-   * **It glows, and it is the one piece of chrome that does.**
-   *
-   * The standing rule is that the graph is the only light source and every
-   * other control obeys it: `ModeChip` states its position and stops, and the
-   * note over `.biolum-mode.is-lit` records that the light is the single
-   * exception *because glowing is what it does*. This is the second, on a
-   * different argument. It is the way in — the field reaches every species and
-   * every command, and shut, it is one of the two things on screen. A reader
-   * who does not find it has no way to reach the search, a random pick, share,
-   * clear or the light itself. Steady, never breathing: a pulsing light at the
-   * edge of the eye is the one thing a dark instrument may not do.
+   * **No glow.** It had one, on the argument that it is the way in and a reader
+   * who does not find it has no way to reach the search, a random pick, share
+   * or the light. That argument was made when the control was a lit pill
+   * floating half over the canvas and there was nothing else to find it by.
+   * Inside a column, under the app's own name, above a section captioned TAXA,
+   * a field that looks like a field is found — and the standing rule is that
+   * the graph is the only light source, with the bioluminescence switch as the
+   * single exception, because glowing is what *it* does.
    */
-  box-shadow:
-    0 0 10px hsl(var(--accent-h) 90% 60% / 0.1),
-    inset 0 0 8px hsl(var(--accent-h) 90% 60% / 0.04);
   transition:
     border-color 160ms ease,
-    box-shadow 160ms ease,
-    background 160ms ease;
+    background 160ms ease,
+    color 160ms ease;
 }
 
 .side-search-btn:hover,
 .side-search-btn:focus-visible {
-  border-color: hsl(var(--accent-h) 55% 55% / 0.75);
+  outline: none;
+  border-color: var(--hairline-strong);
   background: var(--void-2);
   color: var(--ink);
-  box-shadow:
-    0 0 16px hsl(var(--accent-h) 90% 60% / 0.22),
-    inset 0 0 10px hsl(var(--accent-h) 90% 60% / 0.07);
 }
 
 .side-search-glyph {
@@ -2005,69 +1992,39 @@ body {
 }
 
 /*
- * Collapsed, the words and the badge go and the glyph centres itself.
- *
- * `opacity` and not `display`, so the two states are one animation: the pill
- * narrows, the words fade through it, and the glyph slides to the middle of
- * what is left. Removing them outright would snap the layout on the first frame
- * and the width transition would be animating an empty circle.
- */
-.side-search.is-collapsed .side-search-btn {
-  justify-content: center;
-  padding: 0;
-}
-
-.side-search.is-collapsed .side-search-words,
-.side-search.is-collapsed .side-search-kbd {
-  opacity: 0;
-  width: 0;
-  flex: 0 0 0;
-  transition: opacity 100ms ease;
-}
-
-/*
  * The invitation, after an opening has answered its question.
  *
- * Same ring, same rule, same withdrawal as the control bar's outline: it goes
- * out the moment any door is used. What it is drawn round is now the one door
- * that reaches all of them.
+ * Same ring and the same withdrawal as every layout before it: it goes out the
+ * moment any door is used. What it is drawn round is the one door that reaches
+ * all of them.
  */
 .side-search.is-tip .side-search-btn {
+  border-color: hsl(var(--accent-h) 45% 50% / 0.7);
   animation: side-tip 2400ms ease-in-out infinite;
 }
 
 @keyframes side-tip {
   0%,
   100% {
-    box-shadow:
-      0 0 12px hsl(var(--accent-h) 90% 60% / 0.16),
-      inset 0 0 8px hsl(var(--accent-h) 90% 60% / 0.05);
+    box-shadow: 0 0 0 0 hsl(var(--accent-h) 90% 60% / 0.22);
   }
   50% {
-    box-shadow:
-      0 0 26px hsl(var(--accent-h) 90% 62% / 0.4),
-      inset 0 0 12px hsl(var(--accent-h) 90% 60% / 0.12);
+    box-shadow: 0 0 0 4px hsl(var(--accent-h) 90% 60% / 0.11);
   }
 }
 
 /*
- * The words the ring cannot say, out of the pill's right-hand end.
+ * The words the ring cannot say, under the field rather than beside it.
  *
- * A caption and never a target — `pointer-events: none`, on the same rule the
- * control bar's tray followed: a sentence beside a control must not compete
- * with the control for the press it is asking for.
+ * A caption and never a target — the same rule every version of this line has
+ * kept. In the column the reading order and the visual order are the same, so
+ * nothing has to be reordered for a screen reader the way the fixed layer's
+ * version did.
  */
 .side-search-tip {
-  position: fixed;
-  left: calc(var(--chrome-left) + var(--search-out) + 12px);
-  top: calc(var(--side-pad-t) + var(--brand-h) + var(--side-gap));
-  z-index: 31;
   margin: 0;
-  max-width: 250px;
-  height: var(--search-h);
-  display: flex;
-  align-items: center;
-  font-size: 11.5px;
+  padding: 0 2px;
+  font-size: 11px;
   line-height: 1.35;
   color: var(--ink-3);
   pointer-events: none;
@@ -2077,7 +2034,7 @@ body {
 @keyframes side-tip-in {
   from {
     opacity: 0;
-    transform: translateX(-10px);
+    transform: translateY(-4px);
   }
   to {
     opacity: 1;
@@ -2587,53 +2544,42 @@ body {
 /* ------------------------------------------------------- canvas clusters -- */
 
 /*
- * The panel's switch, top left of the canvas.
+ * The panel's switch, in the panel's header.
  *
- * It rides `--sidebar-w`, so it slides with the panel's edge as it is dragged
- * and stays put when the panel goes. `chrome/CanvasChrome.tsx` argues why it
- * has to be on the layout rather than inside the thing it hides.
+ * No border, no background, no backdrop filter — the glyph and its badge, with
+ * a track under the pointer. Everything the floating version had was there to
+ * make it an object on the canvas; in a row under the app's own name it is a
+ * control beside a heading, and a box round it would be the only box in the
+ * header.
  */
 .side-toggle {
-  position: fixed;
-  left: calc(var(--chrome-left) + 14px);
-  top: 14px;
-  z-index: 33;
-  width: 36px;
-  height: 36px;
-  display: flex;
-  flex-direction: column;
+  flex: 0 0 auto;
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
-  gap: 1px;
-  border: 1px solid var(--hairline);
-  border-radius: 9px;
-  background: hsl(240 5% 7% / 0.82);
-  backdrop-filter: blur(6px);
-  color: var(--ink-3);
+  gap: 5px;
+  height: 26px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--ink-4);
   cursor: pointer;
   transition:
-    left 220ms var(--spring),
-    border-color 140ms ease,
     background 140ms ease,
     color 140ms ease;
 }
 
 .side-toggle:hover,
 .side-toggle:focus-visible {
-  border-color: var(--hairline-strong);
-  background: hsl(240 5% 10% / 0.92);
-  color: var(--ink);
-}
-
-.side-toggle.is-open {
+  outline: none;
+  background: var(--void-3);
   color: var(--ink-2);
 }
 
 .side-toggle .kbd {
-  font-size: 7.5px;
-  padding: 0 2px;
+  font-size: 8px;
+  padding: 0 3px;
   min-width: 0;
-  line-height: 1.35;
 }
 
 .side-toggle-glyph {
@@ -2655,6 +2601,20 @@ body {
   top: 14px;
   z-index: 20;
   transition: opacity 400ms ease;
+}
+
+/*
+ * The pair top left, drawn only while the panel is shut.
+ *
+ * Same offset from its corner as the trio on the right, same anatomy, same
+ * badges — which is the whole point of drawing them with one component. It is
+ * deliberately **not** in the idle fade: chrome auto-hides because the canvas
+ * is the page, and a control that puts the whole panel back has to be findable
+ * by somebody who has just realised they want it.
+ */
+.viewport-slot.is-left {
+  right: auto;
+  left: var(--s4);
 }
 
 .viewport-slot.idle {

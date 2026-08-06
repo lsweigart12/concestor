@@ -50,12 +50,11 @@ import { OpeningCarousel } from "./chrome/OpeningCarousel";
 import { keysOf, nextOpening, type Opening } from "./openings";
 import { Confirm } from "./chrome/Confirm";
 import {
-  SidebarToggle,
+  CanvasLeftControls,
   ViewportControls,
   type ViewportAction,
 } from "./chrome/CanvasChrome";
 import { Sidebar } from "./sidebar/Sidebar";
-import { SearchEntry } from "./sidebar/SearchEntry";
 import { useSidebar } from "./sidebar/useSidebar";
 import { PendingLine, usePending } from "./chrome/Pending";
 import { kbd, matchKey } from "./chrome/bindings";
@@ -1321,6 +1320,43 @@ export default function App() {
     settle();
   }, [settle]);
 
+  /**
+   * Toggle the panel, and take the focus ring with the control.
+   *
+   * The switch has two mount points — the panel's header while it is open, the
+   * canvas cluster while it is shut — and pressing one unmounts it. Left alone,
+   * a reader closing the panel from the keyboard is dropped on `body` and has
+   * to tab from the top of the document to get back to the button they were
+   * standing on.
+   *
+   * Only when the press *came from* a toggle, because the same callback is what
+   * `S` runs from anywhere on the canvas and a key press must not move the ring
+   * to somewhere the reader was not.
+   *
+   * **The move happens in an effect and not in a `requestAnimationFrame`.** The
+   * first version used a frame and it silently did nothing: React commits on a
+   * task of its own, so the frame fired while the surviving instance did not
+   * exist yet and the query matched nothing. An effect runs *after* the commit,
+   * which is the only moment both facts are true — the old button is gone and
+   * the new one is in the document.
+   */
+  const restoreToggleFocus = useRef(false);
+  const toggleSidebar = useCallback(() => {
+    restoreToggleFocus.current =
+      document.activeElement instanceof HTMLElement &&
+      document.activeElement.closest(".side-toggle, .viewport-slot.is-left") !==
+        null;
+    sidebar.toggle();
+  }, [sidebar]);
+
+  useEffect(() => {
+    if (!restoreToggleFocus.current) return;
+    restoreToggleFocus.current = false;
+    document
+      .querySelector<HTMLElement>(".side-toggle, .viewport-slot.is-left button")
+      ?.focus();
+  }, [sidebar.open]);
+
   const clearCanvas = useCallback(() => {
     tree.clear();
     setConfirmClear(false);
@@ -1386,7 +1422,7 @@ export default function App() {
 
       switch (action) {
         case "sidebar":
-          sidebar.toggle();
+          toggleSidebar();
           break;
         case "search":
           openPalette();
@@ -1481,7 +1517,7 @@ export default function App() {
       dismissAnswer,
       settle,
       fullscreen,
-      sidebar,
+      toggleSidebar,
     ],
   );
 
@@ -1980,35 +2016,29 @@ export default function App() {
       )}
 
       {/*
-        The panel's own switch and the three that act on the view, both riding
-        the canvas rather than the panel — `chrome/CanvasChrome.tsx` is why the
-        toggle has to be on the layout and not inside the thing it hides.
+        Two clusters in the canvas's own corners, drawn by one component.
 
-        The cluster fades when nobody has moved for four seconds and the panel's
-        switch does not. Chrome auto-hides because the canvas is the page, and
-        that rule was written for a bar of nine buttons; a control that puts the
-        whole panel back has to be findable by somebody who has just realised
-        they want it. `afterglow` holds even the fade open — a reader reading
-        the answer to their question is exactly the reader holding still.
+        The left pair is the panel's switch and the way into the search, and it
+        is drawn **only while the panel is shut** — open, the switch is in the
+        panel's header beside the wordmark and the search is a field in the
+        column. The right three act on the view.
+
+        They fade together when nobody has moved for four seconds, except that
+        the left pair does not: chrome auto-hides because the canvas is the
+        page, and that rule was written for a bar of nine buttons — a control
+        that puts the whole panel back has to be findable by somebody who has
+        just realised they want it. `afterglow` holds even the right-hand fade
+        open, because a reader reading the answer to their question is exactly
+        the reader holding still.
       */}
-      <SidebarToggle open={sidebar.open} onToggle={sidebar.toggle} />
+      {!sidebar.open && (
+        <CanvasLeftControls onToggle={toggleSidebar} onSearch={openPalette} />
+      )}
       <div
         className={`viewport-slot${idle && afterglow === null ? " idle" : ""}`}
       >
         <ViewportControls actions={viewportActions} />
       </div>
-
-      {/*
-        The way in, in a fixed layer of its own so that it survives the panel
-        closing — see `sidebar/SearchEntry.tsx`. Before the panel in the DOM
-        because it is the first thing in the column visually and a screen
-        reader should meet it in the same order.
-      */}
-      <SearchEntry
-        onOpen={openPalette}
-        collapsed={!sidebar.open}
-        {...(tipShown ? { tip: TIP_LINE } : {})}
-      />
 
       {/*
         Undocked, the panel is over the canvas rather than beside it, so it
@@ -2027,6 +2057,9 @@ export default function App() {
       <Sidebar
         open={sidebar.open}
         docked={sidebar.docked}
+        onToggle={toggleSidebar}
+        onSearch={openPalette}
+        {...(tipShown ? { tip: TIP_LINE } : {})}
         busy={busy}
         taxa={{
           nodes: taxaRows,

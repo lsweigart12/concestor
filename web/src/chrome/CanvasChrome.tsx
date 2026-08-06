@@ -45,36 +45,101 @@
  * is how an iPhone ends up with a command for a thing that cannot happen.
  */
 
-import { binding, kbd } from "./bindings";
+import type { ReactNode } from "react";
+import { binding, kbd, type ActionId } from "./bindings";
 import { FULLSCREEN_AVAILABLE } from "./fullscreen";
 import { useTip } from "./Tooltip";
 import { SIDEBAR_ID } from "../sidebar/useSidebar";
 
 export interface ViewportAction {
-  id: "fit" | "isolate" | "fullscreen";
-  glyph: string;
+  id: ActionId;
+  /**
+   * The mark on the button.
+   *
+   * A node rather than a string, because two of these are drawn SVGs — the
+   * panel and the magnifier — and the three on the right are characters. What
+   * they have in common is that they take `currentColor` and sit in the same
+   * 13px box, which is what makes the two clusters read as one family.
+   */
+  glyph: ReactNode;
   run: () => void;
   /** True while the action's effect is the current state. */
   active?: boolean;
   /** Set when the action cannot do anything right now, and why. */
   disabledBecause?: string;
+  /** The disclosure contract, for the one of these that is a disclosure. */
+  expanded?: boolean;
+  controls?: string;
 }
 
-export function SidebarToggle({
-  open,
+/**
+ * The pair top left, drawn only while the panel is shut.
+ *
+ * **It is the same component as the cluster on the right**, with the same
+ * anatomy, the same badges and the same corner offset — which is the whole
+ * point. The panel's switch and the way into the search are two ordinary
+ * controls, and drawing them as ordinary controls is what the layout owed them:
+ * the toggle was a bordered, backdrop-blurred tile of its own and the search
+ * was a pill that bulged out over the canvas, and between them they were the
+ * loudest thing on a screen whose subject is the tree.
+ *
+ * Open, neither is here. The toggle moves into the panel's own header beside
+ * the wordmark — `sidebar/Sidebar.tsx` — and the search is a field in the
+ * column, where a search field belongs.
+ */
+export function CanvasLeftControls({
   onToggle,
+  onSearch,
 }: {
-  open: boolean;
   onToggle: () => void;
+  onSearch: () => void;
 }) {
+  return (
+    /*
+      It owns its own slot, where the trio on the right is placed by `App`.
+      That is not an inconsistency to tidy: this pair is drawn only in one
+      state and never fades, so there is nothing for a caller to decide, and
+      keeping the class here means the modifier is applied to the element the
+      stylesheet answers it on — which `styles.test.ts` checks, and caught.
+    */
+    <div className="viewport-slot is-left">
+      <ViewportControls
+        actions={[
+          {
+            id: "sidebar",
+            glyph: <PanelGlyph />,
+            run: onToggle,
+            expanded: false,
+            controls: SIDEBAR_ID,
+          },
+          { id: "search", glyph: <SearchGlyph />, run: onSearch },
+        ]}
+      />
+    </div>
+  );
+}
+
+/**
+ * The panel's switch, in the panel's own header beside the wordmark.
+ *
+ * Quieter than the cluster version and deliberately so: inside the column it
+ * has a heading to sit against and a border round nothing, so what is left is
+ * the glyph, the badge, and a track under the pointer.
+ *
+ * It is a *second instance* of one control rather than a second control, which
+ * costs one thing worth paying attention to: pressing it unmounts it. `App.tsx`
+ * moves focus to whichever instance survives, or a reader closing the panel
+ * from the keyboard is left with the focus ring on nothing.
+ */
+export function PanelToggle({ onToggle }: { onToggle: () => void }) {
   const b = binding("sidebar");
   const tip = useTip(b.hint);
   return (
     <button
       type="button"
-      className={`side-toggle${open ? " is-open" : ""}`}
+      className="side-toggle"
       onClick={onToggle}
-      aria-expanded={open}
+      aria-expanded
       aria-controls={SIDEBAR_ID}
       aria-label={b.label}
       {...tip}
@@ -114,6 +179,8 @@ function ViewportButton({ a }: { a: ViewportAction }) {
       className={`viewport-btn${a.active === true ? " on" : ""}`}
       aria-disabled={off || undefined}
       aria-label={b.label}
+      {...(a.expanded === undefined ? {} : { "aria-expanded": a.expanded })}
+      {...(a.controls === undefined ? {} : { "aria-controls": a.controls })}
       onClick={off ? undefined : a.run}
       {...tip}
     >
@@ -166,6 +233,38 @@ function PanelGlyph() {
         strokeWidth="1.4"
         strokeLinejoin="round"
       />
+    </svg>
+  );
+}
+
+/**
+ * The magnifier, drawn rather than typed.
+ *
+ * `⌕` is the honest character and renders at three different weights and two
+ * different baselines across the fonts in `--sans`. Twelve lines of SVG is the
+ * cheaper answer, and it takes `currentColor` like every other mark here. It
+ * lives beside the panel glyph because the two are drawn to the same box and
+ * are used together in the left-hand cluster.
+ */
+export function SearchGlyph() {
+  return (
+    <svg
+      className="side-search-glyph"
+      viewBox="0 0 16 16"
+      width="15"
+      height="15"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <g
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      >
+        <circle cx="7" cy="7" r="4.4" />
+        <path d="M10.3 10.3 L14 14" />
+      </g>
     </svg>
   );
 }

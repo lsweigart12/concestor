@@ -17,7 +17,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { cssVar, decl, rules } from "../test/css";
+import { decl, ruleFor, rules } from "../test/css";
 import { DOCK_W, FLOAT_GAP, WIDTH } from "./useSidebar";
 
 /** A `12px`-style declaration as a number. */
@@ -61,110 +61,85 @@ describe("one custom property is the whole layout", () => {
    * `--sidebar-w` is what the panel takes *off the canvas* and is zero whenever
    * the panel floats over the canvas instead of sitting beside it.
    * `--chrome-left` is where the panel's right edge *is on screen*, which has a
-   * different answer in exactly that case. The toggle and the search pill ride
-   * the second, and the first version of this rode the first — which drew both
-   * of them on top of the drawer's own wordmark at every width below `DOCK_W`.
+   * different answer in exactly that case. Nothing rides `--chrome-left` today
+   * — the toggle and the search are in the panel's own flow while it is open
+   * and in a corner cluster while it is shut — but the two are still different
+   * questions, and the drawer is why.
    */
-  it("rides the chrome off the panel's edge rather than off its cost", () => {
-    expect(decl(".side-toggle", "left")).toContain("var(--chrome-left)");
-    expect(decl(".side-search", "width")).toContain("var(--chrome-left)");
-    expect(decl(".side-search", "width")).not.toContain("var(--sidebar-w)");
-    expect(decl(".side-toggle", "left")).not.toContain("var(--sidebar-w)");
+  it("insets nothing but the canvas by what the panel costs it", () => {
+    expect(decl(".canvas", "left")).toBe("var(--sidebar-w)");
+    expect(decl(".sidebar", "width")).toBe(`${WIDTH}px`);
   });
 });
 
-describe("the search pill collapses to a circle", () => {
+describe("the search is a field in the column, not a pill over the canvas", () => {
   /**
-   * The arithmetic that makes the collapsed control a circle rather than a
-   * lozenge, and it is the reason those three numbers are custom properties
-   * instead of literals.
+   * The overhang is gone and this is what replaced it.
    *
-   * The pill runs from `--rail-pad` to `--chrome-left` plus `--search-out`.
-   * Shut, `--chrome-left` is `0px`, so what is left is `--search-out` minus
-   * `--rail-pad` — and that has to equal `--search-h` exactly or the one
-   * element that survives the panel closing is visibly not round.
+   * It used to be `position: fixed` in a layer of its own, spanning the panel
+   * and continuing past its right edge to a round cap — the collapsed diameter
+   * falling out of `--search-out − --rail-pad = --search-h`. It read as a bulge,
+   * so it is an ordinary control the column's flow places. Pinned from three
+   * directions because every one of them is a way the overhang could come back
+   * without anything erroring.
    */
-  it("leaves exactly its own height behind when the panel shuts", () => {
-    const out = px(cssVar("--search-out"));
-    const pad = px(cssVar("--rail-pad"));
-    const h = px(cssVar("--search-h"));
-    expect(out - pad).toBe(h);
+  it("is placed by the flow rather than by a fixed layer", () => {
+    const pos = rules()
+      .filter((r) => r.selectors.includes(".side-search"))
+      .map((r) => r.decls.get("position"))
+      .filter((v) => v !== undefined);
+    expect(pos).not.toContain("fixed");
+    expect(decl(".side-search-btn", "width")).toBe("100%");
+    // The overhang's own number, which existed only to compute where the cap
+    // ended. A rule still reading it is a rule still drawing a bulge.
+    expect(ruleFor(":root").decls.has("--search-out")).toBe(false);
   });
 
   /**
-   * And the cap's centre lands under the toggle's. Both are round, both are on
-   * the same vertical, and a few pixels out reads as a misalignment rather than
-   * as one control below another.
+   * **And it does not glow.** It had a resting bloom while it was a lit pill
+   * floating half over the canvas with nothing else to find it by. In a column
+   * under the app's own name a field that looks like a field is found, and the
+   * standing rule is that the graph is the only light source — with the
+   * bioluminescence switch as the single exception, because glowing is what
+   * *it* does.
    */
-  it("centres the cap under the panel's own switch", () => {
-    const capCentre = px(cssVar("--search-out")) - px(cssVar("--search-h")) / 2;
-    const toggleLeft = px(
-      decl(".side-toggle", "left")?.match(/\+ (\d+)px/)?.[1],
-    );
-    const toggleW = px(decl(".side-toggle", "width"));
-    expect(capCentre).toBe(toggleLeft + toggleW / 2);
-  });
-
-  /**
-   * The pill is in a fixed layer, so it cannot inherit the column's flow and
-   * has to be told where the flow would have put it: the top padding, the
-   * wordmark, and one gap. Its slot in the column is exactly `--search-h`, and
-   * the two have to be computed from the same three properties or the sections
-   * below slide under the pill on any window where the gap resolves
-   * differently from the day somebody eyeballed it.
-   */
-  it("puts the pill exactly where the column's flow would have", () => {
-    const top = decl(".side-search", "top");
-    for (const v of ["--side-pad-t", "--brand-h", "--side-gap"]) {
-      expect(top, `the pill's top does not read ${v}`).toContain(`var(${v})`);
-    }
-    expect(decl(".side-brand", "height")).toBe("var(--brand-h)");
-    expect(decl(".side-search-gap", "height")).toBe("var(--search-h)");
-  });
-
-  /**
-   * And the invitation's words ride the same line as the pill they point at.
-   * They were two literals once and the second was not updated when the first
-   * moved, which put the sentence a gap's worth above the ring it explains.
-   */
-  it("keeps the invitation on the pill's own line", () => {
-    expect(decl(".side-search-tip", "top")).toBe(decl(".side-search", "top"));
+  it("takes no resting glow, which is the app's own standing rule", () => {
+    const resting = rules()
+      .filter((r) => r.selectors.includes(".side-search-btn"))
+      .map((r) => r.decls.get("box-shadow") ?? "")
+      .join(" ");
+    expect(resting).toBe("");
   });
 });
 
-describe("the column has one rhythm and it scales", () => {
+describe("the two canvas clusters are one family", () => {
   /**
-   * Five blocks, four gaps, and the gap is the *only* spacing between them.
-   *
-   * Each section used to carry its own padding and a hairline to its
-   * neighbour, which under one shared gap is what makes the four gaps unequal:
-   * the two around the search pill's slot are the gap alone, and the two around
-   * the sections would be the gap plus two paddings. This is the rule that
-   * keeps them the same measurement rather than four that happen to look alike.
+   * The pair top left is drawn by the same component as the trio top right, and
+   * sits the same distance from its own corner. That parity is the whole reason
+   * the pill and the floating toggle went: two ordinary controls in a cluster
+   * beat one clever object and one bordered tile.
    */
-  it("spaces the column with one gap and gives the sections no padding", () => {
-    expect(decl(".side-inner", "gap")).toBe("var(--side-gap)");
-    expect(decl(".side-section", "padding")).toBe("0");
+  it("puts the left pair at the same offset as the right trio", () => {
+    expect(decl(".viewport-slot", "top")).toBe(decl(".viewport-slot", "top"));
+    expect(decl(".viewport-slot", "right")).toBe("var(--s4)");
+    expect(decl(".viewport-slot.is-left", "left")).toBe("var(--s4)");
+    expect(decl(".viewport-slot.is-left", "right")).toBe("auto");
   });
 
-  it("draws no rule between the blocks, since the gap is the separation", () => {
-    const ruled = rules().filter(
+  /**
+   * And the left pair never fades. Chrome auto-hides because the canvas is the
+   * page, and that rule was written for a bar of nine buttons — a control that
+   * puts the whole panel back has to be findable by somebody who has just
+   * realised they want it.
+   */
+  it("fades the right trio and never the left pair", () => {
+    expect(decl(".viewport-slot.idle", "opacity")).not.toBe("1");
+    const leftIdle = rules().filter(
       (r) =>
-        r.selectors.some(
-          (sel) =>
-            sel.includes(".side-section") ||
-            sel === ".side-bottom" ||
-            sel === ".side-canvas",
-        ) && (r.decls.get("border-top") ?? "") !== "",
+        r.selectors.some((sel) => sel.includes(".is-left")) &&
+        (r.decls.get("opacity") ?? "1") !== "1",
     );
-    expect(ruled.map((r) => r.selector)).toEqual([]);
-  });
-
-  /** It scales with the window and is clamped at both ends. */
-  it("scales the gap, and floors and ceilings it", () => {
-    const gap = cssVar("--side-gap");
-    expect(gap).toMatch(/^clamp\(/);
-    expect(gap).toContain("vh");
+    expect(leftIdle.map((r) => r.selector)).toEqual([]);
   });
 });
 

@@ -486,10 +486,20 @@ which is the same split the card reserve already uses; that **the bioluminescent
 water needs a `ResizeObserver`** rather than the `window.resize` listener it had,
 because this element now resizes without the window resizing and a stale drawing
 buffer stretched over a wider canvas drew every river a fifth of a screen right
-of its own branch; that the search pill is
-**one element in two states**, its collapsed diameter falling out of
-`--search-out − --rail-pad = --search-h`, which is why those are custom
-properties and pinned by `layout.test.ts`; that the panel's own `width` is a
+of its own branch; that the search is a
+**field in the column and the switch is in the panel's header**, where both used
+to float over the canvas — a pill bulging past the panel's edge and a bordered,
+backdrop-blurred tile — and that shut, the two are **one cluster drawn by the
+same component as the three viewport actions opposite**, which is what makes two
+controls where there was one an honest trade; that the pill's **glow went with
+it**, since the standing rule is that the graph is the only light source and its
+exception was earned by floating half over the canvas with nothing else to find
+it by; that the switch has **two mount points and focus has to follow it**, in an
+effect and never in a `requestAnimationFrame` — React commits on a task of its
+own, so a frame fires while the surviving instance does not exist yet and the
+query matches nothing; that `bootLight.ts` therefore measures **only what is
+genuinely over the water**, since an element inside the opaque panel resolves to
+a negative canvas x and lights nothing; that the panel's own `width` is a
 **CSS constant and not the variable**, since the variable goes to `0px` the
 moment it shuts and reading it there would collapse the panel to nothing before
 it had finished leaving; that a **rotating placeholder hint

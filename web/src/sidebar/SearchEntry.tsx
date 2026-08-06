@@ -1,19 +1,24 @@
 /**
- * The way in, and the one object in this layout that is in two places at once.
+ * The way in, as a field in the column.
  *
- * ## It is a pill that hangs out over the canvas
+ * ## It was a pill that bulged out over the canvas, and that is gone
  *
- * The field spans the panel and then keeps going, past the panel's right edge,
- * ending in a round cap whose centre sits exactly under the sidebar toggle. The
- * overhang is not decoration: it is what makes the control survive the panel
- * closing. `--sidebar-w` goes to `0px` when the sidebar shuts, the pill's width
- * is computed from it, and what is left standing on the canvas is a 40px circle
- * carrying the same glyph in the same place it already was. One element, two
- * states, and the transition between them is the width animating.
+ * It used to span the panel and keep going past its right edge, ending in a
+ * round cap that was all that remained when the panel shut — one element in two
+ * states, with the collapsed diameter falling out of
+ * `--search-out − --rail-pad = --search-h`. The arithmetic worked and the
+ * transition was the width animating. It read as a bulge: a lozenge poking out
+ * of a straight edge is the one shape on this layout that nothing else
+ * explains, and it drew the eye to the panel's border rather than to the field.
  *
- * That is the whole reason this is drawn in a fixed layer of its own rather
- * than inside the panel's scroll region. A child of the panel goes where the
- * panel goes, and the panel goes away.
+ * So the field is native to the column now — a normal control at the normal
+ * inset, spaced by the same `--side-gap` as everything else — and the collapsed
+ * state is a *button in a cluster* rather than the same object narrowed. Two
+ * controls where there was one, which is the trade: what makes it honest is
+ * that the collapsed pair is drawn by the same component as the three viewport
+ * actions in the opposite corner, with the same anatomy and the same badges, so
+ * the two clusters read as one family instead of as one clever object and three
+ * ordinary ones. `chrome/CanvasChrome.tsx` draws it.
  *
  * ## A button, not an input
  *
@@ -59,97 +64,48 @@
  */
 
 import { kbd } from "../chrome/bindings";
-import { useTip } from "../chrome/Tooltip";
+import { SearchGlyph } from "../chrome/CanvasChrome";
 
 export function SearchEntry({
   onOpen,
-  /** The panel is shut, so this is a lone circle on the canvas. */
-  collapsed,
   tip,
 }: {
   onOpen: () => void;
-  collapsed: boolean;
   /**
    * The invitation's words, after an opening has answered its question — and
    * the words rather than a flag.
    *
-   * The round palette button this replaced made that the rule and it survives
-   * the button: a ring pulsing round a control with nothing beside it is a
+   * The round palette button two layouts ago made that the rule and it has
+   * survived both: a ring pulsing round a control with nothing beside it is a
    * light the reader cannot read. One string means the pulse cannot happen
    * without them.
    */
   tip?: string;
 }) {
-  // The hover explanation, which is a different sentence from `tip` above —
-  // that one is the invitation and pulses; this one only ever answers "what is
-  // this". It is offered only when the panel is shut, because open the pill
-  // says "Search" in words and a tooltip repeating it is noise.
-  const hover = useTip(
-    collapsed
-      ? "Search species, fossils and commands — the panel stays shut"
-      : undefined,
-  );
-
   return (
-    <>
+    <div className={`side-search${tip === undefined ? "" : " is-tip"}`}>
+      <button
+        type="button"
+        className="side-search-btn"
+        onClick={onOpen}
+        aria-label="Search species, fossils and commands"
+      >
+        <SearchGlyph />
+        <span className="side-search-words" aria-hidden="true">
+          Search
+        </span>
+        <span className="kbd side-search-kbd" aria-hidden="true">
+          {kbd("search")}
+        </span>
+      </button>
       {/*
-        Before the button in the DOM so a screen reader meets the invitation and
-        then the door it is about, which is the order the eye takes them in. It
-        is a caption and never a target — see the rule's `pointer-events`.
+        The invitation's words, under the field they point at. A caption and
+        never a target — see the rule's `pointer-events`. It is *after* the
+        button here, unlike the fixed layer it replaced: in the column the
+        reading order and the visual order are the same, so nothing has to be
+        reordered for a screen reader.
       */}
       {tip !== undefined && <p className="side-search-tip">{tip}</p>}
-      <div
-        className={`side-search${collapsed ? " is-collapsed" : ""}${
-          tip !== undefined ? " is-tip" : ""
-        }`}
-      >
-        <button
-          type="button"
-          className="side-search-btn"
-          onClick={onOpen}
-          aria-label="Search species, fossils and commands"
-          {...hover}
-        >
-          <SearchGlyph />
-          <span className="side-search-words" aria-hidden="true">
-            Search
-          </span>
-          <span className="kbd side-search-kbd" aria-hidden="true">
-            {kbd("search")}
-          </span>
-        </button>
-      </div>
-    </>
-  );
-}
-
-/**
- * The glyph, drawn rather than typed.
- *
- * `⌕` is the honest character and renders at three different weights and two
- * different baselines across the fonts in `--sans`, which on a 40px circle is
- * the difference between a control and a smudge. Twelve lines of SVG is the
- * cheaper answer, and it takes `currentColor` like every other mark here.
- */
-function SearchGlyph() {
-  return (
-    <svg
-      className="side-search-glyph"
-      viewBox="0 0 16 16"
-      width="15"
-      height="15"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <g
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-      >
-        <circle cx="7" cy="7" r="4.4" />
-        <path d="M10.3 10.3 L14 14" />
-      </g>
-    </svg>
+    </div>
   );
 }

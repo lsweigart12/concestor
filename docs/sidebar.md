@@ -203,46 +203,74 @@ those are the two numbers stated in both places.
 
 ---
 
-## 4. The search pill is one object in two states
+## 4. The search is a field in the column, and the switch is in the header
 
-It spans the panel and keeps going, past the panel's right edge, ending in a
-round cap whose centre sits exactly under the sidebar toggle. Shut,
-`--chrome-left` is `0px` and what is left standing on the canvas is a 40px
-circle carrying the same glyph in the same place it already was.
+Both of these were clever and both read as loud, which is the same mistake made
+twice.
 
-The arithmetic that makes it a circle rather than a lozenge is
-`--search-out − --rail-pad = --search-h`, which is why those three are custom
-properties and not literals. `layout.test.ts` pins the identity, and pins that
-the cap's centre lands under the toggle's.
+**The search was a pill that bulged out over the canvas.** It spanned the panel
+and kept going past its right edge, ending in a round cap that was all that
+remained when the panel shut — one element in two states, with the collapsed
+diameter falling out of `--search-out − --rail-pad = --search-h`. The arithmetic
+worked and the transition was the width animating. It still read as a bulge: a
+lozenge poking out of a straight edge is the one shape in this layout that
+nothing else explains, and it pulled the eye to the panel's border rather than
+to the field. It also glowed, on the argument that it is the way in and a reader
+who does not find it has no way to reach anything.
 
-It is drawn in a fixed layer of `App`'s, deliberately outside the `<aside>`,
-because a child of the panel goes where the panel goes.
+**The switch was a bordered, backdrop-blurred tile floating at the panel's
+edge.** That is where every shipped sidebar puts it, and while the panel is
+*open* it is a control announcing a thing the reader is already looking at.
 
-**It is a `<button>` and not an `<input>`.** A focusable field that discards
-keystrokes and opens a dialog is a lie to anybody using a keyboard or a screen
-reader, and routing what is typed into the palette means two search fields on
-screen the moment it is used. The palette already owns focus, the debounce, the
-abort and the arrow keys.
+What replaced them:
 
-### There is no rotating hint in it
+| | Open | Shut |
+|---|---|---|
+| switch | in the panel's header, beside the wordmark | in a cluster on the canvas, top left |
+| search | a field in the column, at the column's inset | the second button in that cluster |
 
-A placeholder cycling through example queries — *dog… blue whale… T. rex…* — was
-designed and refused. Placeholder text is already the weakest place to put an
-instruction: it is transient, so it breaks recognition-over-recall the moment
-somebody types, and it is routinely read as pre-filled content by readers with
-cognitive disabilities (NN/g, *Form Design: Placeholders*; Deque, *The Problem
-With Placeholders*). Rotating it adds auto-playing motion inside the one control
-the reader is about to use, and the text sits in the control's accessible
-description, so it changes while a screen reader is reading it.
+**The cluster is drawn by the same component as the three viewport actions in
+the opposite corner** — same anatomy, same badges, same 16px from its own
+corner — and that parity is what makes the trade honest. It is two controls
+where there was one, and what it buys is that the collapsed state is a *family*
+rather than one clever object and one bordered tile.
 
-The decisive argument is that this app already ships the honest version of the
-same idea. The palette opens on **Recent** over **Start here** — ten curated
-taxa as ordinary rows, each one press from the canvas, each arrow-key reachable,
-each gated in Go against the real database by `hits_test.go`. Those are examples
-a reader can *press*. Putting the same words into a placeholder would replace a
-list you can act on with a word that vanishes when you touch the keyboard.
+The glow went with the pill. The standing rule is that the graph is the only
+light source, with the bioluminescence switch as the single exception because
+glowing is what *it* does; the search's exception was earned by being a lit
+object floating half over the canvas with nothing else to find it by. In a
+column under the app's own name, above a section captioned TAXA, a field that
+looks like a field is found.
 
----
+### Two mount points for one control, and focus has to follow
+
+Pressing the switch unmounts it. Left alone, a reader closing the panel from the
+keyboard is dropped on `body` and has to tab from the top of the document to get
+back to the button they were standing on.
+
+`App.tsx` moves the ring to whichever instance survives, and only when the press
+*came from* a toggle — the same callback is what `S` runs from anywhere on the
+canvas, and a key press must not move focus to somewhere the reader was not.
+
+**It happens in an effect and not in a `requestAnimationFrame`.** The first
+version used a frame and silently did nothing: React commits on a task of its
+own, so the frame fired while the surviving instance did not exist yet and the
+query matched nothing. An effect runs after the commit, which is the only moment
+both facts are true — the old button gone, the new one in the document.
+
+### One consequence for the bioluminescent lights
+
+`canvas/bootLight.ts` measures elements with `getBoundingClientRect` and brings
+them back into canvas space through the canvas's own left offset — which is the
+panel's width while the panel is docked and open. **An element inside the panel
+therefore resolves to a negative x and lights nothing**, and the panel is opaque
+and beside the canvas anyway, so there would be nothing to see at x = 0 either.
+
+That had been quietly true of the wordmark since it moved into the column, and
+it is why `SOURCES` is down to two: the carousel card, and the copy of the
+search that is genuinely over the water — the one in the left-hand cluster,
+drawn only while the panel is shut, which is exactly when a light there can be
+seen.
 
 ## 5. The two one-way actions live in captions, not in buttons
 

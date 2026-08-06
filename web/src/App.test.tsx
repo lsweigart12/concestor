@@ -199,6 +199,29 @@ describe("the invitation waits for the answer to be read", () => {
 describe("the empty canvas's lights find the things they light", () => {
   it("resolves every selector bootLight measures", async () => {
     await renderApp();
+    /*
+      The panel is shut first, and that is the state the `page`-scoped source
+      is *about* rather than a convenience.
+
+      Every light is measured with `getBoundingClientRect` and brought back into
+      canvas space through the canvas's own left offset, which is the panel's
+      width while it is docked and open. So a source inside the panel resolves
+      to a negative x and lights nothing — the panel is opaque and beside the
+      canvas, not over it. The only chrome genuinely over the water is the
+      left-hand cluster, and it is drawn only while the panel is shut.
+    */
+    const toggle = document.querySelector<HTMLElement>(".side-toggle");
+    expect(
+      toggle,
+      "the panel is drawing no switch to close it with",
+    ).not.toBeNull();
+    await act(async () => {
+      toggle!.click();
+      await new Promise((r) => {
+        setTimeout(r, 10);
+      });
+    });
+
     const boot = document.querySelector(".boot");
     expect(boot).not.toBeNull();
     for (const s of SOURCES) {
