@@ -206,7 +206,9 @@ export const TYPE = {
   NAME_FONT,
   NAME_FONT_MED,
   AGE_FONT,
+  AGE_FONT_MED,
   META_FONT,
+  META_FONT_MED,
   NAME_TRACKING,
   AGE_TRACKING,
   META_TRACKING,
@@ -230,6 +232,34 @@ function measurer(): CanvasRenderingContext2D | null {
 }
 
 /**
+ * The type size out of a CSS font shorthand.
+ *
+ * `Number.parseFloat` reads the *first* number in the string, and half the
+ * fonts above start with a weight — so on `560 12.5px …` it returned **560**,
+ * and `textWidth` then charged the tracking below at 560px per em. The MRCA is
+ * the only mark measured at medium weight, its label is the one on the left of
+ * its dot and right-aligned, and the surplus therefore landed on the left edge
+ * of the layout's content box. The fit centres that box, so the *tree* sat
+ * right of centre: 22.5px of it on a 1016px canvas for a thirteen-character
+ * name, and more for a longer one, because the error is 2.8px per character.
+ *
+ * The rank row is where it got expensive. `META_TRACKING` is 0.06, which at
+ * 560px is 33.6px a character: "SUPERORDER" measured 416px against a real 63,
+ * saturating the wrap cap and reserving three rows of height for one line. The
+ * age row failed the other way — `AGE_TRACKING` is negative, so "≤ 96 Ma" came
+ * out at 7.6px against a real 49 — which is the under-estimate {@link SLACK}
+ * exists to prevent.
+ *
+ * It survived because `medium` is one mark in a tree and no test set it: the
+ * fixture in `labels.test.ts` said `medium: false`, and under the no-DOM
+ * estimate below a medium name resolved to some thousands of pixels without
+ * anything reading the number.
+ */
+function fontPx(font: string): number {
+  return Number.parseFloat(/(\d*\.?\d+)px/.exec(font)?.[1] ?? "") || 13;
+}
+
+/**
  * Width of a run of text.
  *
  * Canvas `measureText` where there is a DOM, and an average-advance estimate
@@ -240,7 +270,7 @@ function measurer(): CanvasRenderingContext2D | null {
  */
 export function textWidth(text: string, font: string, tracking = 0): number {
   if (!text) return 0;
-  const px = Number.parseFloat(font) || 13;
+  const px = fontPx(font);
   // `measureText` knows nothing about CSS letter-spacing, and `.mark-meta`
   // carries 0.06em — eleven pixels across a twenty-character rank. Under-
   // measuring a row is how a label the placement pass believed was clear ends

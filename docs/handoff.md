@@ -1540,6 +1540,62 @@ stacked card's `top` and `max-height` to styles.css by reading it, on the same
 principle as `labels.ts`'s font constants. The failure mode without that is
 silent: the tree simply starts sliding a little way back under the card.
 
+### The fit was skewed right, and the fit was not what was wrong
+
+The tree sat right of centre on every automatic reframe — 22.5px of it on a
+1016px canvas for a three-species tree, and worse for two. `fitViewport` was
+correct throughout and centring is one line of arithmetic in it. **What was
+wrong was the box it was handed.** The layout's `content` claimed more width on
+the left than the tree used, and centring a box wider than its contents puts the
+contents off-centre by half the difference.
+
+The whole of it was `Number.parseFloat` in `textWidth`:
+
+```js
+const px = Number.parseFloat(font) || 13;   // "560 12.5px …" → 560
+```
+
+`parseFloat` reads the first number in the string, and the medium-weight fonts
+open with a weight. `px` feeds one thing — the letter-spacing correction,
+`text.length * px * tracking` — so every medium row was tracked at **560px per
+em**. It is `fontPx` now, a regex for the number carrying `px`.
+
+Why it lands on one edge rather than spreading: `medium` is set for exactly one
+mark, `medium: p.isMRCA`, and an MRCA's label is on the **left** of its dot and
+right-aligned. Every surplus pixel is therefore drawn away from the tree, into
+`content.x`, and the fit centres it.
+
+Five things worth keeping:
+
+- **The rank row is where it got expensive.** `META_TRACKING` is 0.06, which at
+  560px is 33.6px *a character*: "SUPERORDER" measured **416px** against a real
+  63. That saturates the wrap cap and reserves **three rows of height for one
+  line** — so a mouse/human tree, whose MRCA is *Euarchontoglires*, got a
+  193×92 label box around ink of about 105×46, and skewed vertically too. The
+  name row is the mild case at 2.8px a character.
+- **The age row failed the other way.** `AGE_TRACKING` is negative, so "≤ 96 Ma"
+  measured **7.6px** against a real 49 — an *under*-estimate, which is the
+  failure `SLACK` exists to prevent and the one that puts text through a line.
+  One arithmetic error produced both directions at once, which is why the
+  symptom looked like a fit bug rather than a measuring one.
+- **It survived because `medium` was one mark and no test set it.** The fixture
+  in `labels.test.ts` said `medium: false`, so the branch was never measured.
+  Under the no-DOM estimate — `text.length * px * 0.52` — a medium name resolved
+  to some thousands of pixels with nothing reading the number. There are three
+  tests on it now, and all three fail against the old line.
+- **`TYPE` pinned one of the three medium fonts.** `NAME_FONT_MED` was held to
+  styles.css and `AGE_FONT_MED` and `META_FONT_MED` were not exported at all, so
+  two constants were written in the shape that breaks and checked by nothing.
+  All three are pinned.
+- **Do not diagnose this from the preview pane.** A hidden Browser pane never
+  fires `requestAnimationFrame`, so React Flow's *animated* `setViewport` is a
+  silent no-op and the canvas sits at whatever transform it last had — which
+  looks exactly like a fit landing in the wrong place, and points the wrong way:
+  the stale transform reads as a skew to the **left**. Chrome DevTools MCP
+  drives a real window and shows the real one. Measuring `fitViewport`'s output
+  directly, or applying the target at `duration: 0`, is the check that does not
+  depend on any of this.
+
 ### A shared link now says what it is, and shows it
 
 The document carried a title, a viewport and a colour scheme, so every link
