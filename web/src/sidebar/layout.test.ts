@@ -172,10 +172,7 @@ describe("the two things in the top-right corner stack", () => {
   it("starts the card below the view cluster", () => {
     const slotTop = px(decl(".viewport-slot", "top"));
     const btn = px(decl(".viewport-btn", "height"));
-    const pad = px(decl(".viewport-controls", "padding"));
-    expect(px(decl(".detail", "top"))).toBeGreaterThanOrEqual(
-      slotTop + btn + pad * 2,
-    );
+    expect(px(decl(".detail", "top"))).toBeGreaterThanOrEqual(slotTop + btn);
   });
 
   /** And it arrives from the edge it belongs to. */

@@ -108,11 +108,10 @@ describe("boxes become lights", () => {
 
   /**
    * Reach is added, not multiplied, and that is the whole reason it is a
-   * constant per kind. The card is an order of magnitude wider than the command
-   * button; a multiplier gives one of them a light the width of the window and
-   * the other nothing. It matters twice over for `command`, whose two elements
-   * — a bar button and a 54px circle — differ from each other by a factor of
-   * two and must wear the same halo.
+   * constant per kind. The card is an order of magnitude wider than the
+   * command's 15px magnifier glyph; a multiplier gives one of them a light the
+   * width of the window and the other nothing. The two command boxes below are
+   * hypothetical sizes making the additive point, not measurements of anything.
    */
   it("gives a wide thing and a small one comparable haloes", () => {
     const bar = lightsFrom([box("command", { w: 90, h: 26 })])[0]!;

@@ -125,10 +125,17 @@ export const SOURCES: readonly {
     hidden behind a wall. The `.viewport-slot.is-left` copy of the search is
     the only chrome left that is genuinely over the water, and it is drawn only
     while the panel is shut — which is exactly when a light there can be seen.
+
+    The glyph rather than the button, and the distinction appeared the day the
+    button lost its box. A halo sized to the button's footprint read as light
+    off an object while there was an object — a bordered tile — and reads as a
+    blob with a badge in it now that the button is a ghost whose footprint is
+    mostly the gap between a glyph and its key. The magnifier is the thing a
+    reader would say is glowing, so the magnifier is what is measured.
   */
   {
     kind: "command",
-    sel: ".viewport-slot.is-left button:last-child",
+    sel: ".viewport-slot.is-left .side-search-glyph",
     first: true,
     scope: "page",
   },
@@ -214,11 +221,14 @@ const REACH: Record<LitKind, readonly [number, number]> = {
   */
   card: [200, 130],
   /*
-    Tight, and the two elements it covers differ by a factor of two in size —
-    a bar button is about 90×26 and the circle 54×54 — so a constant reach is
-    doing exactly what it is here for: the halo reads the same off both.
+    Tightest of the three, because the thing it sits on is a 15px magnifier
+    with no box round it. The old [26, 22] was sized to the bordered tile the
+    button used to be; off a bare glyph the same reach was a cloud several
+    times the size of anything visible inside it. Held to roughly the glyph's
+    own diameter, it reads as the magnifier glowing rather than as a lamp the
+    magnifier happens to be standing in.
   */
-  command: [26, 22],
+  command: [12, 12],
 };
 
 /**
@@ -241,7 +251,11 @@ const REACH: Record<LitKind, readonly [number, number]> = {
 const POWER: Record<LitKind, number> = {
   wordmark: 0.23,
   card: 0.055,
-  command: 0.34,
+  // Still the brightest, but only just. 0.34 was tuned against the tile's
+  // footprint; concentrated into a glyph-sized ellipse it was the loudest
+  // thing in the mode by a distance, on a control whose whole design is now
+  // that it carries nothing.
+  command: 0.26,
 };
 
 /**
