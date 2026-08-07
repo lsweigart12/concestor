@@ -40,6 +40,8 @@ function mount(
   toScreenX: (age: number) => number,
   toAge: (x: number) => number,
   mode: AxisMode = "log",
+  onStretch: (dir: 1 | -1) => void = vi.fn(),
+  can = { canWiden: true, canNarrow: true },
 ) {
   return render(
     <TimeAxis
@@ -49,8 +51,9 @@ function mount(
       toAge={toAge}
       intervals={ICS}
       axisMode={mode}
-      onAxisMode={vi.fn()}
-      legend={null}
+      onStretch={onStretch}
+      canWiden={can.canWiden}
+      canNarrow={can.canNarrow}
     />,
   );
 }
@@ -99,5 +102,43 @@ describe("TimeAxis", () => {
     expect(container.querySelectorAll("g.axis-tick").length).toBeGreaterThan(3);
     // The present is the one it cannot place, so it is the one that goes.
     expect(container.textContent).not.toContain("present");
+  });
+
+  /**
+   * The stretch control at the ruler's right end. Two presses, each carrying
+   * its direction, and each refused — as a disabled button, not a swallowed
+   * click — at the end of its run.
+   */
+  it("presses the stretch control with a direction", () => {
+    const toX = (age: number) => 1000 - 1000 * ageFrac(age, 1315, "log");
+    const onStretch = vi.fn();
+    const { container } = mount(
+      toX,
+      (x) => 1315 * (1 - x / 1000),
+      "log",
+      onStretch,
+    );
+    const [narrow, widen] = container.querySelectorAll(".axis-stretch button");
+    (widen as HTMLButtonElement).click();
+    expect(onStretch).toHaveBeenLastCalledWith(1);
+    (narrow as HTMLButtonElement).click();
+    expect(onStretch).toHaveBeenLastCalledWith(-1);
+  });
+
+  it("disables the press that would do nothing", () => {
+    const toX = (age: number) => 1000 - 1000 * ageFrac(age, 1315, "log");
+    const onStretch = vi.fn();
+    const { container } = mount(
+      toX,
+      (x) => 1315 * (1 - x / 1000),
+      "log",
+      onStretch,
+      { canWiden: false, canNarrow: true },
+    );
+    const [narrow, widen] = container.querySelectorAll(".axis-stretch button");
+    expect((widen as HTMLButtonElement).disabled).toBe(true);
+    expect((narrow as HTMLButtonElement).disabled).toBe(false);
+    (widen as HTMLButtonElement).click();
+    expect(onStretch).not.toHaveBeenCalled();
   });
 });

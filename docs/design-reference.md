@@ -255,6 +255,21 @@ log` as a segmented control — both options always legible, the live one lit. I
   opening — takes the accent at low alpha, so a reader who followed someone
   else's link can see the view was set for them. This is the one place chrome may
   carry the accent for something other than hover or focus.
+- **The fit gives time as much room as the frame has.** A tall selection makes a
+  tree far taller than it is wide, and a transform can only shrink it into a
+  strip down the middle of an empty frame. So the fit re-lays the tree out
+  instead: it solves the plot width whose tree matches the frame's shape
+  (`plotWidthToFill`) and reframes, with a screen-px margin on every side so the
+  outermost labels never sit flush against the window. The plot has hard bounds
+  — `MIN_PLOT_W` for legibility, six designed widths at the far end — and
+  between them the tree, not the zoom, absorbs the difference.
+- **The stretch control sits at the ruler's right end, on the thing it
+  rescales.** Two small presses — arrows meeting, arrows parting — that give
+  time less or more room than the fit chose. A press redraws the tree at the new
+  width and reframes at once; the preference is kept as a *bias on the fill*, so
+  the next fit, resize or add solves "the fill, times what the reader asked for"
+  rather than solving the press away. At the end of its run a press is disabled,
+  not swallowed. The words live in the tooltips; the glyphs carry the strip.
 
 ## Hit targets
 
