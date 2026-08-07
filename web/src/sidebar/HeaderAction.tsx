@@ -1,24 +1,19 @@
 /**
  * A verb in a section's caption row.
  *
- * A word in the caption's own face and nothing else — no box, no glyph, no
- * badge. The two of these replaced a pair of bordered buttons that were the
- * loudest object in a panel whose whole register is quiet, spent on the two
- * actions a reader reaches for least. `SourceLinks` at the foot of the panel
- * has read this way from the beginning and has never needed more.
+ * A ghost button in the caption's own face: the word, and its key when it has
+ * one, inside one hairline. It replaced a pair of filled bordered buttons that
+ * were the loudest object in a panel whose whole register is quiet, and then a
+ * bare word whose key badge sat *beside* it as a second boxed object — two
+ * things where the reader was being offered one. Now the badge rides inside
+ * the button, past a thin rule, so the whole of what a pointer can press is
+ * the one outline the hairline draws.
  *
- * **`clear` sits in the `Taxa` caption and `share` in `This tree`**, which is
- * the placement rather than a symmetry: clearing empties the list the caption
- * is over, so it belongs beside that list's own count — and at the far right of
- * the header, which is exactly where each row in the list puts its own remove
- * control. The list-level action lines up with the row-level ones.
- *
- * **No key badge, and the key did not go with it.** `C` is still bound, still
- * printed on the palette's own row, and named in the tooltip here. That is the
- * right place for it: clear is the one action in this app that asks before it
- * acts, so it is nobody's mid-flow keystroke, and a small box beside a word
- * that is deliberately not a box would be the only thing in the row breaking
- * its own register.
+ * **`clear` sits in the `Taxa` caption**, which is the placement rather than a
+ * habit: clearing empties the list the caption is over, so it belongs on that
+ * list's own header — and at its far right, which is exactly where each row in
+ * the list puts its own remove control. The list-level action lines up with
+ * the row-level ones.
  *
  * `aria-disabled` rather than `disabled`, which is the rule the whole app keeps:
  * a `disabled` button fires no pointer events, so the tooltip explaining *why*
@@ -35,12 +30,15 @@ import { useTip } from "../chrome/Tooltip";
 
 export function HeaderAction({
   label,
+  keys,
   hint,
   onClick,
   danger,
   disabledBecause,
 }: {
   label: string;
+  /** The bound key, printed inside the button. Omit for an unbound verb. */
+  keys?: string;
   hint: string;
   onClick: () => void;
   danger?: boolean;
@@ -57,6 +55,11 @@ export function HeaderAction({
       {...tip}
     >
       {label}
+      {keys !== undefined && (
+        <span className="side-act-key" aria-hidden="true">
+          {keys}
+        </span>
+      )}
     </button>
   );
 }

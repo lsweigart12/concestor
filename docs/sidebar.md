@@ -112,19 +112,24 @@ is shut.
 
 ## 4. The footer strip: two one-way actions
 
-Share and clear are verbs in a caption's row (small-caps mono), not bordered
-buttons — the anatomy `SourceLinks` (`about | source`) has always used at the
+Share and clear are verbs in a caption's row (small-caps mono), not filled
+buttons — the register `SourceLinks` (`about | source`) has always used at the
 foot of this panel. They sit in different places:
 
 ```
-TAXA                    3   CLEAR
+TAXA 3               ⌜CLEAR │ C⌟
 …
 ────────────────────────────────
 about | source           🔗 share
 ```
 
-- **Clear** empties the list, so it sits beside that list's count, at the far
-  right of the header where every row puts its own remove control.
+- **Clear** empties the list, so it sits on that list's own caption, at the far
+  right of the header where every row puts its own remove control. It is one
+  **ghost button**: the word and its key badge inside a single hairline (the
+  same border every `.kbd` badge wears), with a thin rule between them — the
+  badge used to sit *beside* the word as a second boxed object, two things
+  where the reader was being offered one. Hover fills it with the row remove
+  control's own warm tint, because it is the same verb at list scale.
 - **Share** goes into the footer strip opposite `about | source` — two groups,
   not three links: the left pair answers *where did this come from*, the right one
   *sends it on*. The **chain glyph** is load-bearing because "share" is
@@ -148,10 +153,11 @@ list and the canvas modes would push a fixed control (e.g. `LABELS`) off-screen
 when the list grows; `.side-taxa` takes the free height and scrolls inside
 itself, with `Canvas` and the footer under it at natural height.
 
-The header is three cells with the count centred (equal outer columns put it on
-the row's midline whatever the words either side do); the middle cell is always
-rendered and its *contents* vanish at zero, or the grid would collapse and
-un-centre the count when it reappears.
+The header is two ends: the noun and its number together on the left — "TAXA 3"
+is one fact, read left to right — and the verb alone on the right. The count
+used to float mid-row to keep it from crowding the verb; the ghost button's own
+border does that work now, and a number floating between the ends read as
+attached to neither.
 
 Rows come from `induced.leaves`, not `view.keys`, so the panel and canvas cannot
 disagree about what is drawn (the same reason `graftSet` is rebuilt from the

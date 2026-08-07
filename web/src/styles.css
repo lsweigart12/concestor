@@ -2244,6 +2244,17 @@ body {
   color: var(--ink-4);
 }
 
+/* The noun and its number, read as one fact: "TAXA 3" at the row's left end,
+   with the verb alone at the other. The count used to float mid-row, which
+   made the midline do the work of separating it from a verb it once crowded;
+   now the bordered button is its own object and the number belongs to the
+   heading it counts. */
+.side-h-label {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--s2);
+}
+
 .side-count {
   font-size: 10px;
   color: var(--ink-4);
@@ -2332,12 +2343,25 @@ body {
   min-width: 0;
 }
 
+/* A fixed box with the character centred in it, because the two doors wear two
+   different characters and "same font-size" is not "same size": the plus's ink
+   fills barely half its em box while the star fills most of its own, and each
+   glyph's baseline puts its ink at a different height. The box is what the two
+   tiles share; each character is then sized to the same optical ~14px inside
+   it. */
 .side-door-glyph {
   margin-top: auto;
-  font-size: 20px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  font-size: 26px;
   line-height: 1;
   color: var(--ink-4);
   transition: color 160ms ease;
+}
+
+.side-door-die {
+  font-size: 18px;
 }
 
 .side-door:hover .side-door-glyph,
@@ -2358,8 +2382,13 @@ body {
 }
 
 /* The line the compact row cannot carry, and the reason the large state exists:
-   "Add a taxon" says what the button does, and this says what is behind it. */
+   "Add a taxon" says what the button does, and this says what is behind it.
+   Two lines are reserved whether the caption fills them or not, because the
+   tiles anchor their text to the bottom — without the reservation, a one-line
+   caption lifts its whole tile's glyph and title out of line with the
+   neighbour's. */
 .side-door-sub {
+  min-height: calc(2 * 1.35em);
   font-size: 10px;
   line-height: 1.35;
   color: var(--ink-4);
@@ -2620,8 +2649,21 @@ body {
 }
 
 .side-act {
-  padding: 0;
-  border: 0;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+  padding: 3px 7px;
+  /* The hairline hangs around the word rather than pushing it about: the
+     negative vertical margin gives the padding and border back to the caption
+     row so the header keeps its height, and the negative right margin puts the
+     button's *edge* — not the word's — at the header's right end, over the
+     column where every row draws its own remove control. */
+  margin: -4px -8px -4px 0;
+  /* One hairline around the word and its key together, so the whole of what a
+     pointer can press is drawn as one object — the same border every `.kbd`
+     badge in this panel wears, on the button instead of beside it. */
+  border: 1px solid var(--hairline);
+  border-radius: 5px;
   background: none;
   /* The caption's own face, stated rather than inherited: the caption is on the
      `h2` and this is a descendant, so `font: inherit` would take whatever a
@@ -2633,20 +2675,44 @@ body {
   text-transform: uppercase;
   color: var(--ink-4);
   cursor: pointer;
-  transition: color 140ms ease;
+  transition:
+    color 140ms ease,
+    border-color 140ms ease,
+    background 140ms ease;
+}
+
+/* The bound key, inside the button past a thin rule — the divider is what says
+   *key*, so the letter needs no box of its own inside the one it is in. */
+.side-act-key {
+  padding-left: 7px;
+  border-left: 1px solid var(--hairline);
+  letter-spacing: 0;
+  color: var(--ink-4);
+  transition: border-color 140ms ease;
 }
 
 .side-act:hover,
 .side-act:focus-visible {
   color: var(--ink-2);
+  border-color: var(--hairline-strong);
+  background: var(--void-3);
 }
 
 /* Removal is not destructive — the back button restores it — and clearing is.
    This is the only warm colour in the panel, and it appears only under a
-   pointer that has already arrived on the one action that asks before it acts. */
+   pointer that has already arrived on the one action that asks before it acts.
+   The fill and ink are the row remove control's own hover, because this is the
+   same verb at list scale. */
 .side-act.is-danger:hover,
 .side-act.is-danger:focus-visible {
   color: hsl(0 62% 74%);
+  border-color: hsl(0 45% 50% / 0.45);
+  background: hsl(0 40% 24% / 0.5);
+}
+
+.side-act.is-danger:hover .side-act-key,
+.side-act.is-danger:focus-visible .side-act-key {
+  border-left-color: hsl(0 45% 50% / 0.45);
 }
 
 /* An underline rather than a colour: the resting and hovered states are already
@@ -5273,9 +5339,9 @@ body.biolum .side-toggle {
   background: hsl(200 45% 6% / 0.94);
   border-color: hsl(188 60% 55% / 0.22);
 }
-/* `.side-act` is deliberately absent from this group. It has no background and
-   no border to retint — it is two words in the caption's face, and what it
-   changes on hover is ink, which the mode does not touch. */
+/* `.side-act` is deliberately absent from this group. Its hairline and hover
+   fill are the same tokens every `.kbd` badge in the panel wears, and none of
+   those are retinted either — the mode recolours surfaces, not badges. */
 body.biolum .side-toggle:hover,
 body.biolum .viewport-btn:hover:not([aria-disabled="true"]),
 body.biolum .viewport-btn.on {
