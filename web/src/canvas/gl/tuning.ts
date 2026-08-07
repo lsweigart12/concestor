@@ -512,6 +512,19 @@ export const SURGE_GAIN = 2.2;
 export const FLARE_S = 0.9;
 export const FLARE_GAIN = 2.6;
 
+/**
+ * And an *arrival*: the taxon just added, blooming once as the line reaches it.
+ * Seconds to decay, and how much brighter than resting.
+ *
+ * Bigger and much slower than the flare, because they answer different
+ * questions. A flare is feedback and must be over before the pointer has moved
+ * on; this is a landmark that has to survive an eye still crossing a canvas
+ * that just panned. Same mark channel — the decays sum, so pointing at a mark
+ * mid-bloom brightens it further.
+ */
+export const ARRIVE_S = 2.4;
+export const ARRIVE_GAIN = 6.5;
+
 /** A decaying 0→1, given when it started and how long it lasts. */
 export function decay(
   startedMs: number | undefined,

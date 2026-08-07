@@ -1,27 +1,22 @@
 /**
- * Where the viewport sits when something else is sitting on the canvas.
+ * Where the viewport sits when the detail card is sitting on the canvas.
  *
- * The detail card is `position: fixed` over the top-right corner, and the
- * canvas did not know it was there. Clicking a mark therefore routinely opened
- * a 360px panel directly on top of the mark that had just been clicked — the
- * one element on screen the reader has said they are looking at.
+ * **A selection pans and never zooms.** A click says which taxon the reader is
+ * looking at and nothing about the scale, so the scale survives it. Three
+ * parts:
  *
- * Two answers, to two different questions:
+ *   - {@link comfortRect} pulls the free region in by a margin. A subject
+ *     inside is comfortably in view and nothing moves. This is `scrolloff` —
+ *     vim's, and the band an editor keeps between the caret and the edge.
+ *   - {@link revealShift} is the smallest pan that gets the subject into that
+ *     band, and `{0, 0}` when it is already there.
+ *   - {@link cardReserve} narrows the canvas a *fit* is computed against, so
+ *     the tree reframes into what is left — the path a window resize takes,
+ *     with `plotWidth` following, so the fit stays near 1:1 and the labels keep
+ *     their size. Taken only at a fit: it re-lays out the tree.
  *
- *   - {@link cardReserve} narrows the canvas the *fit* is computed against, so
- *     the whole tree reframes into what is left. This is the same thing a real
- *     window resize already does and it works for the same reason: the plot
- *     width follows the free width, so the fit stays near 1:1 and the labels
- *     keep their designed size rather than being scaled into illegibility.
- *   - {@link revealShift} is the floor under that. The reserve is refused where
- *     it would leave too little canvas to draw a legible tree in, and it is not
- *     applied at all while the reader has a view of their own that reframing
- *     would destroy — so in both of those cases the subject can still end up
- *     under the card, and the smallest pan that brings it back out is what
- *     happens instead.
- *
- * Everything here is screen pixels and pure arithmetic. The layout knows
- * nothing about the card; only the transform does.
+ * Screen pixels and pure arithmetic throughout. The layout knows nothing about
+ * the card; only the transform does.
  */
 
 import type { Rect } from "../tree/labels";
@@ -78,6 +73,10 @@ const MIN_USABLE = 160;
  *
  * Zero when no card is open, when the card is stacked across the top instead,
  * and when honouring it would leave less canvas than {@link MIN_FREE_W}.
+ *
+ * **Taking it re-lays out the tree**, so a caller may only ask at a moment it
+ * was going to reframe anyway — never in response to a card opening, which is
+ * {@link revealShift}'s job.
  */
 export function cardReserve(vw: number, open: boolean): number {
   if (!open || vw <= CARD_STACK_W) return 0;
@@ -208,11 +207,45 @@ export function freeRect(opts: {
 }
 
 /**
+ * How much of the free region is band rather than target, per side.
+ *
+ * A share, because the free region is a whole 27" canvas at one end and the
+ * strip beside a card on a laptop at the other. Capped, because a seventh of a
+ * very wide canvas is more context than anyone needs and forces a large pan.
+ */
+export const COMFORT_SHARE = 0.14;
+export const COMFORT_MAX = 140;
+
+/**
+ * `free` pulled in by a margin: where a subject has to be to count as properly
+ * in view.
+ *
+ * One rect answers both questions — whether to move, and where to move to — so
+ * a subject anywhere inside is left alone and one outside lands just inside,
+ * clear of the frame rather than flush against it. Both axes take a share of
+ * their own dimension, so a short strip gets a proportionally short band.
+ *
+ * It may come out narrower than the subject, which needs no guard here:
+ * {@link revealShift} centres anything wider than the span it is given.
+ */
+export function comfortRect(free: Rect): Rect {
+  const mx = Math.min(free.w * COMFORT_SHARE, COMFORT_MAX);
+  const my = Math.min(free.h * COMFORT_SHARE, COMFORT_MAX);
+  return {
+    x: free.x + mx,
+    y: free.y + my,
+    w: Math.max(free.w - mx * 2, 1),
+    h: Math.max(free.h - my * 2, 1),
+  };
+}
+
+/**
  * The smallest pan that puts `subject` inside `free`. Both in screen px.
  *
- * Exactly `{0, 0}` when it is already inside, so the caller can treat this as
- * "is there anything to do" without a second predicate that could disagree
- * with it.
+ * Exactly `{0, 0}` when it is already inside, so the caller needs no second
+ * predicate that could disagree with it. Against {@link comfortRect}'s band
+ * that is the common answer: clicking along a lineage already in view should
+ * change the card and leave the tree still.
  */
 export function revealShift(
   subject: Rect,

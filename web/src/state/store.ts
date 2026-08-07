@@ -21,7 +21,7 @@ import {
 } from "../tree/induced";
 import type { AxisMode } from "../tree/layout";
 import type { LabelMode } from "../tree/naming";
-import { plan, remaining, step, type Sequence } from "./sequence";
+import { flush, plan, releasable, type Queued } from "./sequence";
 
 // Re-exported from the modules that own them (the layout and naming), so there
 // is one definition of each union.
@@ -212,6 +212,14 @@ export function useTree() {
   const [view, setView] = useState<ViewState>(() =>
     decode(window.location.search),
   );
+  /**
+   * The live view, for the two places that must *test* it without depending on
+   * it: the queue's duplicate check and its release. Both run inside a setter
+   * or an effect gated on the queue, and a dependency on `view.keys` would
+   * re-run the release on the very change it just made.
+   */
+  const viewRef = useRef(view);
+  viewRef.current = view;
   // Not part of `view`, and so not in the URL or in history. See `BIOLUM_KEY`.
   const [biolum, setBiolum] = useState<boolean>(loadBiolum);
   const [labels, setLabelsState] = useState<LabelMode>(loadLabels);
@@ -222,6 +230,18 @@ export function useTree() {
   const [loading, setLoading] = useState(false);
   const [broken, setBroken] = useState<Broken[]>([]);
   const [unresolved, setUnresolved] = useState<string[]>([]);
+  /**
+   * Keys the resolver has finished asking about, however it answered.
+   *
+   * The queue's gate is arrival, and arrival alone would stall it for ever on
+   * one stale id — a key that resolves to nothing never appears in `paths`, and
+   * a key whose request failed appears nowhere at all. Once we have asked, what
+   * is absent is absent, and the step goes through to draw nothing, which is
+   * what adding that key directly would have done.
+   */
+  const [answered, setAnswered] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
   const [error, setError] = useState<string | null>(null);
   const [delta, setDelta] = useState<(AddDelta & { token: number }) | null>(
     null,
@@ -233,8 +253,23 @@ export function useTree() {
     () => new Map(),
   );
   const [fossilsLoading, setFossilsLoading] = useState(false);
-  /** An opening being drawn one taxon at a time, or null. See `sequence.ts`. */
-  const [sequence, setSequence] = useState<Sequence | null>(null);
+  /**
+   * Taxa waiting to be drawn, in order. See `sequence.ts`.
+   *
+   * Every add goes through here, not only an opening's: the queue exists so
+   * that two taxa can never animate on top of each other, and a reader holding
+   * `R` down is the case that makes the difference visible.
+   */
+  const [queue, setQueue] = useState<readonly Queued[]>([]);
+  /**
+   * The cause of the draw now on screen, or null when the canvas is idle.
+   *
+   * Doubles as the queue's brake and as what `sequencing` is asking about. It
+   * is set when a key is released and cleared when the canvas reports the draw
+   * *landed* — not when it is fully settled, because a decay is not something
+   * the next beat has to wait for.
+   */
+  const [drawing, setDrawing] = useState<Queued["cause"] | null>(null);
   const prevInduced = useRef<Induced | null>(null);
   const token = useRef(0);
 
@@ -330,9 +365,16 @@ export function useTree() {
     return r.idx;
   }, []);
 
-  // Resolve anything in the view we do not already hold.
+  // Resolve anything in the view — or waiting to enter it — that we do not
+  // already hold. The queue's gate is arrival, so a key nobody had asked to
+  // resolve until its turn came would stall the queue for a round trip on
+  // every step.
+  const wanted = useMemo(
+    () => [...new Set([...view.keys, ...queue.map((q) => q.key)])],
+    [view.keys, queue],
+  );
   useEffect(() => {
-    const missing = view.keys.filter((k) => !paths.has(k) && !idxOf.has(k));
+    const missing = wanted.filter((k) => !paths.has(k) && !idxOf.has(k));
     if (missing.length === 0) return;
     let cancelled = false;
     setLoading(true);
@@ -351,13 +393,16 @@ export function useTree() {
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+          setAnswered((a) => new Set([...a, ...missing]));
+        }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [view.keys, paths, idxOf, ingest]);
+  }, [wanted, paths, idxOf, ingest]);
 
   // Resolve any fossil in the view we do not already hold. Separate from the
   // path fetch: a fossil has no path, and a failure must cost that fossil rather
@@ -434,16 +479,40 @@ export function useTree() {
           ...addDelta(prevInduced.current, ind, target),
           token: ++token.current,
         });
+      } else {
+        // Nothing to animate, so nothing will report a landing. Release the
+        // queue here or a key that drew no lineage stalls it for good.
+        setDrawing(null);
       }
     }
     prevInduced.current = ind;
   }, [ind, selectionIdx]);
 
-  const add = useCallback((key: string) => {
-    const k = toUrlKey(key);
-    cause.current = "add";
-    setView((v) => (v.keys.includes(k) ? v : { ...v, keys: [...v.keys, k] }));
-  }, []);
+  /**
+   * Enqueue taxa for drawing. They enter the view one at a time, as the canvas
+   * finishes with each — see `sequence.ts`.
+   *
+   * The duplicate check has to look at both halves: a key already on the canvas
+   * and a key already waiting are both "asked for", and letting either through
+   * spends a whole beat of the queue on a step that draws nothing.
+   */
+  const enqueue = useCallback(
+    (keys: readonly string[], why: Queued["cause"]) => {
+      setQueue((q) => {
+        const held = new Set([...q.map((x) => x.key), ...viewRef.current.keys]);
+        const fresh: Queued[] = [];
+        for (const key of keys.map(toUrlKey)) {
+          if (held.has(key)) continue;
+          held.add(key);
+          fresh.push({ key, cause: why });
+        }
+        return fresh.length ? [...q, ...fresh] : q;
+      });
+    },
+    [],
+  );
+
+  const add = useCallback((key: string) => enqueue([key], "add"), [enqueue]);
 
   const remove = useCallback((key: string) => {
     const k = toUrlKey(key);
@@ -495,19 +564,9 @@ export function useTree() {
   );
 
   /**
-   * One step of a sequence. Not `add`: a sequenced taxon is one of ours and
-   * emits no `add` event. See {@link Cause}.
-   */
-  const drawStep = useCallback((key: string) => {
-    const k = toUrlKey(key);
-    cause.current = "sequence";
-    setView((v) => (v.keys.includes(k) ? v : { ...v, keys: [...v.keys, k] }));
-  }, []);
-
-  /**
    * Draw an opening, one taxon at a time (see `sequence.ts`). Returns whether a
-   * sequence started; false with reduced motion or an opening too short to
-   * order, when this is a single `open()`. Never called on boot.
+   * queue started; false with reduced motion or an opening too short to order,
+   * when this is a single `open()`. Never called on boot.
    */
   const openSequenced = useCallback(
     (
@@ -518,84 +577,74 @@ export function useTree() {
       const p = plan(keys, reduced);
       open(p.first, axis);
       if (p.rest.length === 0) return false;
-      setSequence({
-        keys: [...keys],
-        drawn: p.first.length,
-        since: Date.now(),
-        settled: false,
-      });
-      // `finally`, not `then`: a failed batch still settles the sequence, or a
-      // dead API leaves the canvas mid-animation forever.
-      void prefetch(p.rest)
-        .catch(() => {})
-        .finally(() => setSequence((s) => (s ? { ...s, settled: true } : s)));
+      enqueue(p.rest, "sequence");
+      // One batch rather than a request per step. Failures are ignored on
+      // purpose: the queue's gate is `paths`, which the ordinary resolve effect
+      // fills too, so a failed prefetch costs a round trip and not the opening.
+      void prefetch(p.rest).catch(() => {});
       return true;
     },
-    [open, prefetch],
+    [open, prefetch, enqueue],
   );
 
   /**
-   * End a sequence at the finished tree, now — adding the remaining keys rather
-   * than stopping, since the reader interrupted the telling, not the argument.
-   * Idempotent, because every interaction is wired to it.
+   * End the queue at the finished tree, now — adding everything still waiting
+   * rather than stopping, since the reader interrupted the telling and not the
+   * argument. Idempotent, because every interaction is wired to it.
    */
   const cutSequence = useCallback(() => {
-    if (!sequence) return;
-    const rest = remaining(sequence).map(toUrlKey);
-    setSequence(null);
-    if (rest.length === 0) return;
-    cause.current = "sequence-cut";
-    setView((v) => ({
-      ...v,
-      keys: [...v.keys, ...rest.filter((k) => !v.keys.includes(k))],
-    }));
-  }, [sequence]);
+    setQueue((q) => {
+      const rest = flush(q);
+      if (rest.length) {
+        cause.current = "sequence-cut";
+        setView((v) => ({
+          ...v,
+          keys: [...v.keys, ...rest.filter((k) => !v.keys.includes(k))],
+        }));
+      }
+      return q.length ? [] : q;
+    });
+  }, []);
 
   /**
-   * The driver. `sequence.ts` makes the decisions; this holds the clock, the
-   * arrival test and the timer. Two wake-ups, no polling: `paths` changing is
-   * the arrival, and a timer is armed only when waiting on the floor.
+   * The driver. `sequence.ts` decides; this holds the arrival test and the
+   * release. **No timer and no clock** — the wake-ups are `paths` changing (a
+   * lineage arrived) and `drawing` clearing (the canvas finished), which is the
+   * whole point of the queue: the pace is the animation's, wherever its
+   * constants happen to be.
    */
   useEffect(() => {
-    if (!sequence) return;
-    const now = Date.now();
-    const next = step(sequence, now, (k) => paths.has(toUrlKey(k)));
-    if (next.kind === "done") {
-      setSequence(null);
-      return;
-    }
-    // Keyed on which taxon landed, not a count, so applying twice is applying
-    // once — `StrictMode` double-invokes the effect and two `drawn + 1` updates
-    // would step past a taxon never drawn.
-    const land = (key: string, at: number) => {
-      drawStep(key);
-      setSequence((s) =>
-        s && s.keys[s.drawn] === key
-          ? { ...s, drawn: s.drawn + 1, since: at }
-          : s,
-      );
-    };
-    if (next.kind === "draw") {
-      land(next.key, now);
-      return;
-    }
-    if (next.after === null) return;
-    // Draws directly when it fires: arrival is monotone, so the only condition
-    // left is the one the timer was armed for.
-    const t = window.setTimeout(() => land(next.key, Date.now()), next.after);
-    return () => window.clearTimeout(t);
-  }, [sequence, paths, drawStep]);
+    const head = releasable(
+      queue,
+      drawing !== null,
+      (k) => paths.has(k) || answered.has(k),
+    );
+    if (!head) return;
+    setQueue((q) => (q[0]?.key === head.key ? q.slice(1) : q));
+    // Already drawn, so there is nothing to wait for and the brake stays off.
+    if (viewRef.current.keys.includes(head.key)) return;
+    cause.current = head.cause;
+    setDrawing(head.cause);
+    setView((v) =>
+      v.keys.includes(head.key) ? v : { ...v, keys: [...v.keys, head.key] },
+    );
+  }, [queue, drawing, paths, answered]);
+
+  /** The canvas has finished drawing what it was handed. Release the next. */
+  const deltaLanded = useCallback(() => setDrawing(null), []);
 
   /**
-   * The age the axis is held out to while a sequence runs, or null: the oldest
-   * `age_layout` in the whole opening's induced subtree, so the axis is pinned
-   * to its final extent rather than tweening. See `tree/layout.ts`.
+   * The age the axis is held out to while the queue drains, or null: the oldest
+   * `age_layout` in the subtree the *finished* set induces, so the axis is
+   * pinned to its final extent rather than tweening under each arrival. Reads
+   * the queue as well as the canvas, since what is coming is what it has to
+   * make room for. See `tree/layout.ts`.
    */
   const holdMaxAge = useMemo(() => {
-    if (!sequence?.settled) return null;
+    if (!queue.length) return null;
     const byIdx = new Map<number, number[]>();
     const sel: number[] = [];
-    for (const k of sequence.keys) {
+    for (const k of [...view.keys, ...queue.map((q) => q.key)]) {
       const u = toUrlKey(k);
       const i = idxOf.get(u);
       const p = paths.get(u);
@@ -609,7 +658,7 @@ export function useTree() {
       oldest = Math.max(oldest, nodes.get(i)?.age_layout ?? 0);
     }
     return oldest;
-  }, [sequence, idxOf, paths, nodes]);
+  }, [queue, view.keys, idxOf, paths, nodes]);
 
   /**
    * Draw a fossil against the tree. Additive but not a selection: `keys` is
@@ -629,9 +678,10 @@ export function useTree() {
 
   // Clears taxa but not the lighting, like `open`.
   const clear = useCallback(() => {
-    // A running sequence would otherwise redraw the opening onto the emptied
-    // canvas one taxon at a time.
-    setSequence(null);
+    // A draining queue would otherwise redraw onto the emptied canvas, one
+    // taxon at a time.
+    setQueue([]);
+    setDrawing(null);
     cause.current = "clear";
     setView(DEFAULT);
   }, []);
@@ -700,7 +750,12 @@ export function useTree() {
     unresolved,
     error,
     /** An opening is drawing itself one taxon at a time. */
-    sequencing: sequence !== null,
+    // An *opening* is still being told — not merely "the queue is busy". Every
+    // add goes through the queue now, and `App` wires any interaction to
+    // `cutSequence`: a reader holding `R` down would otherwise trip that on
+    // their own second press and have the rest arrive in one lump.
+    sequencing:
+      queue.some((q) => q.cause === "sequence") || drawing === "sequence",
     /** The age the axis is held at while it does. See `tree/layout.ts`. */
     holdMaxAge,
     add,
@@ -721,6 +776,7 @@ export function useTree() {
     dismissBroken,
     dismissUnresolved,
     consumeDelta,
+    deltaLanded,
   };
 }
 

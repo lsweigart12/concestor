@@ -67,6 +67,8 @@ export interface MarkLight {
   power: number;
   /** When it was last pointed at, or undefined. */
   flareAt?: number | undefined;
+  /** When the draw last landed on it, or undefined. See `ARRIVE_S`. */
+  arriveAt?: number | undefined;
 }
 
 /**
@@ -550,10 +552,15 @@ export class BiolumRenderer {
     for (let i = 0; i < marks.length; i++) {
       const m = marks[i]!;
       const flare = T.decay(m.flareAt, now, T.FLARE_S);
+      const arrive = T.decay(m.arriveAt, now, T.ARRIVE_S);
       this.markBuf[i * 4] = m.x;
       this.markBuf[i * 4 + 1] = m.y;
       this.markBuf[i * 4 + 2] = m.hue;
-      this.markBuf[i * 4 + 3] = m.power * (1 + T.FLARE_GAIN * flare);
+      // Summed rather than maxed: pointing at a mark that is still blooming is
+      // a reader asking for more of exactly this, and the two are the same
+      // channel saying the same thing about the same node.
+      this.markBuf[i * 4 + 3] =
+        m.power * (1 + T.FLARE_GAIN * flare + T.ARRIVE_GAIN * arrive);
     }
     gl.bindBuffer(gl.ARRAY_BUFFER, this.bMarks);
     gl.bufferData(

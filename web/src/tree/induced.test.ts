@@ -123,6 +123,27 @@ describe("the add delta — the signature interaction's input", () => {
     expect(addDelta(null, after, one).flare).toBe(after.mrca);
   });
 
+  // The flare is where the draw leaves from; the leaf is where it ends. Firing
+  // the arrival at the join names a clade the reader never typed.
+  it("names the leaf that was added, which is not the flare", () => {
+    const first = fixture.selection.slice(0, 3);
+    const before = induced(first, pathOf);
+    const added = fixture.selection[3]!;
+    const after = induced([...first, added], pathOf);
+    const d = addDelta(before, after, added);
+    expect(d.leaf).toBe(added);
+    expect(d.leaf).not.toBe(d.flare);
+    expect(before.rendered).not.toContain(d.leaf);
+  });
+
+  // A chosen clade can land on a descendant's lineage instead of taking a row,
+  // and a bloom on a node that is not drawn would fire at the origin.
+  it("has no leaf when the added taxon is not rendered", () => {
+    const after = induced(fixture.selection, pathOf);
+    const absent = Math.max(...after.rendered) + 1;
+    expect(addDelta(null, after, absent).leaf).toBeNull();
+  });
+
   it("draws every new segment, not one route to the newest leaf", () => {
     // The page-load case: nothing was on screen, so the whole subtree is new
     // and every branch of it has to be drawn. Tracing the added leaf's own

@@ -1398,6 +1398,7 @@ export default function App() {
           nodes={tree.nodes}
           delta={tree.delta}
           onDeltaPlayed={tree.consumeDelta}
+          onDeltaLanded={tree.deltaLanded}
           focusedIdx={focusedIdx}
           onFocus={(idx) => {
             if (idx === null) {

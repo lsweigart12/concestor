@@ -44,6 +44,23 @@ export interface MarkData extends Record<string, unknown> {
   dim: boolean;
   focused: boolean;
   flaring: boolean;
+  /**
+   * This mark is new and does not exist on screen until `at` ms after the delta
+   * was played — which is when the line reaching it lands.
+   *
+   * A delay, not a flag, so there is no timer and the mark cannot drift from
+   * its trace: both are `animation-delay` off one clock, and `backwards` holds
+   * it invisible through the wait. `token` exists to be a `key` — a CSS
+   * animation on an element React reuses does not restart, so without it a
+   * second add finds an animation that already finished.
+   */
+  enter: { at: number; token: number } | null;
+  /**
+   * And on the one mark that was asked for: the bloom, at the same instant.
+   * Separate from {@link enter} because every new mark enters and exactly one
+   * is the answer to the press. See `AddDelta.leaf`.
+   */
+  arrive: { at: number; token: number } | null;
   /** Which words the label carries, and whether the age joins them. */
   labels: LabelMode;
   ages: boolean;
@@ -366,6 +383,9 @@ export const NodeMark = memo(function NodeMark({ data }: NodeProps) {
 
   return (
     <div
+      // The token, so a second add restarts the entrance: React reuses this
+      // element, and a CSS animation on a reused element does not replay.
+      key={d.enter ? `enter-${d.enter.token}` : "settled"}
       className={[
         "mark",
         d.isLeaf ? "is-leaf" : "",
@@ -375,14 +395,32 @@ export const NodeMark = memo(function NodeMark({ data }: NodeProps) {
         d.graft ? "is-graft" : "",
         d.focused ? "is-focus" : "",
         d.dim ? "dimmed" : "",
+        d.enter ? "is-entering" : "",
       ]
         .filter(Boolean)
         .join(" ")}
-      style={markStyle}
+      style={
+        d.enter
+          ? { ...markStyle, animationDelay: `${d.enter.at}ms` }
+          : markStyle
+      }
       onPointerEnter={d.biolum ? puff : undefined}
     >
       <Handle type="target" position={Position.Left} />
       <Handle type="source" position={Position.Right} />
+
+      {/*
+        The arrival: one slow bloom of the lineage's colour as the line lands.
+        Its own element, because what it draws is far larger than the mark and a
+        `drop-shadow` big enough to read would also fall on the label. First
+        child, so the dot and the name paint over it — see `.mark-arrive`.
+      */}
+      {d.arrive && (
+        <span
+          className="mark-arrive"
+          style={{ animationDelay: `${d.arrive.at}ms` }}
+        />
+      )}
 
       {/*
         A fossil gets the ammonite, not a dot: a graft is not a position in the

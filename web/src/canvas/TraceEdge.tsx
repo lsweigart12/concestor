@@ -88,8 +88,14 @@ export interface TraceEdgeData extends Record<string, unknown> {
  * has finished both — hand it back early and the cleanup here cancels a draw
  * mid-flight. That is a real coupling between two files, so it is a shared
  * constant rather than a number that happens to be large enough today.
+ *
+ * Slower than an interface transition wants to be, deliberately. It was 613ms,
+ * and at that pace the line had arrived before the eye had found where it
+ * started — so the tree looked *different* rather than looking like it had
+ * grown. `Graph.tsx`'s `STAGGER` moves with this, or the travel collapses back
+ * into a fade-in.
  */
-export const DRAW_MS = 613;
+export const DRAW_MS = 1080;
 export const DECAY_MS = 1400;
 
 /**
@@ -175,30 +181,40 @@ export function TraceEdge({ id, data }: EdgeProps) {
   useEffect(() => {
     const core = coreRef.current;
     const group = groupRef.current;
-    if (!core || !group || d.drawToken === null) return;
+    const halo = haloRef.current;
+    if (!core || !group || !halo || d.drawToken === null) return;
 
     if (d.reduced) {
       // Cut to the final state and keep the glow static. `drawFrom` stays null,
       // so the river is fully lit rather than frozen part-drawn.
-      core.style.removeProperty("stroke-dasharray");
-      core.style.removeProperty("stroke-dashoffset");
+      for (const el of [core, halo]) {
+        el.style.removeProperty("stroke-dasharray");
+        el.style.removeProperty("stroke-dashoffset");
+      }
       drawFrom.current = null;
       return;
     }
 
+    // The halo is drawn on with the core, and it has to be: it is the same
+    // geometry at 7px and `blur(3.5px)`, so left alone it stands at full length
+    // from the first frame and the branch arrives as a soft grey line before
+    // anything draws it. Invisible while the draw was 613ms; not at all
+    // invisible once the sequence waits for the canvas first.
     const len = core.getTotalLength();
-    core.style.strokeDasharray = `${len}`;
-    core.style.strokeDashoffset = `${len}`;
+    const drawn = [core, halo];
+    for (const el of drawn) {
+      el.style.strokeDasharray = `${len}`;
+      el.style.strokeDashoffset = `${len}`;
+    }
     drawFrom.current = performance.now();
 
-    const draw = core.animate(
-      [{ strokeDashoffset: len }, { strokeDashoffset: 0 }],
-      {
+    const draw = drawn.map((el) =>
+      el.animate([{ strokeDashoffset: len }, { strokeDashoffset: 0 }], {
         duration: DRAW_MS,
         delay: d.delay,
         easing: "cubic-bezier(.16,.9,.3,1)",
         fill: "both",
-      },
+      }),
     );
 
     // Once the line has arrived, it decays from flare-bright to steady.
@@ -220,18 +236,36 @@ export function TraceEdge({ id, data }: EdgeProps) {
     const done = () => {
       // Hand the dash pattern back to the stylesheet, which is where the
       // provenance tier lives.
-      core.style.removeProperty("stroke-dasharray");
-      core.style.removeProperty("stroke-dashoffset");
+      for (const el of drawn) {
+        el.style.removeProperty("stroke-dasharray");
+        el.style.removeProperty("stroke-dashoffset");
+      }
       drawFrom.current = null;
     };
-    draw.finished.then(done).catch(() => {});
+    draw[0]?.finished.then(done).catch(() => {});
 
     return () => {
-      draw.cancel();
+      for (const a of draw) a.cancel();
       decay.cancel();
       done();
     };
-  }, [d.drawToken, d.delay, d.reduced, d.d]);
+    /*
+      **`d.d` is deliberately not a dependency.** It was, and the tree
+      rearranging is what exposed it: adding a taxon moves every branch already
+      on the canvas, so every branch re-ran this — and a branch that had already
+      finished drawing re-armed from `stroke-dashoffset: len` and drew itself on
+      again. It vanished and came back, once, exactly as the reflow began.
+
+      A draw belongs to a `drawToken`, so that is what arms it. The cost is that
+      a geometry change *during* a draw leaves the dash sized to the old path,
+      and it is not paid in practice: the reflow is over at `REFLOW_MS` and the
+      first trace does not leave until `lead + T_DRAW`, and the queue will not
+      release the next taxon until this one has landed. `pathLength` would make
+      the point moot by normalising the dash to 0..1 — and may not be used here,
+      because the tier patterns in styles.css are authored in user units and
+      would flatten into a solid line under it.
+    */
+  }, [d.drawToken, d.delay, d.reduced]);
 
   /**
    * Register the branch's river.

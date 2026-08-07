@@ -152,6 +152,7 @@ export function Water({
           hue: e.hue,
           power: e.power,
           flareAt: e.flareAt?.(),
+          arriveAt: e.arriveAt?.(),
         });
       }
     };

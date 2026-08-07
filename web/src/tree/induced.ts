@@ -156,6 +156,18 @@ export interface AddDelta {
   /** The node that flares at t=80. The subject. */
   flare: number;
   /**
+   * The leaf that was added: where the draw *ends*, and what blooms there.
+   *
+   * Not {@link flare}, which is where the new lineage joins a tree already on
+   * screen. Origin and destination, and "here is the thing you asked for"
+   * belongs on the destination — said at the join it names a clade the reader
+   * never typed.
+   *
+   * Null when the leaf is not rendered, which the caller cannot rule out: a
+   * chosen clade can sit on a descendant's lineage rather than take a row.
+   */
+  leaf: number | null;
+  /**
    * New rendered nodes in waves, root-ward first. Everything in one wave draws
    * simultaneously; the stagger is between waves. A node stands for the
    * segment *above* it, so the subtree root is not here: it is where the first
@@ -211,6 +223,7 @@ export function addDelta(
 
   return {
     flare,
+    leaf: after.rendered.includes(addedLeaf) ? addedLeaf : null,
     // A wave can only exist if its parent wave does, so there are no holes —
     // but an empty array is a cheaper contract than a caller that has to know.
     drawOrder: waves.map((w) => w ?? []),
