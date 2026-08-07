@@ -13,8 +13,6 @@
  * {@link Scope}.
  */
 
-import { SPECIES_PHRASE } from "../corpora";
-
 export type ActionId =
   | "open-opening"
   | "sidebar"
@@ -55,8 +53,6 @@ export interface Binding {
   kbd: string;
   /** The word beside it. */
   label: string;
-  /** What it does, for a tooltip. */
-  hint: string;
 }
 
 /**
@@ -72,7 +68,6 @@ export const BINDINGS: readonly Binding[] = [
     scope: "surface",
     kbd: "Enter",
     label: "Explore this question",
-    hint: "Draw the question the empty canvas is showing",
   },
   {
     id: "sidebar",
@@ -80,14 +75,12 @@ export const BINDINGS: readonly Binding[] = [
     shift: false,
     kbd: "S",
     label: "Sidebar",
-    hint: "Show or hide the panel — the search, your taxa and every setting are in it",
   },
   {
     id: "search",
     key: "/",
     kbd: "/",
     label: "Search",
-    hint: `Search ${SPECIES_PHRASE}, the fossil record, and everything this app can do — in one field`,
   },
   {
     // The Taxa list's add row: the species search with commands filtered out.
@@ -96,7 +89,6 @@ export const BINDINGS: readonly Binding[] = [
     shift: false,
     kbd: "A",
     label: "Add",
-    hint: `Search ${SPECIES_PHRASE}, in the tree and in the fossil record`,
   },
   {
     // One key draws from both corpora — see `RANDOM_FOSSIL_CHANCE`.
@@ -105,7 +97,6 @@ export const BINDINGS: readonly Binding[] = [
     shift: false,
     kbd: "R",
     label: "Random",
-    hint: "Add a random illustrated species, sometimes from the fossil record",
   },
   {
     id: "fit-selection",
@@ -113,7 +104,6 @@ export const BINDINGS: readonly Binding[] = [
     shift: true,
     kbd: "⇧F",
     label: "Fit here",
-    hint: "Frame the selected node",
   },
   {
     id: "fit",
@@ -121,7 +111,6 @@ export const BINDINGS: readonly Binding[] = [
     shift: false,
     kbd: "F",
     label: "Fit",
-    hint: "Frame the whole tree",
   },
   {
     id: "isolate",
@@ -129,7 +118,6 @@ export const BINDINGS: readonly Binding[] = [
     shift: false,
     kbd: "I",
     label: "Isolate",
-    hint: "Dim every lineage except the path to the selected node",
   },
   {
     id: "step-back",
@@ -137,7 +125,6 @@ export const BINDINGS: readonly Binding[] = [
     shift: true,
     kbd: "⇧N",
     label: "Previous",
-    hint: "Move the selection to the previous species",
   },
   {
     id: "step",
@@ -145,7 +132,6 @@ export const BINDINGS: readonly Binding[] = [
     shift: false,
     kbd: "N",
     label: "Next",
-    hint: "Move the selection to the next species",
   },
   {
     id: "biolum",
@@ -153,7 +139,6 @@ export const BINDINGS: readonly Binding[] = [
     shift: false,
     kbd: "B",
     label: "Bioluminescence",
-    hint: "Light the canvas like the deep sea; the data is unchanged",
   },
   {
     id: "axis",
@@ -161,7 +146,6 @@ export const BINDINGS: readonly Binding[] = [
     shift: false,
     kbd: "T",
     label: "Time scale",
-    hint: "Switch between a logarithmic and a linear time axis",
   },
   {
     // Cycles rather than flips: off → scientific → common → off.
@@ -170,7 +154,6 @@ export const BINDINGS: readonly Binding[] = [
     shift: false,
     kbd: "L",
     label: "Labels",
-    hint: "Cycle the words on the canvas: off, scientific names, common names",
   },
   {
     // Labelled "Dates" but the id, store, URL and gates still say `ages`.
@@ -179,7 +162,6 @@ export const BINDINGS: readonly Binding[] = [
     shift: false,
     kbd: "D",
     label: "Dates",
-    hint: "Show or hide the date on every mark. The axis still says when",
   },
   {
     // `E`, not `F`: `f` is fit. The label is "Fullscreen" though the key is E.
@@ -188,7 +170,6 @@ export const BINDINGS: readonly Binding[] = [
     shift: false,
     kbd: "E",
     label: "Fullscreen",
-    hint: "Fill the screen with the canvas; press again or Escape to leave",
   },
   {
     // The one action that asks for confirmation before it runs.
@@ -197,22 +178,19 @@ export const BINDINGS: readonly Binding[] = [
     shift: false,
     kbd: "C",
     label: "Clear",
-    hint: "Take everything off the canvas",
   },
   {
     id: "remove",
     key: "Backspace",
     kbd: "⌫",
     label: "Remove",
-    hint: "Take the selected species off the canvas",
   },
-  { id: "remove", key: "Delete", kbd: "⌫", label: "Remove", hint: "" },
+  { id: "remove", key: "Delete", kbd: "⌫", label: "Remove" },
   {
     id: "escape",
     key: "Escape",
     kbd: "esc",
     label: "Back",
-    hint: "Close what is open, innermost first",
   },
 ];
 

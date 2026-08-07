@@ -17,17 +17,11 @@ import {
   type FossilTaxon,
   type SearchHit,
 } from "../api";
-import {
-  FOSSIL_BADGE,
-  FOSSIL_BADGE_HINT,
-  rowScore,
-  SPECIES_PHRASE,
-} from "../corpora";
+import { FOSSIL_BADGE, rowScore, SPECIES_PHRASE } from "../corpora";
 import { AgeGlyph } from "../canvas/AgeGlyph";
 import { endedSpanLabel } from "../canvas/Bracket";
 import { Silhouette } from "../canvas/Silhouette";
 import { PendingLine, usePending } from "../chrome/Pending";
-import { useTip } from "../chrome/Tooltip";
 import { fuzzy, highlight, litRanges, recordUse, sessionBoost } from "./fuzzy";
 
 export interface Command {
@@ -35,8 +29,6 @@ export interface Command {
   title: string;
   subtitle?: string;
   icon: string;
-  /** The hover tooltip, for a caveat too long for the subtitle. Falls back to it. */
-  hint?: string;
   keys?: string;
   section: string;
   run: () => void;
@@ -765,12 +757,6 @@ function RowView({
   onHover: () => void;
   onClick: () => void;
 }) {
-  // The hint alone, where the row has one. It used to fall back to the
-  // subtitle, which this row already *prints* two lines below the pointer — a
-  // tooltip repeating text that is on screen is noise wearing the costume of
-  // help, and it fired on every row in the list.
-  const hover = useTip(row.kind === "cmd" ? row.cmd.hint : undefined);
-
   if (row.kind === "fossil") {
     return (
       <FossilRow
@@ -791,7 +777,6 @@ function RowView({
         className={`row${active ? " active" : ""}`}
         onMouseMove={onHover}
         onClick={onClick}
-        {...hover}
       >
         <span className="row-icon">{c.icon}</span>
         <span className="row-body">
@@ -880,7 +865,6 @@ function FossilRow({
     ? endedSpanLabel(Math.max(...bounds), Math.min(...bounds))
     : null;
   const italic = fossil.rank === "species" || fossil.rank === "genus";
-  const badge = useTip(FOSSIL_BADGE_HINT);
   return (
     <div
       className={`row${active ? " active" : ""}`}
@@ -910,9 +894,7 @@ function FossilRow({
           <span className={italic ? "sci-italic" : undefined}>
             {parts(fossil.name, ranges)}
           </span>
-          <span className="row-badge" {...badge}>
-            {FOSSIL_BADGE}
-          </span>
+          <span className="row-badge">{FOSSIL_BADGE}</span>
         </span>
         <span className="row-sub">
           {span && <span className="num">{span}</span>}

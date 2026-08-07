@@ -494,7 +494,7 @@ describe("a viewport move is refused into a canvas that is not there", () => {
  * A rule enforced at one of three call sites is not enforced, and nothing about
  * `fitTarget` said so — the other two writers sit six hundred lines away and
  * were found only by patching `setAttribute` in a browser. This is a lint over
- * the source, in the style of `chrome/tip.test.ts`: every call that hands the
+ * the source: every call that hands the
  * viewport to React Flow must be reachable only past the refusal.
  *
  * Deliberately a count and a token search rather than a shape: it must survive

@@ -26,21 +26,9 @@ export function LabelsToggle({
       value={mode}
       onChange={onChange}
       segments={[
-        {
-          value: "off",
-          label: "off",
-          tip: "No words on the canvas — just the shape of the tree and the silhouettes.",
-        },
-        {
-          value: "common",
-          label: "common",
-          tip: "Everyday names where there is one — Human, Dog, blue whale. Anything without one keeps its scientific name, in italics.",
-        },
-        {
-          value: "scientific",
-          label: "scientific",
-          tip: "The formal name, in italics. Every taxon has one and no two share one.",
-        },
+        { value: "off", label: "off" },
+        { value: "common", label: "common" },
+        { value: "scientific", label: "scientific" },
       ]}
     />
   );
@@ -63,16 +51,8 @@ export function AgesToggle({
       value={on}
       onChange={onChange}
       segments={[
-        {
-          value: false,
-          label: "off",
-          tip: "Hide the dates. The ruler underneath still says when.",
-        },
-        {
-          value: true,
-          label: "on",
-          tip: "Print each mark's date, and a fossil's range. Undated nodes stay blank either way.",
-        },
+        { value: false, label: "off" },
+        { value: true, label: "on" },
       ]}
     />
   );

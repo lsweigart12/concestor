@@ -16,22 +16,18 @@
  * the row-level ones.
  *
  * `aria-disabled` rather than `disabled`, which is the rule the whole app keeps:
- * a `disabled` button fires no pointer events, so the tooltip explaining *why*
- * it is off is unreachable by pointer and by keyboard both — and the only
- * tooltip worth having on a disabled control is the sentence saying what would
- * make it work.
+ * a `disabled` button takes neither focus nor pointer events, so a reader
+ * walking the panel would find a control that is plainly on screen and simply
+ * not in the tab order.
  *
  * Focus is an **underline** and not a colour, because the resting and hovered
  * states are already the only two colours this row has and a third would have
  * to be told apart from them at 9.5px.
  */
 
-import { useTip } from "../chrome/Tooltip";
-
 export function HeaderAction({
   label,
   keys,
-  hint,
   onClick,
   danger,
   disabledBecause,
@@ -39,20 +35,17 @@ export function HeaderAction({
   label: string;
   /** The bound key, printed inside the button. Omit for an unbound verb. */
   keys?: string;
-  hint: string;
   onClick: () => void;
   danger?: boolean;
   disabledBecause?: string;
 }) {
   const off = disabledBecause !== undefined;
-  const tip = useTip(off ? disabledBecause : hint);
   return (
     <button
       type="button"
       className={`side-act${danger === true ? " is-danger" : ""}`}
       aria-disabled={off || undefined}
       onClick={off ? undefined : onClick}
-      {...tip}
     >
       {label}
       {keys !== undefined && (

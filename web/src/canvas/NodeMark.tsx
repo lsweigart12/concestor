@@ -25,14 +25,12 @@ import { endedSpanLabel } from "./Bracket";
 import { rankIsInformative } from "../detail/classification";
 import type { LabelBox } from "../tree/labels";
 import {
-  branchProse,
   markName,
   UNNAMED,
   type Divergence,
   type LabelMode,
 } from "../tree/naming";
 import { Silhouette } from "./Silhouette";
-import { useTip } from "../chrome/Tooltip";
 import { fossilSpan, type Graft } from "../tree/graft";
 import { flareMark } from "./biolum";
 
@@ -150,8 +148,6 @@ interface MarkAge {
   glyph: AgeGlyphKind | null;
   /** Never empty. A slot holding a glyph and no figure is not an age. */
   text: string;
-  /** The glyph in words, on hover. Empty where there is no glyph to explain. */
-  title: string;
 }
 
 export function markAge(
@@ -161,15 +157,11 @@ export function markAge(
 ): MarkAge | null {
   const span = occurrenceSpan(tier, occ);
   if (span !== null) {
-    return {
-      glyph: "fossil",
-      text: span,
-      title: `Fossils of this taxon are found through ${span} — where it appears in the rock, not an estimate of when its lineage parted from anything.`,
-    };
+    return { glyph: "fossil", text: span };
   }
   const label = ageLabel(age, tier);
   if (label === null || label === PRESENT) return null;
-  return { glyph: null, text: label, title: "" };
+  return { glyph: null, text: label };
 }
 
 /**
@@ -272,8 +264,8 @@ function graftTitle(g: Graft): string {
 
 /**
  * The secondary row: rank only. What an inherited silhouette depicts belongs on
- * the image (the tooltip and the card watermark), not spelled out beside it.
- * `rankIsInformative` is shared with the card so both filter `no rank` and
+ * the image (its accessible name and the card watermark), not spelled out
+ * beside it. `rankIsInformative` is shared with the card so both filter `no rank` and
  * `no rank - terminal` alike.
  */
 export function metaLine(rank: string | null, show: boolean): string {
@@ -287,11 +279,6 @@ export function metaLine(rank: string | null, show: boolean): string {
  * it is not one.
  */
 export const DIVERGENCE_META = "DIVERGENCE";
-
-/** The hover tooltip that spells the derived name out. */
-function derivedTitle(divergence: Divergence): string {
-  return `The last common ancestor of ${branchProse(divergence.branches)}. The Open Tree taxonomy has no name for this node.`;
-}
 
 /**
  * A derived name, rendered as its runs — each taxon run italicised on its own
@@ -352,11 +339,6 @@ export const NodeMark = memo(function NodeMark({ data }: NodeProps) {
   // lane. The hue says which lineage; the fill says whether you chose it.
   const markStyle = { color, "--hue": d.hue } as React.CSSProperties;
 
-  // Hooks run unconditionally; both are `undefined` on most marks, which
-  // `useTip` answers with an empty props object.
-  const nameTip = useTip(div ? derivedTitle(div) : undefined);
-  const ageTip = useTip(showAge && age ? age.title : undefined);
-
   // Pointing at a mark makes it flare in place (not shed drifting particles: the
   // snow reads the mark's own light).
   const puff = useCallback(() => {
@@ -391,7 +373,7 @@ export const NodeMark = memo(function NodeMark({ data }: NodeProps) {
         d.isLeaf ? "is-leaf" : "",
         d.isMRCA ? "is-mrca" : "",
         // A fossil is not a position in the tree, and the dot has to say so
-        // before the tooltip gets a chance to. See `.mark.is-graft`.
+        // before the card is opened. See `.mark.is-graft`.
         d.graft ? "is-graft" : "",
         d.focused ? "is-focus" : "",
         d.dim ? "dimmed" : "",
@@ -477,14 +459,14 @@ export const NodeMark = memo(function NodeMark({ data }: NodeProps) {
           {witness ? (
             <Silhouette
               phylopicId={witness.phylopicId}
-              tip={witnessTitle(witness, n.age_ma, n.tier)}
+              name={witnessTitle(witness, n.age_ma, n.tier)}
             />
           ) : (
             withSilhouette &&
             n.phylopic_id && (
               <Silhouette
                 phylopicId={n.phylopic_id}
-                tip={
+                name={
                   d.graft
                     ? graftTitle(d.graft)
                     : borrowedTitle(name, d.silhouetteClade)
@@ -499,7 +481,7 @@ export const NodeMark = memo(function NodeMark({ data }: NodeProps) {
           {showText && (
             <span className="mark-text" style={{ maxWidth: box?.textMaxWidth }}>
               {meta && <span className="mark-meta">{meta}</span>}
-              <span className="mark-name" {...nameTip}>
+              <span className="mark-name">
                 {div ? (
                   <DerivedName divergence={div} />
                 ) : (
@@ -517,7 +499,7 @@ export const NodeMark = memo(function NodeMark({ data }: NodeProps) {
                 )}
               </span>
               {showAge && age && (
-                <span className="mark-age num" {...ageTip}>
+                <span className="mark-age num">
                   {age.glyph && <AgeGlyph kind={age.glyph} />}
                   {age.text}
                 </span>

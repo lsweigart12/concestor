@@ -15,9 +15,8 @@ import {
   useState,
 } from "react";
 import { PendingLine } from "../chrome/Pending";
-import { useTip } from "../chrome/Tooltip";
 import { isScientificItalic } from "../canvas/NodeMark";
-import { rankIsInformative, rankProse, type Lineage } from "./classification";
+import { rankProse, type Lineage } from "./classification";
 import type { Pending } from "./hooks";
 import { fitOneRow } from "./oneRow";
 import type { LinkTarget } from "./target";
@@ -36,7 +35,6 @@ export function TaxonLink({
   target,
   onSelect,
   rank,
-  tip,
   children,
 }: {
   /** Null or undefined renders the children unchanged. */
@@ -44,12 +42,9 @@ export function TaxonLink({
   onSelect?: SelectTaxon | undefined;
   /** Italicises a genus or species, by the same rule the rest of the app uses. */
   rank?: string | null | undefined;
-  /** The hover explanation, where the link's own words are not the whole of it. */
-  tip?: string | undefined;
   children: React.ReactNode;
 }) {
   const italic = isScientificItalic(rank ?? null) ? " sci-italic" : "";
-  const hover = useTip(tip);
   if (!onSelect || target === null || target === undefined) {
     return italic ? (
       <em className="sci-italic">{children}</em>
@@ -62,7 +57,6 @@ export function TaxonLink({
       type="button"
       className={`taxon-link${italic}`}
       onClick={() => onSelect(target)}
-      {...hover}
     >
       {children}
     </button>
@@ -257,12 +251,7 @@ export function ClassificationBlock({
             <div key={n.idx} className="cl-row">
               <dt>{n.rank}</dt>
               <dd>
-                <TaxonLink
-                  target={n.key}
-                  onSelect={onSelect}
-                  rank={n.rank}
-                  tip={`Open ${n.name}`}
-                >
+                <TaxonLink target={n.key} onSelect={onSelect} rank={n.rank}>
                   {n.name}
                 </TaxonLink>
               </dd>
@@ -292,16 +281,7 @@ export function ClassificationBlock({
           {full.map((n, i) => (
             <span key={n.idx}>
               {i > 0 && <span className="lineage-sep"> › </span>}
-              <TaxonLink
-                target={n.key}
-                onSelect={onSelect}
-                rank={n.rank}
-                tip={
-                  rankIsInformative(n.rank)
-                    ? `${n.name} · ${n.rank}`
-                    : `Open ${n.name}`
-                }
-              >
+              <TaxonLink target={n.key} onSelect={onSelect} rank={n.rank}>
                 {n.name}
               </TaxonLink>
             </span>

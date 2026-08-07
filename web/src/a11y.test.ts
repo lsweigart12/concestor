@@ -1,8 +1,8 @@
 /**
  * The census that keeps an unlabelled graphic out, and the regions named.
  *
- * A companion to `chrome/tip.test.ts`, written the same way and for the same
- * reason: an inline `<svg>` with no `aria-hidden` and no name renders perfectly,
+ * A source census rather than a DOM test, for the reason that makes one
+ * necessary: an inline `<svg>` with no `aria-hidden` and no name renders perfectly,
  * no linter objects, and nothing fails — it simply arrives in the accessibility
  * tree as an anonymous graphic, or does not arrive at all. Several of this
  * app's inline SVGs were in that state, and the only reason the number was ever
@@ -134,7 +134,7 @@ describe("the drawings decide once", () => {
   it("attaches the name in one place", () => {
     expect(SILHOUETTE).toBeDefined();
     const text = bare(SILHOUETTE ?? "");
-    expect([...text.matchAll(/\{\.\.\.describe\(tip\)\}/g)]).toHaveLength(2);
+    expect([...text.matchAll(/\{\.\.\.describe\(name\)\}/g)]).toHaveLength(2);
     expect(text).not.toMatch(/aria-hidden="true"/);
   });
 });

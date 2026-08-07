@@ -269,9 +269,9 @@ describe("the two doors are how the list stops being empty", () => {
    * **Clear is on this caption and it goes with the count**, which is the one
    * place this app's *disabled rather than hidden* rule gives way. That rule
    * exists so a control does not move out from under a hand reaching for it,
-   * and so a greyed one can say what would make it work; neither applies on an
-   * empty list. Nothing reaches for clear there, and the sentence a tooltip
-   * would carry — "the canvas is already empty" — is the list itself.
+   * and a greyed one over an empty list says what the list already says;
+   * neither applies here. Nothing reaches for clear on an empty canvas, and
+   * "the canvas is already empty" is the list itself.
    */
   it("offers clear beside the count, and neither over an empty list", () => {
     const p = draw({ nodes: [node({ idx: 1 })] });

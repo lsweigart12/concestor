@@ -708,11 +708,6 @@ export default function App() {
         id: "labels",
         title: `Switch labels to ${LABEL_TURN[tree.labels].title}`,
         subtitle: LABEL_TURN[tree.labels].subtitle,
-        hint:
-          "The canvas used to decide this from how far you had zoomed, which meant pulling back " +
-          "to see the whole tree took every name with it. It is yours now. Common names exist " +
-          "for species, genera and subspecies only — about 4% of the tree — so that setting is a " +
-          "mixture, and the italics are what tell you which name you are reading.",
         icon: "Aa",
         keys: kbd("labels"),
         section: "View",
@@ -752,11 +747,6 @@ export default function App() {
         subtitle: tree.biolum
           ? "Back to the plain instrument"
           : "Light the canvas like the deep sea",
-        hint:
-          "Additive bloom on the branches, light travelling down each lineage, and a drifting " +
-          "field of plankton behind the tree. Nothing about the data changes: every dash, every " +
-          "tier and every figure is identical in both states. It is yours for this tab only — " +
-          "a tree you share arrives unlit, however you are reading it.",
         icon: "✷",
         keys: kbd("biolum"),
         section: "View",
@@ -781,12 +771,6 @@ export default function App() {
               subtitle: fullscreen.on
                 ? "Give the browser its chrome back"
                 : "Spend the tab strip and the URL bar on the time axis",
-              hint:
-                "A tree is wide, and the browser's own chrome is the easiest few centimetres of " +
-                "it to buy back. Nothing about the layout changes beyond the width it is drawn " +
-                "against — the canvas reframes the way it does on any window resize, and a " +
-                "reader who has zoomed into a corner keeps their view. Escape leaves it too, " +
-                "and the browser takes that key before this app sees it.",
               icon: "⛶",
               keys: kbd("fullscreen"),
               section: "View",
@@ -813,16 +797,11 @@ export default function App() {
         // claim about the **reader** may not ride in a link, and one made with
         // the labels off would open on a canvas of unnamed dots.
         //
-        // So the subtitle promises the thing that does travel, and the hint
-        // says what does not. Both matter to the same reader: somebody who
+        // So the subtitle promises the thing that does travel and says nothing
+        // about what does not. It matters to the same reader: somebody who
         // sends a bioluminescent canvas and is told it is "the exact view"
         // finds out otherwise from whoever opens it.
         subtitle: "It opens on this exact tree",
-        hint:
-          "The tree, the time scale, the selection, any fossil you have pinned to a branch, " +
-          "and anything you have isolated or drilled " +
-          "into are all in the address bar. The canvas settings are not: labels, ages and the " +
-          "light belong to how you are reading, not to what you found, so they stay in this tab.",
         icon: "↗",
         section: "View",
         run: () => {
@@ -842,12 +821,6 @@ export default function App() {
         id: "random-species",
         title: "Add a random species",
         subtitle: "Something illustrated, picked for you",
-        hint:
-          "Draws from the ~14,000 taxa that have a silhouette of their own, so the pick " +
-          "always arrives with a picture rather than a bare name. Roughly one in five comes " +
-          "from the fossil record instead, pinned to its branch at its own date. Press again " +
-          "to keep going — each one joins the tree through its common ancestors with " +
-          "whatever is already here.",
         icon: "✦",
         keys: kbd("random-species"),
         section: "Selection",
@@ -860,8 +833,8 @@ export default function App() {
       // `bindings.ts` now rather than trusting the claim.
       //
       // Absent rather than disabled on an empty canvas, which is the same rule
-      // `fit-all` above states: the bar can grey a button and say why in a
-      // tooltip, and a palette row has nothing beside it to read.
+      // `fit-all` above states: the bar can grey a button and the shape of the
+      // chrome says why, and a palette row has nothing beside it to read.
       //
       // One row, where the bar draws one button and the keyboard has two
       // halves. `stepSelection` wraps — `% ls.length` — so going forward alone
@@ -874,10 +847,6 @@ export default function App() {
               id: "step",
               title: "Go to the next species",
               subtitle: "Opens each card in turn, and wraps at the end",
-              hint:
-                "On a crowded canvas the marks are small targets, and this reaches every one of " +
-                "them in order without asking you to hit any of them. It walks the species you " +
-                "have added, in the order they are drawn, and comes back round to the first.",
               icon: "→",
               keys: kbd("step"),
               section: "Selection",
@@ -941,10 +910,6 @@ export default function App() {
         id: "reset-ranking",
         title: "Clear search history",
         subtitle: "Forgets your recent species and the ranking they feed",
-        hint:
-          "This browser remembers which species you have added, to list them " +
-          "first and to rank what you search for. Both are stored here and " +
-          "sent nowhere. This clears them together.",
         icon: "↺",
         section: ABOUT_SECTION,
         run: () => {

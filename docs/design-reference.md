@@ -181,14 +181,15 @@ timer decides when a mark becomes visible.
   own. **One press in five draws from the fossil record instead**, and that pick
   also adds the clade it hangs below when the canvas lacks it; an empty fossil
   roll falls through to a species silently.
-- **A command row may carry a tooltip its subtitle cannot hold** — `Command.hint`,
-  a sentence a reader can go looking for. It does not fall back to the subtitle.
+- **A command row is a title and a subtitle and nothing more.** There is no
+  longer sentence behind it: what a row cannot say in a subtitle belongs on the
+  card or in the about page, where a reader goes looking for it.
 - Inline keybind hints on every row, from the same table the buttons read.
 - **Every control lives in the sidebar**, in the order a session takes them:
   wordmark (the door to the about page), the way in, what is on the canvas, how
   it is drawn, then the things done once building has stopped. An action that
   cannot run right now is **disabled, never hidden**, and is `aria-disabled` (not
-  `disabled`) so its tooltip still explains what would make it work.
+  `disabled`) so it keeps its place in the tab order.
 - **Sections are captioned in small-caps mono.** `TAXA` carries a count, absent
   at zero.
 - **The way in is a pill that hangs out over the canvas**, spanning the panel
@@ -247,8 +248,7 @@ log` as a segmented control — both options always legible, the live one lit. I
   wears the same anatomy as the other three canvas modes (badge, caption,
   recessed track) and sits beside them in the sidebar. The badge sits outside
   both segments because `T` toggles rather than selects. `symlog` stays out of
-  the label; the knee is labelled on the axis and the tooltip carries the units
-  and the full word "logarithmic".
+  the label; the knee is labelled on the axis, which is where the units are.
 - **Quiet at the default, accented away from it.** Linear is the default: the lit
   segment is plain ink and the control announces nothing. Arriving at
   logarithmic — pressed, via a link carrying `axis=log`, or asked for by an
@@ -269,7 +269,7 @@ log` as a segmented control — both options always legible, the live one lit. I
   width and reframes at once; the preference is kept as a *bias on the fill*, so
   the next fit, resize or add solves "the fill, times what the reader asked for"
   rather than solving the press away. At the end of its run a press is disabled,
-  not swallowed. The words live in the tooltips; the glyphs carry the strip.
+  not swallowed. The glyphs carry the strip; `aria-label` carries the words.
 
 ## Hit targets
 
@@ -297,25 +297,32 @@ between painted things belongs to whatever is drawn underneath it.
   than a missed click, because a wrong selection looks like an answer.
 - **Dimmed is not disabled.** Unselected lineages recede to 0.26 opacity, and
   clicking one is how a reader focuses it.
-- **Both silhouette and name carry a tooltip.** The silhouette's says what an
-  inherited drawing depicts (the smallest clade holding both node and picture,
-  and its size); the name's explains a derived `Homo / Pan` divergence name.
+- **A silhouette carries a name, not a caption.** What an inherited drawing
+  depicts — the smallest clade holding both node and picture, and its size — is
+  the picture's `aria-label` and the card's watermark. It is never drawn beside
+  the mark and never appears on hover.
 
-## Tooltips
+## Nothing explains itself on hover
 
-- **The app draws them; `title` is banned and a test enforces it.** The native
-  tooltip cannot be styled, arrives late, cannot be dismissed, never appears on
-  touch, and is placed against the pointer rather than the control. The SVG
-  `<title>` child is banned with it. `chrome/tip.ts` and `chrome/Tooltip.tsx` are
-  the implementation; `tip.test.ts` is the census.
-- **A tooltip is a sentence** — two where the second is a caveat whose absence
-  would cost the reader trust. Capped at 260px.
-- **It answers "what will pressing this do", never "why is it built this way".**
-- **It never repeats what is already on screen.**
-- **It goes towards the middle of the window**, away from whichever edge its
-  trigger is pinned to.
-- **An unavailable control keeps its explanation** — `aria-disabled`, not
-  `disabled`, so it still fires pointer events.
+- **There are no tooltips, and there is no `title` attribute.** A test enforces
+  the second; the first is a decision about how much this app is allowed to say
+  unasked. The native tooltip cannot be styled, arrives late, cannot be
+  dismissed, never appears on touch, and is placed against the pointer rather
+  than the control — and the app's own version, which fixed all of that, was
+  worse in the way that mattered: it put a paragraph over the graph every time
+  the pointer crossed a picture. The SVG `<title>` child is banned with it.
+- **A control says what it does by being drawn well.** A glyph that needs a
+  sentence is a glyph that needs redrawing, or a control that needs a caption
+  printed beside it — the doors, the mode chips and the palette rows all carry
+  their words on the face.
+- **What genuinely needs a paragraph goes on the node card**, which is one press
+  away and is the surface built to hold prose. The provenance disclosure there
+  is where the caveats live.
+- **An unavailable control keeps its place** — `aria-disabled`, not `disabled`,
+  so it stays focusable and in the tab order.
+- **Screen readers still get the words.** `aria-label` on every glyph-only
+  control and on every drawing that makes a claim. That is a name, not an
+  explanation, and it is never rendered.
 
 ## Layout
 
@@ -541,8 +548,8 @@ flashing over facts the app already holds.
   - Beside a node drawn at 66 Ma, a bare "84–66 Ma" reads as that node's age —
     the one thing the `occurrence` tier exists not to imply — so the range never
     renders without the mark. `markAge` guarantees this.
-  - The words survive as each mark's accessible name and tooltip, and the node
-    card spells both out in full.
+  - The words survive as each mark's accessible name, and the node card spells
+    both out in full.
   - Running prose is unaffected: the drill-down lane writes "382 Ma – present".
 
 ## Color

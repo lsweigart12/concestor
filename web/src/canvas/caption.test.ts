@@ -24,6 +24,16 @@ import {
   occurrenceSpan,
 } from "./NodeMark";
 
+/** `AgeGlyph.tsx` as text: this project has no DOM, and the assertion below is
+    about what that component names its mark, not about how it draws it. */
+const GLYPH_SRC: string = Object.values(
+  import.meta.glob<string>("./AgeGlyph.tsx", {
+    query: "?raw",
+    import: "default",
+    eager: true,
+  }),
+)[0] as string;
+
 describe("borrowedTitle", () => {
   it("says nothing extra about a node's own portrait", () => {
     expect(borrowedTitle("Cetacea", null)).toBe("Silhouette of Cetacea");
@@ -74,11 +84,7 @@ describe("the occurrence tier never becomes an age", () => {
 
   it("states a range, and never without the mark that says what it is", () => {
     const a = markAge(null, TIER_OCCURRENCE, RANGE);
-    expect(a).toEqual({
-      glyph: "fossil",
-      text: "84–66 Ma",
-      title: expect.stringContaining("84–66 Ma"),
-    });
+    expect(a).toEqual({ glyph: "fossil", text: "84–66 Ma" });
     // The whole point: beside a node drawn at 66 Ma, a bare "84–66 Ma" is
     // indistinguishable from that node's age. The glyph carries the word the
     // label used to spell out, so the range may never arrive without one.
@@ -88,8 +94,9 @@ describe("the occurrence tier never becomes an age", () => {
   it("says what the mark means, for anyone who cannot see it", () => {
     // The mark is the only thing distinguishing a range from an age on the
     // canvas, so the distinction cannot be available to sighted readers alone.
-    const a = markAge(null, TIER_OCCURRENCE, RANGE);
-    expect(a?.title).toMatch(/not an estimate/i);
+    // `AgeGlyph` carries the word as its `aria-label`; nothing here is on hover.
+    expect(GLYPH_SRC).toContain("aria-label={LABELS[kind]}");
+    expect(GLYPH_SRC).toContain('fossil: "fossils"');
   });
 
   it("never emits a single date", () => {
@@ -173,7 +180,6 @@ describe("the age slot's marks", () => {
     expect(markAge(96, TIER_MEASURED, null)).toEqual({
       glyph: null,
       text: "96 Ma",
-      title: "",
     });
   });
 
