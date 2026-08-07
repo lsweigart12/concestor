@@ -312,9 +312,26 @@ body {
 .react-flow__connection-path {
   stroke: none;
 }
+/*
+ * A mark glides to its new row rather than jumping there.
+ *
+ * **A transition and not an interpolation, and that is forced rather than
+ * preferred.** React Flow owns this element's transform, and handing it new
+ * node positions on every animation frame makes it drop every edge on the
+ * canvas for the length of the tween — 580ms of a tree with no branches in it,
+ * measured at 60fps. So it is told the settled position once and the browser
+ * carries the mark there.
+ *
+ * The traces are interpolated in JavaScript instead, because their geometry is
+ * ours. `canvas/reflow.ts` owns the duration and the curve for both, and
+ * `reflow.test.ts` holds these two declarations against it: a dot is the end of
+ * a line, and if they eased differently the branch would come away from the
+ * mark it arrives at, halfway through every rearrangement.
+ */
 .react-flow__node {
   cursor: pointer;
   font-family: var(--sans);
+  transition: transform 560ms cubic-bezier(0.33, 1, 0.68, 1);
 }
 .react-flow__handle {
   opacity: 0;
@@ -883,6 +900,81 @@ body {
 .mark-alive.flaring,
 .mark-fossil.flaring {
   animation: flare 620ms var(--spring) both;
+}
+
+/*
+ * A new mark does not exist until the line reaching it arrives.
+ *
+ * `backwards` is the whole mechanism, and why there is no timer: the opening
+ * frame is held for the length of the delay, which `Graph.tsx` takes off the
+ * same clock as the trace's own, so a mark cannot arrive before or after its
+ * line. It scales from just under rather than from zero — growing from nothing
+ * reads as an object being placed, not as the line resolving into a node.
+ */
+@keyframes mark-enter {
+  from {
+    opacity: 0;
+    scale: 0.72;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+  }
+}
+
+.mark.is-entering {
+  animation: mark-enter 420ms var(--spring) backwards;
+}
+
+/*
+ * The arrival: one big, slow bloom on the taxon that was added.
+ *
+ * **Single**, because a repeating pulse is how an interface says *something
+ * needs attention* — a status, said over and over — and this is an event that
+ * happened once. **Slow**, because it is the only thing on the canvas that has
+ * to be findable without being pointed at: the canvas has just moved and a line
+ * has just drawn, and the question left is which of these is mine.
+ *
+ * `currentColor` is the lineage's hue, so it says which branch as well as which
+ * node, and it spends only luminance — which is what recency is allowed.
+ */
+@keyframes mark-arrive {
+  0% {
+    opacity: 0;
+    scale: 0.4;
+  }
+  14% {
+    opacity: 0.5;
+  }
+  100% {
+    opacity: 0;
+    scale: 9;
+  }
+}
+
+.mark-arrive {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 26px;
+  height: 26px;
+  margin: -13px 0 0 -13px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    currentColor 0%,
+    color-mix(in srgb, currentColor 45%, transparent) 42%,
+    transparent 70%
+  );
+  pointer-events: none;
+  /*
+   * Under the dot and the label by **DOM order, not `z-index`**: this is the
+   * mark's first child, so positioned siblings at `z-index: auto` paint over it
+   * and the name stays legible. `z-index: -1` is invisible here — React Flow
+   * gives every node a `z-index`, so a negative child paints into that stacking
+   * context's backdrop, behind everything the canvas draws.
+   */
+  animation: mark-arrive 1500ms cubic-bezier(0.16, 0.7, 0.3, 1) backwards;
 }
 
 /* ------------------------------------------------------------- time axis -- */

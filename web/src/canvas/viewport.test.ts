@@ -16,8 +16,11 @@ import {
   CARD_STACK_TOP,
   CARD_STACK_W,
   CARD_W,
+  COMFORT_MAX,
+  COMFORT_SHARE,
   MIN_FREE_W,
   cardReserve,
+  comfortRect,
   fitViewport,
   freeRect,
   fitContentPad,
@@ -238,6 +241,62 @@ describe("revealShift", () => {
     // Same box, approached from the other side: same resting place.
     const b = revealShift({ ...wide, x: -600 }, free);
     expect(-600 + b.dx).toBe(200 + a.dx);
+  });
+});
+
+/**
+ * The band between "on screen" and "in view", which is what keeps a selection
+ * quiet. Against the free region alone a reveal fires for a mark one pixel
+ * outside and not one a pixel inside, then leaves it flush against the frame.
+ * Asking the *same* pulled-in rect both questions is the whole mechanism.
+ */
+describe("comfortRect", () => {
+  const free = { x: 0, y: 0, w: 1000, h: 600 };
+
+  it("takes its share off every side", () => {
+    expect(comfortRect(free)).toEqual({
+      x: 1000 * COMFORT_SHARE,
+      y: 600 * COMFORT_SHARE,
+      w: 1000 - 2 * 1000 * COMFORT_SHARE,
+      h: 600 - 2 * 600 * COMFORT_SHARE,
+    });
+  });
+
+  // Of the region, not the window: the strip beside a card gets a band
+  // proportional to itself, where a fixed margin would eat a third of it.
+  it("scales with the region it is taken from", () => {
+    const narrow = comfortRect({ x: 0, y: 0, w: 500, h: 600 });
+    expect(narrow.x).toBe(500 * COMFORT_SHARE);
+    expect(narrow.w).toBe(500 - 2 * 500 * COMFORT_SHARE);
+  });
+
+  // Capped, or a seventh of a very wide canvas forces the large pan the band
+  // exists to avoid.
+  it("caps the margin on a wide canvas", () => {
+    const wide = comfortRect({ x: 0, y: 0, w: 4000, h: 600 });
+    expect(wide.x).toBe(COMFORT_MAX);
+    expect(wide.w).toBe(4000 - 2 * COMFORT_MAX);
+  });
+
+  it("never inverts, however little there is to take from", () => {
+    const tiny = comfortRect({ x: 10, y: 10, w: 1, h: 1 });
+    expect(tiny.w).toBeGreaterThan(0);
+    expect(tiny.h).toBeGreaterThan(0);
+  });
+
+  // The pair, which is the only claim that matters.
+  it("leaves a comfortable subject alone and seats an uncomfortable one inside", () => {
+    const band = comfortRect(free);
+    const inside = { x: 400, y: 300, w: 50, h: 20 };
+    expect(revealShift(inside, band)).toEqual({ dx: 0, dy: 0 });
+
+    // On screen — inside `free` — but hard against the right-hand edge.
+    const edge = { x: 950, y: 300, w: 40, h: 20 };
+    const { dx } = revealShift(edge, band);
+    expect(dx).toBeLessThan(0);
+    expect(edge.x + dx + edge.w).toBe(band.x + band.w);
+    // …and still well inside the region it was already technically inside.
+    expect(edge.x + dx + edge.w).toBeLessThan(free.x + free.w);
   });
 });
 

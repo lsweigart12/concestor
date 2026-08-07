@@ -11,7 +11,7 @@ persistent line. Brightness encodes recency and selection, never data value.
 Secondary reference: bioluminescence. Cool temperature throughout — cyan/teal/
 pale green. Not warm-orange heatmap.
 
-Interaction model reference is **Raycast**: the command palette *is* the
+Interaction model reference is **Raycast**: the command palette _is_ the
 interface, not an accessory to it.
 
 ---
@@ -20,24 +20,120 @@ interface, not an accessory to it.
 
 This is the product. The draw originates at the **MRCA** and extends outward to
 the new leaf — not from root, not inward from the leaf. The point is to show
-*where the new species joins*; the MRCA is the subject.
+_where the new species joins_; the MRCA is the subject.
 
-Sequence, overlapping not sequential:
+Sequence, overlapping not sequential. **Every beat is measured from the moment
+the viewport comes to rest**, not from the press: an add both moves the canvas
+and draws on it, and marks appearing under a moving canvas are marks no eye can
+follow.
 
-1. `t=0` — Existing nodes begin spring reflow to new positions.
+1. `t=0` — Existing nodes begin sliding to their new positions, alongside the
+   reframe. Both are the canvas rearranging, and they settle together just
+   before the draw leaves.
 2. `t=80` — MRCA node flares. Brief bright pulse.
-3. `t=120` — New traces draw from MRCA outward, ~613ms, ease-out.
-4. `t=733` — Each decays from flare-bright to steady state over ~1400ms.
+3. `t=140` — New traces draw from MRCA outward, ~1080ms, ease-out.
+4. `t=980` — Each new mark appears under the line that reached it and the taxon
+   that was added blooms — a moment before the stroke's nominal end, which its
+   easing has all but reached. The traces settle from flare-bright over ~1400ms.
 
 Reflow and draw overlap. If the new path spans multiple segments, draw them
-root-ward → leaf-ward, staggered as a wave every ~96ms. **A wave, not a route:**
+root-ward → leaf-ward, staggered as a wave every ~170ms. **A wave, not a route:**
 everything the same number of segments from the MRCA draws together, because
 two lineages that parted at one node have to leave it at the same moment. The
-MRCA itself is not drawn on — a segment belongs to the node *below* it.
+MRCA itself is not drawn on — a segment belongs to the node _below_ it.
+
+**The draw is slower than an interface transition wants to be.** It was ~613ms
+with a ~96ms stagger, and at that pace the line arrived before the eye had found
+where it started, so the tree looked _different_ rather than looking like it had
+grown. Acknowledging the press is the toast's job; this has to let an eye follow
+one line to a taxon that was not there. The two move together — a longer draw
+with the old stagger collapses the waves back into a fade-in.
+
+**Both paths of a trace draw on, not just the core.** The halo is the same
+geometry at 7px under a 3.5px blur, so a halo left alone stands at full length
+from the first frame and the branch arrives as a soft grey line _before_
+anything draws it. That was invisible at 613ms and is not invisible now.
+
+**A mark arrives at the end of its line, not the start.** A node stands for the
+segment above it, so new marks stay invisible until the draw reaches them and
+the line travels into empty canvas. Showing a mark when its line _leaves_ draws
+the destination before the journey. The join point is exempt: it was on screen
+before the press.
+
+**Exactly one mark blooms** — the taxon that was added, in its lineage's colour,
+as the line lands. _Single_, because a repeating pulse is how an interface says
+_something needs attention_, and this is an event that happened once. _Slow_,
+because it is the only thing on the canvas that has to be findable without being
+pointed at. It fires on the added leaf and never on the MRCA: at the join it
+would name a clade the reader never typed. In the bioluminescent mode the same
+event is also said in that mode's vocabulary — a much larger, slower version of
+the flare a pointed-at mark already gives, lighting the water and the snow.
+
+### The tree makes room
+
+**Adding a taxon moves almost everything**, and it used to move it between two
+frames: a new leaf takes a row so every row below shifts down, a new divergence
+re-parents a branch so the fork moves in x and both children move in y. The
+reader pressed a key and the tree they were reading was replaced by a different
+one — and then a line arrived into a picture they had to re-find first.
+
+**Everything drawn here derives from one map of positions** — a mark's
+transform, a trace's `d`, a graft's connector, an emitter's place in the water —
+so interpolating that map moves all four in step, with no second animation to
+keep synchronised with the first.
+
+A node the previous arrangement did not have is placed rather than tweened. It
+is invisible until its own line reaches it, so it has no business sliding in
+from anywhere.
+
+**A draw belongs to its token, not to its geometry.** `d` was in the draw-on
+effect's dependency array, so every branch the rearrangement moved re-ran it,
+and one that had already finished re-armed from `stroke-dashoffset: len` and
+drew itself on again. Nothing in the DOM said so — only the path data changed —
+which is what made it hard to see. `TraceEdge.dom.test.tsx` is the pin.
+
+**Node positions may not be animated through React Flow, and that is why the
+rearrangement is split in two.** Handing it a new `nodes` array on every
+animation frame makes it drop _every edge on the canvas_ for the length of the
+tween — measured at 60fps, 580ms of a tree with no branches in it. So the marks
+are given their settled positions once and glide on a CSS `transition`; only
+the traces, whose geometry is ours, are interpolated per frame. One curve and
+one duration serve both, in `canvas/reflow.ts`, and `reflow.test.ts` reads the
+stylesheet to hold them together: a dot is the end of a line, and eased
+differently the branch would come away from the mark it arrives at.
+
+**The animation is a courtesy; arriving is not.** `requestAnimationFrame` is no
+promise that anything will happen — a background tab, a pane the compositor is
+not painting — so a timer lands the final arrangement whether a single frame is
+drawn or not. Under `prefers-reduced-motion` the rearrangement is refused
+outright rather than slowed: its whole content is _where things went_, and a
+reader who asked for no motion is better served by the answer.
+
+### Taxa queue, and draw one at a time
+
+**A taxon may be asked for at any moment; it is drawn when the canvas is free.**
+Adds go into a queue — an opening's remaining taxa, a press of `R`, a palette
+row, all the same queue — and the head is released when its lineage has arrived
+_and_ the previous draw has landed. Holding `R` down therefore draws every
+species it rolls, in turn, instead of each press cutting the last animation off
+at the knees.
+
+**Nothing outside the canvas knows how long a draw takes.** The canvas reports
+each one as it lands and the queue follows; there is no step interval to keep
+equal to the draw's own constants. That is what the pacing above replaces — a
+`STEP_MS` floor that had to be kept in step with three numbers in another file
+by hand, and was wrong the moment any of them moved.
+
+An opening therefore needs no clock of its own. It presses the first taxon,
+queues the rest, and watches for the queue to drain before it pays its answer.
+Any interaction ends it at the _finished_ tree: the reader interrupted the
+telling, not the argument.
 
 Implementation: React Flow edges are SVG paths — use `getTotalLength()` with
 `stroke-dasharray` / `stroke-dashoffset`. Decay is a separate opacity or filter
-tween on the same element.
+tween on the same element. The marks' entrance and bloom are CSS animations with
+`animation-delay` off the same clock and `animation-fill-mode: backwards`, so no
+timer decides when a mark becomes visible.
 
 ---
 
@@ -48,7 +144,7 @@ tween on the same element.
   fits (`⇧F` fit selection), `I` isolates, `N` steps to next species (`⇧N`
   previous), `T` switches the time scale, `L` cycles labels, `D` flips dates, `B`
   the light, `R` adds a random species, `C` clears, `E` fills the screen. The
-  four canvas modes hold the letters that name them. Shift is the *variant* of a
+  four canvas modes hold the letters that name them. Shift is the _variant_ of a
   binding, never a second one. `web/src/chrome/bindings.ts` is the one table;
   `matchKey` refuses any press holding ctrl, meta or alt.
 - **`/` opens search**, matching what `/` does everywhere else. It is the root of
@@ -129,8 +225,8 @@ tween on the same element.
 - Nodes are small luminous points that bloom on hover and focus.
 - **A taxon still living is an arrow into the present, in the dot's own
   footprint.** x is time and runs right, so the shape is the lineage continuing
-  past the last thing we can date. Fill means *you chose it*, the double ring
-  means *MRCA*; this channel says *is it still here*.
+  past the last thing we can date. Fill means _you chose it_, the double ring
+  means _MRCA_; this channel says _is it still here_.
 - **It rides on chosen taxa only, and reads extinction off the tier.** A
   divergence is a moment and keeps a plain dot. `occurrence` is the tier applied
   only where nothing below the node is alive.
@@ -147,7 +243,7 @@ tween on the same element.
   card). It names only the patterns actually drawn, so a fully dated tree shows
   no key. It is not a panel.
 - **The right end of that line is the time-scale switch.** It reads `L | linear |
-  log` as a segmented control — both options always legible, the live one lit. It
+log` as a segmented control — both options always legible, the live one lit. It
   wears the same anatomy as the other three canvas modes (badge, caption,
   recessed track) and sits beside them in the sidebar. The badge sits outside
   both segments because `T` toggles rather than selects. `symlog` stays out of
@@ -223,7 +319,7 @@ between painted things belongs to whatever is drawn underneath it.
 - **No force-directed layout.** Non-deterministic and destroys the reading of
   ancestry. Nodes are not user-draggable.
 - **A row belongs to a lineage that ends there.** A node with rendered
-  descendants sits *on* the lineage that continues past it, at the midpoint of
+  descendants sits _on_ the lineage that continues past it, at the midpoint of
   its children — even when chosen by name. The single exception is a branch with
   no length on the axis, where the parent keeps a row and the trace becomes a
   visible drop. **No ladderizing by clade size** — rows ascending `idx` (preorder)
@@ -281,7 +377,7 @@ switch line up down a column of fixed width:
   the segments left to right.
 - `off` is a real state — the marks, traces and silhouettes stay; the words go.
 - **common names are for genus, species and subspecies only**, and are the name
-  ranked *first* by use (see `name-ranking.md`). Above genus a common name names
+  ranked _first_ by use (see `name-ranking.md`). Above genus a common name names
   a group rather than a kind of animal. Enforced in the server and again in
   `markName`.
 - **The canvas is mixed in common mode and that is the design.** 110,794 nodes
@@ -293,22 +389,42 @@ switch line up down a column of fixed width:
   `sessionStorage`, per-tab: everything in the link is a claim about taxa, and
   these are claims about the reader. A shared link would otherwise impose one
   person's habits and could open on a canvas of unnamed dots. The time scale
-  stays in the link, because it is the scale the tree was *read* on.
+  stays in the link, because it is the scale the tree was _read_ on.
 - `L` cycles labels, `D` flips dates, `B` the light, `T` the time scale. Cycling
   is legible on `L` because the chip beside it shows where the press landed and
   what the next one will do.
 
 ## The detail card
 
-The only surface in the product that is *read* rather than scanned. Opened by a
+The only surface in the product that is _read_ rather than scanned. Opened by a
 click, closed by `esc`.
 
+**Selecting a taxon pans the canvas and never zooms it.** A click on a mark or a
+Taxa row says which taxon the reader is looking at and nothing about the scale,
+so the scale survives it: read the card, click the next name on it, and the tree
+is still where you put it.
+
+**And the pan is rare, because there is a band.** The viewport moves only when
+the subject is not _comfortably_ in view — inside the free region but hard
+against its frame counts as not comfortable — and then only far enough to seat
+it inside that band. This is `scrolloff`: vim's, and the margin an editor keeps
+between the caret and the edge. Both alternatives are worse. Revealing against
+the free region alone fires for a mark a pixel outside and not one a pixel
+inside, then leaves it flush against the frame with its branch cut in half.
+Centring on every click moves the tree half a screen to answer a click on
+something already visible.
+
 **The card never covers what it is about.** It flies out from the right-hand
-edge, opposite the sidebar. On a desktop window the canvas treats the card's
-footprint as an edge and reframes the tree into what is left, exactly as when the
-window narrows. Where that is refused — too little canvas for a legible tree, or a
-reader who has panned to a view of their own — the viewport instead makes the
-smallest pan that brings the subject back into the clear.
+edge, opposite the sidebar, and the free region the band is taken from excludes
+its footprint — so a subject under the card is uncomfortable by definition and
+gets moved out.
+
+**Its footprint is still an edge to a _fit_.** `F`, an add, a resize — anything
+that reframes the tree deliberately — frames into what is left beside the card,
+exactly as when the window narrows. That is refused where too little canvas is
+left for a legible tree. What a selection changed is only _when_ the reserve is
+taken: taking it re-lays out the tree, and a selection is not a request for
+that.
 
 Its order is the design:
 
@@ -329,7 +445,7 @@ Its order is the design:
 7. **The other names** it goes by.
 8. **"Sources and caveats"**, collapsed: every caveat about tier, placement and
    what the picture depicts. **Each caveat names a source and a method and calls
-   nothing a guess** — *not specified in dataset X, so it was placed by method Y*:
+   nothing a guess** — _not specified in dataset X, so it was placed by method Y_:
    the Duke et al. chronogram carries no date for this node; the Open Tree
    synthesis has no lineage for this fossil; PhyloPic has no drawing of this
    taxon. Where a node's position is spread between two dated relatives, the card
@@ -338,13 +454,13 @@ Its order is the design:
 
 **Provenance is secondary and identity is not.** What decides which side of the
 disclosure a sentence falls on is whether it tells the reader what the thing
-*is*. A divergence's derived name — "the last common ancestor of X and Y" — is the
+_is_. A divergence's derived name — "the last common ancestor of X and Y" — is the
 only name an `mrcaott…` node has, so it stays on the face of the card.
 
 **Every name on the card that names a taxon opens that taxon's card**, so the
 card is the second navigation surface. Three rules:
 
-- **A link goes to what the name names.** A witness opens a *fossil* card, not the
+- **A link goes to what the name names.** A witness opens a _fossil_ card, not the
   clade it hangs below.
 - **Selection does not require the thing to be drawn.** Most of these ancestors
   are suppressed from the induced subtree; the card opens on them anyway, and the
@@ -374,7 +490,7 @@ default rendering of a wait is nothing at all. The failure mode is chrome
 flashing over facts the app already holds.
 
 - **A sentence, never a spinner.** `.pending` is a dim line of text, breathing on
-  a 1.8 s cycle, naming *what* is being waited for. **One number, not two** — the
+  a 1.8 s cycle, naming _what_ is being waited for. **One number, not two** — the
   reader has no use for the "N species and M fossil taxa" seam.
 - **The number is `SPECIES_PHRASE`, the count of `rank='species'`** — not the node
   total (a third are groups) and not the tip count (includes subspecies and
@@ -386,11 +502,11 @@ flashing over facts the app already holds.
   in `web/src/chrome/Pending.tsx` is the only place a wait becomes visible; a
   cached node, a warm search and a reopened lane say nothing.
 - **A pending state is never a denial.** "No results", "no fossils on this branch"
-  and an empty card are *answers*, reachable only from a settled request.
+  and an empty card are _answers_, reachable only from a settled request.
   `emptyState` in `Palette.tsx` and the branch order in `DrillLane.tsx` enforce
   it; `empty.test.ts` is the invariant.
-- **Stale content is dimmed, not cleared.** Dim says *these answer the previous
-  question*. The exception is anything whose stale version is plausible: the
+- **Stale content is dimmed, not cleared.** Dim says _these answer the previous
+  question_. The exception is anything whose stale version is plausible: the
   detail card is replaced by a placeholder, because a confidently-numbered card
   about the wrong animal does not look wrong.
 - **`role="status"`** on every pending line.
@@ -474,7 +590,7 @@ who did not type the domain. It unfurls via `web/index.html`'s metadata and
   container hop on the critical path of a cold human load and needs a render path
   the layout, labels and silhouettes do not run today.
 - **`robots.txt` is a real file**, because `not_found_handling:
-  single-page-application` would otherwise answer it with the app shell at 200.
+single-page-application` would otherwise answer it with the app shell at 200.
   There is one page to index — every view is `/?sel=…` of one shell — which the
   canonical link says, and why there is no sitemap.
 
@@ -485,7 +601,7 @@ who did not type the domain. It unfurls via `web/index.html`'s metadata and
 - Not Mermaid. Not a static diagram renderer.
 - No glassmorphism, no gradient meshes, no ambient background animation. The glow
   comes from the data, nowhere else.
-- No onboarding overlays, and no *decorative* empty state. Everything on an empty
+- No onboarding overlays, and no _decorative_ empty state. Everything on an empty
   canvas must be a live control over real data — which the openings carousel
   meets.
 - No settings panel that duplicates something a command already does.

@@ -101,6 +101,25 @@ export function flareOf(key: string): number | undefined {
 }
 
 /**
+ * When each mark was last *arrived at* — the taxon a draw ended on.
+ *
+ * A second clock rather than a second use of the flares above: the two decay
+ * over very different times (`ARRIVE_S` against `FLARE_S`). Module-level for
+ * the same reason, and more so — an add rebuilds the emitter list by
+ * definition, so a bloom held on an emitter would be discarded by the very
+ * thing that started it.
+ */
+const arrivals = new Map<string, number>();
+
+export function arriveMark(key: string, at: number = performance.now()): void {
+  arrivals.set(key, at);
+}
+
+export function arriveOf(key: string): number | undefined {
+  return arrivals.get(key);
+}
+
+/**
  * A mark leaking light into the water around it, continuously.
  *
  * `power` is **the selection channel**, which is the one thing luminance is
@@ -119,4 +138,6 @@ export interface Emitter {
   power: number;
   /** Read live, so a flare that starts mid-frame is not lost until re-layout. */
   flareAt?: () => number | undefined;
+  /** Likewise for the arrival bloom, which outlives several layout passes. */
+  arriveAt?: () => number | undefined;
 }

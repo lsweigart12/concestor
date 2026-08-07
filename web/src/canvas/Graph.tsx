@@ -6,13 +6,17 @@
  * is at most `2|L| − 1` nodes, so a DOM/SVG renderer is right here even though
  * the source dataset is 2.4M leaves.
  *
- * The signature interaction lives here, and it is the product:
+ * The signature interaction lives here, and it is the product. Every beat is
+ * measured from `lead` — the moment the viewport comes to rest — because an add
+ * both moves the canvas and draws on it, and marks appearing under a moving
+ * canvas are marks no eye can follow:
  *
- *   t=0    existing nodes begin spring reflow to their new positions
- *   t=80   the MRCA flares — the connection beat, and the subject
- *   t=120  the new traces draw from the MRCA *outward*, ~613ms ease-out,
- *          one wave of branches at a time and a wave every 96ms
- *   t=733  each decays from flare-bright to steady over ~1400ms
+ *   t=0     existing nodes begin spring reflow to their new positions
+ *   t=80    the MRCA flares — the connection beat, and the subject
+ *   t=160   the new traces draw from the MRCA *outward*, ~1300ms ease-out,
+ *           one wave of branches at a time and a wave every 200ms
+ *   t=1460  each new mark appears under the line that reached it, the taxon
+ *           that was added blooms, and the traces settle over ~1400ms
  *
  * Reflow and draw overlap. Sequential feels laggy; overlapping feels alive.
  * Siblings share a wave: two lineages that parted at the same node leave it
@@ -51,9 +55,10 @@ import {
   type AxisMode,
   type LabelText,
 } from "../tree/layout";
-import { dotRect, labelRect } from "../tree/labels";
+import { dotRect, labelRect, type Rect } from "../tree/labels";
 import {
   cardReserve,
+  comfortRect,
   fitContentPad,
   fitViewport,
   freeRect,
@@ -89,10 +94,11 @@ import {
 } from "./DrillLane";
 import { laneHeight, laneRows } from "./lane";
 import { mayDrawExemplar, witnessOn } from "./witness";
+import { useReflow } from "./reflow";
 import { Water } from "./Water";
 import { useBootLights } from "./bootLight";
 import type { Emitter } from "./biolum";
-import { flareOf } from "./biolum";
+import { arriveMark, arriveOf, flareOf } from "./biolum";
 import { land } from "./flow";
 import { prefersReduced } from "../chrome/motion";
 
@@ -137,6 +143,8 @@ const MAX_FIT_ZOOM = 1.4;
  */
 const REVEAL_PAD = 18;
 const REVEAL_DELAY = 140;
+/** How long the pan takes. Shared with `fitUntil`, which it feeds. */
+const REVEAL_MS = 320;
 
 /**
  * The signature sequence's lead-in beats, in ms. The drawing's own pace is
@@ -144,8 +152,20 @@ const REVEAL_DELAY = 140;
  * together, or the travel collapses into a fade-in.
  */
 const T_FLARE = 80;
-const T_DRAW = 120;
-const STAGGER = 96;
+const T_DRAW = 140;
+const STAGGER = 170;
+
+/**
+ * How long the arrival bloom lasts, and how far ahead of the line's nominal end
+ * the mark lands, in ms.
+ *
+ * The stroke eases out on `cubic-bezier(.16,.9,.3,1)`, which is within a hair
+ * of its endpoint well before `DRAW_MS` elapses. Timing the mark to the last
+ * pixel therefore waits on a pixel nobody can see move, and the whole beat
+ * reads as sluggish; a moment early it reads as the line delivering something.
+ */
+const ARRIVE_MS = 1400;
+const ARRIVE_LEAD = 240;
 
 /**
  * The prop-drilling channel from `App` through `Graph` to `TimeAxis`,
@@ -157,6 +177,17 @@ export interface GraphProps {
   nodes: Map<number, PathNode>;
   delta: (AddDelta & { token: number }) | null;
   onDeltaPlayed: () => void;
+  /**
+   * The draw has *landed* — the last trace has arrived and the new marks are
+   * on screen — which is a different and much earlier moment than
+   * {@link GraphProps.onDeltaPlayed}, whose job is to hold the delta open until
+   * every settle has finished.
+   *
+   * It exists so the draw queue can release the next taxon without waiting on
+   * a decay. A settle is not something the next beat has to wait for; a draw
+   * arriving on top of one is.
+   */
+  onDeltaLanded?: () => void;
   focusedIdx: number | null;
   onFocus: (idx: number | null) => void;
   isolate: boolean;
@@ -210,6 +241,7 @@ function Inner(props: GraphProps) {
     nodes: nodeMap,
     delta,
     onDeltaPlayed,
+    onDeltaLanded,
     focusedIdx,
     onFocus,
     isolate,
@@ -237,6 +269,16 @@ function Inner(props: GraphProps) {
    * two numbers. {@link fitTarget} has the rest.
    */
   const canvasRef = useRef<HTMLDivElement>(null);
+  /**
+   * When the viewport is expected to have stopped moving, as a timestamp.
+   *
+   * Written by both movers, `scheduleFit` and `scheduleReveal`, and read by two
+   * things that must not start under a moving canvas: the reveal, which
+   * computes a pan from the live transform, and the draw sequence's `lead`.
+   * Declared here rather than beside the fit because `lead` is a memo — memos
+   * run during render, and a `useRef` further down is in its dead zone.
+   */
+  const fitUntil = useRef(0);
   const zoom = useStore((s) => s.transform[2]);
   const tx = useStore((s) => s.transform[0]);
   const ty = useStore((s) => s.transform[1]);
@@ -246,25 +288,32 @@ function Inner(props: GraphProps) {
   const [flaring, setFlaring] = useState<number | null>(null);
   const playedToken = useRef<number | null>(null);
 
-  // Whether the canvas is showing its own fit. The card reserve turns on it:
-  // reframing on a shrink is right only while the frame is ours to move. Starts
-  // true so the first card on a fitted canvas reserves without waiting.
+  // Whether the canvas is showing its own fit. Reframing on a shrink is right
+  // only while the frame is ours to move. Starts true so a cold load reframes.
   const [atFit, setAtFit] = useState(true);
 
   /**
    * Whether the layout is arranged around an open card. State, not derived,
-   * because it lags: taking or releasing the reserve re-lays out the tree, so it
-   * happens only when the canvas is about to reframe anyway. Off the fit,
-   * {@link revealShift} does the work instead. A stale reserve is reconciled the
-   * next time the reader returns to the fit.
+   * because it lags: taking or releasing the reserve re-lays out the tree, and
+   * a relayout is a reframe by another name. So it is reconciled inside
+   * {@link fitToContent} and nowhere else — at a moment the tree was going to
+   * be reframed anyway.
+   *
+   * **Opening a card is not one of those moments.** A click says which taxon
+   * and nothing about the scale, so the whole response is `revealShift`'s pan
+   * and the reserve arrives with the next fit. A stale reserve costs an empty
+   * strip on the right until then, and never a jump.
    */
   const [reserved, setReserved] = useState(false);
-  const wantReserve = cardReserve(vw, cardOpen) > 0;
   const reserve = reserved ? cardReserve(vw, true) : 0;
 
+  // Read at fit time rather than depended on: this changes whenever a card
+  // opens, and a value in `fitToContent`'s deps rebuilds `scheduleFit`'s target
+  // — see its comment. Opening a card must not cancel a booked reframe.
+  const wantReserve = useRef(false);
   useEffect(() => {
-    if (reserved !== wantReserve && atFit) setReserved(wantReserve);
-  }, [reserved, wantReserve, atFit]);
+    wantReserve.current = cardReserve(vw, cardOpen) > 0;
+  }, [vw, cardOpen]);
 
   // Reserve for the leaf labels that hang off the right edge, proportional in
   // a small panel and capped in a large one.
@@ -324,6 +373,24 @@ function Inner(props: GraphProps) {
       }),
     [ind, nodeMap, plotWidth, describeLabel, axisMode, grafts, holdMaxAge],
   );
+
+  /**
+   * Where the *traces* are drawn this frame, which during a rearrangement is
+   * not where the layout says they are.
+   *
+   * **The marks are not in here, and that is forced.** React Flow owns node
+   * positions, and handing it a new `nodes` array every frame makes it drop
+   * every edge on the canvas for the length of the tween — measured at 60fps,
+   * 580ms with nothing drawn. So the marks are given their settled positions
+   * once, and glide by a CSS transition on `.react-flow__node`; only the edges'
+   * geometry, which is ours, is interpolated here. `reflow.ts` holds the curve
+   * both sides share.
+   *
+   * `lay.placed` also stays the answer for anything reasoning about where the
+   * tree *will* be — the fit's content bounds, the reveal's subject — since
+   * those are about the settled tree and must not chase a tween.
+   */
+  const placed = useReflow(lay.placed, reduced);
 
   /**
    * The open lane's segment, or null.
@@ -405,7 +472,7 @@ function Inner(props: GraphProps) {
    */
   const emitters: Emitter[] = useMemo(() => {
     if (!biolum) return [];
-    return [...lay.placed.values()].map((p) => ({
+    return [...placed.values()].map((p) => ({
       x: p.x,
       y: p.y,
       hue: p.hue,
@@ -413,8 +480,9 @@ function Inner(props: GraphProps) {
       // Read live rather than captured: a hover that starts between layout
       // passes must not wait for the next one to be seen.
       flareAt: () => flareOf(String(p.idx)),
+      arriveAt: () => arriveOf(String(p.idx)),
     }));
-  }, [lay, biolum]);
+  }, [placed, biolum]);
 
   // What is lit when there is no tree. `bootLight.ts` scopes the panel's own
   // sources to `.boot`, so they go out on the first species; the one source that
@@ -429,16 +497,53 @@ function Inner(props: GraphProps) {
    */
   const iconScale = Math.min(1.6, Math.max(1, 1 / Math.max(zoom, 0.05)));
 
+  /**
+   * How long the whole sequence waits for the canvas to stop moving.
+   *
+   * An add reframes or pans *and* draws the new lineage on. Started together,
+   * the new marks appeared while the ground was moving — the one condition
+   * under which an eye cannot follow anything, so a reader watched the tree
+   * change and then had to hunt for what had changed in it.
+   *
+   * Read during render, not in an effect: `drawDelay` is a memo and the edges
+   * take their delay from it, so an effect would put the marks on one clock and
+   * the traces on another. That is why `fitUntil` is declared at the top of the
+   * component — further down it is in this memo's temporal dead zone.
+   */
+  const lead = useMemo(
+    () => (delta && !reduced ? Math.max(0, fitUntil.current - Date.now()) : 0),
+    [delta, reduced],
+  );
+
   const drawDelay = useMemo(() => {
     const m = new Map<number, number>();
     if (!delta) return m;
     // Root-ward → leaf-ward, staggered per wave (all-at-once reads as a fade-in),
     // so sibling branches leave their shared ancestor together.
     delta.drawOrder.forEach((wave, i) => {
-      for (const v of wave) m.set(v, T_DRAW + i * STAGGER);
+      for (const v of wave) m.set(v, lead + T_DRAW + i * STAGGER);
     });
     return m;
-  }, [delta]);
+  }, [delta, lead]);
+
+  /**
+   * When each new mark appears: at the far end of the line reaching it, not the
+   * near end.
+   *
+   * A node stands for the segment *above* it, so its trace starts at
+   * `drawDelay` and takes `DRAW_MS` to arrive. Showing the node when the line
+   * leaves draws the destination before the journey. Held back, the line
+   * reaches into empty canvas and the taxon is what it finds.
+   *
+   * The join point is not in here and must not be — it is where the draw leaves
+   * from, and it was on screen before the press.
+   */
+  const enterDelay = useMemo(() => {
+    const m = new Map<number, number>();
+    if (reduced) return m;
+    for (const [v, at] of drawDelay) m.set(v, at + DRAW_MS - ARRIVE_LEAD);
+    return m;
+  }, [drawDelay, reduced]);
 
   /** See the landing below: the mode is read, never depended on. */
   const biolumRef = useRef(biolum);
@@ -452,8 +557,27 @@ function Inner(props: GraphProps) {
     playedToken.current = delta.token;
     const flareAt = window.setTimeout(
       () => setFlaring(delta.flare),
-      reduced ? 0 : T_FLARE,
+      reduced ? 0 : lead + T_FLARE,
     );
+    /*
+      The arrival, in the water.
+
+      The mark's own bloom is CSS and needs no timer — it hangs off the same
+      `animation-delay` as its entrance, so the two cannot drift. This is the
+      bioluminescent half of the same event, and it must be a timer because the
+      light is not in the DOM: `biolum.ts` keeps an arrival clock the renderer
+      samples, exactly as it keeps the pointer's.
+
+      Both, rather than one or the other, which is the shape the mode already
+      has — pointing at a mark scales the dot *and* fires `flareMark`.
+    */
+    const arriveAt =
+      biolumRef.current && !reduced && delta.leaf !== null
+        ? window.setTimeout(
+            () => arriveMark(String(delta.leaf)),
+            enterDelay.get(delta.leaf) ?? lead + T_DRAW + DRAW_MS - ARRIVE_LEAD,
+          )
+        : 0;
     /*
       The landing, and it is *not* the same moment as the cleanup below.
 
@@ -476,32 +600,50 @@ function Inner(props: GraphProps) {
       canvas. The switch would leave the app wedged, once, for anyone who
       pressed it at the wrong second.
     */
+    const landedAt =
+      lead +
+      T_DRAW +
+      Math.max(0, delta.drawOrder.length - 1) * STAGGER +
+      DRAW_MS;
+    // The queue's release, in both modes and however the draw was paced.
+    //
+    // At the moment the last *mark* enters rather than the last pixel of the
+    // last trace — the same `ARRIVE_LEAD` the entrance takes, and for the same
+    // reason. The reader has the new taxon once it is on screen, and the next
+    // step opens with a reframe rather than a draw, so letting that overlap the
+    // tail of this one is not two draws at once. It is what the `STEP_MS`
+    // version meant by letting the decay run into the next beat.
+    const arrivedAt = window.setTimeout(
+      () => onDeltaLanded?.(),
+      reduced ? 0 : Math.max(0, landedAt - ARRIVE_LEAD),
+    );
     const landAt =
-      biolumRef.current && !reduced
-        ? window.setTimeout(
-            land,
-            T_DRAW +
-              Math.max(0, delta.drawOrder.length - 1) * STAGGER +
-              DRAW_MS,
-          )
-        : 0;
+      biolumRef.current && !reduced ? window.setTimeout(land, landedAt) : 0;
     const clearAt = window.setTimeout(
       () => {
         setFlaring(null);
         onDeltaPlayed();
       },
-      // The last wave starts latest and still has to draw and then settle, so
-      // the tail is both durations plus a frame or two of slack.
+      // The last wave starts latest and still has to draw, settle, and let the
+      // bloom finish, so the tail is every duration plus a frame or two of
+      // slack. Handing the delta back early cancels whatever is still running.
       reduced
         ? 60
-        : T_DRAW + delta.drawOrder.length * STAGGER + DRAW_MS + DECAY_MS + 100,
+        : lead +
+            T_DRAW +
+            delta.drawOrder.length * STAGGER +
+            DRAW_MS +
+            Math.max(DECAY_MS, ARRIVE_MS) +
+            100,
     );
     return () => {
       window.clearTimeout(flareAt);
       window.clearTimeout(clearAt);
+      window.clearTimeout(arrivedAt);
       if (landAt) window.clearTimeout(landAt);
+      if (arriveAt) window.clearTimeout(arriveAt);
     };
-  }, [delta, onDeltaPlayed, reduced]);
+  }, [delta, onDeltaPlayed, onDeltaLanded, reduced, lead, enterDelay]);
 
   const rfNodes: Node[] = useMemo(
     () =>
@@ -522,6 +664,16 @@ function Inner(props: GraphProps) {
           dim,
           focused: focusedIdx === p.idx,
           flaring: flaring === p.idx,
+          // Both as a delay off one clock, both carrying the token, because a
+          // `key` built from it is what restarts a CSS animation on a node
+          // React is reusing. Null on everything already drawn.
+          enter: enterDelay.has(p.idx)
+            ? { at: enterDelay.get(p.idx) ?? 0, token: delta?.token ?? 0 }
+            : null,
+          arrive:
+            delta?.leaf === p.idx && enterDelay.has(p.idx)
+              ? { at: enterDelay.get(p.idx) ?? 0, token: delta.token }
+              : null,
           labels,
           ages,
           label: lay.labels.get(p.idx),
@@ -580,6 +732,8 @@ function Inner(props: GraphProps) {
       nodeMap,
       ind,
       biolum,
+      enterDelay,
+      delta,
     ],
   );
 
@@ -587,8 +741,8 @@ function Inner(props: GraphProps) {
     const out: Edge[] = [];
     for (const [v, seg] of ind.segments) {
       if (seg.anc === null) continue;
-      const a = lay.placed.get(seg.anc);
-      const b = lay.placed.get(v);
+      const a = placed.get(seg.anc);
+      const b = placed.get(v);
       if (!a || !b) continue;
 
       // A structural node with nothing dated below it is bracketed on one side
@@ -627,7 +781,7 @@ function Inner(props: GraphProps) {
     // appearance and arrives at its last, so the vertical drop is the
     // unresolved attachment and the horizontal run is the observed extent.
     for (const l of lay.graftLinks) {
-      const anchor = lay.placed.get(l.graft.anchor);
+      const anchor = placed.get(l.graft.anchor);
       const data: TraceEdgeData = {
         d: orthPath(l.joinX, l.joinY, l.x, l.y),
         hue: anchor?.hue ?? 200,
@@ -660,6 +814,7 @@ function Inner(props: GraphProps) {
   }, [
     ind,
     lay,
+    placed,
     focusedIdx,
     focusLineage,
     isolate,
@@ -712,27 +867,24 @@ function Inner(props: GraphProps) {
     });
   }, [lay, vw, vh, laneH, reserve]);
 
-  /**
-   * When the last fit animation is expected to have landed, as a timestamp.
-   *
-   * The reveal below reads the live transform, so it must not read one that is
-   * still moving — a pan computed from a half-finished fit both cancels the fit
-   * and lands somewhere neither of them asked for.
-   */
-  const fitUntil = useRef(0);
-
   const fitToContent = useCallback(
     (duration: number) => {
+      // The card's reserve is reconciled here and nowhere else, because this is
+      // the only place a relayout is already paid for. It hands off rather than
+      // fitting: `setReserved` moves every node, so a transform computed
+      // against the old layout frames a tree about to stop existing. The effect
+      // watching `reserved` schedules the fit that lands.
+      if (reserved !== wantReserve.current) {
+        setReserved(wantReserve.current);
+        return;
+      }
       const t = fitTarget();
       if (!t) return;
       rf.setViewport(t, { duration });
       fitUntil.current = Date.now() + duration;
-      // About to be, and said now rather than 480ms from now: the reserve is
-      // reconciled off this, and a reader who opens a card immediately after an
-      // add should get the reframe rather than the deferred path.
       setAtFit(true);
     },
-    [fitTarget, rf],
+    [fitTarget, rf, reserved],
   );
 
   /**
@@ -755,6 +907,82 @@ function Inner(props: GraphProps) {
     const t = window.setTimeout(() => fitNow.current(duration), delay);
     return () => window.clearTimeout(t);
   }, []);
+
+  /**
+   * Bring `nodes` comfortably into view by panning, and by nothing else.
+   *
+   * The zoom is not this function's to touch, which is the whole distinction
+   * from {@link fitToContent}. A fit answers "show me the tree"; this answers "I
+   * am looking at *that*", which says nothing about scale. The subject is each
+   * mark **and its label** — a dot on the seam with its name under the card is
+   * not visible in any sense a reader would recognise.
+   *
+   * It reads the live transform, so it may only be called when what the reader
+   * is looking at changed, never on the transform itself. Refuses an unlaid-out
+   * canvas as `fitTarget` does; every caller re-runs on a size change.
+   */
+  const revealNodes = useCallback(
+    (nodes: readonly number[]) => {
+      if (!vw || !vh || unlaidOut(canvasRef.current)) return;
+      let subject: Rect | null = null;
+      for (const idx of nodes) {
+        const p = lay.placed.get(idx);
+        if (!p) continue;
+        const box = lay.labels.get(idx);
+        const dot = dotRect(p.x, p.y);
+        const one = box ? union(dot, labelRect(p.x, p.y, box)) : dot;
+        subject = subject ? union(subject, one) : one;
+      }
+      if (!subject) return;
+      const v = rf.getViewport();
+      const { dx, dy } = revealShift(
+        toScreenRect(subject, v),
+        // The band, not the region: a subject already well inside is left where
+        // it is, and one that is not lands clear of the frame.
+        comfortRect(
+          freeRect({
+            vw,
+            vh,
+            bottom: AXIS_RESERVE + laneH,
+            cardOpen,
+            pad: REVEAL_PAD,
+          }),
+        ),
+      );
+      if (dx === 0 && dy === 0) return;
+      rf.setViewport(
+        { x: v.x + dx, y: v.y + dy, zoom: v.zoom },
+        { duration: reduced ? 0 : REVEAL_MS },
+      );
+    },
+    [lay, vw, vh, laneH, cardOpen, rf, reduced],
+  );
+
+  /**
+   * Reveal after a wait, through a ref, for `scheduleFit`'s reason — and here
+   * the hazard is not hypothetical. `revealNodes` is rebuilt whenever the
+   * layout is, and the caller that most needs this is the *add*, which changes
+   * the layout by definition: a `useCallback` depending on it would re-run that
+   * effect inside its own delay and cancel the reveal it just booked.
+   */
+  const revealNow = useRef(revealNodes);
+  useEffect(() => {
+    revealNow.current = revealNodes;
+  }, [revealNodes]);
+
+  const scheduleReveal = useCallback(
+    (nodes: readonly number[], delay: number) => {
+      // `fitUntil` is "when the viewport stops moving", and a reveal moves it
+      // as a fit does. Both writers matter now the draw sequence waits on it.
+      fitUntil.current = Math.max(
+        fitUntil.current,
+        Date.now() + delay + REVEAL_MS,
+      );
+      const t = window.setTimeout(() => revealNow.current(nodes), delay);
+      return () => window.clearTimeout(t);
+    },
+    [],
+  );
 
   /**
    * Tell the app whether the canvas is showing the fit, asked of the live
@@ -851,15 +1079,49 @@ function Inner(props: GraphProps) {
     fitToContent(reduced ? 0 : 420);
   }, [fitSignal, rf, focusedIdx, reduced, fitToContent]);
 
-  // Fit whenever the rendered set changes size, so an add never leaves the new
-  // lineage off-screen — but only after the draw has had time to read.
+  /**
+   * The rendered set changed size, so the new lineage has to end up on screen —
+   * but only after the draw has had time to read.
+   *
+   * **Two answers, split the way everything else here is.** On the fit the
+   * reader is looking at the whole tree and the whole tree just got bigger, so
+   * it reframes: the new lineage is often outside the old bounds and no pan
+   * reaches what the frame does not contain. Zoomed in they are looking at
+   * *something*, and an add already moves every node under them; the new branch
+   * is brought into view and the zoom left alone, which is usually no motion at
+   * all since an add attaches to a branch already on screen.
+   *
+   * **Only a pure add takes the second path.** An opening replaces the canvas
+   * and a remove or an isolate takes lineages out of it, and no pan answers
+   * those. Length alone cannot tell them apart, hence the previous set.
+   *
+   * `atFit` is read through a ref for `scheduleFit`'s reason: this arms a timer
+   * on a count change and clears it on cleanup, so a re-run for any other
+   * reason cancels a reframe and then declines to book another.
+   */
   const lastCount = useRef(0);
+  const lastRendered = useRef<ReadonlySet<number>>(new Set());
+  const atFitNow = useRef(atFit);
+  useEffect(() => {
+    atFitNow.current = atFit;
+  }, [atFit]);
   useEffect(() => {
     if (ind.rendered.length === lastCount.current) return;
     const first = lastCount.current === 0;
+    const prev = lastRendered.current;
     lastCount.current = ind.rendered.length;
-    return scheduleFit(first ? 0 : 260, reduced || first ? 0 : 520);
-  }, [ind.rendered.length, scheduleFit, reduced]);
+    lastRendered.current = new Set(ind.rendered);
+    const fresh = ind.rendered.filter((v) => !prev.has(v));
+    // Nothing left, so nothing the reader was looking at has gone.
+    const pureAdd = !first && fresh.length === ind.rendered.length - prev.size;
+    if (pureAdd && !atFitNow.current) {
+      return scheduleReveal(fresh, reduced ? 0 : 160);
+    }
+    // The delay is a settle, not a beat: the draw now waits on this rather than
+    // running under it, so every millisecond here is dead time in front of the
+    // animation. Long enough for the layout to have landed and no longer.
+    return scheduleFit(first ? 0 : 160, reduced || first ? 0 : 440);
+  }, [ind.rendered, scheduleFit, scheduleReveal, reduced]);
 
   // Switching scales moves every node in x, and by a lot — the point of linear
   // is that it collapses the recent past against the present. Reframing is what
@@ -921,44 +1183,19 @@ function Inner(props: GraphProps) {
   }, [vw, vh, atFit, scheduleFit, reduced]);
 
   /**
-   * The floor under all of it: the thing the card is about is on screen and not
-   * under the card. Runs on the selection and the card's footprint, never on the
-   * live transform (a reader dragging a mark under the card is panning). The
-   * subject is the mark and its label. Deliberately last, so if the reframe
-   * above already cleared the subject nothing happens; refuses an unlaid-out
-   * canvas ({@link unlaidOut}) as `fitTarget` does.
+   * The whole response to a selection: the taxon is comfortably in view and not
+   * under the card. Fires on the selection and on the card appearing or going,
+   * never on pan. The wait still reads `fitUntil` because an add, a lane or an
+   * `F` press can put a reframe in flight in the same beat.
    */
   useEffect(() => {
-    if (focusedIdx === null || !vw || !vh) return;
-    const p = lay.placed.get(focusedIdx);
-    if (!p) return;
-    const box = lay.labels.get(focusedIdx);
-    const dot = dotRect(p.x, p.y);
-    const subject = box ? union(dot, labelRect(p.x, p.y, box)) : dot;
+    if (focusedIdx === null) return;
     const wait = Math.max(REVEAL_DELAY, fitUntil.current - Date.now() + 60);
-    const t = window.setTimeout(() => {
-      // Measured here, not at the top: the wait is a floor raised past any
-      // reframe on its way, so this pans into the canvas that exists on fire.
-      if (unlaidOut(canvasRef.current)) return;
-      const v = rf.getViewport();
-      const { dx, dy } = revealShift(
-        toScreenRect(subject, v),
-        freeRect({
-          vw,
-          vh,
-          bottom: AXIS_RESERVE + laneH,
-          cardOpen,
-          pad: REVEAL_PAD,
-        }),
-      );
-      if (dx === 0 && dy === 0) return;
-      rf.setViewport(
-        { x: v.x + dx, y: v.y + dy, zoom: v.zoom },
-        { duration: reduced ? 0 : 320 },
-      );
-    }, wait);
-    return () => window.clearTimeout(t);
-  }, [focusedIdx, cardOpen, lay, vw, vh, laneH, rf, reduced]);
+    return scheduleReveal([focusedIdx], wait);
+    // `vw`/`vh` so a canvas the browser had not sized yet re-arms this:
+    // `revealNodes` refuses one, and refusing is only free if something asks
+    // again.
+  }, [focusedIdx, cardOpen, vw, vh, scheduleReveal]);
 
   const toScreenX = useCallback(
     (age: number) =>
