@@ -2718,15 +2718,16 @@ body {
   opacity: 1;
 }
 
+/*
+ * A bare row, not a tile. The clusters used to sit in a bordered,
+ * backdrop-blurred container; on a screen whose subject is the tree, even
+ * that quiet box was chrome announcing itself. Each button is its own ghost
+ * — nothing at rest but the glyph and its badge, a pill under the pointer.
+ */
 .viewport-controls {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 3px;
-  border: 1px solid var(--hairline);
-  border-radius: 10px;
-  background: hsl(240 5% 7% / 0.82);
-  backdrop-filter: blur(6px);
 }
 
 .viewport-btn {
@@ -5210,12 +5211,13 @@ body {
 
 /* The one rule the document-level class exists for. `--void` is the neutral
    instrument's black and reads as a pale band against the water — which is
-   what the sidebar and both canvas clusters would be, since none of them is
-   inside `.canvas` and so none of them inherits the mode from it. */
+   what the sidebar and the search would be, since neither is inside `.canvas`
+   and so neither inherits the mode from it. The viewport buttons are absent
+   because they carry nothing at rest to retint — they are ghosts, and only
+   their hover pill below needs the water's hue. */
 body.biolum .sidebar,
 body.biolum .side-search-btn,
-body.biolum .side-toggle,
-body.biolum .viewport-btn {
+body.biolum .side-toggle {
   background: hsl(200 45% 6% / 0.94);
   border-color: hsl(188 60% 55% / 0.22);
 }
