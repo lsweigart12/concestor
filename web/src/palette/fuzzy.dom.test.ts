@@ -144,8 +144,7 @@ describe("a malformed stored entry cannot poison the ranking", () => {
  * timestamp a year ahead is worth 29 million points against a real entry's 208,
  * which pins that one row to the top of every search until the date passes; far
  * enough ahead and `2 ** big` is `Infinity`, and `Infinity - Infinity` is NaN,
- * which lands back in the bug above. This is the same shape as the negative
- * `now - lastClosed` that `Tooltip.test.tsx` had to coldStart around.
+ * which lands back in the bug above.
  */
 describe("a clock that disagrees", () => {
   it("does not let a future timestamp outrank a fresh entry", async () => {

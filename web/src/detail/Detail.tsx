@@ -31,10 +31,9 @@
 
 import { gapLabel } from "../ages";
 import { TIER_OCCURRENCE, TIER_STRUCTURAL, type NodeDetail } from "../api";
-import { bracketGeom, bracketTitle, endedSpanLabel } from "../canvas/Bracket";
+import { bracketGeom, endedSpanLabel } from "../canvas/Bracket";
 import { Silhouette } from "../canvas/Silhouette";
 import { kbd } from "../chrome/bindings";
-import { useTip } from "../chrome/Tooltip";
 import { mayDrawExemplar, witnessOn } from "../canvas/witness";
 import { ageLabel, DerivedName, isScientificItalic } from "../canvas/NodeMark";
 import { branchProse, UNNAMED, type Divergence } from "../tree/naming";
@@ -179,14 +178,7 @@ export function Detail({
       ? bracketGeom(detail.occurrence, () => 0)
       : null;
   // The card shows what the canvas shows: a divergence draws its witness or
-  // nothing, only a chosen clade draws its group's exemplar. Hooks run
-  // unconditionally, so `useTip(undefined)` is the resting state on cards with
-  // no fossil row.
-  const fossilTip = useTip(
-    occurrence
-      ? bracketTitle(detail.name ?? "This taxon", occurrence)
-      : undefined,
-  );
+  // nothing, only a chosen clade draws its group's exemplar.
   const place = { node: detail, isLeaf };
   const witness = witnessOn(place);
   const witnessCredit = witness ? (detail.divergence_silhouette ?? null) : null;
@@ -251,7 +243,6 @@ export function Detail({
                     : null
                 }
                 onSelect={onSelect}
-                tip={`The fossil this drawing depicts, from below ${detail.name ?? "this node"} and dated to about this split — not ${detail.name ?? "this node"} itself.`}
               >
                 {witness.name}
               </TaxonLink>
@@ -267,11 +258,7 @@ export function Detail({
             // claim is about *this picture*, and on the canvas the same fact
             // was wide enough to run across a neighbouring lineage.
             <span className="detail-watermark">
-              <TaxonLink
-                target={watermarkIdx}
-                onSelect={onSelect}
-                tip={`What this drawing is of. Not ${detail.name ?? "this node"} itself.`}
-              >
+              <TaxonLink target={watermarkIdx} onSelect={onSelect}>
                 {watermark}
               </TaxonLink>
             </span>
@@ -376,7 +363,7 @@ export function Detail({
           // not to say.
           <>
             <dt>fossils</dt>
-            <dd className="num" {...fossilTip}>
+            <dd className="num">
               {occurrence.kind === "range"
                 ? endedSpanLabel(occurrence.oldest, occurrence.youngest)
                 : "no range recorded"}

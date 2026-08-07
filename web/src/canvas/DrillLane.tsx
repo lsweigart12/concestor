@@ -16,8 +16,8 @@
  * nothing here looks like a trace: no luminous core, no halo, no edges to
  * anything, and the marks are rectangles where the canvas uses lines. The
  * distinction the lane exists to protect is that a fossil range is not a
- * divergence age, and it is said in the title, in the key and on every row's
- * tooltip rather than left to a difference in ink.
+ * divergence age, and it is said in the title and in the key rather than left
+ * to a difference in ink.
  *
  * The spine costs no round trip. The suppressed nodes are already in memory
  * from the layout pass (architecture §2 and §8) — the store keeps every node of
@@ -33,13 +33,7 @@ import {
   type PathNode,
   type SegmentResponse,
 } from "../api";
-import {
-  Bracket,
-  bracketGeom,
-  bracketKey,
-  bracketTitle,
-  spanLabel,
-} from "./Bracket";
+import { Bracket, bracketGeom, bracketKey, spanLabel } from "./Bracket";
 import {
   capNote,
   laneHeight,
@@ -54,7 +48,6 @@ import { isScientificItalic } from "./NodeMark";
 import { MONO, SANS, textWidth } from "../tree/labels";
 import { usePending } from "../chrome/Pending";
 import { SilhouetteSvg } from "./Silhouette";
-import { useTip } from "../chrome/Tooltip";
 
 export interface Drill {
   upper: number;
@@ -303,7 +296,6 @@ export function DrillLane({
                 geom={geom}
                 y={y + (ROW_H - BAR_H) / 2 - 3}
                 height={BAR_H}
-                tip={bracketTitle(f.name, geom)}
               />
               {f.phylopic_id && (
                 <SilhouetteSvg
@@ -311,7 +303,7 @@ export function DrillLane({
                   x={silX}
                   y={y + (ROW_H - ICON) / 2}
                   size={ICON}
-                  tip={`${f.name}, drawn`}
+                  name={`${f.name}, drawn`}
                 />
               )}
               <text
@@ -450,13 +442,16 @@ function Spine({
     <g className="drill-spine">
       <line x1={Math.min(x1, x2)} y1={11} x2={Math.max(x1, x2)} y2={11} />
       {/* Every tick is a real node with a real position, whether or not the
-          crowding let it print a name, so every one of them answers on hover. */}
+          crowding let it print a name. The unnamed ones stay unnamed: the node
+          is one press away and its card says all of it. */}
       {intermediates.map((n) => (
-        <SpineTick
+        <rect
           key={n.idx}
-          node={n}
-          named={named.has(n.idx)}
-          toScreenX={toScreenX}
+          className={`drill-tick${named.has(n.idx) ? " is-named" : ""}`}
+          x={toScreenX(n.age_layout) - 1}
+          y={6}
+          width={2}
+          height={11}
         />
       ))}
       {labels.map((l) => (
@@ -471,39 +466,5 @@ function Spine({
         </text>
       ))}
     </g>
-  );
-}
-
-/**
- * One tick on the spine.
- *
- * A component because `useTip` is a hook and these are a `map`. The words it
- * carries were an SVG `<title>` child, which draws the platform's own tooltip
- * — see `chrome/tip.ts`. Here that was the worse version of an already thin
- * affordance: a 2×11px target, and the only thing on the spine that says what
- * an unnamed tick is.
- */
-function SpineTick({
-  node,
-  named,
-  toScreenX,
-}: {
-  node: PathNode;
-  named: boolean;
-  toScreenX: (ma: number) => number;
-}) {
-  const rank = node.rank && node.rank !== "no rank" ? ` · ${node.rank}` : "";
-  const tip = useTip(
-    `${node.name ?? "unnamed divergence"}${rank} · ${node.tip_count.toLocaleString()} species below`,
-  );
-  return (
-    <rect
-      className={`drill-tick${named ? " is-named" : ""}`}
-      x={toScreenX(node.age_layout) - 1}
-      y={6}
-      width={2}
-      height={11}
-      {...tip}
-    />
   );
 }

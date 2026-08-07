@@ -4,7 +4,8 @@
  * 66 Ma, a bare "84–66 Ma" reads as that node's age, so the range never renders
  * without this in front of it. Stroked, not filled: a filled shape beside a node
  * is a silhouette, a claim about what the taxon looks like. The word survives as
- * the accessible name and tooltip.
+ * the accessible name, and nowhere else — nothing on this canvas explains itself
+ * on hover.
  */
 
 export type AgeGlyphKind = "fossil";

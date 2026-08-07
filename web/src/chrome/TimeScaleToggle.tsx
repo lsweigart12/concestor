@@ -24,16 +24,8 @@ export function TimeScaleToggle({
       onChange={onChange}
       // Linear first, being the default.
       segments={[
-        {
-          value: "linear",
-          label: "linear",
-          tip: "True proportions: twice as old is drawn twice as far out. Recent splits crowd together.",
-        },
-        {
-          value: "log",
-          label: "log",
-          tip: "Room for recent splits alongside deep time. The scale bends at 1 Ma, where the axis says.",
-        },
+        { value: "linear", label: "linear" },
+        { value: "log", label: "log" },
       ]}
     />
   );

@@ -8,16 +8,17 @@
  * immutable per build, so this is a one-time fetch per image, shared across
  * every node that inherited it.
  *
- * `tip` is the accessible name as well as the tooltip: a drawing that says
+ * `name` is the accessible name and nothing else — a drawing that says
  * something (`borrowedTitle`'s clade sentence) passes one and is announced; a
  * drawing that would repeat an adjacent label passes none and is hidden. It is
  * attached on the wrapper, not in the markup: `sanitiseSvg` strips `title`,
  * `desc` and `aria-*`, and writing a name into the string would interpolate it
- * into `dangerouslySetInnerHTML`.
+ * into `dangerouslySetInnerHTML`. Nothing here draws on hover: a silhouette is
+ * a picture, and a picture that grows a paragraph when the pointer crosses it
+ * is the reason none of this app's tooltips survive.
  */
 
 import { useEffect, useState } from "react";
-import { useTip } from "../chrome/Tooltip";
 import { sanitiseSvg } from "./sanitiseSvg";
 
 const cache = new Map<string, Promise<string | null>>();
@@ -70,12 +71,12 @@ function useSilhouette(phylopicId: string): string | null {
  * one that can be half-changed. `role="img"` is what makes the name stick to
  * something, and it prunes the fetched paths from the tree with it.
  */
-function describe(tip: string | undefined): React.AriaAttributes & {
+function describe(name: string | undefined): React.AriaAttributes & {
   role?: string;
 } {
-  return tip === undefined
+  return name === undefined
     ? { "aria-hidden": true }
-    : { role: "img", "aria-label": tip };
+    : { role: "img", "aria-label": name };
 }
 
 /**
@@ -93,16 +94,15 @@ export function SilhouetteSvg({
   x,
   y,
   size,
-  tip,
+  name,
 }: {
   phylopicId: string;
   x: number;
   y: number;
   size: number;
   /**
-   * What the drawing is of, on hover — and, since it is the only sentence
-   * anywhere that says what this picture claims, its accessible name too. See
-   * the note at the head of this file for why the two are one prop.
+   * What the drawing is of, for a screen reader. Never drawn — see the note at
+   * the head of this file.
    *
    * It used to be an SVG `<title>` child, which is the platform's tooltip by
    * another route and inherits every one of its faults — including being
@@ -110,10 +110,9 @@ export function SilhouetteSvg({
    * `dangerouslySetInnerHTML`, where a fossil name carrying an angle bracket
    * would have been interpolated straight into the DOM.
    */
-  tip?: string;
+  name?: string;
 }) {
   const markup = useSilhouette(phylopicId);
-  const hover = useTip(tip);
 
   if (!markup) return null;
   const sized = markup.replace("<svg", `<svg width="${size}" height="${size}"`);
@@ -121,8 +120,7 @@ export function SilhouetteSvg({
     <g
       className="silhouette"
       transform={`translate(${x},${y})`}
-      {...describe(tip)}
-      {...hover}
+      {...describe(name)}
       dangerouslySetInnerHTML={{ __html: sized }}
     />
   );
@@ -131,13 +129,13 @@ export function SilhouetteSvg({
 export function Silhouette({
   phylopicId,
   size = 34,
-  tip,
+  name,
   fallback = null,
 }: {
   phylopicId: string;
   size?: number;
-  /** What the drawing is of, and its name. See {@link SilhouetteSvg}'s note. */
-  tip?: string | undefined;
+  /** What the drawing is of, for a screen reader. See {@link SilhouetteSvg}. */
+  name?: string | undefined;
   /**
    * What to render before the markup arrives, and if it never does — the
    * mirror is populated in the background, so "known but not yet on disk" is
@@ -151,7 +149,6 @@ export function Silhouette({
   fallback?: React.ReactNode;
 }) {
   const markup = useSilhouette(phylopicId);
-  const hover = useTip(tip);
 
   if (!markup) return <>{fallback}</>;
 
@@ -159,8 +156,7 @@ export function Silhouette({
     <span
       className="silhouette"
       style={{ width: size, height: size }}
-      {...describe(tip)}
-      {...hover}
+      {...describe(name)}
       dangerouslySetInnerHTML={{ __html: markup }}
     />
   );

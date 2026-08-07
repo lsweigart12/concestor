@@ -353,7 +353,8 @@ export interface SilhouettePolicy {
  * Draw everything: every node with a resolved image draws it. Measured on the
  * built corpus, no borrow reaches a clade of over a million, so there is no
  * misinforming population for a threshold to catch — and each borrow is labelled
- * in the tooltip and card. The knob is here in case that labelling weakens.
+ * in the drawing's accessible name and on the card. The knob is here in case
+ * that labelling weakens.
  * (Superseded for a divergence, which draws its witness or nothing — see
  * `Graph.mayDrawExemplar`.)
  */

@@ -55,7 +55,6 @@ import { BiolumToggle } from "../chrome/BiolumToggle";
 import { AgesToggle, LabelsToggle } from "../chrome/LabelModes";
 import { TimeScaleToggle } from "../chrome/TimeScaleToggle";
 import { SourceLinks } from "../chrome/SourceLinks";
-import { useTip } from "../chrome/Tooltip";
 import { PendingLine } from "../chrome/Pending";
 import { PanelToggle } from "../chrome/CanvasChrome";
 import { SearchEntry } from "./SearchEntry";
@@ -268,8 +267,8 @@ export function Sidebar(p: SidebarProps) {
  * a control's accessible name has to contain what it visibly says. So the name
  * comes from the contents: the glyphs are `aria-hidden` and a visually hidden
  * span supplies the word they stand in for, leaving *Concestor. Everything
- * alive is related.* What pressing it **gets you** is the tooltip, which
- * arrives as a description rather than as a name.
+ * alive is related.* What pressing it gets you is the about page, which is one
+ * press away and says all of it.
  *
  * The mark is the MRCA — a bright core inside a ring standing off it — which is
  * the one drawing this product could have as a logo, and `CONCESTOR` happens to
@@ -286,18 +285,10 @@ export function Sidebar(p: SidebarProps) {
  * product must not be `C·NCEST·R`.
  */
 function Brand({ onAbout }: { onAbout: () => void }) {
-  const tip = useTip(
-    "What this is, where the data comes from, what the dashes mean",
-  );
   return (
     <div className="side-brand">
       <h1 className="side-wordmark">
-        <button
-          type="button"
-          className="side-wordmark-btn"
-          onClick={onAbout}
-          {...tip}
-        >
+        <button type="button" className="side-wordmark-btn" onClick={onAbout}>
           <span className="side-mark" aria-hidden="true">
             C<BrandMark size={15} />
             NCEST
@@ -337,10 +328,10 @@ function Brand({ onAbout }: { onAbout: () => void }) {
  * "Share" is the most overloaded verb in software — it means *post this*, *send
  * this to a person*, *open a sheet of destinations* — and none of those is what
  * this does. What it does is put a URL on the clipboard, and a link glyph says
- * that before the word is read. The tooltip carries the rest, including the
- * half that surprises people: the labels, the dates and the light do **not**
- * travel, because a setting that is a claim about the *reader* may not ride in
- * a link.
+ * that before the word is read. The half that surprises people — the labels,
+ * the dates and the light do **not** travel, because a setting that is a claim
+ * about the *reader* may not ride in a link — is on the palette row's subtitle,
+ * where there is room to say it and a reader looking for it.
  *
  * `.side-links` round it rather than joining `SourceLinks`'s own group: the two
  * are different questions — *where did this come from* against *send this on* —
@@ -348,12 +339,9 @@ function Brand({ onAbout }: { onAbout: () => void }) {
  * What they share is the anatomy, which is the point.
  */
 function ShareLink({ onShare }: { onShare: () => void }) {
-  const tip = useTip(
-    "Copy a link that opens on this exact tree — the labels, dates and light stay with you",
-  );
   return (
     <div className="side-links">
-      <button type="button" className="side-link" onClick={onShare} {...tip}>
+      <button type="button" className="side-link" onClick={onShare}>
         <LinkGlyph />
         <span className="side-link-word">share</span>
       </button>

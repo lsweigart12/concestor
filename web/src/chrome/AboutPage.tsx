@@ -133,12 +133,7 @@ function SilhouetteStream() {
       <div className="stream-track">
         {[0, 1].map((copy) =>
           STREAM_ART.map((a) => (
-            <Silhouette
-              key={`${copy}-${a.id}`}
-              phylopicId={a.id}
-              size={54}
-              tip={a.label}
-            />
+            <Silhouette key={`${copy}-${a.id}`} phylopicId={a.id} size={54} />
           )),
         )}
       </div>

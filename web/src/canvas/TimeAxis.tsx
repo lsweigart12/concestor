@@ -38,7 +38,6 @@
 
 import { useMemo } from "react";
 import type { TimescaleInterval } from "../api";
-import { useTip } from "../chrome/Tooltip";
 import { LANDMARK_TICKS, SYMLOG_T0, type AxisMode } from "../tree/layout";
 
 interface Props {
@@ -325,12 +324,6 @@ export function TimeAxis({
   canWiden,
   canNarrow,
 }: Props) {
-  const narrowTip = useTip(
-    "Less room for time: the tree redraws narrower, and the fit keeps it.",
-  );
-  const widenTip = useTip(
-    "More room for time: the tree redraws wider, and the fit keeps it.",
-  );
   /**
    * The age range under the viewport, clamped to the axis itself.
    *
@@ -526,8 +519,10 @@ export function TimeAxis({
       {/*
         The stretch control, at the ruler's right end — on the thing it
         rescales. Two presses, compress and widen, drawn as arrows meeting or
-        parting; the words are in the tooltips because a glyph that needs a
-        caption printed beside it would be a caption with a glyph in the way.
+        parting. Arrows in and arrows out are the whole of it — a glyph that
+        needs a caption printed beside it would be a caption with a glyph in
+        the way, and the `aria-label` carries the words for anyone who needs
+        them said.
       */}
       <div className="axis-stretch">
         <button
@@ -535,7 +530,6 @@ export function TimeAxis({
           aria-label="Less room for time"
           disabled={!canNarrow}
           onClick={() => onStretch(-1)}
-          {...narrowTip}
         >
           <svg width="16" height="10" viewBox="0 0 16 10" aria-hidden="true">
             <path
@@ -553,7 +547,6 @@ export function TimeAxis({
           aria-label="More room for time"
           disabled={!canWiden}
           onClick={() => onStretch(1)}
-          {...widenTip}
         >
           <svg width="16" height="10" viewBox="0 0 16 10" aria-hidden="true">
             <path

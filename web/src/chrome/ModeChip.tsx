@@ -6,14 +6,10 @@
  * grid. `.side-modes` in styles.css places them.
  */
 
-import { useTip } from "./Tooltip";
-
 interface ModeSegment<T> {
   value: T;
   /** What the segment prints. Also what the key badge would have to match. */
   label: string;
-  /** The hover explanation, one sentence. */
-  tip: string;
 }
 
 export function ModeChip<T extends string | boolean>({
@@ -51,38 +47,17 @@ export function ModeChip<T extends string | boolean>({
       <span className="mode-key">{kbd}</span>
       <span className="mode-track">
         {segments.map((s) => (
-          <Seg
+          <button
             key={String(s.value)}
-            seg={s}
-            on={value === s.value}
-            onChange={onChange}
-          />
+            type="button"
+            className={`mode-seg${value === s.value ? " is-on" : ""}`}
+            aria-pressed={value === s.value}
+            onClick={() => onChange(s.value)}
+          >
+            {s.label}
+          </button>
         ))}
       </span>
     </div>
-  );
-}
-
-/** One segment, extracted so `useTip` (a hook) can be called inside the map. */
-function Seg<T extends string | boolean>({
-  seg,
-  on,
-  onChange,
-}: {
-  seg: ModeSegment<T>;
-  on: boolean;
-  onChange: (v: T) => void;
-}) {
-  const tip = useTip(seg.tip);
-  return (
-    <button
-      type="button"
-      className={`mode-seg${on ? " is-on" : ""}`}
-      aria-pressed={on}
-      onClick={() => onChange(seg.value)}
-      {...tip}
-    >
-      {seg.label}
-    </button>
   );
 }

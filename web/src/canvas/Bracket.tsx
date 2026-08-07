@@ -49,7 +49,6 @@
 
 import { useId } from "react";
 import { isPresent, maFigure } from "../ages";
-import { useTip } from "../chrome/Tooltip";
 
 /** The four PBDB appearance bounds, uncollapsed. Null where none is recorded. */
 export interface Appearance {
@@ -78,7 +77,7 @@ type BracketGeom =
       /** `fla → lea`, and **only** when that has positive duration. */
       certain: Span | null;
       certainty: Certainty;
-      /** Oldest and youngest bound in Ma, for the label and the tooltip. */
+      /** Oldest and youngest bound in Ma, for the label. */
       oldest: number;
       youngest: number;
       /**
@@ -194,34 +193,6 @@ export function endedSpanLabel(oldest: number, youngest: number): string {
   return `${maLabel(oldest)}–${y} Ma`;
 }
 
-/**
- * What one row claims, in words.
- *
- * The difference between an empty certain extent and a real one has to survive
- * without the key — it is the difference between "we know it was here" and "we
- * know it was somewhere in here" — so every row carries it in full on hover,
- * not only as a difference in ink.
- */
-export function bracketTitle(name: string, b: BracketGeom): string {
-  if (b.kind === "absent") {
-    return `${name} — the Paleobiology Database records no appearance interval, so this taxon has no position in time here.`;
-  }
-  const extent = spanLabel(b.oldest, b.youngest);
-  const head = b.openYoung
-    ? `${name} — first appears within ${extent}; no last appearance is recorded`
-    : `${name} — somewhere within ${extent}`;
-  switch (b.certainty) {
-    case "extent":
-      return `${head}. Certainly present through the solid bar; the faded band is the widest the record allows.`;
-    case "instant":
-      return `${head}. The first- and last-appearance brackets meet at a single date, so no extent is certainly occupied.`;
-    case "overlapping":
-      return `${head}. The first- and last-appearance brackets overlap, so no part of this range is certainly occupied — only the possible extent is known.`;
-    default:
-      return `${head}. Only part of the appearance record is present.`;
-  }
-}
-
 interface BracketKeyRow {
   id: "certain" | "envelope" | "absent";
   text: string;
@@ -233,7 +204,8 @@ interface BracketKeyRow {
  * Same rule as the trace legend: a row never explains a mark the reader cannot
  * point at, so a lane where nothing is certainly occupied does not offer
  * "certainly present" for them to go looking for. The words are the key's
- * whole job; the sentence-length version is on each row's own tooltip.
+ * whole job, and they are the only words — a row explains itself here or
+ * nowhere.
  */
 export function bracketKey(brackets: readonly BracketGeom[]): BracketKeyRow[] {
   const rows: BracketKeyRow[] = [];
@@ -257,12 +229,6 @@ interface Props {
   height: number;
   /** Fraction of `height` the solid core takes. */
   coreRatio?: number;
-  /**
-   * The hover explanation. Was an SVG `<title>` child, which is the platform
-   * tooltip by another name — see `chrome/tooltip.ts` for why none of those
-   * survive.
-   */
-  tip?: string;
   className?: string;
 }
 
@@ -280,7 +246,6 @@ export function Bracket({
   y,
   height,
   coreRatio = 0.52,
-  tip,
   className,
 }: Props) {
   // A partial record's open end fades out rather than terminating at a
@@ -289,7 +254,6 @@ export function Bracket({
   // rather than to a shared <defs>, so a second caller cannot inherit a
   // gradient that is not on its page.
   const gid = useId();
-  const hover = useTip(tip);
   if (geom.kind === "absent") return null;
 
   const coreH = Math.max(2, Math.round(height * coreRatio));
@@ -297,7 +261,7 @@ export function Bracket({
   const e = geom.envelope;
 
   return (
-    <g className={["bracket", className].filter(Boolean).join(" ")} {...hover}>
+    <g className={["bracket", className].filter(Boolean).join(" ")}>
       {geom.openYoung && (
         <defs>
           <linearGradient id={gid}>

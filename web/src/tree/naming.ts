@@ -25,7 +25,7 @@ interface NamePart {
 export interface Divergence {
   /** Runs to render, punctuation included. */
   parts: NamePart[];
-  /** The same string, for measurement, tooltips and plain-text contexts. */
+  /** The same string, for measurement and plain-text contexts. */
   text: string;
   /** The clades separated, unabbreviated and in full. Reads as prose. */
   branches: string[];

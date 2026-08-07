@@ -23,16 +23,8 @@ export function BiolumToggle({
       value={on}
       onChange={onChange}
       segments={[
-        {
-          value: false,
-          label: "off",
-          tip: "A plain dark canvas. Nothing glows but the tree itself.",
-        },
-        {
-          value: true,
-          label: "on",
-          tip: "Lights the branches the way the deep sea is lit; the data is unchanged.",
-        },
+        { value: false, label: "off" },
+        { value: true, label: "on" },
       ]}
     />
   );

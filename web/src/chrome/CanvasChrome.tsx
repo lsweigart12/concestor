@@ -33,7 +33,7 @@
  *
  * **Each button prints its key.** That is the rule the whole surface follows —
  * a badge teaches the key, and a key that appears nowhere is a key nobody
- * learns. The glyph carries the meaning and the tooltip carries the sentence;
+ * learns. The glyph carries the meaning and the `aria-label` carries the word;
  * without the badge these would be the only three controls in the app that a
  * reader could use for a year without discovering they had letters.
  *
@@ -48,7 +48,6 @@
 import type { ReactNode } from "react";
 import { binding, kbd, type ActionId } from "./bindings";
 import { FULLSCREEN_AVAILABLE } from "./fullscreen";
-import { useTip } from "./Tooltip";
 import { SIDEBAR_ID } from "../sidebar/useSidebar";
 
 export interface ViewportAction {
@@ -133,7 +132,6 @@ export function CanvasLeftControls({
  */
 export function PanelToggle({ onToggle }: { onToggle: () => void }) {
   const b = binding("sidebar");
-  const tip = useTip(b.hint);
   return (
     <button
       type="button"
@@ -142,7 +140,6 @@ export function PanelToggle({ onToggle }: { onToggle: () => void }) {
       aria-expanded
       aria-controls={SIDEBAR_ID}
       aria-label={b.label}
-      {...tip}
     >
       <PanelGlyph />
       <span className="kbd" aria-hidden="true">
@@ -172,7 +169,6 @@ export function ViewportControls({ actions }: { actions: ViewportAction[] }) {
 function ViewportButton({ a }: { a: ViewportAction }) {
   const b = binding(a.id);
   const off = a.disabledBecause !== undefined;
-  const tip = useTip(off ? a.disabledBecause : b.hint);
   return (
     <button
       type="button"
@@ -182,7 +178,6 @@ function ViewportButton({ a }: { a: ViewportAction }) {
       {...(a.expanded === undefined ? {} : { "aria-expanded": a.expanded })}
       {...(a.controls === undefined ? {} : { "aria-controls": a.controls })}
       onClick={off ? undefined : a.run}
-      {...tip}
     >
       <span className="viewport-glyph" aria-hidden="true">
         {a.glyph}

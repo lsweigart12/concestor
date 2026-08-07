@@ -220,12 +220,7 @@ export function OpeningCarousel({
       >
         <span className="carousel-art" aria-hidden="true">
           {o.taxa.map((t) => (
-            <Silhouette
-              key={t.key}
-              phylopicId={t.art}
-              size={30}
-              tip={t.label}
-            />
+            <Silhouette key={t.key} phylopicId={t.art} size={30} />
           ))}
         </span>
         <span className="carousel-q">{o.question}</span>

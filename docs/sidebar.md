@@ -138,8 +138,8 @@ about | source           🔗 share
 
 **The count and CLEAR are absent at zero** — the one place this app's *disabled
 rather than hidden* rule gives way, because nothing reaches for clear on an empty
-canvas and the empty list already says what a tooltip would. `C` is still bound,
-printed on the palette row, and named in CLEAR's tooltip. Focus is an
+canvas and the empty list already says it. `C` is still bound and printed on the
+palette row, and CLEAR prints it too. Focus is an
 **underline** (resting and hovered are already the row's only two colours);
 disabled is `aria-disabled` and stays focusable. `.axis-links`/`.axis-link` were
 renamed `.side-links`/`.side-link` — nothing they name is on the axis.

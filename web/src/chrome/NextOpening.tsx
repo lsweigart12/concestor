@@ -24,7 +24,6 @@
  */
 
 import { Silhouette } from "../canvas/Silhouette";
-import { useTip } from "./Tooltip";
 import type { Opening } from "../openings";
 
 export function NextOpening({
@@ -36,7 +35,6 @@ export function NextOpening({
   onOpen: (o: Opening) => void;
   onClose: () => void;
 }) {
-  const dismiss = useTip("Dismiss (esc)");
   return (
     <aside className="next-up" aria-label="Another question">
       <button
@@ -47,12 +45,7 @@ export function NextOpening({
         <span className="next-up-eyebrow">Next</span>
         <span className="next-up-art" aria-hidden="true">
           {opening.taxa.map((t) => (
-            <Silhouette
-              key={t.key}
-              phylopicId={t.art}
-              size={22}
-              tip={t.label}
-            />
+            <Silhouette key={t.key} phylopicId={t.art} size={22} />
           ))}
         </span>
         <span className="next-up-q">{opening.question}</span>
@@ -76,15 +69,15 @@ export function NextOpening({
         not where that lesson belongs: it sat at the top of the reading order
         of a card whose whole job is to offer a question, and the first thing
         the reader met was how to refuse. An `×` is the same control read at a
-        glance and costs the offer nothing. The key survives in the tooltip,
-        for anyone who goes looking.
+        glance and costs the offer nothing. The key still closes this and is
+        not written down anywhere, which is the right trade for a card the
+        reader is free to simply ignore.
       */}
       <button
         type="button"
         className="next-up-close"
         onClick={onClose}
         aria-label="Dismiss"
-        {...dismiss}
       >
         ×
       </button>

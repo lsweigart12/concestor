@@ -14,7 +14,6 @@ import type { FossilTaxon, PathNode } from "../api";
 import { drawnBounds, silhouetteIsInformative } from "../api";
 import { kbd } from "../chrome/bindings";
 import { HeaderAction } from "./HeaderAction";
-import { useTip } from "../chrome/Tooltip";
 import { Silhouette } from "../canvas/Silhouette";
 import { isScientificItalic } from "../canvas/NodeMark";
 import { markName, type LabelMode } from "../tree/naming";
@@ -70,7 +69,7 @@ export function TaxaList(p: TaxaListProps) {
         box beside two words that were deliberately not boxes was the only
         thing breaking the row's register. Alone at the end of the row it is
         the thing that gives the one destructive control in the panel an
-        identity — and `C` is a key nobody learns from a tooltip. The badge
+        identity — and `C` is a key nobody learns unless it is printed. The badge
         rides *inside* the button rather than beside it, because a word and a
         box next to it read as two objects, and everything a pointer can press
         here is one.
@@ -80,10 +79,9 @@ export function TaxaList(p: TaxaListProps) {
         louder — and a greyed CLEAR over the same empty list says it a third
         time. That is the one place this app's standing rule gives way:
         *disabled rather than hidden* exists so a control does not move out
-        from under a hand reaching for it, and the tooltip on a greyed one says
-        what would make it work. Neither applies here. Nothing reaches for
-        clear on an empty canvas, and the sentence a tooltip would carry — "the
-        canvas is already empty" — is the list itself. The palette drops
+        from under a hand reaching for it. Neither applies here. Nothing reaches
+        for clear on an empty canvas, and the sentence a greyed one would owe —
+        "the canvas is already empty" — is the list itself. The palette drops
         `fit-all` and `step` on the same canvas for the same reason.
       */}
       <h2 className="side-h is-taxa">
@@ -97,7 +95,6 @@ export function TaxaList(p: TaxaListProps) {
               label="Clear"
               keys={kbd("clear")}
               danger
-              hint="Take everything off the canvas"
               onClick={p.onClear}
             />
           )}
@@ -183,17 +180,10 @@ function AddDoors({
   picking: boolean;
   spacious: boolean;
 }) {
-  const addTip = useTip(
-    "Search by name — everyday or scientific, living or fossil",
-  );
-  const randTip = useTip(
-    "Add something illustrated, picked for you. About one in five is a fossil",
-  );
-
   if (spacious) {
     return (
       <div className="side-doors">
-        <button type="button" className="side-door" onClick={onAdd} {...addTip}>
+        <button type="button" className="side-door" onClick={onAdd}>
           <span className="kbd side-door-kbd" aria-hidden="true">
             {kbd("add-taxon")}
           </span>
@@ -207,7 +197,6 @@ function AddDoors({
           type="button"
           className={`side-door${picking ? " is-busy" : ""}`}
           onClick={onRandom}
-          {...randTip}
         >
           <span className="kbd side-door-kbd" aria-hidden="true">
             {kbd("random-species")}
@@ -224,12 +213,7 @@ function AddDoors({
 
   return (
     <div className="side-add">
-      <button
-        type="button"
-        className="side-add-main"
-        onClick={onAdd}
-        {...addTip}
-      >
+      <button type="button" className="side-add-main" onClick={onAdd}>
         <span className="side-add-plus" aria-hidden="true">
           +
         </span>
@@ -243,7 +227,6 @@ function AddDoors({
         className={`side-add-die${picking ? " is-busy" : ""}`}
         onClick={onRandom}
         aria-label="Add a random species"
-        {...randTip}
       >
         <span className="side-add-die-glyph" aria-hidden="true">
           ✦
@@ -418,14 +401,12 @@ function RemoveButton({
   onRemove: () => void;
   what: string;
 }) {
-  const tip = useTip(`Take ${what} off the canvas`);
   return (
     <button
       type="button"
       className="side-row-remove"
       onClick={onRemove}
       aria-label={`Remove ${what}`}
-      {...tip}
     >
       <span aria-hidden="true">−</span>
     </button>

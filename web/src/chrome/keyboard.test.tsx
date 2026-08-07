@@ -140,11 +140,10 @@ describe("what Tab arrives at", () => {
     }
   });
 
-  it("keeps a disabled control focusable, because its hint is the useful part", () => {
+  it("keeps a disabled control focusable, so the keyboard can reach it", () => {
     // `aria-disabled` rather than `disabled` — a disabled button takes neither
-    // focus nor pointer events, and every disabled control in this app carries
-    // the one tooltip most worth reaching: the sentence saying what would make
-    // it work. `Tooltip.tsx` is the account.
+    // focus nor pointer events, so a reader walking the chrome would find a
+    // control that is on screen and simply not in the tab order.
     const run = vi.fn();
     render(
       <ViewportControls
@@ -173,9 +172,9 @@ describe("what Tab arrives at", () => {
         kbd="L"
         value="common"
         segments={[
-          { value: "off", label: "off", tip: "No words" },
-          { value: "common", label: "common", tip: "Common names" },
-          { value: "scientific", label: "scientific", tip: "Scientific names" },
+          { value: "off", label: "off" },
+          { value: "common", label: "common" },
+          { value: "scientific", label: "scientific" },
         ]}
         onChange={vi.fn()}
       />,
