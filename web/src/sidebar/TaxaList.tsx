@@ -41,9 +41,9 @@ export interface TaxaListProps {
    *
    * It lives on this section's caption rather than under `This tree`, where it
    * used to sit beside share, because what it empties is *this list* — so it
-   * belongs beside this list's own count, at the far right of the header, which
-   * is exactly where every row below puts its own remove control. The
-   * list-level action lines up with the row-level ones.
+   * belongs on this list's own header, at the far right, which is exactly
+   * where every row below puts its own remove control. The list-level action
+   * lines up with the row-level ones.
    */
   onClear: () => void;
   /** A random pick is in flight, so the die is spinning. */
@@ -55,50 +55,51 @@ export function TaxaList(p: TaxaListProps) {
   return (
     <section className="side-section side-taxa" aria-label="Taxa">
       {/*
-        Three cells, and the middle one is on the row's own midline.
+        Two ends: the noun and its number on the left, the verb on the right.
 
-        The count and CLEAR used to sit together at the right end, and read as
-        one object — a number that looked like part of the button beside it. A
-        grid of `1fr auto 1fr` puts the count on the midline whatever the two
-        words either side of it are doing, which is the same trick the axis
-        footer uses to centre its key: the outer columns are equal whether or
-        not either has anything in it.
+        The count sits with the heading it counts — "TAXA 3" is one fact read
+        left to right, the way a mark's own label puts a figure right after the
+        word it belongs to. It used to sit alone between the ends of the row,
+        which put the row's midline to work separating the number from a verb
+        it once crowded; with CLEAR now a single bordered object, distance is
+        no longer what tells them apart, and a number floating mid-row reads
+        as unattached to either end.
 
-        It also gives CLEAR the whole right-hand end, which is what lets it
-        carry its key badge. That badge came off when this row held *two* verbs
-        and a small box beside two words that were deliberately not boxes was
-        the only thing breaking the row's register. Alone at the end of the row,
-        with the count no longer crowding it, it is the thing that gives the one
-        destructive control in the panel an identity — and `C` is a key nobody
-        learns from a tooltip.
+        Giving CLEAR the whole right-hand end is what lets it carry its key
+        badge. That badge came off when this row held *two* verbs and a small
+        box beside two words that were deliberately not boxes was the only
+        thing breaking the row's register. Alone at the end of the row it is
+        the thing that gives the one destructive control in the panel an
+        identity — and `C` is a key nobody learns from a tooltip. The badge
+        rides *inside* the button rather than beside it, because a word and a
+        box next to it read as two objects, and everything a pointer can press
+        here is one.
 
-        **Both are absent at zero, and for one reason.** "0" beside a heading
-        over an empty list says what the empty list says, louder — and a greyed
-        CLEAR over the same empty list says it a third time. That is the one
-        place this app's standing rule gives way: *disabled rather than hidden*
-        exists so a control does not move out from under a hand reaching for it,
-        and the tooltip on a greyed one says what would make it work. Neither
-        applies here. Nothing reaches for clear on an empty canvas, and the
-        sentence a tooltip would carry — "the canvas is already empty" — is the
-        list itself. The palette drops `fit-all` and `step` on the same canvas
-        for the same reason.
+        **Count and CLEAR are both absent at zero, and for one reason.** "0"
+        beside a heading over an empty list says what the empty list says,
+        louder — and a greyed CLEAR over the same empty list says it a third
+        time. That is the one place this app's standing rule gives way:
+        *disabled rather than hidden* exists so a control does not move out
+        from under a hand reaching for it, and the tooltip on a greyed one says
+        what would make it work. Neither applies here. Nothing reaches for
+        clear on an empty canvas, and the sentence a tooltip would carry — "the
+        canvas is already empty" — is the list itself. The palette drops
+        `fit-all` and `step` on the same canvas for the same reason.
       */}
       <h2 className="side-h is-taxa">
-        <span>Taxa</span>
-        <span className="side-count mono">{count > 0 ? count : ""}</span>
+        <span className="side-h-label">
+          Taxa
+          <span className="side-count mono">{count > 0 ? count : ""}</span>
+        </span>
         <span className="side-h-acts">
           {count > 0 && (
-            <>
-              <HeaderAction
-                label="Clear"
-                danger
-                hint="Take everything off the canvas"
-                onClick={p.onClear}
-              />
-              <span className="kbd side-act-kbd" aria-hidden="true">
-                {kbd("clear")}
-              </span>
-            </>
+            <HeaderAction
+              label="Clear"
+              keys={kbd("clear")}
+              danger
+              hint="Take everything off the canvas"
+              onClick={p.onClear}
+            />
           )}
         </span>
       </h2>
@@ -215,9 +216,7 @@ function AddDoors({
             ✦
           </span>
           <span className="side-door-title">Surprise me</span>
-          <span className="side-door-sub">
-            Something illustrated, at random
-          </span>
+          <span className="side-door-sub">Chosen at random</span>
         </button>
       </div>
     );
