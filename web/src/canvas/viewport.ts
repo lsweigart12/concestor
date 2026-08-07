@@ -146,6 +146,21 @@ interface FitBox {
   /** Screen px the axis and any open lane own at the bottom. */
   bottom: number;
   maxZoom: number;
+  /**
+   * Breathing room kept inside the free region, in *screen* px.
+   *
+   * The content pad is layout units, so at a deep fit — a big tree at zoom
+   * 0.3 — it shrinks to a hair and the outermost labels sit flush against the
+   * frame. This margin is measured in the space the reader looks at, so the
+   * clearance survives the zoom. Capped at a sixth of each usable dimension,
+   * because a margin that eats a small canvas is worse than none.
+   */
+  margin?: number;
+}
+
+/** The margin a fit actually honours, after the small-canvas cap. */
+function fitMargin(margin: number, usableW: number, usableH: number): number {
+  return Math.min(margin, usableW / 6, usableH / 6);
 }
 
 /**
@@ -159,9 +174,10 @@ interface FitBox {
 export function fitViewport(b: FitBox): Viewport {
   const usableW = Math.max(b.vw - b.reserve, MIN_USABLE);
   const usableH = Math.max(b.vh - b.bottom, MIN_USABLE);
+  const m = fitMargin(b.margin ?? 0, usableW, usableH);
   const zoom = Math.min(
-    usableW / Math.max(b.content.w, 1),
-    usableH / Math.max(b.content.h, 1),
+    (usableW - 2 * m) / Math.max(b.content.w, 1),
+    (usableH - 2 * m) / Math.max(b.content.h, 1),
     b.maxZoom,
   );
   return {
@@ -169,6 +185,57 @@ export function fitViewport(b: FitBox): Viewport {
     y: (usableH - (2 * b.content.y + b.content.h) * zoom) / 2,
     zoom,
   };
+}
+
+/**
+ * The plot width at which the tree would *fill* the free region sideways.
+ *
+ * A big selection makes a tall tree — dozens of rows against the same
+ * 1240-unit plot — and {@link fitViewport} can only shrink it until the rows
+ * fit, leaving the time axis squeezed into a strip down the middle of an empty
+ * frame. The remedy is not a different transform but a different tree: relay
+ * it out on a wider plot until its aspect matches the frame's. This computes
+ * that width, from the one fact that makes it solvable — node x positions
+ * scale with the plot, and everything else (the labels hanging off both ends,
+ * the pads) rides along at fixed size.
+ *
+ *     content w  ≈  overhang + nodeSpan · (plotW′ / plotW)
+ *
+ * So: take the zoom a *vertical* fit would land on, ask how many layout units
+ * wide the free region is at that zoom, subtract the overhang, and scale the
+ * plot by what remains. One relayout later the fit finds a tree that fills
+ * both ways. The caller clamps the answer and decides whether the move is
+ * worth a relayout; `null` means the question has no answer here (nothing
+ * placed, no spread in x, or labels alone already overflow the target).
+ */
+export function plotWidthToFill(opts: {
+  /** The plot width the current layout was computed with. */
+  plotW: number;
+  /** x extent of the placed marks alone — the part that scales with `plotW`. */
+  nodeSpan: number;
+  /** What the fit frames: content bounds with the layout pad already on. */
+  content: Rect;
+  vw: number;
+  vh: number;
+  /** Screen px the card owns on the right. */
+  reserve: number;
+  /** Screen px the axis and any open lane own at the bottom. */
+  bottom: number;
+  /** The same screen-px margin the fit will honour. */
+  margin: number;
+  maxZoom: number;
+}): number | null {
+  const { plotW, nodeSpan, content } = opts;
+  if (nodeSpan < 1 || content.w <= 0 || content.h <= 0) return null;
+  const usableW = Math.max(opts.vw - opts.reserve, MIN_USABLE);
+  const usableH = Math.max(opts.vh - opts.bottom, MIN_USABLE);
+  const m = fitMargin(opts.margin, usableW, usableH);
+  const zoom = Math.min((usableH - 2 * m) / content.h, opts.maxZoom);
+  if (!(zoom > 0) || !Number.isFinite(zoom)) return null;
+  const targetW = (usableW - 2 * m) / zoom;
+  const overhang = content.w - nodeSpan;
+  if (targetW - overhang < 1) return null;
+  return (plotW * (targetW - overhang)) / nodeSpan;
 }
 
 /**

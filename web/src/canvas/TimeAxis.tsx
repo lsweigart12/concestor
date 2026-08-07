@@ -38,6 +38,7 @@
 
 import { useMemo } from "react";
 import type { TimescaleInterval } from "../api";
+import { useTip } from "../chrome/Tooltip";
 import { LANDMARK_TICKS, SYMLOG_T0, type AxisMode } from "../tree/layout";
 
 interface Props {
@@ -49,6 +50,15 @@ interface Props {
   toAge: (x: number) => number;
   intervals: TimescaleInterval[] | null;
   axisMode: AxisMode;
+  /**
+   * The stretch control, at the ruler's right end: one press gives time more
+   * room (`1`) or less (`-1`). It is the *tree* that changes — the plot is
+   * relaid wider or narrower and the fit reframes it — so it lives on the
+   * ruler it rescales, the way the drill lane lives on the segment it opens.
+   */
+  onStretch: (dir: 1 | -1) => void;
+  canWiden: boolean;
+  canNarrow: boolean;
   /**
    * REMOVED — the key is drawn by `Graph.tsx` now, bottom-left over the canvas.
    *
@@ -311,7 +321,16 @@ export function TimeAxis({
   toAge,
   intervals,
   axisMode,
+  onStretch,
+  canWiden,
+  canNarrow,
 }: Props) {
+  const narrowTip = useTip(
+    "Less room for time: the tree redraws narrower, and the fit keeps it.",
+  );
+  const widenTip = useTip(
+    "More room for time: the tree redraws wider, and the fit keeps it.",
+  );
   /**
    * The age range under the viewport, clamped to the axis itself.
    *
@@ -504,6 +523,50 @@ export function TimeAxis({
           </>
         )}
       </svg>
+      {/*
+        The stretch control, at the ruler's right end — on the thing it
+        rescales. Two presses, compress and widen, drawn as arrows meeting or
+        parting; the words are in the tooltips because a glyph that needs a
+        caption printed beside it would be a caption with a glyph in the way.
+      */}
+      <div className="axis-stretch">
+        <button
+          type="button"
+          aria-label="Less room for time"
+          disabled={!canNarrow}
+          onClick={() => onStretch(-1)}
+          {...narrowTip}
+        >
+          <svg width="16" height="10" viewBox="0 0 16 10" aria-hidden="true">
+            <path
+              d="M1 5h5.4M3.8 2.3 6.4 5 3.8 7.7M15 5H9.6m2.6-2.7L9.6 5l2.6 2.7"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.3"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </button>
+        <button
+          type="button"
+          aria-label="More room for time"
+          disabled={!canWiden}
+          onClick={() => onStretch(1)}
+          {...widenTip}
+        >
+          <svg width="16" height="10" viewBox="0 0 16 10" aria-hidden="true">
+            <path
+              d="M6.9 5H1.5m2.6-2.7L1.5 5l2.6 2.7M9.1 5h5.4M11.9 2.3 14.5 5l-2.6 2.7"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.3"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </button>
+      </div>
     </div>
   );
 }

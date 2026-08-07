@@ -62,6 +62,7 @@ import {
   fitContentPad,
   fitViewport,
   freeRect,
+  plotWidthToFill,
   revealShift,
   toScreenRect,
   union,
@@ -135,6 +136,35 @@ const MIN_PLOT_W = 340;
  */
 const AXIS_RESERVE = 96;
 const MAX_FIT_ZOOM = 1.4;
+
+/**
+ * Breathing room the fit keeps between the tree and the frame, in screen px.
+ * `EDGE_PAD` is layout units and all but vanishes at a deep zoom-out; this is
+ * measured in the reader's pixels, so a big tree gets the same clearance a
+ * small one does.
+ */
+const FIT_MARGIN = 44;
+
+/**
+ * How far the plot may be stretched past its designed width, as a hard ceiling
+ * on the laid-out width. A hundred-leaf selection asking to fill a 5K display
+ * sideways is a legitimate ask; an unbounded one is a float error with a
+ * scrollbar. The floor is `MIN_PLOT_W`, shared with the narrow-panel rule.
+ */
+const MAX_PLOT_W = PLOT_W * 6;
+
+/**
+ * One press of the axis-stretch control, as a factor, and how far the reader's
+ * preference may run in either direction. The preference is a *bias on the
+ * fill* — the fit first solves the width that squares the tree with the frame,
+ * then multiplies by this — so it survives refits, resizes and adds instead of
+ * being undone by the next reframe.
+ */
+const STRETCH_STEP = 1.3;
+const STRETCH_BIAS_MIN = 1 / STRETCH_STEP ** 3;
+const STRETCH_BIAS_MAX = STRETCH_STEP ** 3;
+
+const clampPlotW = (w: number) => Math.min(MAX_PLOT_W, Math.max(MIN_PLOT_W, w));
 
 /**
  * Margin the reveal keeps between the subject and every edge, and the shortest
@@ -323,9 +353,26 @@ function Inner(props: GraphProps) {
   // panel so the fit stays near 1:1 and text stays legible. An open card is a
   // narrow panel by another route, so it is subtracted here and nowhere else:
   // the layout is told how much canvas there is, not what is sitting on it.
-  const plotWidth = vw
+  const basePlotW = vw
     ? Math.max(MIN_PLOT_W, Math.min(PLOT_W, (vw - reserve) * 0.62 - PAD_X))
     : PLOT_W;
+
+  /**
+   * How far the time axis is stretched past the base plot, as a multiplier.
+   *
+   * A tall selection makes a tree far taller than it is wide, and no transform
+   * fixes that — the fit can only shrink it into a strip down the middle of an
+   * empty frame. So the *layout* changes shape instead: the fit solves the
+   * plot width whose tree fills the frame both ways (`plotWidthToFill`) and
+   * hands off to this state, exactly as it hands off to the card's reserve —
+   * the relayout lands, and the effect watching it schedules the fit that
+   * frames it. The stretch control on the axis nudges the same state, through
+   * {@link stretchBias}, so a reader's "wider than that, please" survives the
+   * next reframe instead of being solved away by it.
+   */
+  const [stretch, setStretch] = useState(1);
+  const [stretchBias, setStretchBias] = useState(1);
+  const plotWidth = clampPlotW(basePlotW * stretch);
 
   /**
    * What each label will say, handed to the layout so the placement pass
@@ -373,6 +420,22 @@ function Inner(props: GraphProps) {
       }),
     [ind, nodeMap, plotWidth, describeLabel, axisMode, grafts, holdMaxAge],
   );
+
+  /**
+   * The x extent of the placed marks alone — the part of the content that
+   * scales with the plot width, which is what makes the fill solvable. Labels
+   * hang off both ends at fixed size and are the difference between this and
+   * `lay.content.w`.
+   */
+  const nodeSpan = useMemo(() => {
+    let min = Infinity;
+    let max = -Infinity;
+    for (const p of lay.placed.values()) {
+      if (p.x < min) min = p.x;
+      if (p.x > max) max = p.x;
+    }
+    return max > min ? max - min : 0;
+  }, [lay]);
 
   /**
    * Where the *traces* are drawn this frame, which during a rearrangement is
@@ -864,8 +927,42 @@ function Inner(props: GraphProps) {
       reserve,
       bottom: AXIS_RESERVE + laneH,
       maxZoom: MAX_FIT_ZOOM,
+      margin: FIT_MARGIN,
     });
   }, [lay, vw, vh, laneH, reserve]);
+
+  /**
+   * The stretch a fit wants: the width that squares the tree with the frame,
+   * times the reader's bias, as a multiplier on the base plot. Null when the
+   * question has no answer (nothing placed, or no spread in x worth scaling).
+   */
+  const fillStretch = useCallback((): number | null => {
+    const c = lay.content;
+    if (!c || !vw || !vh || nodeSpan < 40) return null;
+    const fill = plotWidthToFill({
+      plotW: plotWidth,
+      nodeSpan,
+      content: fitContentPad(c, EDGE_PAD),
+      vw,
+      vh,
+      reserve,
+      bottom: AXIS_RESERVE + laneH,
+      margin: FIT_MARGIN,
+      maxZoom: MAX_FIT_ZOOM,
+    });
+    if (fill === null) return null;
+    return clampPlotW(fill * stretchBias) / basePlotW;
+  }, [
+    lay,
+    vw,
+    vh,
+    laneH,
+    reserve,
+    nodeSpan,
+    plotWidth,
+    stretchBias,
+    basePlotW,
+  ]);
 
   const fitToContent = useCallback(
     (duration: number) => {
@@ -880,11 +977,28 @@ function Inner(props: GraphProps) {
       }
       const t = fitTarget();
       if (!t) return;
+      // The axis stretch is reconciled here too, for the reserve's reason: it
+      // re-lays out the tree, so only a moment already paying for a reframe may
+      // take it. Within tolerance the layout stands — the band is what stops a
+      // fit and its own relayout handing the width back and forth forever.
+      const want = fillStretch();
+      const handoff =
+        want !== null && Math.abs(want - stretch) > stretch * 0.05;
+      if (handoff && duration > 0) {
+        setStretch(want);
+        return;
+      }
+      // An instant fit — a cold load — still lands a viewport before the
+      // handoff, or the boot transform stays on screen while the relayout runs.
       rf.setViewport(t, { duration });
       fitUntil.current = Date.now() + duration;
+      if (handoff) {
+        setStretch(want);
+        return;
+      }
       setAtFit(true);
     },
-    [fitTarget, rf, reserved],
+    [fitTarget, rf, reserved, fillStretch, stretch],
   );
 
   /**
@@ -1133,6 +1247,42 @@ function Inner(props: GraphProps) {
     return scheduleFit(20, reduced ? 0 : 420);
   }, [axisMode, scheduleFit, reduced]);
 
+  // A stretch change is the same event by another route — every node moves in
+  // x — and it is also the landing half of the fit's handoff: `fitToContent`
+  // sets the stretch and returns, and this is what frames the relaid tree.
+  const lastStretch = useRef(stretch);
+  useEffect(() => {
+    if (lastStretch.current === stretch) return;
+    lastStretch.current = stretch;
+    return scheduleFit(20, reduced ? 0 : 420);
+  }, [stretch, scheduleFit, reduced]);
+
+  /**
+   * The axis-stretch control's press. It moves the applied stretch at once —
+   * the tree redraws wider or narrower on this keypress, not at the next fit —
+   * and records the same step in the bias, so the fits that follow solve for
+   * "the fill, times what the reader asked for" and the preference holds.
+   * Refused at the plot's hard bounds; the bias saturates with the width, so
+   * the two cannot drift apart at a clamp.
+   */
+  const nudgeStretch = useCallback(
+    (dir: 1 | -1) => {
+      const k = dir === 1 ? STRETCH_STEP : 1 / STRETCH_STEP;
+      const next = clampPlotW(plotWidth * k) / basePlotW;
+      if (Math.abs(next - stretch) < 1e-3) return;
+      setStretch(next);
+      setStretchBias((b) =>
+        Math.min(STRETCH_BIAS_MAX, Math.max(STRETCH_BIAS_MIN, b * k)),
+      );
+    },
+    [plotWidth, basePlotW, stretch],
+  );
+
+  const canWiden =
+    plotWidth < MAX_PLOT_W - 1 && stretchBias < STRETCH_BIAS_MAX - 1e-3;
+  const canNarrow =
+    plotWidth > MIN_PLOT_W + 1 && stretchBias > STRETCH_BIAS_MIN + 1e-3;
+
   /**
    * And when the container itself changes size, which is the same event again
    * by the third route.
@@ -1373,6 +1523,9 @@ function Inner(props: GraphProps) {
         toAge={toAge}
         intervals={intervals}
         axisMode={axisMode}
+        onStretch={nudgeStretch}
+        canWiden={canWiden}
+        canNarrow={canNarrow}
       />
     </div>
   );

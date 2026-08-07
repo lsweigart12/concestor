@@ -24,6 +24,7 @@ import {
   fitViewport,
   freeRect,
   fitContentPad,
+  plotWidthToFill,
   revealShift,
   toScreenRect,
   union,
@@ -146,6 +147,100 @@ describe("fitViewport", () => {
       w: 110,
       h: 210,
     });
+  });
+
+  /**
+   * The margin is screen px, not layout units, so it holds at any zoom — the
+   * clearance `EDGE_PAD` cannot give a big tree at 0.3× is exactly what this
+   * exists to give. Centring is untouched: the same centre, a smaller scale.
+   */
+  it("keeps a screen-px margin between the content and the frame", () => {
+    const v = fitViewport({ ...base, margin: 100 });
+    // 1200 − 200 across 1000 units of content.
+    expect(v.zoom).toBeCloseTo(1.0, 6);
+    // Content centred: 100px clear on each side.
+    expect(v.x).toBeCloseTo(100, 6);
+    expect(content.w * v.zoom + v.x).toBeCloseTo(1100, 6);
+  });
+
+  it("caps the margin rather than let it eat a small canvas", () => {
+    const v = fitViewport({ ...base, vw: 360, vh: 340, margin: 100 });
+    // A sixth of the shortest usable dimension — 40, not the 100 asked for.
+    const m = 40;
+    expect(v.zoom).toBeCloseTo(
+      Math.min((360 - 2 * m) / content.w, (340 - 100 - 2 * m) / content.h),
+      6,
+    );
+  });
+});
+
+/**
+ * The other half of the tall-tree fix. A transform can only shrink a tree
+ * whose shape is wrong for the frame; this solves the plot width whose tree
+ * has the frame's shape, so the relayout — not the zoom — absorbs the
+ * difference. The claim worth testing is round-trip: lay the tree out at the
+ * answer and the fit fills both ways.
+ */
+describe("plotWidthToFill", () => {
+  // A tall tree: 3000 units of rows against a 1240 plot, labels hanging 300
+  // off the marks. Frame 1600×900 with a 104px axis strip under it.
+  const base = {
+    plotW: 1240,
+    nodeSpan: 1000,
+    content: { x: 0, y: 0, w: 1300, h: 3000 },
+    vw: 1600,
+    vh: 900,
+    reserve: 0,
+    bottom: 104,
+    margin: 44,
+    maxZoom: 1.4,
+  };
+
+  it("returns the width whose tree fills the frame sideways", () => {
+    const w = plotWidthToFill(base)!;
+    expect(w).toBeGreaterThan(base.plotW);
+    // Round-trip: content rescaled to the answer, fitted, fills the width.
+    const usableW = base.vw - 2 * base.margin;
+    const usableH = base.vh - base.bottom - 2 * base.margin;
+    const overhang = base.content.w - base.nodeSpan;
+    const grownW = overhang + base.nodeSpan * (w / base.plotW);
+    const zoom = usableH / base.content.h;
+    expect(grownW * zoom).toBeCloseTo(usableW, 4);
+  });
+
+  it("shrinks a wide, short tree for the same reason it widens a tall one", () => {
+    // A two-leaf tree: 300 units tall against the same 1300-wide content.
+    // Height-fit runs into the zoom cap, and at 1.4× the frame holds fewer
+    // layout units than the tree is wide — so the answer is a narrower plot.
+    const w = plotWidthToFill({
+      ...base,
+      content: { ...base.content, h: 300 },
+    })!;
+    expect(w).toBeLessThan(base.plotW);
+    const usableW = base.vw - 2 * base.margin;
+    const overhang = base.content.w - base.nodeSpan;
+    const grownW = overhang + base.nodeSpan * (w / base.plotW);
+    expect(grownW * base.maxZoom).toBeCloseTo(usableW, 4);
+  });
+
+  it("refuses the question when there is nothing that scales", () => {
+    expect(plotWidthToFill({ ...base, nodeSpan: 0 })).toBeNull();
+    expect(
+      plotWidthToFill({ ...base, content: { x: 0, y: 0, w: 0, h: 0 } }),
+    ).toBeNull();
+  });
+
+  it("refuses when the labels alone already overflow the target", () => {
+    // Overhang wider than the whole frame at the fit zoom: no plot width can
+    // help, and a negative one must not come back.
+    expect(
+      plotWidthToFill({
+        ...base,
+        maxZoom: 4,
+        content: { x: 0, y: 0, w: 8000, h: 300 },
+        nodeSpan: 100,
+      }),
+    ).toBeNull();
   });
 });
 

@@ -1009,6 +1009,58 @@ body {
 }
 
 /*
+ * The stretch control, at the ruler's right end — chrome on the thing it
+ * rescales. Two small presses, compress and widen, sitting over the strip's
+ * own gradient; they get a filled box because the rule and the last tick run
+ * underneath them, and a bare glyph printed over a moving ruler is noise both
+ * ways. The parent strip refuses the pointer, so it is granted back here.
+ */
+.axis-stretch {
+  position: absolute;
+  right: var(--s3);
+  bottom: 18px;
+  display: flex;
+  gap: var(--s1);
+  pointer-events: auto;
+}
+
+.axis-stretch button {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 22px;
+  padding: 0;
+  background: rgba(14, 14, 17, 0.92);
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  color: var(--ink-3);
+  cursor: pointer;
+  transition:
+    color 120ms ease,
+    border-color 120ms ease,
+    background 120ms ease;
+}
+
+.axis-stretch button:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: var(--hairline-strong);
+  background: var(--void-3);
+}
+
+.axis-stretch button:focus-visible {
+  outline: none;
+  border-color: var(--accent-dim);
+  color: var(--accent);
+}
+
+/* The end of the run: the press would do nothing, so the control says so
+   rather than swallowing it. */
+.axis-stretch button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/*
  * The key, bottom left over the canvas, above the ruler.
  *
  * It is on the shelf `.canvas-modes` used to hold, and it rides the same
