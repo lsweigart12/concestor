@@ -61,7 +61,6 @@ import { FULLSCREEN_AVAILABLE, useFullscreen } from "./chrome/fullscreen";
 import { useIdle } from "./chrome/idle";
 import { useWindowKeys } from "./chrome/keys";
 import { useToasts } from "./chrome/toasts";
-import { prefersReduced } from "./chrome/motion";
 import { goAbout } from "./route";
 import { NextOpening } from "./chrome/NextOpening";
 import { resetUsage } from "./palette/fuzzy";
@@ -359,15 +358,6 @@ export default function App() {
   );
 
   /**
-   * The opening whose answer is still owed, held until its tree is finished.
-   *
-   * A ref because nothing renders from it and setting it must not cost a
-   * render: it is written on the press and read once, on the frame the
-   * sequence ends.
-   */
-  const owedReveal = useRef<Opening | null>(null);
-
-  /**
    * The two beats after an opening finishes, or null.
    *
    * One piece of state for the pinned answer, the flyout and the tipped
@@ -391,38 +381,20 @@ export default function App() {
   const settle = useCallback(() => setAfterglow(null), []);
 
   /**
-   * Draw an opening. Both surfaces close on the press and the toast names the
-   * claim, not the taxa. Drawn all at once, the reveal goes up with the tree;
-   * drawn in sequence, the question goes up and the answer is held until the
-   * last taxon lands, so the canvas states the claim first.
+   * Draw an opening. Both surfaces close on the press, the whole set is drawn
+   * at once — the tree draws itself on as it does on a cold load, which is the
+   * drawing worth watching — and the reveal goes up with it.
    */
   const openOpening = useCallback(
     (o: Opening) => {
       setPaletteOpen(false);
-      // Whatever the last opening left on screen goes with the press, including
-      // a flyout offering this very question.
-      setAfterglow(null);
-      if (tree.openSequenced(keysOf(o), o.axis, prefersReduced())) {
-        owedReveal.current = o;
-        toast(o.question);
-        return;
-      }
+      tree.open(keysOf(o), o.axis);
+      // Replaces whatever the last opening left on screen, including a flyout
+      // offering this very question.
       setAfterglow({ at: "reveal", opening: o });
     },
-    [tree, toast],
+    [tree],
   );
-
-  // The sequence has ended: pay the answer. The falling edge, not a completion
-  // callback, so an interrupted sequence (which still finished the tree) is paid too.
-  const wasSequencing = useRef(false);
-  useEffect(() => {
-    if (wasSequencing.current && !tree.sequencing) {
-      const o = owedReveal.current;
-      owedReveal.current = null;
-      if (o) setAfterglow({ at: "reveal", opening: o });
-    }
-    wasSequencing.current = tree.sequencing;
-  }, [tree.sequencing]);
 
   // Done reading the answer, so offer another question. The answer is pinned,
   // not timed — it is the only place the reply to the reader's question is
@@ -441,26 +413,6 @@ export default function App() {
   // opening gets its own clock.
   const tipDue = usePending(afterglow !== null, TIP_DELAY_MS);
   const tipShown = afterglow !== null && (tipDue || afterglow.at === "next");
-
-  /**
-   * Any interaction ends the sequence at the finished tree. Capture phase on
-   * `window`, so it runs before the press's own handler and is never swallowed.
-   * Three events: a key, a pointerdown anywhere, and a wheel (the canvas pan/zoom
-   * that reaches no handler of ours).
-   */
-  useEffect(() => {
-    if (!tree.sequencing) return;
-    const cut = () => tree.cutSequence();
-    const opts = { capture: true } as const;
-    window.addEventListener("keydown", cut, opts);
-    window.addEventListener("pointerdown", cut, opts);
-    window.addEventListener("wheel", cut, { capture: true, passive: true });
-    return () => {
-      window.removeEventListener("keydown", cut, opts);
-      window.removeEventListener("pointerdown", cut, opts);
-      window.removeEventListener("wheel", cut, opts);
-    };
-  }, [tree.sequencing, tree.cutSequence]);
 
   const share = useCallback(() => {
     const url = window.location.href;

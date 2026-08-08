@@ -15,21 +15,12 @@
 type Kind = "search" | "add" | "tree";
 
 /**
- * What put a tree on screen — a made tree and a received one differ. Three of
- * these are one opening pressed three ways (`open` all at once, `sequence` run
- * to the end, `sequence-cut` interrupted), kept apart to see whether a completed
- * sequence converts to manual adds. Sequenced steps are not `add`: those taxa
- * were chosen by us. Both strings fit the Worker's 16-char `blob4` cap.
+ * What put a tree on screen — a made tree and a received one differ. `open` is
+ * an opening pressed, kept apart from `add` to see whether a canned comparison
+ * converts to trees of the reader's own: an opening's taxa were chosen by us.
+ * Every string fits the Worker's 16-char `blob4` cap.
  */
-export type Cause =
-  | "add"
-  | "remove"
-  | "open"
-  | "sequence"
-  | "sequence-cut"
-  | "link"
-  | "back"
-  | "clear";
+export type Cause = "add" | "remove" | "open" | "link" | "back" | "clear";
 
 export interface Event {
   kind: Kind;
