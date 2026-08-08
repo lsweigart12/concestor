@@ -24,6 +24,7 @@ import {
   fitViewport,
   freeRect,
   fitContentPad,
+  MAX_FILL_ASPECT,
   plotWidthToFill,
   revealShift,
   toScreenRect,
@@ -196,31 +197,70 @@ describe("plotWidthToFill", () => {
     maxZoom: 1.4,
   };
 
-  it("returns the width whose tree fills the frame sideways", () => {
-    const w = plotWidthToFill(base)!;
-    expect(w).toBeGreaterThan(base.plotW);
+  /** The content this answer lays out to, by the relation the solve inverts. */
+  const grown = (o: typeof base, w: number) =>
+    o.content.w - o.nodeSpan + o.nodeSpan * (w / o.plotW);
+
+  it("returns the width whose tree fills a frame it may fill", () => {
+    // A frame squarer than the cap, so the fill is the whole of the rule.
+    const o = { ...base, vw: 1400, vh: 1400 };
+    const w = plotWidthToFill(o)!;
+    expect(w).toBeGreaterThan(o.plotW);
     // Round-trip: content rescaled to the answer, fitted, fills the width.
-    const usableW = base.vw - 2 * base.margin;
+    const usableW = o.vw - 2 * o.margin;
+    const usableH = o.vh - o.bottom - 2 * o.margin;
+    expect(grown(o, w) * (usableH / o.content.h)).toBeCloseTo(usableW, 4);
+  });
+
+  it("stops at the cap rather than match a letterbox frame", () => {
+    const w = plotWidthToFill(base)!;
+    expect(grown(base, w) / base.content.h).toBeCloseTo(MAX_FILL_ASPECT, 6);
+    // Which is the narrower answer: the frame would have taken far more.
     const usableH = base.vh - base.bottom - 2 * base.margin;
-    const overhang = base.content.w - base.nodeSpan;
-    const grownW = overhang + base.nodeSpan * (w / base.plotW);
-    const zoom = usableH / base.content.h;
-    expect(grownW * zoom).toBeCloseTo(usableW, 4);
+    expect(grown(base, w) * (usableH / base.content.h)).toBeLessThan(
+      base.vw - 2 * base.margin,
+    );
+  });
+
+  /**
+   * The shape a tree settles at is the reader's, not their display's. A tree
+   * too short to reach the zoom cap's height is the case the cap is really
+   * for — the frame keeps growing sideways and the rows cannot follow — so a
+   * wider display must not buy a wider tree.
+   */
+  it("gives the same shape on a small display and a large one", () => {
+    const short = { ...base, content: { ...base.content, h: 700 } };
+    const laptop = plotWidthToFill({ ...short, vw: 1400, vh: 800 })!;
+    const desk = plotWidthToFill({ ...short, vw: 2400, vh: 1400 })!;
+    expect(grown(short, laptop) / short.content.h).toBeCloseTo(
+      MAX_FILL_ASPECT,
+      6,
+    );
+    expect(desk).toBeCloseTo(laptop, 6);
   });
 
   it("shrinks a wide, short tree for the same reason it widens a tall one", () => {
     // A two-leaf tree: 300 units tall against the same 1300-wide content.
-    // Height-fit runs into the zoom cap, and at 1.4× the frame holds fewer
-    // layout units than the tree is wide — so the answer is a narrower plot.
     const w = plotWidthToFill({
       ...base,
       content: { ...base.content, h: 300 },
     })!;
     expect(w).toBeLessThan(base.plotW);
-    const usableW = base.vw - 2 * base.margin;
-    const overhang = base.content.w - base.nodeSpan;
-    const grownW = overhang + base.nodeSpan * (w / base.plotW);
-    expect(grownW * base.maxZoom).toBeCloseTo(usableW, 4);
+  });
+
+  /**
+   * The cap asks a tree with a handful of rows to be squarer than its own
+   * labels allow, and the honest answer is "narrower than any plot I draw" —
+   * the caller's clamp, not a refusal here, is what decides where that stops.
+   */
+  it("answers below the plot's floor rather than refuse", () => {
+    const w = plotWidthToFill({
+      ...base,
+      content: { x: 0, y: 0, w: 1300, h: 260 },
+    })!;
+    expect(w).not.toBeNull();
+    expect(w).toBeGreaterThan(0);
+    expect(w).toBeLessThan(100);
   });
 
   it("refuses the question when there is nothing that scales", () => {
@@ -230,7 +270,7 @@ describe("plotWidthToFill", () => {
     ).toBeNull();
   });
 
-  it("refuses when the labels alone already overflow the target", () => {
+  it("refuses when the labels alone already overflow the frame", () => {
     // Overhang wider than the whole frame at the fit zoom: no plot width can
     // help, and a negative one must not come back.
     expect(

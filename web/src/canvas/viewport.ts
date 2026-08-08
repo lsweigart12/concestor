@@ -188,25 +188,54 @@ export function fitViewport(b: FitBox): Viewport {
 }
 
 /**
- * The plot width at which the tree would *fill* the free region sideways.
+ * The widest a fit may make a tree, as the shape of its content: w ÷ h.
+ *
+ * The fill matches the tree to the *frame*, and the frame is a letterbox: half
+ * as wide again as it is tall once the ruler has taken its strip. That is the
+ * right answer for a tree with enough rows to want the height, and the wrong
+ * one for everything else, because {@link plotWidthToFill} runs off the zoom a
+ * *vertical* fit lands on — and once that zoom is capped, the frame keeps
+ * growing sideways while the rows cannot follow. Five leaves on a 2400px canvas
+ * are then drawn as five lines the width of the desk with two thirds of the
+ * canvas empty under them.
+ *
+ * A tree reads as a tree at roughly square, and the shape it settles at is the
+ * reader's business rather than their monitor's. So the fill is capped here
+ * rather than at some display width: a frame squarer than this is still matched
+ * exactly, and one wider than it gets a tree this shape, centred, with the
+ * surplus left as margin.
+ *
+ * Slightly wide of square, because the drawing is: the labels hang off both
+ * ends at fixed size and the deepest one carries a date, so the marks alone sit
+ * squarer than the box measured here.
+ */
+export const MAX_FILL_ASPECT = 1.35;
+
+/**
+ * The plot width at which the tree would *fill* the free region sideways,
+ * stopping at {@link MAX_FILL_ASPECT}.
  *
  * A big selection makes a tall tree — dozens of rows against the same
  * 1240-unit plot — and {@link fitViewport} can only shrink it until the rows
  * fit, leaving the time axis squeezed into a strip down the middle of an empty
  * frame. The remedy is not a different transform but a different tree: relay
- * it out on a wider plot until its aspect matches the frame's. This computes
- * that width, from the one fact that makes it solvable — node x positions
- * scale with the plot, and everything else (the labels hanging off both ends,
- * the pads) rides along at fixed size.
+ * it out on a wider plot until its aspect matches the frame's, or the cap,
+ * whichever comes first. This computes that width, from the one fact that
+ * makes it solvable — node x positions scale with the plot, and everything else
+ * (the labels hanging off both ends, the pads) rides along at fixed size.
  *
  *     content w  ≈  overhang + nodeSpan · (plotW′ / plotW)
  *
  * So: take the zoom a *vertical* fit would land on, ask how many layout units
- * wide the free region is at that zoom, subtract the overhang, and scale the
- * plot by what remains. One relayout later the fit finds a tree that fills
- * both ways. The caller clamps the answer and decides whether the move is
- * worth a relayout; `null` means the question has no answer here (nothing
- * placed, no spread in x, or labels alone already overflow the target).
+ * wide the tree may have at that zoom, subtract the overhang, and scale the
+ * plot by what remains. One relayout later the fit finds a tree of the right
+ * shape.
+ *
+ * The answer may be narrower than any plot the layout will draw — the cap asks
+ * a five-leaf tree to be squarer than its own labels allow — so **the caller
+ * clamps**, and decides whether the move is worth a relayout. `null` is the
+ * different answer that no width helps: nothing placed, no spread in x, or the
+ * overhang alone wider than the frame at that zoom.
  */
 export function plotWidthToFill(opts: {
   /** The plot width the current layout was computed with. */
@@ -232,10 +261,16 @@ export function plotWidthToFill(opts: {
   const m = fitMargin(opts.margin, usableW, usableH);
   const zoom = Math.min((usableH - 2 * m) / content.h, opts.maxZoom);
   if (!(zoom > 0) || !Number.isFinite(zoom)) return null;
-  const targetW = (usableW - 2 * m) / zoom;
+  const frameW = (usableW - 2 * m) / zoom;
   const overhang = content.w - nodeSpan;
-  if (targetW - overhang < 1) return null;
-  return (plotW * (targetW - overhang)) / nodeSpan;
+  // Asked of the frame rather than of the capped target, because the two
+  // questions are different: a target the overhang swallows is a tree the cap
+  // wants squarer than its labels permit, and the answer to that is the
+  // narrowest plot the caller will draw. Only a frame the labels alone overflow
+  // is unanswerable.
+  if (frameW - overhang < 1) return null;
+  const targetW = Math.min(frameW, content.h * MAX_FILL_ASPECT);
+  return Math.max((plotW * (targetW - overhang)) / nodeSpan, 1);
 }
 
 /**
