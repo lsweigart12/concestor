@@ -10,12 +10,30 @@ import (
 // are the whole reason this file exists: prose that says an undated node is
 // spread "between its nearest dated ancestor and descendant" is describing the
 // 2.8% case, and a reader is almost certainly looking at the other one.
+//
+// **They are a census of one artifact set, so a pipeline rerun can move them,
+// and a move is a fact worth reading rather than a number to bump.** Whichever
+// dataset is named below is the one they hold for; against another build this
+// test is measuring that build's difference from it. The one move so far:
+// `1a06c3c2a2be4ccf` promoted *Delphinoidea* from `structural` to
+// `occurrence`, because letting an accepted PBDB record reach the tree under
+// the name the tree writes gave it a walk-0 attachment it did not have before
+// (`fossils.under_accepted_name`). One node, and both totals it appears in.
 const (
-	wantStructural      = 186317
+	measuredAgainstBuild = "1a06c3c2a2be4ccf"
+
+	wantStructural      = 186316
 	wantWithLowerBound  = 5168
-	wantAtPresentBelow  = 181149
+	wantAtPresentBelow  = 181148
 	wantWithoutAncestor = 0
 )
+
+// What a mismatch here usually means, said once rather than at each of the four
+// call sites. A census that is off by a handful is the dataset having moved
+// under a constant; a census that is off by thousands is the sweep itself.
+const censusHint = "\nThis is a census of build " + measuredAgainstBuild +
+	". If build/manifest.json names a different one, the artifact set moved:" +
+	" find out which nodes changed tier before changing either side."
 
 // The census, run over every structural node. This is the assertion the copy on
 // the card rests on, so it is checked against the arrays rather than trusted
@@ -47,13 +65,13 @@ func TestLayoutSpreadCensus(t *testing.T) {
 	}
 
 	if structural != wantStructural {
-		t.Errorf("structural nodes = %d, want %d", structural, wantStructural)
+		t.Errorf("structural nodes = %d, want %d%s", structural, wantStructural, censusHint)
 	}
 	if withLower != wantWithLowerBound {
-		t.Errorf("with a datable lower bound = %d, want %d", withLower, wantWithLowerBound)
+		t.Errorf("with a datable lower bound = %d, want %d%s", withLower, wantWithLowerBound, censusHint)
 	}
 	if atPresent != wantAtPresentBelow {
-		t.Errorf("bounded below by the present = %d, want %d", atPresent, wantAtPresentBelow)
+		t.Errorf("bounded below by the present = %d, want %d%s", atPresent, wantAtPresentBelow, censusHint)
 	}
 	// Zero, and the card's prose leans on it: every structural node can name
 	// the taxon above it. If this ever fires, the "no age" paragraph has a
