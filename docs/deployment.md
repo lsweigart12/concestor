@@ -152,10 +152,18 @@ Docker, no credentials and no network — the form CI validates.
 a stable name for an artifact set. `store.computeBuildID` computes its own from
 the name, size and mtime of the arrays, database, `timescale.json` and gate
 files, plus the snapshot's `synth_id` — the id every ETag and `Cache-Control`
-on `/v1` keys on. Both are correct for their job; `/v1/about` reports both. The
-data image tag is the manifest's. `Dockerfile.data` must copy
-`snapshot/manifest.json` and the phase gate files, because leaving them out
-silently changes the store's identity of the build.
+on `/v1` keys on. Both are correct for their job. The data image tag is the
+manifest's. `Dockerfile.data` must copy `snapshot/manifest.json` and the phase
+gate files, because leaving them out silently changes the store's identity of
+the build.
+
+**`/v1/about` reports only the store's**, as `build_id` — measured on
+production 2026-08-08, where it answers `e921c2bb29fcdf23` for the artifact set
+the manifest calls `1a06c3c2a2be4ccf`. This page claimed it reported both, and
+it never has. So "does production serve the dataset I pinned?" cannot be
+answered from `/v1/about` alone; answer it from the assembly step's log, which
+names the data image it built from, or by comparing the store id against the
+same `build/` locally.
 
 ### The tag is `<build_id>-<release>`, and only the first half is committed
 
