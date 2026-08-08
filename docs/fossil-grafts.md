@@ -115,6 +115,47 @@ faded envelope is already the honest rendering of it. **PBDB's aggregate is not
 monotone** (a descendant can reach younger than its parent); the test fires only
 when the identified end is *older*.
 
+### A fossil arrives like a species
+
+**A graft draws itself on.** Its connector takes a `drawToken` from the same
+`drawDelay` map every branch does, so the line reaches out of the lineage and the
+mark blooms where it arrives — one connector, one wave. Adding a fossil used to
+be the one thing on this canvas that simply *appeared*, and the cost was not only
+that it looked second-class: it landed whenever `/v1/fossil` happened to answer,
+which on a busy canvas meant reflowing a tree that was midway through drawing
+itself on (issue #138).
+
+Two things carry it, and neither alone is enough:
+
+- **`addFossil` goes through the draw queue**, exactly as `add` does. Arrival is
+  `fossils.has(n)` rather than `paths.has(k)`; a fossil key is filtered out of
+  the path resolver, since `pbdb108454` sent to `/v1/paths` would be recorded in
+  `answered` and released as unresolvable one tick before its own fetch landed.
+  A row that cannot be fetched is dropped from the queue outright — there is no
+  `answered` half for a fossil, because there is nothing to release *to*.
+- **`view.fossils` is what the reader asked for; `shownFossils` is what the
+  canvas has drawn.** A fossil is promoted between them only when no delta is
+  playing. The queue cannot do this job on its own: a cold load holding `f=`
+  never passes the queue at all — the URL seats the fossil directly — and that
+  is exactly the load where the fossil lands mid-draw.
+
+Only *placeable* fossils are promoted. `off-tree` is not a permanent answer, and
+a fossil promoted while refused would be recorded as decided and then appear in
+silence when the tree changed under it. The refusals in §4 are computed from the
+whole asked-for set, not the drawn half, so a reason arrives when the fossil does
+not rather than one animation later.
+
+The gate is a ref (`deltaPending`) and not `delta !== null`, because `setDelta`
+does not change `delta` until the next render: the selection's delta and the
+fossil promotion run in the same commit on a cold load, and reading the state
+would seat a graft into a tree about to start drawing.
+
+**The palette adds the branch before the thing that hangs from it.** `drawFossil`
+used to draw the fossil and then go looking for a clade to hang it on; with both
+in the queue that order releases the fossil onto a canvas whose attach node is
+still queued behind it, and `buildGrafts` refuses it `off-tree` — the reader gets
+the toast promising a drawing and no drawing.
+
 ### Row order among grafts
 
 Several fossils on one branch is ordinary (PBDB resolves most hominins to one
@@ -140,7 +181,10 @@ negative index is load-bearing:** `nodeMap.get()` misses, `Arrays.parent[]` is
 undefined, `IsAncestor()` refuses, so any path mistaking a graft for a node fails
 immediately rather than answering about a neighbour. **The connector says what is
 not known** — widest dashes, no halo, no hit target (there is nothing between a
-graft's ends to drill into). A `fossil_image` matches PBDB and PhyloPic on the
+graft's ends to drill into), and no river (`mayPump` refuses it: pumping a tether
+would animate descent down a lineage nobody has resolved). None of that is the
+fossil being lesser, which is why the connector still *draws itself on* like any
+branch — see below. A `fossil_image` matches PBDB and PhyloPic on the
 same name and never inherits, so a graft's picture is an unhedged portrait; only
 the placement is qualified, by `placementNote`.
 

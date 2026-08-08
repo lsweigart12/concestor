@@ -30,7 +30,6 @@ import { FossilCard } from "./detail/FossilCard";
 import { useCards } from "./detail/cards";
 import { idxFromKey, selectionKeyFor } from "./detail/target";
 import {
-  buildGrafts,
   graftIdx,
   graftKey,
   isGraftIdx,
@@ -497,13 +496,13 @@ export default function App() {
     async (f: FossilTaxon) => {
       const taxonNo = f.pbdb_taxon_no ?? 0;
       if (taxonNo <= 0) return;
-      tree.addFossil(taxonNo);
       setPaletteOpen(false);
 
       const placeable =
         tree.induced.rendered.length > 0 &&
         makeGraft(f, tree.induced, tree.nodes) !== "off-tree";
       if (placeable) {
+        tree.addFossil(taxonNo);
         toast(
           <>
             Drew <strong>{f.name}</strong>
@@ -523,6 +522,7 @@ export default function App() {
         // either way and the refusal notice will explain what to do.
       }
       if (!host) {
+        tree.addFossil(taxonNo);
         toast(
           <>
             Drew <strong>{f.name}</strong>
@@ -530,7 +530,19 @@ export default function App() {
         );
         return;
       }
+      /*
+        The branch first, then the thing that hangs from it — and that order is
+        load-bearing now that both go through the draw queue.
+
+        The fossil used to be added before this request was even made, which was
+        harmless while a graft simply appeared. It is not harmless now: the
+        queue would release the fossil the moment its PBDB row landed, onto a
+        canvas whose attach node is still queued behind it, and `buildGrafts`
+        would refuse it `off-tree`. The reader would get the toast promising a
+        drawing, and no drawing.
+      */
       tree.add(host.key);
+      tree.addFossil(taxonNo);
       toast(
         <>
           Drew <strong>{f.name}</strong>, and added{" "}
@@ -1013,24 +1025,12 @@ export default function App() {
   /**
    * The fossils currently drawn against the tree.
    *
-   * Rebuilt from the induced subtree rather than stored, because *where* a
-   * fossil hangs is a fact about the current selection and not about the
-   * fossil: adding a species can promote a suppressed node to a rendered one
-   * and move the branch a graft belongs to. Deriving it means the picture
-   * cannot go stale, which is the same reason `Graph` re-checks the open drill
-   * lane against the segments instead of trusting the URL.
+   * Derived in the store rather than here, because the *entrance* needs it: a
+   * graft becoming drawable is what the canvas animates, and only that memo
+   * knows when it happens. The refusal notice stays here — it is a message to
+   * the reader, not a fact about the tree.
    */
-  const graftSet = useMemo(
-    () =>
-      buildGrafts(
-        tree.view.fossils
-          .map((n) => tree.fossils.get(n))
-          .filter((f): f is FossilTaxon => f !== undefined),
-        tree.induced,
-        tree.nodes,
-      ),
-    [tree.view.fossils, tree.fossils, tree.induced, tree.nodes],
-  );
+  const graftSet = tree.graftSet;
   const grafts = graftSet.grafts;
 
   // And say so when one of them is not drawn. `tree/refusals.tsx` is the notice

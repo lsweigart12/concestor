@@ -113,10 +113,17 @@ reader who asked for no motion is better served by the answer.
 
 **A taxon may be asked for at any moment; it is drawn when the canvas is free.**
 Adds go into a queue — an opening's remaining taxa, a press of `R`, a palette
-row, all the same queue — and the head is released when its lineage has arrived
-_and_ the previous draw has landed. Holding `R` down therefore draws every
-species it rolls, in turn, instead of each press cutting the last animation off
-at the knees.
+row, **a fossil**, all the same queue — and the head is released when its lineage
+has arrived _and_ the previous draw has landed. Holding `R` down therefore draws
+every species it rolls, in turn, instead of each press cutting the last animation
+off at the knees.
+
+**A fossil is a taxon here.** It waits its turn, it draws itself on, and its mark
+blooms where the line arrives, exactly as a species does — the only differences
+are what its *connector* is allowed to claim (`fossil-grafts.md` §3). It used to
+appear the moment its row was fetched, which meant reflowing whatever was drawing
+at the time; a graft that simply materialises is both a worse arrival and the
+cause of a real rendering bug.
 
 **Nothing outside the canvas knows how long a draw takes.** The canvas reports
 each one as it lands and the queue follows; there is no step interval to keep
