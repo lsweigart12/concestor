@@ -229,6 +229,74 @@ describe("a branch with no length on the axis still keeps its row", () => {
   });
 });
 
+/**
+ * `/?n=639642,188297,125642,480673,90224,611099,1033570,677394,732716,1089003,650443,832438`
+ * — twelve taxa, which drew a canvas that shook and never settled.
+ *
+ * Sauropsida is chosen, so it is a leaf; it is also the ancestor of exactly one
+ * rendered node, Sauria, 23 Ma along the axis from it. Under `symlog` against a
+ * 652 Ma root that gap is 1.1% of the plot, so the two are one mark below about
+ * 1670 units of plot and two above it — and the row rule used to read the
+ * *stretched* width. The fit solves that width from the tree's height
+ * (`plotWidthToFill`), so: four rows asks for a wider plot, the wider plot drops
+ * a row, three rows asks for a narrower one, and nothing ever settles. The 5%
+ * band in `Graph.tsx` cannot catch it — the two fixed points are 46% apart.
+ *
+ * The ages are the build's own, read back from `/v1/paths`.
+ */
+const SHAKE_PATHS: Record<number, number[]> = {
+  2: [1, 2],
+  3: [1, 3],
+  5: [1, 3, 4, 5],
+  6: [1, 3, 4, 6],
+};
+const SHAKE_NODES = new Map<number, PathNode>([
+  [1, node(1, "Bilateria", 652.4237670898438, 1463849)],
+  [2, node(2, "Lumbricus terrestris complex", 5.181147575378418, 3)],
+  [3, node(3, "Sauropsida", 323.18280029296875, 32043)],
+  [4, node(4, "Sauria", 299.8999938964844, 32042)],
+  [5, node(5, "Ornithischia", 237, 3)],
+  [6, node(6, "Locustella naevia", 0)],
+]);
+const SHAKE = induced([2, 3, 5, 6], (i) => SHAKE_PATHS[i]);
+
+describe("the row count is not a function of the axis stretch", () => {
+  // Every width the fit may solve for, from the narrow-panel floor to
+  // `PLOT_W * 6`, either side of the ~1670 the real selection straddles.
+  const widths = [340, 800, 1240, 1600, 1700, 2000, 2480, 4000, 7440];
+
+  it("keeps one height across every stretch of the same tree", () => {
+    // The property, and the whole of the bug: `baseWidth` is what the window
+    // decided and does not move with the fit, so the fit cannot change the
+    // thing it is solving from. Were this to fail, the canvas oscillates.
+    const heights = widths.map(
+      (w) =>
+        layout(SHAKE, SHAKE_NODES, { plotWidth: w, baseWidth: 1240 }).height,
+    );
+    expect(new Set(heights).size).toBe(1);
+  });
+
+  it("still lets the reader's own window decide it", () => {
+    // The narrow panel is not part of the loop — `vw` does not depend on the
+    // layout — and on one the marks really do crowd, so the row is still owed.
+    const narrow = layout(SHAKE, SHAKE_NODES, {
+      plotWidth: 340,
+      baseWidth: 340,
+    });
+    const wide = layout(SHAKE, SHAKE_NODES, {
+      plotWidth: 2480,
+      baseWidth: 2480,
+    });
+    expect(narrow.height).toBe(wide.height + 74);
+  });
+
+  it("defaults to the width it is drawn at, so callers keep today's answer", () => {
+    expect(layout(SHAKE, SHAKE_NODES, { plotWidth: 800 }).height).toBe(
+      layout(SHAKE, SHAKE_NODES, { plotWidth: 800, baseWidth: 800 }).height,
+    );
+  });
+});
+
 describe("orthogonal edges", () => {
   it("never emits a cubic bezier", () => {
     // Curves make convergent branches ambiguous, and a dozen lineages meeting

@@ -167,6 +167,14 @@ const STRETCH_BIAS_MAX = STRETCH_STEP ** 3;
 const clampPlotW = (w: number) => Math.min(MAX_PLOT_W, Math.max(MIN_PLOT_W, w));
 
 /**
+ * Whether two stretches are the same stretch, on the same 5% band the fit uses
+ * to decide a width is not worth a relayout. `null` — nowhere yet — is near
+ * nothing.
+ */
+const near = (a: number, b: number | null) =>
+  b !== null && Math.abs(a - b) <= b * 0.05;
+
+/**
  * Margin the reveal keeps between the subject and every edge, and the shortest
  * it waits before acting. The wait is a floor, not a polish delay: `scheduleFit`
  * raises it past any reframe already animating, or a pan lands mid-animation.
@@ -375,6 +383,13 @@ function Inner(props: GraphProps) {
   const plotWidth = clampPlotW(basePlotW * stretch);
 
   /**
+   * The stretch the current run of relayouts came away from, or null once it
+   * has settled. Read by `fitToContent` to refuse a width it has already left,
+   * which is what makes a disagreement terminate instead of oscillate.
+   */
+  const cameFrom = useRef<number | null>(null);
+
+  /**
    * What each label will say, handed to the layout so the placement pass
    * measures the real strings and cannot drift from the renderer. Reads the two
    * label switches — safe where reading the zoom was not, because zoom feeds the
@@ -413,12 +428,24 @@ function Inner(props: GraphProps) {
     () =>
       layout(ind, nodeMap, {
         plotWidth,
+        // Not `plotWidth`: the stretch is solved from the row count, so the row
+        // count must not be solved from the stretch. See `layout`'s `baseWidth`.
+        baseWidth: basePlotW,
         label: describeLabel,
         axis: axisMode,
         grafts,
         holdMaxAge,
       }),
-    [ind, nodeMap, plotWidth, describeLabel, axisMode, grafts, holdMaxAge],
+    [
+      ind,
+      nodeMap,
+      plotWidth,
+      basePlotW,
+      describeLabel,
+      axisMode,
+      grafts,
+      holdMaxAge,
+    ],
   );
 
   /**
@@ -995,8 +1022,18 @@ function Inner(props: GraphProps) {
       // fit and its own relayout handing the width back and forth forever.
       const want = fillStretch();
       const handoff =
-        want !== null && Math.abs(want - stretch) > stretch * 0.05;
+        want !== null &&
+        Math.abs(want - stretch) > stretch * 0.05 &&
+        // And a stop for the case the band cannot see, which is the one that
+        // reached production: two widths that each ask for the other, far
+        // enough apart that every step clears the tolerance. The band only
+        // refuses a width close to where we already are; this refuses the width
+        // we just came *away* from. Two arrangements that disagree are then a
+        // relayout and a settle rather than a shake, and the reader gets the
+        // first of the two rather than neither.
+        !near(want, cameFrom.current);
       if (handoff && duration > 0) {
+        cameFrom.current = stretch;
         setStretch(want);
         return;
       }
@@ -1005,9 +1042,12 @@ function Inner(props: GraphProps) {
       rf.setViewport(t, { duration });
       fitUntil.current = Date.now() + duration;
       if (handoff) {
+        cameFrom.current = stretch;
         setStretch(want);
         return;
       }
+      // Settled: the next reframe is a fresh question and may travel anywhere.
+      cameFrom.current = null;
       setAtFit(true);
     },
     [fitTarget, rf, reserved, fillStretch, stretch],
@@ -1282,6 +1322,10 @@ function Inner(props: GraphProps) {
       const k = dir === 1 ? STRETCH_STEP : 1 / STRETCH_STEP;
       const next = clampPlotW(plotWidth * k) / basePlotW;
       if (Math.abs(next - stretch) < 1e-3) return;
+      // A press is a fresh question, not a continuation of the fit's search, so
+      // the width it may travel to is unrestricted — including straight back to
+      // one a previous run declined.
+      cameFrom.current = null;
       setStretch(next);
       setStretchBias((b) =>
         Math.min(STRETCH_BIAS_MAX, Math.max(STRETCH_BIAS_MIN, b * k)),

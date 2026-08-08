@@ -162,6 +162,26 @@ export function layout(
   opts: {
     rowHeight?: number;
     plotWidth?: number;
+    /**
+     * The plot width *before* the fit's axis stretch, which is the only width
+     * the row rule is allowed to see. Defaults to `plotWidth`.
+     *
+     * `plotWidth` is partly solved from the tree's own height — a tall tree
+     * gets a wider plot so its aspect matches the frame
+     * ({@link plotWidthToFill}) — so anything that decides the *row count* from
+     * `plotWidth` closes a loop through the fit. {@link MARK_MIN_SEP} did:
+     * Sauropsida sits 23 Ma from its only rendered child and the two are one
+     * mark below a plot of about 1670 units and two above it, so the tree was
+     * four rows tall, asked to be wider, came back three rows tall, asked to be
+     * narrower, and the canvas shook between the two arrangements forever.
+     *
+     * The width the *reader's window* gives is not part of that loop and still
+     * counts: on a narrow panel the marks really do crowd. So the rule is asked
+     * at the width the window alone decided, and the stretch — which is an
+     * answer computed from the rows — is kept out of the question that decides
+     * them.
+     */
+    baseWidth?: number;
     label?: LabelText;
     axis?: AxisMode;
     /** Fossils drawn against the tree. See `graft.ts`; empty is the default. */
@@ -178,6 +198,7 @@ export function layout(
 ): Layout {
   const rowH = opts.rowHeight ?? ROW_H;
   const plotW = opts.plotWidth ?? PLOT_W;
+  const baseW = opts.baseWidth ?? plotW;
   const mode = opts.axis ?? "log";
   const grafts = opts.grafts ?? [];
   const placed = new Map<number, Placed>();
@@ -207,6 +228,9 @@ export function layout(
   // node is further from the reader's starting point rather than closer.
   const xAt = (age: number) => PAD_X + plotW * (1 - ageFrac(age, maxAge, mode));
   const xOf = (v: number) => xAt(ageOf(v));
+  // The same axis at {@link baseWidth}, for the one question that must not be
+  // answered from a stretch the answer will be used to compute.
+  const xBaseOf = (v: number) => baseW * (1 - ageFrac(ageOf(v), maxAge, mode));
 
   // y: one row per rendered leaf in preorder order, internal nodes at the
   // midpoint of their children's extent. Rendered leaves are the selections
@@ -224,7 +248,7 @@ export function layout(
   const collidesWithOnlyChild = (v: number): boolean => {
     const cs = kids.get(v) ?? [];
     if (cs.length !== 1) return false;
-    return Math.abs(xOf(v) - xOf(cs[0]!)) < MARK_MIN_SEP;
+    return Math.abs(xBaseOf(v) - xBaseOf(cs[0]!)) < MARK_MIN_SEP;
   };
   /**
    * A row belongs to a lineage that ends here: a node with rendered descendants
@@ -236,6 +260,11 @@ export function layout(
    * single child (both at `age_layout` 0, e.g. *H. sapiens* and its subspecies),
    * it keeps a row so the zero-length trace becomes a visible drop — a row, not
    * an x offset, since x is time.
+   *
+   * That exception is asked at {@link baseWidth} and not at `plotWidth`, and it
+   * has to be: the number of rows is an *input* to the width the fit solves, so
+   * a row that comes and goes with the width makes the canvas oscillate. See
+   * the option's own note.
    */
   const rows = ind.rendered.filter(
     (v) => !kids.has(v) || (leafSet.has(v) && collidesWithOnlyChild(v)),
