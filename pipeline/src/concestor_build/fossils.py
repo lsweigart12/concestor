@@ -78,8 +78,16 @@ GBIF_EXPRESSIBLE_RANKS = frozenset(
 # moving because PBDB published is not a bug and must not block a build.
 MIN_OCCURRENCE_NODES = 2_000
 
+# Accepted taxa the tree holds under a name PBDB files on a second `taxon_no` —
+# see `under_accepted_name`. 6,271 of them are the accepted record itself, which
+# is the row `is_primary` picks and search serves.
+EXPECT_UNDER_ACCEPTED_NAME = 37_720
+
 SPOT_TYRANNOSAURUS = 38613
 SPOT_AUBLYSODON = 38614
+# The accepted record, entered as *Pithecanthropus erectus*. The current
+# combination *Homo erectus* is taxon 376854 and is what resolves by name.
+SPOT_HOMO_ERECTUS = 83084
 # Dinosauria is not a node in the synthesis tree, so the containment test uses
 # the deepest named ancestor that is — a strictly stronger claim.
 SPOT_CONTAINER = "Tyrannosauridae"
@@ -150,6 +158,48 @@ def load_xref_pbdb(con: sqlite3.Connection) -> dict[int, tuple[int, int]]:
     return out
 
 
+def under_accepted_name(
+    taxa: Sequence[PbdbTaxon], resolved: dict[int, tuple[int, int]]
+) -> dict[int, int]:
+    """`accepted_no → taxon_no` of a resolved row spelling out the accepted name.
+
+    PBDB enters a recombination under a `taxon_no` of its own and leaves the
+    accepted record under the original combination: *Homo erectus* is taxon
+    376854, while accepted taxon 83084 is *Pithecanthropus erectus* (same
+    `orig_no`, same animal). Phase 3's `name_exact` reads `taxon_name`, so only
+    376854 reaches the tree's own *Homo erectus* node — and the accepted record,
+    the one `is_primary` picks and search and the lane serve, walked up to the
+    genus. `attach_walk` then said 1 for a taxon the tree holds exactly, so
+    `notInTree` did not refuse it and the same animal arrived twice: once as a
+    node, once as a fossil to graft below *Homo*.
+
+    **Only a row whose own name IS the accepted name qualifies.** Grouping on
+    `accepted_no` alone would hand a class its synonym's node — PBDB files the
+    radiolarian genus *Cenellipsis* under accepted name *Radiolaria*, and OTT has
+    a *Cenellipsis*, so *Radiolaria* would attach inside one of its own genera.
+    Name equality is the whole claim: this row is the accepted taxon, written
+    the way the tree writes it.
+
+    Where several rows qualify, the strongest method wins (`METHOD_ORDER`, via
+    `ATTACH_METHOD_CODE`), then the lowest `taxon_no` — deterministic, though no
+    accepted taxon in the pinned snapshot has two such rows disagreeing on a
+    node.
+    """
+    best: dict[int, tuple[int, int]] = {}  # accepted_no -> (method code, taxon_no)
+    for t in taxa:
+        if t.name != t.accepted_name:
+            continue
+        hit = resolved.get(t.taxon_no)
+        if hit is None:
+            continue
+        accepted = t.accepted_no or t.taxon_no
+        key = (hit[1], t.taxon_no)
+        current = best.get(accepted)
+        if current is None or key < current:
+            best[accepted] = key
+    return {accepted: taxon_no for accepted, (_method, taxon_no) in best.items()}
+
+
 class Attacher:
     """Walks PBDB's `parent_no` chain to the deepest node the tree has.
 
@@ -157,14 +207,35 @@ class Attacher:
     in it.
     """
 
-    __slots__ = ("_memo", "parent_of", "resolved")
+    __slots__ = ("_memo", "by_accepted_name", "parent_of", "resolved")
 
     def __init__(
-        self, resolved: dict[int, tuple[int, int]], parent_of: dict[int, int]
+        self,
+        resolved: dict[int, tuple[int, int]],
+        parent_of: dict[int, int],
+        by_accepted_name: dict[int, int] | None = None,
     ) -> None:
         self.resolved = resolved
         self.parent_of = parent_of
+        self.by_accepted_name = by_accepted_name or {}
         self._memo: dict[int, Attachment] = {}
+
+    def _hit(self, taxon_no: int) -> tuple[int, int, int] | None:
+        """`(idx, method, via)` where this PBDB taxon reaches the tree, or None.
+
+        Two ways to be the taxon itself, and neither is a `parent_no` hop: the
+        record resolved, or a row spelling out its accepted name did — see
+        `under_accepted_name`. Consulted inside the walk as well as at its start,
+        so a child of a recombined taxon stops at it rather than climbing past.
+        """
+        r = self.resolved.get(taxon_no)
+        if r is not None:
+            return r[0], r[1], taxon_no
+        via = self.by_accepted_name.get(taxon_no)
+        if via is None:
+            return None
+        r = self.resolved[via]
+        return r[0], r[1], via
 
     def _from(self, start: int) -> Attachment:
         cached = self._memo.get(start)
@@ -176,9 +247,9 @@ class Attacher:
         seen: set[int] = set()
         found: Attachment | None = None
         while cur and cur not in seen and len(chain) < MAX_WALK:
-            hit = self.resolved.get(cur)
+            hit = self._hit(cur)
             if hit is not None:
-                found = Attachment(hit[0], hit[1], len(chain), cur)
+                found = Attachment(hit[0], hit[1], len(chain), hit[2])
                 break
             seen.add(cur)
             chain.append(cur)
@@ -201,9 +272,9 @@ class Attacher:
         `walk` counts genuine `parent_no` hops, so a synonym resolving through
         its own accepted taxon is still walk 0 — both are "the taxon itself".
         """
-        own = self.resolved.get(t.taxon_no)
+        own = self._hit(t.taxon_no)
         if own is not None:
-            return Attachment(own[0], own[1], 0, t.taxon_no)
+            return Attachment(own[0], own[1], 0, own[2])
         return self._from(t.accepted_no or t.taxon_no)
 
 
@@ -670,7 +741,8 @@ def run(use_api: bool = True) -> int:
     )
 
     parent_of = {t.taxon_no: t.parent_no for t in taxa}
-    attacher = Attacher(resolved, parent_of)
+    by_accepted_name = under_accepted_name(taxa, resolved)
+    attacher = Attacher(resolved, parent_of, by_accepted_name)
 
     print("--- reading the last-appearance young ends ---", flush=True)
     ends, end_stats = young_ends(taxa)
@@ -929,6 +1001,47 @@ def run(use_api: bool = True) -> int:
         f"{at_root:,} ({100 * at_root / n_rows:.1f}%)",
         note="every fossil attaches somewhere; the root is the terminal "
         "fallback. Everything landing at Eukaryota means the chain is broken.",
+    )
+
+    # --- the taxon the tree already holds -------------------------------------
+    g.require(
+        "accepted taxa reached through a row spelling out their accepted name",
+        len(by_accepted_name),
+        EXPECT_UNDER_ACCEPTED_NAME,
+        note="see `under_accepted_name`. PBDB enters a recombination under a "
+        "`taxon_no` of its own and leaves the accepted record under the "
+        "original combination, and phase 3's `name_exact` reads `taxon_name`.",
+    )
+    g.require(
+        "accepted records the tree holds exactly, still walking to an ancestor",
+        con.execute(
+            "SELECT count(*) FROM fossil f WHERE f.is_primary = 1 "
+            "AND f.attach_walk != 0 AND EXISTS ("
+            "  SELECT 1 FROM fossil d WHERE d.accepted_no = f.accepted_no "
+            "  AND d.own_name = d.name AND d.attach_walk = 0)"
+        ).fetchone()[0],
+        0,
+        note="the rule §9 of fossil-grafts.md states from the other end: a "
+        "fossil row is a taxon the tree does not contain. `notInTree` refuses "
+        "`attach_walk = 0`, so a taxon the tree holds under a name PBDB files "
+        "on a second `taxon_no` used to pass the filter and arrive twice — "
+        "6,271 of them, *Homo erectus* among them.",
+    )
+    he = con.execute(
+        "SELECT f.attach_walk, n.name FROM fossil f JOIN node n ON n.idx = f.attach_idx "
+        "WHERE f.pbdb_taxon_no = ?",
+        (SPOT_HOMO_ERECTUS,),
+    ).fetchone()
+    g.require(
+        "spot check — the accepted *Homo erectus* record attaches to its node",
+        None if he is None else tuple(he),
+        (0, "Homo erectus"),
+        ok=he is not None and tuple(he) == (0, "Homo erectus"),
+        note="PBDB's accepted record for *Homo erectus* is 83084, entered as "
+        "*Pithecanthropus erectus*; the current combination is 376854. Only the "
+        "second matched a node by name, so the first walked to genus *Homo* and "
+        "the palette offered a fossil to graft below *Homo* beside the tree's "
+        "own *Homo erectus* node.",
     )
 
     baseline: JsonDict = json.loads(BASELINE.read_text()) if BASELINE.exists() else {}
@@ -1275,7 +1388,14 @@ def layout_gates(
             "1,019 of 1,048 before the sweep existed and 31 of 60 after: the "
             "population itself collapsed, which is the shape a real fix makes. "
             "It stays an `observe` because the residue is not repairable here "
-            "and a hard threshold on it would be a number nobody measured."
+            "and a hard threshold on it would be a number nobody measured. "
+            "34 of 63 since `under_accepted_name` — and those three are the "
+            "measure's own blind spot rather than new defects: PBDB files "
+            "*Palaeonisci* under the accepted name *Actinopterygii*, so a "
+            "genuinely Devonian fish now attaches exactly at a class that is "
+            "very much alive. An extinct member of a living clade is not a "
+            "homonym; the bound is refused below on the same evidence either "
+            "way."
         ),
     )
     g.observe(
@@ -1287,7 +1407,7 @@ def layout_gates(
             "phase 3's name-based `xref` — PBDB's *Ivesia* is an Ediacaran "
             "rangeomorph and OTT's a rose-family plant, so a 538.8 Ma bound "
             "reached a living genus. Phase 3's sweep withdrew those and it now "
-            "reads 15,547. What is left is the statement itself doing its "
+            "reads 15,563. What is left is the statement itself doing its "
             "work: a bracket on a clade that is still alive is not evidence "
             "about where that clade's origin sits."
         ),
@@ -1394,7 +1514,7 @@ TIER_PHASE2 = TOPOLOGY / "age_tier_phase2.npy"
 
 # The occurrence range gets its own table (not `age_ma`) so nothing reading
 # `age_ma` can mistake a range for a divergence age. A dense (n, 4) float32
-# array would be wasteful for ~2,128 rows and the Go reader is 1-D only. The
+# array would be wasteful for ~2,129 rows and the Go reader is 1-D only. The
 # dense array is still built in memory and every gate below runs against it,
 # because that is where a transposed column or a stray finite value would show.
 
@@ -1475,7 +1595,7 @@ def occurrence_gates(
     """The constraints, checked against the arrays rather than the code."""
     has = tier == TIER_OCCURRENCE
 
-    # The number a reader is actually asking about. "2,128 nodes gained a
+    # The number a reader is actually asking about. "2,129 nodes gained a
     # range" invites the conclusion that the available brackets were used up,
     # and the honest question is narrower: does a taxon someone came here to
     # look up stop reading "not estimated"?
@@ -1507,7 +1627,7 @@ def occurrence_gates(
     g.require(
         "nodes gaining the occurrence tier",
         f"{n_tier:,}",
-        f"≥ {MIN_OCCURRENCE_NODES:,} (measured 2,128)",
+        f"≥ {MIN_OCCURRENCE_NODES:,} (measured 2,129)",
         ok=n_tier >= MIN_OCCURRENCE_NODES,
         note=(
             "Extinct taxa read 'not estimated' before this, by construction "

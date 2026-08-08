@@ -120,6 +120,159 @@ def test_memoisation_gives_each_ancestor_its_own_walk_length():
     assert a.attach(taxon(1, parent_no=0)).walk == 0
 
 
+# --- the taxon the tree already holds, filed under a second taxon_no ----------
+#
+# PBDB enters a recombination under its own `taxon_no` and leaves the accepted
+# record under the original combination. Phase 3 matches `taxon_name`, so only
+# the recombination reaches the node — and the accepted record, the row
+# `is_primary` picks and search serves, walked to the genus. `attach_walk` then
+# said 1 for a taxon the tree holds exactly, `notInTree` did not refuse it, and
+# the same animal arrived twice.
+
+
+def homo_erectus() -> list[PbdbTaxon]:
+    """PBDB's three rows for *Homo erectus*, verbatim from the pinned snapshot."""
+    return [
+        taxon(
+            40901,
+            parent_no=91486,
+            name="Homo",
+            accepted_name="Homo",
+            rank="genus",
+        ),
+        # The accepted record — entered under the original combination.
+        taxon(
+            83084,
+            parent_no=40901,
+            name="Pithecanthropus erectus",
+            accepted_name="Homo erectus",
+            rank="species",
+            difference="recombined as",
+        ),
+        # The current combination, on a taxon_no of its own.
+        taxon(
+            376854,
+            parent_no=40901,
+            accepted_no=83084,
+            name="Homo erectus",
+            accepted_name="Homo erectus",
+            rank="species",
+        ),
+        # A junior synonym of the same accepted taxon.
+        taxon(
+            83083,
+            parent_no=40901,
+            accepted_no=83084,
+            name="Homo ergaster",
+            accepted_name="Homo erectus",
+            rank="species",
+            difference="subjective synonym of",
+        ),
+    ]
+
+
+def test_the_accepted_record_reaches_the_node_its_recombination_resolved_to():
+    taxa = homo_erectus()
+    # Only "Homo erectus" matches a node by name; the genus resolves by chain.
+    resolved = {376854: (594490, NAME), 40901: (594480, CHAIN)}
+    parents = {t.taxon_no: t.parent_no for t in taxa}
+
+    walked = Attacher(resolved, parents).attach(taxa[1])
+    assert (walked.idx, walked.walk) == (594480, 1), (
+        "the bug: the accepted record climbs to the genus"
+    )
+
+    a = Attacher(resolved, parents, fossils.under_accepted_name(taxa, resolved))
+    got = a.attach(taxa[1])
+    assert got == fossils.Attachment(idx=594490, method=NAME, walk=0, via=376854)
+
+
+def test_every_row_of_the_taxon_lands_on_the_node_so_none_is_offered_twice():
+    """`notInTree` refuses `attach_walk = 0`; a row left walking arrives twice."""
+    taxa = homo_erectus()
+    resolved = {376854: (594490, NAME), 40901: (594480, CHAIN)}
+    a = Attacher(
+        resolved,
+        {t.taxon_no: t.parent_no for t in taxa},
+        fossils.under_accepted_name(taxa, resolved),
+    )
+    for t in taxa[1:]:
+        got = a.attach(t)
+        assert (got.idx, got.walk) == (594490, 0), t.name
+
+
+def test_a_synonym_does_not_hand_its_node_to_a_broader_accepted_taxon():
+    """Name equality is the whole claim — grouping on `accepted_no` is not enough.
+
+    PBDB files the radiolarian genus *Cenellipsis* under accepted name
+    *Radiolaria*. OTT has a *Cenellipsis*, so taking any resolved row of the
+    accepted group would attach a whole class inside one of its own genera.
+    """
+    radiolaria = taxon(4, name="Radiolaria", accepted_name="Radiolaria", parent_no=1)
+    cenellipsis = taxon(
+        60,
+        parent_no=4,
+        accepted_no=4,
+        name="Cenellipsis",
+        accepted_name="Radiolaria",
+        difference="subjective synonym of",
+    )
+    taxa = [radiolaria, cenellipsis]
+    resolved = {60: (700, NAME), 1: (1, NAME)}
+
+    assert fossils.under_accepted_name(taxa, resolved) == {}
+    a = Attacher(
+        resolved, {4: 1, 60: 4, 1: 0}, fossils.under_accepted_name(taxa, resolved)
+    )
+    assert a.attach(radiolaria).idx == 1, "walks past its own synonym's node"
+
+
+def test_the_record_s_own_resolution_still_wins():
+    taxa = homo_erectus()
+    resolved = {376854: (594490, NAME), 83084: (777, CHAIN)}
+    a = Attacher(
+        resolved,
+        {t.taxon_no: t.parent_no for t in taxa},
+        fossils.under_accepted_name(taxa, resolved),
+    )
+    got = a.attach(taxa[1])
+    assert got == fossils.Attachment(idx=777, method=CHAIN, walk=0, via=83084)
+
+
+def test_a_child_of_a_recombined_taxon_stops_at_it_rather_than_climbing_past():
+    """The map is consulted inside the walk, not only at its start."""
+    taxa = [
+        *homo_erectus(),
+        taxon(
+            999,
+            parent_no=83084,
+            name="Homo erectus pekinensis",
+            accepted_name="Homo erectus pekinensis",
+            rank="subspecies",
+        ),
+    ]
+    resolved = {376854: (594490, NAME), 40901: (594480, CHAIN)}
+    a = Attacher(
+        resolved,
+        {t.taxon_no: t.parent_no for t in taxa},
+        fossils.under_accepted_name(taxa, resolved),
+    )
+    got = a.attach(taxa[-1])
+    assert got.idx == 594490, "one hop to Homo erectus, not two to the genus"
+    assert got.walk == 1
+    assert got.via == 376854
+
+
+def test_the_strongest_method_wins_when_two_rows_spell_the_accepted_name():
+    taxa = [
+        taxon(1, name="A", accepted_name="A"),
+        taxon(2, accepted_no=1, name="A", accepted_name="A"),
+        taxon(3, accepted_no=1, name="A", accepted_name="A"),
+    ]
+    resolved = {2: (20, NAME), 3: (30, CHAIN)}
+    assert fossils.under_accepted_name(taxa, resolved) == {1: 3}, "chain beats name"
+
+
 # --- rows ---------------------------------------------------------------------
 
 

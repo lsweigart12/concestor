@@ -569,6 +569,56 @@ func TestMatchedNameCarriesTheSynonymThatHit(t *testing.T) {
 	}
 }
 
+// The other half of §9: a taxon the tree holds is refused from the fossil list
+// on purpose, so the name PBDB uses for it has to answer through the node or
+// not at all. *Opisthobranchiata* is the fossil record's name for the taxon OTT
+// calls *Opisthobranchia*, and OTT carries no synonym for it — so with the row
+// refused and the `pbdb` corpus absent, the name reached nothing that is the
+// taxon. 779 names were already in that state before the corpus existed.
+//
+// Reported as `fossil-name` rather than `synonym` because the claims differ:
+// OTT filing a name is a statement about the taxonomy, PBDB using one is a
+// statement about a second catalogue, and the palette says which.
+func TestMatchedOnNamesTheFossilRecordWhenThatIsWhatMatched(t *testing.T) {
+	st := open(t)
+	if st.Schema.FTS == nil || st.Schema.FTS.MapKind == "" {
+		t.Skip("no kind column")
+	}
+	res, err := st.Search(t.Context(), "Opisthobranchiata", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res) == 0 {
+		t.Fatal("a name the fossil record uses returned nothing")
+	}
+	got := res[0]
+	if got.Name == nil || *got.Name != "Opisthobranchia" {
+		t.Fatalf("first hit = %v, want Opisthobranchia", got.Name)
+	}
+	if got.MatchedOn != "fossil-name" {
+		t.Fatalf("matched_on = %q, want fossil-name", got.MatchedOn)
+	}
+	if got.MatchedName == nil || *got.MatchedName != "Opisthobranchiata" {
+		t.Fatalf("matched_name = %v, want the fossil record's name", got.MatchedName)
+	}
+}
+
+// A fossil-record name is a way in, never a rename. It rides in the `syn` FTS
+// column so it carries a synonym's weight, and `matchStrength` puts it below a
+// synonym so that when both matched equally the taxonomy's own filing is what
+// gets credited.
+func TestAFossilRecordNameNeverOutranksTheTaxonsOwn(t *testing.T) {
+	if matchStrength("fossil-name") >= matchStrength("synonym") {
+		t.Fatal("a fossil-record name must not outrank OTT's own filing")
+	}
+	if matchStrength("fossil-name") <= matchStrength("vernacular") {
+		t.Fatal("a fossil-record name is a scientific name and beats a common one")
+	}
+	if matchTier("fossil-name") != matchTier("synonym") {
+		t.Fatal("both are names the taxon does not print; same tier")
+	}
+}
+
 // A name the row already prints is not sent back as the reason it matched:
 // captioning "Homo sapiens" with "matched Homo sapiens" is a caption on the
 // obvious, and the UI would have to filter it out again.

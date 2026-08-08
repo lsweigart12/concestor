@@ -3,7 +3,7 @@
 Separated from `topology.py` because it consumes phase 6 as well as phase 1, and
 because rebuilding the index must not mean reparsing a 31 MB Newick.
 
-Five corpora, five columns, one query. Separate FTS5 columns are what let
+Six corpora, five columns, one query. Separate FTS5 columns are what let
 ranking weight them (an exact binomial must beat a vernacular match):
 
 | column | kind | source |
@@ -13,9 +13,14 @@ ranking weight them (an exact binomial must beat a vernacular match):
 | `syn`    | 2 | `synonyms.tsv`, joined by OTT id through `forward` |
 | `vern`   | 3 | the `vernacular` table |
 | `broken` | 4 | `broken_taxon` — names that are *not* nodes |
+| `syn`    | 5 | `fossil` — PBDB's name for a taxon the tree holds |
 
-Each FTS row populates exactly one column, so `kind` says which corpus a hit
-came from.
+Each FTS row populates exactly one column, and `kind` says which corpus a hit
+came from. The two are not quite one-to-one: kinds 2 and 5 share the `syn`
+column because they want the same *weight* — a name the taxon also goes by —
+while staying distinguishable in the *caption*, since "the taxonomy files it
+under this name" and "the fossil record calls it this" are different claims.
+See `load_pbdb_names`.
 
 The `broken` column exists because *Escherichia coli* is a non-monophyletic
 taxon synthesis rejects, so it is not a node and has no name in `node.name`.
@@ -62,18 +67,22 @@ KIND_ABBR = 1
 KIND_SYN = 2
 KIND_VERN = 3
 KIND_BROKEN = 4
+KIND_PBDB = 5
 KIND_NAMES = {
     KIND_SCI: "sci",
     KIND_ABBR: "abbr",
     KIND_SYN: "syn",
     KIND_VERN: "vern",
     KIND_BROKEN: "broken",
+    KIND_PBDB: "pbdb",
 }
 
 # Measured from the phase-1 database and OTT 3.7.3.
 EXPECT_SCI = 2_599_664
 EXPECT_SYNONYM_ROWS = 2_226_375
 EXPECT_BROKEN = 9_839
+# The names the fossil record uses for taxa the tree holds — `load_pbdb_names`.
+EXPECT_PBDB_NAMES = 2_584
 
 # Ranking weights, tuned so `log1p(tip_count)` dominates: the boolean signals
 # only ever break ties between taxa of comparable size, never promoting a
@@ -101,7 +110,7 @@ CREATE VIRTUAL TABLE node_fts USING fts5(
 CREATE TABLE search_name (
   id    INTEGER PRIMARY KEY,
   idx   INTEGER NOT NULL,
-  kind  INTEGER NOT NULL,   -- 0 sci, 1 abbr, 2 syn, 3 vern, 4 broken
+  kind  INTEGER NOT NULL,   -- 0 sci, 1 abbr, 2 syn, 3 vern, 4 broken, 5 pbdb
   name  TEXT NOT NULL
 );
 
@@ -223,6 +232,65 @@ def load_synonyms(con: sqlite3.Connection, log: Log = print) -> int:
         """
     )
     return n
+
+
+def load_pbdb_names(con: sqlite3.Connection) -> int:
+    """Stage the name the fossil record uses for each taxon the tree holds.
+
+    `attach_walk = 0` means the PBDB taxon *is* the node, and `store.notInTree`
+    refuses those from the fossil list precisely so the node answers instead —
+    fossil-grafts.md §9. But the node answers under *OTT's* spelling, and the
+    two catalogues disagree about 1,559 of these names. Where OTT does not also
+    carry PBDB's spelling as a synonym, refusing the fossil row took the last
+    thing that could match it: searching *Opisthobranchiata* returned nothing
+    that is that taxon, though the tree holds it as *Opisthobranchia*.
+
+    **Measured against the shipped build at 779** — a defect this corpus
+    inherits rather than causes. `under_accepted_name` would have added 68 more
+    by converging taxa whose only remaining answer was the fossil row, taking it
+    to 847; after this corpus the population is **2**, and both are broken taxa
+    the `broken` corpus already answers for by explaining the substitution.
+
+    So the fossil record's name for a taxon is a way in to that taxon, on the
+    same footing as a synonym. It is indexed into the `syn` FTS column — the
+    weighting question ("a name it also goes by") has the same answer — but
+    carries its own `kind`, because the *caption* question does not: OTT filing
+    a name and PBDB using a name are different claims and the palette says
+    which. See `matchTier` and `matchStrength` in the server.
+
+    Only names nothing else already offers for that node: the ordinary case is
+    that PBDB and OTT agree, and a duplicate row would compete with the
+    scientific name for the same taxon. Dropped case-insensitively, matching
+    `load_synonyms`.
+    """
+    if not _table_exists(con, "fossil") or not _column_exists(
+        con, "fossil", "attach_walk"
+    ):
+        return 0
+    # The index is not optional. `name_raw` is a temp table with none, and the
+    # anti-join below is one lookup per candidate — without it SQLite scans all
+    # 6.8M staged names 38,657 times and the phase goes from 53 s to over half
+    # an hour. Dropped straight after: `renumber_by_rank` reads this table once,
+    # in full, and an index it never probes is only a slower insert.
+    con.execute("CREATE INDEX name_raw_dedup ON name_raw(idx)")
+    try:
+        con.execute(
+            f"""
+            INSERT INTO name_raw
+            SELECT DISTINCT f.attach_idx, {KIND_PBDB}, f.name
+              FROM fossil f
+             WHERE f.attach_walk = 0
+               AND f.name IS NOT NULL AND trim(f.name) <> ''
+               AND NOT EXISTS (
+                     SELECT 1 FROM name_raw r
+                      WHERE r.idx = f.attach_idx AND lower(r.name) = lower(f.name))
+            """
+        )
+    finally:
+        con.execute("DROP INDEX name_raw_dedup")
+    return con.execute(
+        f"SELECT count(*) FROM name_raw WHERE kind = {KIND_PBDB}"
+    ).fetchone()[0]
 
 
 # --------------------------------------------------------------------------
@@ -642,6 +710,11 @@ def run() -> int:
     n_broken = staged(KIND_BROKEN)
     print(f"  broken taxa: {n_broken:,}", flush=True)
 
+    # After the corpora it de-duplicates against, and before the vernaculars,
+    # which are a different kind of name and never suppress a scientific one.
+    n_pbdb = load_pbdb_names(con)
+    print(f"  fossil-record names: {n_pbdb:,}", flush=True)
+
     n_vern_rows = 0
     if have_vernacular:
         con.execute(
@@ -668,7 +741,11 @@ def run() -> int:
         SELECT id,
                CASE WHEN kind = {KIND_SCI}    THEN name END,
                CASE WHEN kind = {KIND_ABBR}   THEN name END,
-               CASE WHEN kind = {KIND_SYN}    THEN name END,
+               -- A fossil-record name shares the synonym column: the weighting
+               -- question ("a name it also goes by") has the same answer, and a
+               -- sixth column would be a schema change for no ranking gain. The
+               -- `kind` still tells them apart, which is what the caption reads.
+               CASE WHEN kind IN ({KIND_SYN}, {KIND_PBDB}) THEN name END,
                CASE WHEN kind = {KIND_VERN}   THEN name END,
                CASE WHEN kind = {KIND_BROKEN} THEN name END
           FROM search_name
@@ -697,8 +774,34 @@ def run() -> int:
     g.require(
         "no name lost in the rank renumbering",
         n_names,
-        n_sci + n_abbr + n_syn + n_vern_rows + n_broken,
+        n_sci + n_abbr + n_syn + n_vern_rows + n_broken + n_pbdb,
         note="renumber_by_rank is an inner join, and an inner join can drop rows",
+    )
+    g.require(
+        "fossil-record names indexed",
+        n_pbdb,
+        EXPECT_PBDB_NAMES,
+        note="the name PBDB uses for a taxon the tree holds, where nothing else "
+        "already offers it — see `load_pbdb_names`. Without these, refusing the "
+        "fossil row (fossil-grafts.md §9) leaves 847 taxa with no name that "
+        "finds them: the tree answers under OTT's spelling and the reader "
+        "typed PBDB's.",
+    )
+    g.require(
+        "every taxon the tree holds is findable under the fossil record's name",
+        con.execute(
+            "SELECT count(*) FROM (SELECT DISTINCT attach_idx, name FROM fossil "
+            " WHERE attach_walk = 0 AND name IS NOT NULL AND trim(name) <> '') f "
+            "WHERE NOT EXISTS (SELECT 1 FROM search_name sn "
+            "  WHERE sn.idx = f.attach_idx AND lower(sn.name) = lower(f.name))"
+        ).fetchone()[0]
+        if _table_exists(con, "fossil")
+        else 0,
+        0,
+        note="the statement the corpus above exists to make, checked against "
+        "the written table rather than the code that wrote it. `notInTree` "
+        "refuses these rows from the fossil list, so this is the only thing "
+        "left that can answer for the name.",
     )
     g.require(
         "search_name.id really is in rank order",

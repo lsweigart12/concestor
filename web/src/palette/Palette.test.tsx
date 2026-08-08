@@ -211,6 +211,48 @@ describe("Palette search", () => {
     expect(signal?.aborted).toBe(true);
   });
 
+  // Both captions credit a name the row does not print, and they must not say
+  // the same thing. OTT filing a name is a claim about the taxonomy; PBDB using
+  // one is a claim about a second catalogue, and the rows that need the caption
+  // most are exactly the ones where the tree prints neither.
+  it("credits a synonym as the taxonomy's filing", async () => {
+    vi.spyOn(api, "search").mockResolvedValue(
+      answer({
+        ...hit("Homo sapiens", 1),
+        matched_on: "synonym",
+        matched_name: "Homo floresiensis",
+      }),
+    );
+    mount();
+    type("Homo floresiensis");
+    await settle();
+
+    expect(
+      screen.getByText(/which the taxonomy files under this name/),
+    ).toBeTruthy();
+    expect(screen.getByText("Homo floresiensis")).toBeTruthy();
+  });
+
+  it("credits a fossil-record name as the fossil record's usage, not the taxonomy's", async () => {
+    vi.spyOn(api, "search").mockResolvedValue(
+      answer({
+        ...hit("Opisthobranchia", 2),
+        matched_on: "fossil-name",
+        matched_name: "Opisthobranchiata",
+      }),
+    );
+    mount();
+    type("Opisthobranchiata");
+    await settle();
+
+    expect(
+      screen.getByText(/the name the fossil record uses for this taxon/),
+    ).toBeTruthy();
+    expect(
+      screen.queryByText(/which the taxonomy files under this name/),
+    ).toBeNull();
+  });
+
   it("says nothing matched only once a search has settled", async () => {
     vi.spyOn(api, "search").mockReturnValue(new Promise(() => {}));
     mount();
