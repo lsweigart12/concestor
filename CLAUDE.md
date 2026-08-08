@@ -106,6 +106,17 @@ daily train (or the **Release** button) cuts one release covering all of them,
 and the version comes from the type prefixes it finds. The type→bump mapping
 lives in `release.config.cjs`'s `releaseRules` — read it there, don't restate it.
 
+Land pull requests with `gh pr merge --auto --merge` and do not rebase them onto
+`main` first. The ruleset requires the five CI checks but deliberately not
+"up to date with base", because that requirement is the rebase treadmill —
+`docs/ci.md` §5. A body containing a bare `#123` trips commitlint's
+`footer-leading-blank`: the parser reads it as a reference and so as the start of
+the footer. Say "PR 123", or put it in the footer where it belongs.
+
+The container image is a **data base image plus a binary layer assembled in CI**.
+Nothing is pushed by hand except a new dataset — `scripts/deploy/push-data-image.sh`
+from a checkout with `build/`, then commit the pin it prints.
+
 ## The design docs
 
 They are the spec, and their figures are verified against live data. Read them

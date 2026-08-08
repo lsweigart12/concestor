@@ -290,7 +290,44 @@ manually with `dry_run` on to watch it decide without releasing.
 
 ---
 
-## 5. What is deliberately not here
+## 5. Landing several pull requests at once
+
+The train only pays for itself if pull requests can *land* in parallel too. A sitting
+produces several — one per worktree — and merging them serially against a moving `main`
+was N−1 rounds of "update branch, wait for CI, repeat".
+
+**The ruleset on `main`** (repository → Rules → `main`) requires the five `ci.yml` checks,
+blocks force pushes and blocks deletion. Nobody bypasses it, including the owner.
+
+**It deliberately does not require branches to be up to date.** That single checkbox *is*
+the rebase treadmill, and what it buys — testing the exact merge result before merging —
+is bought more cheaply here: `ci.yml` runs on every push to `main`, so the merge result is
+tested seconds later, and the train's tip-green gate refuses to release a red tip. A
+semantic collision between two individually green pull requests therefore surfaces on
+`main` within minutes, **blocks the train rather than production**, and is fixed forward.
+
+**Auto-merge is on.** The working motion for a sitting: review each pull request, then
+
+```bash
+gh pr merge --auto --merge
+```
+
+each one and walk away. They land as their checks finish, in whatever order CI decides,
+with no manual branch updates. (Dependabot is the exception and stays manual — §4.)
+
+**Flake discipline is the real precondition.** Under batch volume a flaky test stops being
+a monthly annoyance and starts blocking trains. Any test that flakes twice gets fixed or
+quarantined the second time, as a `test:` commit — which releases nothing, so the fix does
+not have to wait for anything.
+
+**Native merge queue is not available**: GitHub requires an organization-owned repository
+and this one is user-owned. If pull request volume ever outgrows the above — cross-PR
+semantic collisions more than rarely — the upgrade is transferring the repository to a
+free organization, which preserves redirects and unlocks the merge queue. Not adding a bot.
+
+---
+
+## 6. What is deliberately not here
 
 - **No pipeline run in CI** — release cadence, not per commit, and the upstream APIs must
   be paced.
