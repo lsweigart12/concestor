@@ -5,7 +5,7 @@
 # run, and that is deliberate.
 #
 # This runs on a machine that has build/, and nowhere else. CI does not have
-# the dataset and must never produce it — docs/ci.md §5 — which is why
+# the dataset and must never produce it — docs/ci.md §6 — which is why
 # web/wrangler.jsonc references an image by registry tag rather than by
 # Dockerfile path.
 #

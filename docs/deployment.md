@@ -94,7 +94,7 @@ and does not re-export `ReadApi`, which is what makes it preview-eligible.
 
 **The image is a dataset and a binary, and they do not move together.** The
 dataset is ~2.2 GB of pipeline output that is not in the repository and **must
-never be produced in CI** (`docs/ci.md` §5); it changes when the pipeline runs.
+never be produced in CI** (`docs/ci.md` §6); it changes when the pipeline runs.
 The binary is ~10 MB and changes on every release. Welded into one hand-built
 image they drifted, and the drift was silent: production ran a pre-#51 server
 for two releases because shipping a 10 MB change meant rebuilding 2.2 GB on a
