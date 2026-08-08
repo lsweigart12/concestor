@@ -51,12 +51,23 @@ describe("axis in the URL", () => {
   });
 
   it("keeps the selection across the round trip", () => {
-    const v = decode("?n=770315,773491,688328&axis=log&sel=770315&iso=1");
+    const v = decode("?n=770315,773491,688328&axis=log&sel=770315");
     const back = decode(encode(v));
     expect(back.keys).toEqual(["770315", "773491", "688328"]);
     expect(back.axis).toBe("log");
     expect(back.selected).toBe("770315");
-    expect(back.isolate).toBe(true);
+  });
+
+  it("drops `iso=1` off a link written before isolate was removed", () => {
+    // Isolate is gone — clicking a mark already dims everything off its path,
+    // and the Taxa list is how a reader walks between them. A link somebody
+    // shared while the mode existed still has to open, and it opens on the tree
+    // it names with the parameter simply not read: same treatment `bio=1` gets.
+    expect(encode(decode("?iso=1"))).toBe("/");
+    expect(encode(decode("?n=770315&sel=770315&iso=1"))).toBe(
+      "?n=770315&sel=770315",
+    );
+    expect("isolate" in decode("?iso=1")).toBe(false);
   });
 });
 
@@ -142,8 +153,8 @@ describe("keys have one spelling", () => {
   it("round-trips a hand-written link into the compact form", () => {
     // Decoding is where the normalisation happens, so `encode` writes what the
     // app itself would have written and the second pass changes nothing.
-    const once = encode(decode("?n=ott770315,ott247341&sel=ott770315&iso=1"));
-    expect(once).toBe("?n=770315%2C247341&sel=770315&iso=1");
+    const once = encode(decode("?n=ott770315,ott247341&sel=ott770315"));
+    expect(once).toBe("?n=770315%2C247341&sel=770315");
     expect(encode(decode(once))).toBe(once);
   });
 });

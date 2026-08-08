@@ -148,7 +148,7 @@ timer decides when a mark becomes visible.
 
 - **Every binding is a bare letter, and nothing holds a modifier**, with `/` the
   one exception. `/` opens search, `S` toggles the sidebar, `A` adds a taxon, `F`
-  fits (`⇧F` fit selection), `I` isolates, `N` steps to next species (`⇧N`
+  fits (`⇧F` fit selection), `N` steps to next species (`⇧N`
   previous), `T` switches the time scale, `L` cycles labels, `D` flips dates, `B`
   the light, `R` adds a random species, `C` clears, `E` fills the screen. The
   four canvas modes hold the letters that name them. Shift is the _variant_ of a
@@ -209,8 +209,8 @@ timer decides when a mark becomes visible.
   says the whole name; clicking one does what clicking its mark does. The add
   row is at the top and is a row.
 - **Two clusters stay on the canvas corners.** Top left, the panel's switch (it
-  rides the panel's edge and stays put when the panel goes). Top right, fit,
-  isolate and fullscreen — the controls that act on the viewport. The top-right
+  rides the panel's edge and stays put when the panel goes). Top right, fit and
+  fullscreen — the controls that act on the viewport. The top-right
   cluster fades after four still seconds; the panel's switch does not.
 - **`step` has no button; it keeps its key (`N`) and its palette row**, since the
   panel now draws every mark as a row.
@@ -379,7 +379,7 @@ between painted things belongs to whatever is drawn underneath it.
   ages switch separately from the words. The **rank** does not switch — it is what
   says a derived name is derived, and a control whose only honest setting is on
   is not a control.
-- `F` fit all · `⇧F` fit selection · `I` isolate path to root.
+- `F` fit all · `⇧F` fit selection.
 
 ## What a label says
 
@@ -584,10 +584,10 @@ flashing over facts the app already holds.
 ## State
 
 - **The tree is URL-encoded; how you are reading it is not.** Any tree is a
-  shareable link — the selection, axis, isolate and drill all ride in it. The
+  shareable link — the selection, axis and drill all ride in it. The
   labels, ages and light are `sessionStorage`, per-tab, because a setting that is
   a claim about the reader may not travel in a link.
-- Full keyboard operation: search, add, remove, clear, fit, isolate and step
+- Full keyboard operation: search, add, remove, clear, fit and step
   through selection are all bound.
 
 ## The tab

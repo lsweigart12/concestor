@@ -18,7 +18,6 @@ describe("matchKey", () => {
     expect(matchKey(press("/"))).toBe("search");
     expect(matchKey(press("a"))).toBe("add-taxon");
     expect(matchKey(press("f"))).toBe("fit");
-    expect(matchKey(press("i"))).toBe("isolate");
     expect(matchKey(press("n"))).toBe("step");
     expect(matchKey(press("r"))).toBe("random-species");
     expect(matchKey(press("c"))).toBe("clear");
@@ -28,15 +27,24 @@ describe("matchKey", () => {
 
   it("puts search on the one key nobody had to be taught", () => {
     // The only row in this table whose letter was not argued for against a
-    // word. It cost `isolate` the key it had held for as long as `/` was free,
-    // and that trade is free in both directions: `i` names isolate exactly
-    // where `/` named nothing at all.
+    // word: `/` named nothing at all before it, so nothing had to give it up.
     expect(matchKey(press("/"))).toBe("search");
     expect(binding("search").label).toBe("Search");
-    expect(matchKey(press("i"))).toBe("isolate");
     // And `p` is unbound rather than kept as an alias. Two keys for one action
     // is two things to learn and one of them is printed on nothing.
     expect(matchKey(press("p"))).toBeNull();
+  });
+
+  it("leaves `i` unbound, because isolate is gone", () => {
+    // `i` held **Isolate**, which dimmed everything off the selected node's
+    // path. Clicking a mark already does that, and the sidebar's Taxa list is
+    // the way to walk between them — so the mode was a second, worse way to
+    // reach a thing the canvas does on its own, and it went entirely rather
+    // than being rebound to something near it. A finger that remembers the key
+    // gets nothing, which is the honest answer for a mode that no longer exists.
+    expect(matchKey(press("i"))).toBeNull();
+    expect(matchKey(press("I", { shiftKey: true }))).toBeNull();
+    expect(BINDINGS.some((b) => b.kbd === "I")).toBe(false);
   });
 
   it("gives `s` to the panel and `a` to the row inside it", () => {
@@ -74,8 +82,8 @@ describe("matchKey", () => {
     // It has to be asserted because the tidy-minded fix is so easy to reach
     // for: rename the odd one out to something starting with E. That is how
     // **Expand** arrived and why it was wrong — it names the gesture rather
-    // than the result, and on a canvas that already opens drill lanes and
-    // isolates lineages, a reader can fairly read it as being about a clade.
+    // than the result, and on a canvas that already opens drill lanes, a
+    // reader can fairly read it as being about a clade.
     // A badge teaches the key and a label teaches the action; where they
     // cannot be the same word the label wins, because a reader who cannot find
     // the control never gets as far as learning its letter.
@@ -186,7 +194,7 @@ describe("matchKey", () => {
     // The whole reason this surface exists. ⌘R reloads, ⌘L reaches the URL
     // bar, ⌘F opens find, and none of them may reach us.
     for (const mod of ["ctrlKey", "metaKey", "altKey"] as const) {
-      for (const key of ["s", "a", "f", "l", "r", "c", "/", "n", "i", "d"]) {
+      for (const key of ["s", "a", "f", "l", "r", "c", "/", "n", "b", "d"]) {
         expect(matchKey(press(key, { [mod]: true }))).toBeNull();
         expect(
           matchKey(press(key, { [mod]: true, shiftKey: true })),
@@ -235,7 +243,6 @@ describe("matchKey", () => {
       "l",
       "b",
       "e",
-      "i",
       "d",
       "/",
       "n",

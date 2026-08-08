@@ -803,9 +803,9 @@ export default function App() {
         // **Not "all view state lives in the URL"**, which is what this said
         // and which the bioluminescence row four entries above already
         // contradicted: *a tree you share arrives unlit, however you are
-        // reading it.* `store.ts` puts the tree, the axis, the selection, the
-        // isolate and the drill in the link and holds the light, the labels
-        // and the ages in `sessionStorage` on purpose — a setting that is a
+        // reading it.* `store.ts` puts the tree, the axis, the selection and
+        // the drill in the link and holds the light, the labels and the ages
+        // in `sessionStorage` on purpose — a setting that is a
         // claim about the **reader** may not ride in a link, and one made with
         // the labels off would open on a canvas of unnamed dots.
         //
@@ -935,31 +935,17 @@ export default function App() {
 
     if (focusedNode) {
       const nm = focusedNode.name ?? focusedNode.key;
-      base.unshift(
-        {
-          id: "ctx-isolate",
-          title: `Isolate the path to ${nm}`,
-          subtitle: "Dim every other lineage",
-          icon: "◎",
-          keys: kbd("isolate"),
-          section: "This node",
-          run: () => {
-            tree.toggleIsolate();
-            setPaletteOpen(false);
-          },
+      base.unshift({
+        id: "ctx-fit",
+        title: `Fit to ${nm}`,
+        icon: "⊹",
+        keys: kbd("fit-selection"),
+        section: "This node",
+        run: () => {
+          setFitSignal({ kind: "selection", token: Date.now() });
+          setPaletteOpen(false);
         },
-        {
-          id: "ctx-fit",
-          title: `Fit to ${nm}`,
-          icon: "⊹",
-          keys: kbd("fit-selection"),
-          section: "This node",
-          run: () => {
-            setFitSignal({ kind: "selection", token: Date.now() });
-            setPaletteOpen(false);
-          },
-        },
-      );
+      });
       // The branch *above* the focused node is the segment it arrived on, and
       // it is the only one a single node identifies unambiguously. The induced
       // root has none, which is why this is conditional rather than disabled.
@@ -1148,9 +1134,6 @@ export default function App() {
             token: Date.now(),
           });
           break;
-        case "isolate":
-          tree.toggleIsolate();
-          break;
         case "step":
           stepSelection(false);
           break;
@@ -1232,7 +1215,7 @@ export default function App() {
   useWindowKeys(onKey);
 
   /**
-   * The three that act on the view (how much you see) rather than the tree, top
+   * The two that act on the view (how much you see) rather than the tree, top
    * right. Disabled rather than hidden, so the cluster does not reshuffle under a
    * reader's reach — except fullscreen on a browser without it, which is absent
    * (see `chrome/CanvasChrome.tsx`).
@@ -1249,18 +1232,6 @@ export default function App() {
             ? { disabledBecause: "The whole tree is already framed" }
             : {}),
       },
-      {
-        id: "isolate",
-        glyph: "◎",
-        run: () => tree.toggleIsolate(),
-        active: tree.view.isolate,
-        ...(focusedIdx === null
-          ? {
-              disabledBecause:
-                "Select a taxon first — isolate dims everything off its path",
-            }
-          : {}),
-      },
     ];
     if (FULLSCREEN_AVAILABLE) {
       out.push({
@@ -1271,7 +1242,7 @@ export default function App() {
       });
     }
     return out;
-  }, [tree, empty, viewFit, focusedIdx, fullscreen]);
+  }, [empty, viewFit, fullscreen]);
 
   // The Taxa list's rows: `induced.leaves` (what the canvas draws), not
   // `view.keys`, so the panel and canvas cannot disagree about what is on screen.
@@ -1380,7 +1351,6 @@ export default function App() {
             const n = tree.nodes.get(idx);
             tree.select(n ? n.key : null);
           }}
-          isolate={tree.view.isolate}
           axisMode={tree.view.axis}
           labels={tree.labels}
           ages={tree.ages}
