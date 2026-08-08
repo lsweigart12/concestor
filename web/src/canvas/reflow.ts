@@ -118,6 +118,26 @@ export function useReflow(
   const last = useRef(placed);
   const [from, setFrom] = useState<ReadonlyMap<number, Placed> | null>(null);
   const [t, setT] = useState(1);
+  /**
+   * Which tween is running. Bumped only when something actually moved, and it
+   * is the *only* thing the clock below is keyed on.
+   *
+   * **This is not bookkeeping; it is what keeps a tween alive.** The clock used
+   * to hang off `placed`, so any re-render handing down an equal-but-new map
+   * tore its timers down — and the same guard that makes that case cheap
+   * (`!moved` → return) meant nothing started them again. The tween was left
+   * parked at whatever `t` it had reached, which in a pane the compositor is not
+   * painting is `t = 0`: the branches stay at the arrangement they had before
+   * the change while the marks sit at the one they have now, and every line ends
+   * a row away from the dot it is drawn to. It does not recover, because nothing
+   * is left running to recover it.
+   *
+   * Two renders in a row is not a corner case. Removing a fossil is exactly
+   * that — the graft leaves the layout, and then the promotion pass in
+   * `store.ts` prunes what the canvas is showing — and a layout recomputed from
+   * an unchanged set still arrives as a new `Map`.
+   */
+  const [run, setRun] = useState(0);
 
   useEffect(() => {
     const prev = last.current;
@@ -125,6 +145,11 @@ export function useReflow(
     if (reduced || prev === placed || !moved(prev, placed)) return;
     setFrom(prev);
     setT(0);
+    setRun((r) => r + 1);
+  }, [placed, reduced]);
+
+  useEffect(() => {
+    if (run === 0) return;
     let raf = 0;
     const start = performance.now();
     const settle = () => {
@@ -157,7 +182,7 @@ export function useReflow(
       cancelAnimationFrame(raf);
       window.clearTimeout(floor);
     };
-  }, [placed, reduced]);
+  }, [run]);
 
   return useMemo(
     () => (from ? tweenPlaced(from, placed, easeReflow(t)) : placed),

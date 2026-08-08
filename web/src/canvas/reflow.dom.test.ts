@@ -119,4 +119,49 @@ describe("useReflow", () => {
     rerender({ p: target });
     expect(result.current).toBe(target);
   });
+
+  /**
+   * A second render during the tween must not kill it.
+   *
+   * The clock hung off `placed`, so an equal-but-new `Map` handed down mid-tween
+   * tore its `requestAnimationFrame` *and* its floor timer down — and the guard
+   * that makes an unmoved layout cheap returned before starting either again.
+   * The tween was left parked at whatever `t` it had reached, with nothing
+   * running to finish it.
+   *
+   * In a pane the compositor is not painting, that `t` is 0: the traces stay at
+   * the arrangement the tree had before the change while the marks sit at the
+   * one they have now, so every line ends a row away from the dot it is drawn
+   * to, permanently. Removing a fossil produced exactly this pair of renders —
+   * the graft leaves the layout, then `store.ts` prunes what the canvas is
+   * showing — and a layout recomputed from an unchanged set is still a new Map.
+   */
+  it("survives an equal-but-new layout arriving mid-tween", () => {
+    const target = at([[1, 0, 100]]);
+    const { result, rerender } = renderHook(({ p }) => useReflow(p, false), {
+      initialProps: { p: at([[1, 0, 0]]) },
+    });
+    rerender({ p: target });
+    expect(result.current.get(1)!.y).toBe(0);
+
+    // Same positions, new object — a downstream memo recomputing, not a move.
+    rerender({ p: at([[1, 0, 100]]) });
+
+    frames = [];
+    act(() => {
+      vi.advanceTimersByTime(REFLOW_MS + 100);
+    });
+    expect(result.current.get(1)!.y).toBe(100);
+  });
+
+  /** And the frames still land it, when there are frames. */
+  it("keeps its frames across an equal-but-new layout", () => {
+    const { result, rerender } = renderHook(({ p }) => useReflow(p, false), {
+      initialProps: { p: at([[1, 0, 0]]) },
+    });
+    rerender({ p: at([[1, 0, 100]]) });
+    rerender({ p: at([[1, 0, 100]]) });
+    frame(REFLOW_MS);
+    expect(result.current.get(1)!.y).toBe(100);
+  });
 });
