@@ -370,13 +370,32 @@ method.** `name_exact` requires exactly one candidate; a name yielding two goes 
 with its candidates recorded, because 16% of PBDB genus names hit multiple GBIF keys
 including cross-kingdom homonyms.
 
-**`refuse_disagreements`** (phase 3) withdraws a resolution where PBDB calls a taxon
-extinct, OTT's same-named taxon carries no extinct flag, and the node still has a
-chronogram-dated descendant — this catches homonyms across kingdoms (PBDB's *Ivesia* is an
-Ediacaran rangeomorph; OTT's is a rose-family plant). Load-bearing ordering: the extancy
-sweep runs **before** the ambiguity sweep (so `Scopus` keeps the hamerkop instead of
-losing both); it needs phase 2's `age_ma` as a living-lineage guard (without it 1,162
-correct attachments go); and `manual` overrides are exempt.
+**`refuse_disagreements`** (phase 3) withdraws what a name claims and the evidence
+contradicts. It contradicts on the two facts both corpora record and a shared spelling
+cannot fake.
+
+**Extancy.** PBDB calls a taxon extinct, OTT's same-named taxon carries no extinct flag,
+and the node still has a chronogram-dated descendant — this catches homonyms across
+kingdoms (PBDB's *Ivesia* is an Ediacaran rangeomorph; OTT's is a rose-family plant).
+
+**Rank.** PBDB ranks the taxon above the genus and the node it reached is a genus or
+below. A genus-group name and a name above it are separate nomenclatural acts, so two
+taxa spelled alike across that line are homonyms and never the same taxon. This is the
+class extancy is structurally blind to: a clade holding living species *is* extant, so
+PBDB's *Eutheria* — flagged extant, as placentals are — passed the extancy sweep on its
+way onto a leaf-beetle genus, taking 1,191 fossils into Coleoptera with it. 103 nodes
+were holding 9,247 fossils that way. One direction only: a PBDB genus or species landing
+on a family is GBIF and OTT filing a name they cannot place at its container, which is
+where the fossil belongs anyway. OTT's `section` counts as suprageneric — it is
+infrageneric in botany but every one this corpus reaches is zoological (*Schizophora*,
+56,619 tips), and reading it the other way withdraws three correct resolutions.
+
+Load-bearing ordering: extancy and rank both run **before** the ambiguity sweep, so a
+node claimed twice is decided on evidence while one claimant survives rather than losing
+both — `Scopus` keeps the hamerkop, and *Cytherelloidea* keeps the ostracod genus when
+its superfamily namesake goes. Extancy needs phase 2's `age_ma` as a living-lineage guard
+(without it 1,162 correct attachments go), and `manual` overrides are exempt from all
+three.
 
 ### Manual override
 

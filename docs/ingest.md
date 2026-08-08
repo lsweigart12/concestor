@@ -161,13 +161,24 @@ Runs in strict precedence order (architecture §5). Later methods never overwrit
   1,000-taxon seeded **uniform** control (never on the real `n_occs`-ordered crawl, which
   is a different population). Score the two hops separately: a drop in the first means
   GBIF's checklist moved, a drop in the second means OTT's snapshot did.
-- **`refuse_disagreements`** — withdraw a resolution where PBDB calls a taxon extinct, the
-  OTT taxon of that name carries no extinct flag, and the node still has a chronogram-dated
-  descendant (`xref` matches on name, and OTT carries the same genus name in unrelated
-  kingdoms — PBDB's *Ivesia* is an Ediacaran rangeomorph, OTT's a rose-family plant).
-  Load-bearing order: the extancy sweep runs **before** the ambiguity sweep; it needs
-  phase 2's `age_ma` as a living-lineage guard (without it 1,162 correct attachments go);
-  `manual` overrides are exempt.
+- **`refuse_disagreements`** — three refusals, on the two facts a shared spelling cannot
+  fake and then on what is still in doubt.
+  - **Extancy**: PBDB calls a taxon extinct, the OTT taxon of that name carries no extinct
+    flag, and the node still has a chronogram-dated descendant (`xref` matches on name, and
+    OTT carries the same genus name in unrelated kingdoms — PBDB's *Ivesia* is an Ediacaran
+    rangeomorph, OTT's a rose-family plant).
+  - **Rank**: PBDB ranks the taxon above the genus and the node it reached is a genus or
+    below — nomenclaturally impossible, and the class extancy cannot see, because a clade
+    holding living species is flagged extant. PBDB's *Eutheria* passed extancy on its way
+    onto a leaf-beetle genus; 103 nodes held 9,247 fossils that way. One direction only,
+    and OTT's `section` reads as suprageneric (zoological here — *Schizophora*, 56,619
+    tips). Ranks in neither set (`informal`, one blank) never refuse.
+  - **Ambiguity**: `name_exact` only, a name two accepted PBDB taxa both matched.
+
+  Load-bearing order: extancy and rank run **before** the ambiguity sweep, so one claimant
+  survives rather than none (`Scopus` keeps the hamerkop, *Cytherelloidea* its ostracod
+  genus); extancy needs phase 2's `age_ma` as a living-lineage guard (without it 1,162
+  correct attachments go); `manual` overrides are exempt.
 - `gbif_backbone_provenance` yield within 2 points of 38.6% of PBDB taxa. This reads a
   frozen file, so any movement is a bug in our code, not upstream.
 - Every `manual` override still applies — an override whose target `idx` no longer exists

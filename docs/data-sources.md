@@ -76,6 +76,12 @@ Related:
 - **Name fallback is unsafe:** 16% of PBDB genus names resolve to multiple GBIF keys,
   including cross-kingdom homonyms. Authorship does not save you (PBDB ships
   `Tyranosaurus rex Osborn, 1905`, sic).
+- **An identifier chain is not immune to that** — the `nubKey` hop is GBIF matching names
+  on our behalf, and it will cross the genus boundary. PBDB's *Eutheria*, an unranked
+  clade, has `nub_key 4764771`: a leaf-beetle genus in Chrysomelidae. The chain reported
+  it at 0.90 confidence and 1,191 fossils followed it into Coleoptera, *Leptictidium
+  auderiense* among them. Rank is the check that catches this — a taxon above the genus is
+  never a genus — and phase 3's sweep applies it to every method, the chain included.
 - **`pbdb.zip`** is a ColDP archive dated 2026-07-26 with 518,442 rows (not a Darwin Core
   archive of 461,889 — that is GBIF's *ingested* checklist count). Do **not** join
   against the ColDP for the backbone path: its compound synonym ids silently map a
