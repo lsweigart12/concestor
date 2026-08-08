@@ -1616,7 +1616,8 @@ def run(budget: int = 25_000, use_api: bool = True) -> int:
     g.require(
         "refusals that still carry a resolution",
         con.execute(
-            "SELECT count(*) FROM xref WHERE idx IS NOT NULL AND method IN (?,?)",
+            "SELECT count(*) FROM xref WHERE idx IS NOT NULL AND method IN "
+            "(" + ",".join("?" * len(REFUSALS)) + ")",
             REFUSALS,
         ).fetchone()[0],
         0,
@@ -1806,7 +1807,9 @@ def run(budget: int = 25_000, use_api: bool = True) -> int:
     withdrawn = {
         (s, i)
         for s, i in con.execute(
-            "SELECT source, source_id FROM xref WHERE method IN (?,?)", REFUSALS
+            "SELECT source, source_id FROM xref WHERE method IN "
+            "(" + ",".join("?" * len(REFUSALS)) + ")",
+            REFUSALS,
         )
     }
     regressions = sorted(prev_resolved - now_resolved - acknowledged - withdrawn)
