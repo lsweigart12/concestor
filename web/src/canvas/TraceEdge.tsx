@@ -177,49 +177,29 @@ export function TraceEdge({ id, data }: EdgeProps) {
   const restRef = useRef(d.d);
   restRef.current = d.d;
   const streaming = d.biolum && mayPump(d) && !d.reduced;
+  /**
+   * The token the dash on this branch was cut for, and how far that draw had
+   * got when it was last cut. Together they let a branch that *moves* mid-draw
+   * be re-cut to its new length without being sent back to the start.
+   */
+  const armedToken = useRef<number | null>(null);
+  const resumeAt = useRef(0);
+  /** This token's line has arrived. A branch that has arrived never re-arms. */
+  const arrived = useRef(false);
 
+  /**
+   * The settle: flare-bright back to steady, once the line has arrived.
+   * Brightness encodes recency here, which is exactly what luminance is
+   * reserved for.
+   *
+   * Its own effect, and deliberately not the dash's below. The dash is re-cut
+   * every time the branch moves and this must not be: cancelling a settle that
+   * is halfway through drops the branch from bright to steady in one frame,
+   * which is the arrival it just spent a second earning.
+   */
   useEffect(() => {
-    const core = coreRef.current;
     const group = groupRef.current;
-    const halo = haloRef.current;
-    if (!core || !group || !halo || d.drawToken === null) return;
-
-    if (d.reduced) {
-      // Cut to the final state and keep the glow static. `drawFrom` stays null,
-      // so the river is fully lit rather than frozen part-drawn.
-      for (const el of [core, halo]) {
-        el.style.removeProperty("stroke-dasharray");
-        el.style.removeProperty("stroke-dashoffset");
-      }
-      drawFrom.current = null;
-      return;
-    }
-
-    // The halo is drawn on with the core, and it has to be: it is the same
-    // geometry at 7px and `blur(3.5px)`, so left alone it stands at full length
-    // from the first frame and the branch arrives as a soft grey line before
-    // anything draws it. Invisible while the draw was 613ms; not at all
-    // invisible once the sequence waits for the canvas first.
-    const len = core.getTotalLength();
-    const drawn = [core, halo];
-    for (const el of drawn) {
-      el.style.strokeDasharray = `${len}`;
-      el.style.strokeDashoffset = `${len}`;
-    }
-    drawFrom.current = performance.now();
-
-    const draw = drawn.map((el) =>
-      el.animate([{ strokeDashoffset: len }, { strokeDashoffset: 0 }], {
-        duration: DRAW_MS,
-        delay: d.delay,
-        easing: "cubic-bezier(.16,.9,.3,1)",
-        fill: "both",
-      }),
-    );
-
-    // Once the line has arrived, it decays from flare-bright to steady.
-    // Brightness encodes recency here, which is exactly what luminance is
-    // reserved for.
+    if (!group || d.drawToken === null || d.reduced) return;
     const decay = group.animate(
       [
         { opacity: 1, filter: "brightness(2.1)" },
@@ -232,40 +212,113 @@ export function TraceEdge({ id, data }: EdgeProps) {
         fill: "both",
       },
     );
+    return () => decay.cancel();
+  }, [d.drawToken, d.delay, d.reduced]);
 
-    const done = () => {
-      // Hand the dash pattern back to the stylesheet, which is where the
-      // provenance tier lives.
+  useEffect(() => {
+    const core = coreRef.current;
+    const halo = haloRef.current;
+    if (!core || !halo) return;
+    // The halo is drawn on with the core, and it has to be: it is the same
+    // geometry at 7px and `blur(3.5px)`, so left alone it stands at full length
+    // from the first frame and the branch arrives as a soft grey line before
+    // anything draws it. Invisible while the draw was 613ms; not at all
+    // invisible once the sequence waits for the canvas first.
+    const drawn = [core, halo];
+    // Hand the dash pattern back to the stylesheet, which is where the
+    // provenance tier lives.
+    const release = () => {
       for (const el of drawn) {
         el.style.removeProperty("stroke-dasharray");
         el.style.removeProperty("stroke-dashoffset");
       }
-      drawFrom.current = null;
     };
-    draw[0]?.finished.then(done).catch(() => {});
+
+    if (d.drawToken === null || d.reduced) {
+      // Nothing to draw, or a reader who has asked for no motion: cut to the
+      // final state and keep the glow static. `drawFrom` goes null, so the
+      // river is fully lit rather than frozen part-drawn.
+      release();
+      drawFrom.current = null;
+      return;
+    }
+
+    /*
+      **`d.d` is a dependency, and what it means is "the branch moved".**
+
+      It was one, and the tree rearranging is what exposed the first bug: adding
+      a taxon moves every branch already on the canvas, so every branch re-ran
+      this — and a branch that had already finished drawing re-armed from
+      `stroke-dashoffset: len` and drew itself on again. It vanished and came
+      back, once, exactly as the reflow began. So it was removed, and that
+      bought the opposite bug, which is worse because it is not one frame:
+      `stroke-dasharray` is a *length*, and a dash cut for a path of `len` on a
+      path that is now longer than `len` puts a visible segment on screen from
+      the very first frame. A tree loading with a fossil in the URL does exactly
+      that — the fossil resolves on its own fetch, takes a row, and reflows a
+      tree that is midway through drawing itself on — and the reader sees
+      fragments of branches standing there before anything has drawn.
+
+      Both are the same mistake in opposite directions: treating "the branch
+      moved" and "the branch is being drawn" as one event. They are not. A draw
+      belongs to a `drawToken`; a move belongs to the geometry. So a new token
+      starts a journey, a move re-cuts the dash and *keeps the clock*, and a
+      branch that has already arrived does neither.
+
+      (`pathLength` would make the length question moot by normalising the dash
+      to 0..1, and may not be used here: the tier patterns in styles.css are
+      authored in user units and would flatten into a solid line under it.)
+    */
+    const moved = armedToken.current === d.drawToken;
+    if (moved && arrived.current) return;
+    armedToken.current = d.drawToken;
+    if (!moved) {
+      arrived.current = false;
+      resumeAt.current = 0;
+      // The river inside the stroke is revealed off this same clock, so a
+      // branch that moves keeps it: `revealAt` is asking where the draw is, not
+      // when the dash was last cut.
+      drawFrom.current = performance.now();
+    }
+
+    const len = core.getTotalLength();
+    for (const el of drawn) {
+      el.style.strokeDasharray = `${len}`;
+      el.style.strokeDashoffset = `${len}`;
+    }
+
+    const draw = drawn.map((el) => {
+      const a = el.animate(
+        [{ strokeDashoffset: len }, { strokeDashoffset: 0 }],
+        {
+          duration: DRAW_MS,
+          delay: d.delay,
+          easing: "cubic-bezier(.16,.9,.3,1)",
+          fill: "both",
+        },
+      );
+      if (moved && resumeAt.current > 0) a.currentTime = resumeAt.current;
+      return a;
+    });
+
+    draw[0]?.finished
+      .then(() => {
+        arrived.current = true;
+        drawFrom.current = null;
+        release();
+      })
+      .catch(() => {});
 
     return () => {
+      // Where the draw had got to, read before the cancel that clears it. This
+      // is the whole of "keeps the clock": the replacement animation is set to
+      // this, so a branch re-cut mid-draw carries on from where the reader was
+      // watching it rather than starting again at the ancestor.
+      resumeAt.current = Number(draw[0]?.currentTime ?? 0);
       for (const a of draw) a.cancel();
-      decay.cancel();
-      done();
+      release();
     };
-    /*
-      **`d.d` is deliberately not a dependency.** It was, and the tree
-      rearranging is what exposed it: adding a taxon moves every branch already
-      on the canvas, so every branch re-ran this — and a branch that had already
-      finished drawing re-armed from `stroke-dashoffset: len` and drew itself on
-      again. It vanished and came back, once, exactly as the reflow began.
-
-      A draw belongs to a `drawToken`, so that is what arms it. The cost is that
-      a geometry change *during* a draw leaves the dash sized to the old path,
-      and it is not paid in practice: the reflow is over at `REFLOW_MS` and the
-      first trace does not leave until `lead + T_DRAW`, and the queue will not
-      release the next taxon until this one has landed. `pathLength` would make
-      the point moot by normalising the dash to 0..1 — and may not be used here,
-      because the tier patterns in styles.css are authored in user units and
-      would flatten into a solid line under it.
-    */
-  }, [d.drawToken, d.delay, d.reduced]);
+  }, [d.drawToken, d.delay, d.reduced, d.d]);
 
   /**
    * Register the branch's river.

@@ -19,6 +19,15 @@ import {
   type AddDelta,
   type Induced,
 } from "../tree/induced";
+import {
+  buildGrafts,
+  fossilSpan,
+  graftIdx,
+  graftKey,
+  graftYoungest,
+  parseGraftKey,
+  type GraftSet,
+} from "../tree/graft";
 import type { AxisMode } from "../tree/layout";
 import type { LabelMode } from "../tree/naming";
 import { flush, plan, releasable, type Queued } from "./sequence";
@@ -369,8 +378,17 @@ export function useTree() {
   // already hold. The queue's gate is arrival, so a key nobody had asked to
   // resolve until its turn came would stall the queue for a round trip on
   // every step.
+  //
+  // Graft keys are filtered out and not merely ignored: `pbdb108454` sent to
+  // `/v1/paths` is a lookup for a node that does not exist, and the answer
+  // would be recorded in `answered` — which is the queue's escape hatch for a
+  // key that resolved to nothing. The fossil would be released as unresolvable
+  // one tick before its own fetch landed.
   const wanted = useMemo(
-    () => [...new Set([...view.keys, ...queue.map((q) => q.key)])],
+    () =>
+      [...new Set([...view.keys, ...queue.map((q) => q.key)])].filter(
+        (k) => parseGraftKey(k) === null,
+      ),
     [view.keys, queue],
   );
   useEffect(() => {
@@ -404,11 +422,27 @@ export function useTree() {
     };
   }, [wanted, paths, idxOf, ingest]);
 
+  /**
+   * Fossils in the view, or waiting to enter it, whose PBDB rows we want.
+   *
+   * The queue half is there for the same reason the path fetch reaches into the
+   * queue: arrival is the gate, so a fossil nobody had asked to resolve until
+   * its turn came would stall the queue for a round trip.
+   */
+  const wantedFossils = useMemo(() => {
+    const out = new Set(view.fossils);
+    for (const q of queue) {
+      const no = parseGraftKey(q.key);
+      if (no !== null) out.add(no);
+    }
+    return [...out];
+  }, [view.fossils, queue]);
+
   // Resolve any fossil in the view we do not already hold. Separate from the
   // path fetch: a fossil has no path, and a failure must cost that fossil rather
   // than the tree it annotates.
   useEffect(() => {
-    const missing = view.fossils.filter((n) => !fossils.has(n));
+    const missing = wantedFossils.filter((n) => !fossils.has(n));
     // Cleared here too: a cancelled run never reaches its own reset.
     if (missing.length === 0) {
       setFossilsLoading(false);
@@ -432,8 +466,19 @@ export function useTree() {
         else lost.push(n);
       });
       if (found.size) setFossils((m) => new Map([...m, ...found]));
-      // Dropped rather than retried forever, like a broken taxon.
+      // Dropped rather than retried forever, like a broken taxon — and dropped
+      // from the *queue* as well as the view, because arrival is the queue's
+      // gate and a fossil that will never arrive would hold the head for good.
+      // `answered` does this job for a path; a fossil is refused outright, so
+      // there is nothing to release to.
       if (lost.length) {
+        setQueue((q) => {
+          const next = q.filter((x) => {
+            const no = parseGraftKey(x.key);
+            return no === null || !lost.includes(no);
+          });
+          return next.length === q.length ? q : next;
+        });
         setView((v) => ({
           ...v,
           fossils: v.fossils.filter((n) => !lost.includes(n)),
@@ -443,7 +488,7 @@ export function useTree() {
     return () => {
       cancelled = true;
     };
-  }, [view.fossils, fossils]);
+  }, [wantedFossils, fossils]);
 
   const selectionIdx = useMemo(
     () =>
@@ -462,6 +507,45 @@ export function useTree() {
     return induced(selectionIdx, (i) => byIdx.get(i));
   }, [selectionIdx, paths, idxOf]);
 
+  /**
+   * Every fossil in the view that can be placed, and every one that cannot.
+   *
+   * Rebuilt from the induced subtree rather than stored, because *where* a
+   * fossil hangs is a fact about the current selection and not about the
+   * fossil: adding a species can promote a suppressed node to a rendered one
+   * and move the branch a graft belongs to. Deriving it means the picture
+   * cannot go stale, which is the same reason `Graph` re-checks the open drill
+   * lane against the segments instead of trusting the URL.
+   *
+   * This is the *whole* answer, including grafts the canvas has not drawn yet.
+   * {@link graftSet} is the drawn half. The refusals come off this one, because
+   * a reader who asked for a fossil is owed the reason it did not appear at the
+   * moment it did not appear, not one animation later.
+   */
+  const placeable: GraftSet = useMemo(
+    () =>
+      buildGrafts(
+        view.fossils
+          .map((n) => fossils.get(n))
+          .filter((f): f is FossilTaxon => f !== undefined),
+        ind,
+        nodes,
+      ),
+    [view.fossils, fossils, ind, nodes],
+  );
+
+  /**
+   * Whether a draw is on the canvas — including one requested this very pass.
+   *
+   * A ref and not `delta !== null`, and that is the whole of what it buys.
+   * `setDelta` does not change `delta` until the next render, so two effects in
+   * one commit both see the old value: the selection's delta below is set, and
+   * the fossil promotion right after it reads `delta === null` and seats a
+   * graft into a tree that is about to start drawing. That is a cold load
+   * holding `n=` and `f=` — the ordinary case, not a corner.
+   */
+  const deltaPending = useRef(false);
+
   // Compute the animation delta whenever the rendered set grows, from paths
   // already in memory (architecture §2).
   const lastCount = useRef(0);
@@ -479,6 +563,7 @@ export function useTree() {
           ...addDelta(prevInduced.current, ind, target),
           token: ++token.current,
         });
+        deltaPending.current = true;
       } else {
         // Nothing to animate, so nothing will report a landing. Release the
         // queue here or a key that drew no lineage stalls it for good.
@@ -487,6 +572,111 @@ export function useTree() {
     }
     prevInduced.current = ind;
   }, [ind, selectionIdx]);
+
+  /**
+   * The fossils the canvas has actually drawn.
+   *
+   * **`view.fossils` is what the reader asked for; this is what is on screen**,
+   * and they are not the same thing for the same reason `view.keys` and `ind`
+   * are not: a request has to be fetched, and then it has to be *animated on*,
+   * and the second of those takes as long as the animation does.
+   *
+   * A fossil is promoted here only when the canvas is idle, so a graft never
+   * appears mid-draw and gets announced a beat later. This cannot be a gate on
+   * the queue instead: a cold load holding `f=` never passes the queue at all —
+   * the URL seats the fossil directly — and that is precisely the case where
+   * the fossil lands on a tree still drawing itself on (#138).
+   *
+   * **Only placeable fossils are promoted.** `off-tree` is not a permanent
+   * answer: adding the clade a fossil hangs below rescues it, and a fossil
+   * promoted while refused would be recorded as decided and then appear in
+   * silence when the tree changed under it.
+   *
+   * Declared *after* the selection's delta so it can see `deltaPending` set in
+   * the same commit.
+   */
+  const [shownFossils, setShownFossils] = useState<readonly number[]>([]);
+  useEffect(() => {
+    setShownFossils((shown) => {
+      // Removal is immediate and waits for nothing: taking a fossil off the
+      // canvas is not an arrival.
+      const kept = shown.filter((n) => view.fossils.includes(n));
+      const same = kept.length === shown.length ? shown : kept;
+      if (deltaPending.current) return same;
+      const ready = placeable.grafts
+        .map((g) => -g.idx)
+        .filter((n) => view.fossils.includes(n) && !kept.includes(n));
+      return ready.length ? [...kept, ...ready] : same;
+    });
+  }, [view.fossils, placeable, delta]);
+
+  /** The drawn half of {@link placeable}: what is on the canvas right now. */
+  const graftSet: GraftSet = useMemo(
+    () => ({
+      grafts: placeable.grafts.filter((g) => shownFossils.includes(-g.idx)),
+      refused: placeable.refused,
+    }),
+    [placeable, shownFossils],
+  );
+
+  /**
+   * The same event as the selection's delta, for a fossil: a graft that has
+   * reached the canvas is animated on rather than appearing.
+   *
+   * A graft is one connector and therefore exactly one wave. It is built here
+   * rather than by `addDelta`, which walks `after.segments` — and a graft is
+   * deliberately not in `Induced`, so there is nothing there to walk.
+   *
+   * The second half settles the queue's debt. A fossil released by the queue
+   * set the brake, and a refusal means nothing will ever report a landing —
+   * exactly the case the selection effect handles for a key that drew no
+   * lineage. The two are tracked apart because a refusal is not final: a fossil
+   * whose brake was released as `off-tree` must still be *announced* if adding
+   * a clade later rescues it.
+   */
+  const announced = useRef<ReadonlySet<number>>(new Set());
+  const settled = useRef<ReadonlySet<number>>(new Set());
+  useEffect(() => {
+    const asked = new Set(view.fossils);
+    const shown = new Set(shownFossils);
+    // Intersections, not unions: these state what the canvas has now, never
+    // what it has ever had, so a fossil removed and added back is drawn again
+    // rather than reappearing in silence.
+    const known = new Set([...announced.current].filter((n) => shown.has(n)));
+    settled.current = new Set([...settled.current].filter((n) => asked.has(n)));
+
+    const fresh = shownFossils.filter((n) => !known.has(n));
+    if (fresh.length) {
+      if (deltaPending.current) return;
+      announced.current = shown;
+      settled.current = new Set([...settled.current, ...fresh]);
+      const wave = fresh.map(graftIdx);
+      const first = placeable.grafts.find((g) => g.idx === wave[0]);
+      setDelta({
+        // The branch the fossil hangs from: where the connector leaves, and a
+        // node that was on screen before the press. Exactly what `addDelta`
+        // calls the join.
+        flare: first?.anchor ?? wave[0]!,
+        leaf: wave[0]!,
+        // Several promoted together share the wave, which is what one press
+        // would have given them anyway.
+        drawOrder: [wave],
+        reflowing: ind.rendered,
+        token: ++token.current,
+      });
+      deltaPending.current = true;
+      return;
+    }
+    announced.current = known;
+
+    const refused = placeable.refused
+      .map((r) => r.fossil.pbdb_taxon_no ?? 0)
+      .filter((n) => n > 0 && !settled.current.has(n));
+    if (refused.length) {
+      settled.current = new Set([...settled.current, ...refused]);
+      setDrawing(null);
+    }
+  }, [view.fossils, shownFossils, placeable, ind]);
 
   /**
    * Enqueue taxa for drawing. They enter the view one at a time, as the canvas
@@ -499,7 +689,14 @@ export function useTree() {
   const enqueue = useCallback(
     (keys: readonly string[], why: Queued["cause"]) => {
       setQueue((q) => {
-        const held = new Set([...q.map((x) => x.key), ...viewRef.current.keys]);
+        // Both halves of the view, because both halves can be queued into: a
+        // fossil already drawn is as much "asked for" as a species already on
+        // the canvas, and letting one through spends a beat drawing nothing.
+        const held = new Set([
+          ...q.map((x) => x.key),
+          ...viewRef.current.keys,
+          ...viewRef.current.fossils.map(graftKey),
+        ]);
         const fresh: Queued[] = [];
         for (const key of keys.map(toUrlKey)) {
           if (held.has(key)) continue;
@@ -597,9 +794,23 @@ export function useTree() {
       const rest = flush(q);
       if (rest.length) {
         cause.current = "sequence-cut";
+        // Each key to its own half. A fossil key put into `keys` would be sent
+        // to `/v1/paths` as a node that does not exist, and the graft would be
+        // lost by the very interruption that was meant to deliver it early.
+        const fossilsCut: number[] = [];
+        const keysCut: string[] = [];
+        for (const k of rest) {
+          const no = parseGraftKey(k);
+          if (no !== null) fossilsCut.push(no);
+          else keysCut.push(k);
+        }
         setView((v) => ({
           ...v,
-          keys: [...v.keys, ...rest.filter((k) => !v.keys.includes(k))],
+          keys: [...v.keys, ...keysCut.filter((k) => !v.keys.includes(k))],
+          fossils: [
+            ...v.fossils,
+            ...fossilsCut.filter((n) => !v.fossils.includes(n)),
+          ],
         }));
       }
       return q.length ? [] : q;
@@ -608,27 +819,44 @@ export function useTree() {
 
   /**
    * The driver. `sequence.ts` decides; this holds the arrival test and the
-   * release. **No timer and no clock** — the wake-ups are `paths` changing (a
-   * lineage arrived) and `drawing` clearing (the canvas finished), which is the
-   * whole point of the queue: the pace is the animation's, wherever its
-   * constants happen to be.
+   * release. **No timer and no clock** — the wake-ups are `paths` and `fossils`
+   * changing (a lineage or a PBDB row arrived) and `drawing` clearing (the
+   * canvas finished), which is the whole point of the queue: the pace is the
+   * animation's, wherever its constants happen to be.
    */
   useEffect(() => {
-    const head = releasable(
-      queue,
-      drawing !== null,
-      (k) => paths.has(k) || answered.has(k),
-    );
+    const head = releasable(queue, drawing !== null, (k) => {
+      // A fossil arrives when its PBDB row does. There is no `answered` half:
+      // a row that cannot be fetched is dropped from the queue outright by the
+      // resolve effect above, so nothing here has to let a dead one through.
+      const no = parseGraftKey(k);
+      if (no !== null) return fossils.has(no);
+      return paths.has(k) || answered.has(k);
+    });
     if (!head) return;
     setQueue((q) => (q[0]?.key === head.key ? q.slice(1) : q));
+    const no = parseGraftKey(head.key);
     // Already drawn, so there is nothing to wait for and the brake stays off.
-    if (viewRef.current.keys.includes(head.key)) return;
+    const already =
+      no !== null
+        ? viewRef.current.fossils.includes(no)
+        : viewRef.current.keys.includes(head.key);
+    if (already) return;
     cause.current = head.cause;
     setDrawing(head.cause);
+    // The two halves of the view are not interchangeable: a graft induces no
+    // subtree and may not move an MRCA, which is the whole reason `f=` is a
+    // list of its own. See {@link ViewState.fossils}.
     setView((v) =>
-      v.keys.includes(head.key) ? v : { ...v, keys: [...v.keys, head.key] },
+      no !== null
+        ? v.fossils.includes(no)
+          ? v
+          : { ...v, fossils: [...v.fossils, no] }
+        : v.keys.includes(head.key)
+          ? v
+          : { ...v, keys: [...v.keys, head.key] },
     );
-  }, [queue, drawing, paths, answered]);
+  }, [queue, drawing, paths, answered, fossils]);
 
   /** The canvas has finished drawing what it was handed. Release the next. */
   const deltaLanded = useCallback(() => setDrawing(null), []);
@@ -639,12 +867,20 @@ export function useTree() {
    * pinned to its final extent rather than tweening under each arrival. Reads
    * the queue as well as the canvas, since what is coming is what it has to
    * make room for. See `tree/layout.ts`.
+   *
+   * **Fossils count.** `layout.ts` already puts a graft into the extent — a
+   * fossil older than every node on the canvas is exactly the case that widens
+   * the axis — so a queued one has to be held out to as well, or the axis
+   * settles on the tree and then jumps when the fossil lands. Only the resolved
+   * ones: an unresolved fossil has no date to make room for, which is the same
+   * position an unresolved path is in two lines above.
    */
   const holdMaxAge = useMemo(() => {
     if (!queue.length) return null;
     const byIdx = new Map<number, number[]>();
     const sel: number[] = [];
-    for (const k of [...view.keys, ...queue.map((q) => q.key)]) {
+    const queued = queue.map((q) => q.key);
+    for (const k of [...view.keys, ...queued]) {
       const u = toUrlKey(k);
       const i = idxOf.get(u);
       const p = paths.get(u);
@@ -657,20 +893,29 @@ export function useTree() {
     for (const i of induced(sel, (v) => byIdx.get(v)).rendered) {
       oldest = Math.max(oldest, nodes.get(i)?.age_layout ?? 0);
     }
+    for (const n of [...view.fossils, ...queued.map(parseGraftKey)]) {
+      const f = n === null ? undefined : fossils.get(n);
+      const span = f && fossilSpan(f);
+      if (f && span) oldest = Math.max(oldest, graftYoungest(f, span));
+    }
     return oldest;
-  }, [queue, view.keys, idxOf, paths, nodes]);
+  }, [queue, view.keys, view.fossils, idxOf, paths, nodes, fossils]);
 
   /**
    * Draw a fossil against the tree. Additive but not a selection: `keys` is
    * untouched, so no MRCA moves.
+   *
+   * Through the queue, exactly like a species. It used to write straight to the
+   * view, and that is what made a fossil a second-class arrival: it landed
+   * whenever its fetch landed, which on a busy canvas meant *during* another
+   * taxon's draw. It reflowed a tree that was midway through drawing itself on
+   * — the tree that was drawing had no idea, and the fossil got no entrance of
+   * its own out of it either.
    */
-  const addFossil = useCallback((taxonNo: number) => {
-    setView((v) =>
-      v.fossils.includes(taxonNo)
-        ? v
-        : { ...v, fossils: [...v.fossils, taxonNo] },
-    );
-  }, []);
+  const addFossil = useCallback(
+    (taxonNo: number) => enqueue([graftKey(taxonNo)], "add"),
+    [enqueue],
+  );
 
   const removeFossil = useCallback((taxonNo: number) => {
     setView((v) => ({ ...v, fossils: v.fossils.filter((n) => n !== taxonNo) }));
@@ -728,7 +973,13 @@ export function useTree() {
     (key: string) => setUnresolved((u) => u.filter((x) => x !== key)),
     [],
   );
-  const consumeDelta = useCallback(() => setDelta(null), []);
+  // The canvas has finished with the delta entirely — flare, draw and settle.
+  // `deltaPending` clears with it, which is what lets a fossil held back by it
+  // through on the very next pass.
+  const consumeDelta = useCallback(() => {
+    deltaPending.current = false;
+    setDelta(null);
+  }, []);
 
   return {
     view,
@@ -740,6 +991,8 @@ export function useTree() {
     /** Resolved fossil rows, by PBDB taxon number. `view.fossils` is the order. */
     fossils,
     induced: ind,
+    /** The fossils drawn against the tree, and the ones that could not be. */
+    graftSet,
     selectionIdx,
     idxOf,
     delta,

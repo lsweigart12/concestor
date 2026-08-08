@@ -843,6 +843,12 @@ function Inner(props: GraphProps) {
     // A graft's connector. It leaves the lineage at the fossil's own first
     // appearance and arrives at its last, so the vertical drop is the
     // unresolved attachment and the horizontal run is the observed extent.
+    //
+    // It draws itself on from the same clock as any branch, and the delay comes
+    // from the same map: a fossil arriving is an event, and it used to be the
+    // one thing on this canvas that simply appeared. What stays different is
+    // what the *line* says — widest dashes, no halo, no hit target, no river —
+    // because none of that is about the fossil being lesser. See `mayPump`.
     for (const l of lay.graftLinks) {
       const anchor = placed.get(l.graft.anchor);
       const data: TraceEdgeData = {
@@ -860,8 +866,8 @@ function Inner(props: GraphProps) {
         unbounded: false,
         drilled: false,
         attachment: true,
-        drawToken: null,
-        delay: 0,
+        drawToken: drawDelay.has(l.idx) ? (delta?.token ?? null) : null,
+        delay: drawDelay.get(l.idx) ?? 0,
         reduced,
         biolum,
       };
