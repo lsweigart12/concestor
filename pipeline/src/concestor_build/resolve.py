@@ -14,6 +14,8 @@ a `manual` row that resolves to nothing, which is what makes suppression work.
 Then a sweep (`refuse_disagreements`) takes resolutions away. It is not a
 seventh method: the six ask "what node is this?" and the sweep asks "does
 anything contradict the answer?", so it runs last, over every method at once.
+It contradicts on the two facts a name cannot fake — whether the taxon is still
+alive, and whether it sits above the genus.
 
 All resolution happens at build time; the runtime never matches names. There is
 no fuzzy method: PBDB genus names are heavily cross-kingdom homonyms, and being
@@ -87,8 +89,9 @@ UNRESOLVED = "unresolved"
 # Set by the `refuse_disagreements` sweep. They resolve to nothing, so they
 # carry zero confidence and are excluded from METHOD_ORDER (methods that find).
 REFUSED_EXTANCY = "refused_extancy_disagreement"
+REFUSED_RANK = "refused_rank_disagreement"
 REFUSED_AMBIGUOUS = "refused_name_ambiguous"
-REFUSALS = (REFUSED_EXTANCY, REFUSED_AMBIGUOUS)
+REFUSALS = (REFUSED_EXTANCY, REFUSED_RANK, REFUSED_AMBIGUOUS)
 
 CONFIDENCE: dict[str, float] = {
     "manual": 1.00,
@@ -99,8 +102,79 @@ CONFIDENCE: dict[str, float] = {
     "name_exact": 0.70,
     UNRESOLVED: 0.00,
     REFUSED_EXTANCY: 0.00,
+    REFUSED_RANK: 0.00,
     REFUSED_AMBIGUOUS: 0.00,
 }
+
+# --- rank classes, for the rank refusal ---------------------------------------
+#
+# The genus is the boundary that matters. A genus-group name and a name above it
+# are separate nomenclatural acts under every code, so two taxa spelled alike on
+# opposite sides of that line are homonyms, never the same thing: PBDB's
+# *Eutheria* is the placental clade and OTT's is a leaf beetle three species
+# deep in Chrysomelidae.
+#
+# Both sets are enumerated rather than inferred, and a rank in neither is left
+# alone — the sweep destroys resolutions, so silence must not read as evidence.
+# The "PBDB rows carrying a rank the sweep does not classify" gate counts what
+# falls through, so a vocabulary the snapshot grows is visible rather than quiet.
+
+# PBDB ranks above the genus. `species`, `genus`, `subgenus` and `subspecies` are
+# below it; `informal` and the one blank row say nothing and are in neither.
+PBDB_ABOVE_GENUS = frozenset(
+    {
+        "tribe",
+        "subtribe",
+        "subfamily",
+        "family",
+        "superfamily",
+        "infraorder",
+        "suborder",
+        "order",
+        "superorder",
+        "infraclass",
+        "subclass",
+        "class",
+        "superclass",
+        "subphylum",
+        "phylum",
+        "superphylum",
+        "subkingdom",
+        "kingdom",
+        "unranked clade",
+    }
+)
+
+# PBDB ranks at or below the genus. Named so that a rank in neither set is a
+# vocabulary the snapshot grew, not a rank we decided to ignore — `informal` and
+# the blank are the two the pinned snapshot already has.
+PBDB_GENUS_OR_BELOW = frozenset({"genus", "subgenus", "species", "subspecies"})
+
+# OTT ranks at or below the genus, infraspecific ones included.
+#
+# `section` and `subsection` are deliberately absent. They are infrageneric in
+# botany and suprageneric in zoology, and every one this corpus reaches is
+# zoological: *Schizophora* (56,619 tips), *Eubrachyura* (8,465), *Thoracotremata*
+# (1,490), each of them a PBDB suprageneric taxon correctly resolved. Reading the
+# botanical sense would withdraw all three.
+#
+# OTT's unranked states — `no rank`, `no rank - terminal`, and the empty string —
+# are absent for the same reason: unranked is where a clade name correctly lands.
+# The real *Eutheria* is one of them.
+OTT_GENUS_OR_BELOW = frozenset(
+    {
+        "genus",
+        "subgenus",
+        "species group",
+        "species subgroup",
+        "species",
+        "subspecies",
+        "infraspecificname",
+        "varietas",
+        "variety",
+        "forma",
+    }
+)
 
 # --- measured baselines, against the pinned snapshot -------------------------
 
@@ -822,12 +896,20 @@ def scan_backbone(
 #
 # A bare name is only evidence of identity where both corpora mean the same thing
 # by it, and they often do not (PBDB's *Sadleria* is a Devonian sponge, OTT's a
-# living fern). The one cross-corpus fact both sides record is whether the thing
-# is still alive: where PBDB says extinct and OTT's taxon carries no extinct flag
-# AND the node still has a chronogram-dated (living) descendant, the name has
-# matched two concepts and the resolution is withdrawn. The living-lineage guard
-# matters — refusing on OTT's flag alone costs ~1,162 correct attachments of
-# genuinely extinct genera OTT simply has not flagged.
+# living fern). Both sides record two facts about a taxon that a name cannot fake.
+#
+# The first is whether the thing is still alive: where PBDB says extinct and OTT's
+# taxon carries no extinct flag AND the node still has a chronogram-dated (living)
+# descendant, the name has matched two concepts and the resolution is withdrawn.
+# The living-lineage guard matters — refusing on OTT's flag alone costs ~1,162
+# correct attachments of genuinely extinct genera OTT simply has not flagged.
+#
+# The second is rank, and it catches what extancy structurally cannot. A clade
+# that holds living species is *extant* in PBDB, so the extancy sweep is blind to
+# it by construction: PBDB's *Eutheria* is flagged extant, as placentals are, and
+# it resolved onto a leaf-beetle genus with 1,191 fossils behind it —
+# *Leptictidium auderiense* among them, a bipedal Eocene mammal filed under
+# Coleoptera. Rank sees it at once, because a suprageneric taxon is never a genus.
 
 
 def load_ott_extinct(path: Path = TAXONOMY) -> set[int]:
@@ -877,23 +959,33 @@ def refuse_disagreements(
     idx_to_ott: dict[int, int],
     extinct_ott: set[int],
     living: BoolArray | None,
+    ott_rank: dict[int, str],
 ) -> JsonDict:
-    """Withdraw the resolutions the evidence does not support. Two refusals.
+    """Withdraw the resolutions the evidence does not support. Three refusals.
 
     Extancy disagreement, over every method (not just `name_exact`) and every
     row (not just accepted taxa) — the backbone merges a fossil name onto the
     living genus too, and a synonym's bad resolution moves a node on the axis
     just as an accepted one does.
 
+    Rank disagreement, on the same reach: PBDB ranks the taxon above the genus
+    and the node it reached is a genus or below. One direction only — a PBDB
+    genus or species landing on a family is GBIF and OTT putting a name they
+    cannot place at its container, which is where the fossil belongs anyway.
+
     Residual ambiguity, `name_exact` only: a name claimed by two accepted PBDB
     taxa that both matched the same OTT node — at most one is right and nothing
-    says which, so both go. Run AFTER the extancy sweep, so a case like `Scopus`
+    says which, so both go. Run AFTER the other two, so a case like `Scopus`
     (Permian genus + hamerkop, both onto the hamerkop) is decided on evidence
-    first, leaving one claimant, rather than throwing away both.
+    first, leaving one claimant, rather than throwing away both. `Cytherelloidea`
+    is the same argument for rank: PBDB's ostracod genus and PBDB's superfamily
+    of that name both reached OTT's genus, and only the superfamily is wrong.
     """
     stats: JsonDict = {
         "extancy_refused": 0,
         "extancy_skipped": living is None,
+        "rank_refused": 0,
+        "rank_unclassified": 0,
         "ambiguous_names": 0,
         "ambiguous_refused": 0,
     }
@@ -909,6 +1001,17 @@ def refuse_disagreements(
                 continue
             if xref.revoke("pbdb", str(t.taxon_no), REFUSED_EXTANCY, [idx]):
                 stats["extancy_refused"] += 1
+
+    for t in taxa:
+        if t.rank not in PBDB_ABOVE_GENUS:
+            if t.rank not in PBDB_GENUS_OR_BELOW:
+                stats["rank_unclassified"] += 1
+            continue
+        idx = xref.resolved_idx("pbdb", str(t.taxon_no))
+        if idx is None or ott_rank.get(idx) not in OTT_GENUS_OR_BELOW:
+            continue
+        if xref.revoke("pbdb", str(t.taxon_no), REFUSED_RANK, [idx]):
+            stats["rank_refused"] += 1
 
     claimants: dict[str, list[int]] = {}
     for t in taxa:
@@ -986,11 +1089,53 @@ XREF_ANCHORS: tuple[tuple[int, str, bool, str], ...] = (
         "tips and no dated descendant, so the living-lineage guard keeps it — "
         "and without that guard 1,162 like it lose an exact attachment.",
     ),
+    (
+        5113,
+        "Rugosa",
+        False,
+        "the rugose coral order, and the largest rank disagreement in the "
+        "corpus: it reached OTT's *Rugosa*, a four-tip frog genus, and parked "
+        "4,325 fossils there. PBDB calls it extant, so extancy never saw it.",
+    ),
+    (
+        187297,
+        "Cytherelloidea",
+        False,
+        "the ostracod superfamily, onto OTT's genus of that name. Its own "
+        "family-group name, one rank down and a different taxon.",
+    ),
+    (
+        24714,
+        "Cytherelloidea",
+        True,
+        "the ostracod *genus* — the right claimant on that same node, which "
+        "must survive the refusal that takes its superfamily. This is why rank "
+        "runs before the ambiguity sweep rather than after it.",
+    ),
+    (
+        129039,
+        "Eubrachyura",
+        True,
+        "a PBDB infraorder on an OTT node ranked `section`. Zoological section "
+        "is suprageneric, so this 8,465-tip crab resolution is correct — and "
+        "reading `section` in its botanical, infrageneric sense would withdraw "
+        "it along with *Schizophora* (56,619 tips) and *Thoracotremata*.",
+    ),
+    (
+        137726,
+        "Eutheria",
+        True,
+        "the placental clade. GBIF's backbone matched it to nubKey 4764771, a "
+        "leaf-beetle genus, and 1,191 fossils followed it into Coleoptera — "
+        "*Leptictidium auderiense*, a bipedal Eocene mammal, among them. It is "
+        "a `manual` override now because OTT holds the right node (ott683263) "
+        "and refusing alone would strand those fossils at Mammalia.",
+    ),
 )
 
 
 def _refusal_gates(g: GateSet, refused: JsonDict, con: sqlite3.Connection) -> None:
-    """Report the sweep, then check the six cases it was written for."""
+    """Report the sweep, then check the cases it was written for."""
     g.require(
         "the extancy sweep ran",
         "skipped" if refused["extancy_skipped"] else "ran",
@@ -1013,6 +1158,29 @@ def _refusal_gates(g: GateSet, refused: JsonDict, con: sqlite3.Connection) -> No
             "and 0 of 22 clean ones. Not confined to `name_exact`: "
             "`gbif_backbone_provenance` supplies 7,191 of them, because the "
             "backbone merges a fossil name onto the living genus too."
+        ),
+    )
+    g.observe(
+        "resolutions withdrawn on a rank disagreement",
+        f"{refused['rank_refused']:,}",
+        note=(
+            "PBDB ranks the taxon above the genus and the node it reached is a "
+            "genus or below, which no two taxa of one name can both be. This is "
+            "the class extancy cannot see: a clade holding living species is "
+            "flagged extant, so *Eutheria*, *Rugosa*, *Phytophaga* and "
+            "*Anthophila* all passed the extancy sweep on their way onto a "
+            "genus. 131 rows over 103 nodes, holding 9,247 fossils — plus "
+            "*Eutheria*'s own 1,191, which the `manual` override reaches first."
+        ),
+    )
+    g.observe(
+        "PBDB rows carrying a rank the sweep does not classify",
+        f"{refused['rank_unclassified']:,}",
+        note=(
+            "`informal` and one blank row in the pinned snapshot. They are in "
+            "neither rank set and so are never refused — a rank the sweep "
+            "cannot place is not evidence against a resolution. A jump here "
+            "means PBDB grew a rank and the two sets need reading again."
         ),
     )
     g.observe(
@@ -1362,11 +1530,22 @@ def run(budget: int = 25_000, use_api: bool = True) -> int:
     print("\n--- refusing disagreements ---", flush=True)
     extinct_ott = load_ott_extinct()
     living = living_lineages()
+    # Only the nodes something actually reached, filtered on the way past: the
+    # node table is 2.7M rows and the sweep asks about a few tens of thousands.
+    reached = {r[2] for r in xref.rows() if r[0] == "pbdb" and r[2] is not None}
+    ott_rank = {
+        int(idx): rank
+        for idx, rank in con.execute(
+            "SELECT idx, rank FROM node WHERE rank IS NOT NULL"
+        )
+        if int(idx) in reached
+    }
     refused = refuse_disagreements(
-        xref, taxa, {i: o for o, i in ott_to_idx.items()}, extinct_ott, living
+        xref, taxa, {i: o for o, i in ott_to_idx.items()}, extinct_ott, living, ott_rank
     )
     print(
         f"  {refused['extancy_refused']:,} withdrawn on an extancy disagreement, "
+        f"{refused['rank_refused']:,} on a rank disagreement, "
         f"{refused['ambiguous_refused']:,} on a name still claimed twice",
         flush=True,
     )

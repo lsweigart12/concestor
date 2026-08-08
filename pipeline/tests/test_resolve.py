@@ -347,16 +347,20 @@ def test_a_self_forward_does_not_loop():
 
 
 def _taxon(
-    taxon_no: int, name: str, is_extant: int | None, accepted_no: int | None = None
+    taxon_no: int,
+    name: str,
+    is_extant: int | None,
+    accepted_no: int | None = None,
+    rank: str = "genus",
 ) -> resolve.PbdbTaxon:
     """A PbdbTaxon carrying only the fields the sweep reads."""
     return resolve.PbdbTaxon(
         taxon_no=taxon_no,
         orig_no=taxon_no,
-        rank="genus",
+        rank=rank,
         name=name,
         accepted_no=accepted_no if accepted_no is not None else taxon_no,
-        accepted_rank="genus",
+        accepted_rank=rank,
         accepted_name=name,
         parent_no=0,
         n_occs=1,
@@ -377,6 +381,7 @@ def _sweep(
     extinct_ott: tuple[int, ...] = (),
     living: BoolArray | None = None,
     idx_to_ott: dict[int, int] | None = None,
+    ott_rank: dict[int, str] | None = None,
 ) -> tuple[Xref, JsonDict]:
     x = Xref()
     for source_id, idx, method in resolutions:
@@ -387,6 +392,7 @@ def _sweep(
         idx_to_ott if idx_to_ott is not None else {5: 500, 6: 600},
         set(extinct_ott),
         living,
+        ott_rank if ott_rank is not None else {},
     )
     return x, stats
 
@@ -538,6 +544,107 @@ def test_the_extancy_sweep_runs_first_so_scopus_keeps_its_hamerkop():
     assert stats["ambiguous_refused"] == 0
     assert x.resolved_idx("pbdb", "39639") == 5, "the hamerkop"
     assert x.resolved_idx("pbdb", "57557") is None, "the Permian genus"
+
+
+def test_a_suprageneric_taxon_landing_on_a_genus_is_refused():
+    """Eutheria. GBIF's backbone matched the placental clade to a leaf-beetle
+    genus and 1,191 fossils followed it into Coleoptera."""
+    x, stats = _sweep(
+        [_taxon(137726, "Eutheria", 1, rank="unranked clade")],
+        [("137726", 5, "gbif_pbdb_chain")],
+        ott_rank={5: "genus"},
+    )
+    assert stats["rank_refused"] == 1
+    row = x.get("pbdb", "137726")
+    assert row is not None and row.idx is None
+    assert row.method == resolve.REFUSED_RANK
+    assert row.candidates == [5], "the withdrawn node stays visible"
+
+
+def test_rank_catches_what_extancy_structurally_cannot():
+    """The reason this refusal exists at all. A clade holding living species is
+    flagged extant, so the extancy sweep is blind to it by construction — and
+    every one of these passed it."""
+    living = np.array([True] * 6, dtype=bool)
+    x, stats = _sweep(
+        [_taxon(5113, "Rugosa", 1, rank="order")],
+        [("5113", 5, "name_exact")],
+        living=living,
+        ott_rank={5: "genus"},
+    )
+    assert stats["extancy_refused"] == 0, "PBDB calls it extant, so extancy passes"
+    assert stats["rank_refused"] == 1
+    assert x.resolved_idx("pbdb", "5113") is None
+
+
+def test_rank_runs_before_ambiguity_so_cytherelloidea_keeps_its_genus():
+    """The `Scopus` argument, for rank. PBDB's ostracod genus and PBDB's
+    superfamily of that name both reached OTT's genus; only the superfamily is
+    wrong, and refusing it leaves one claimant rather than none."""
+    living = np.array([True] * 6, dtype=bool)
+    x, stats = _sweep(
+        [
+            _taxon(24714, "Cytherelloidea", 1, rank="genus"),
+            _taxon(187297, "Cytherelloidea", 1, rank="superfamily"),
+        ],
+        [("24714", 5, "gbif_pbdb_chain"), ("187297", 5, "name_exact")],
+        living=living,
+        ott_rank={5: "genus"},
+    )
+    assert stats["rank_refused"] == 1
+    assert stats["ambiguous_refused"] == 0
+    assert x.resolved_idx("pbdb", "24714") == 5, "the genus"
+    assert x.resolved_idx("pbdb", "187297") is None, "the superfamily"
+
+
+def test_a_suprageneric_node_is_a_fine_home_for_a_suprageneric_taxon():
+    """Only the crossing is refused. An OTT `section` is suprageneric in
+    zoology and every one this corpus reaches is zoological — Schizophora at
+    56,619 tips, Eubrachyura at 8,465 — so reading it as botanical would
+    withdraw three correct resolutions."""
+    x, stats = _sweep(
+        [
+            _taxon(129039, "Eubrachyura", 1, rank="infraorder"),
+            _taxon(1, "Anything", 1, rank="family"),
+        ],
+        [("129039", 5, "name_exact"), ("1", 6, "name_exact")],
+        ott_rank={5: "section", 6: "no rank"},
+    )
+    assert stats["rank_refused"] == 0
+    assert x.resolved_idx("pbdb", "129039") == 5
+    assert x.resolved_idx("pbdb", "1") == 6, "unranked is where a clade name lands"
+
+
+def test_a_genus_reaching_a_higher_node_is_left_alone():
+    """One direction only. A PBDB genus or species on a family is GBIF and OTT
+    filing a name they cannot place at its container, which is where the fossil
+    belongs anyway — Hesperopithecus haroldcookii really is a peccary."""
+    x, stats = _sweep(
+        [_taxon(1, "Hesperopithecus haroldcookii", 0, rank="species")],
+        [("1", 5, "gbif_backbone_provenance")],
+        ott_rank={5: "family"},
+    )
+    assert stats["rank_refused"] == 0
+    assert x.resolved_idx("pbdb", "1") == 5
+
+
+def test_a_rank_in_neither_set_never_refuses():
+    """`informal` and one blank row. The sweep destroys resolutions, so a rank
+    it cannot place must not read as evidence against one."""
+    x, stats = _sweep(
+        [_taxon(1, "A", 1, rank="informal"), _taxon(2, "B", 1, rank="")],
+        [("1", 5, "name_exact"), ("2", 5, "name_exact")],
+        ott_rank={5: "genus"},
+    )
+    assert stats["rank_refused"] == 0
+    assert stats["rank_unclassified"] == 2
+    assert x.resolved_idx("pbdb", "1") == 5
+
+
+def test_the_two_rank_sets_do_not_overlap():
+    assert not (resolve.PBDB_ABOVE_GENUS & resolve.PBDB_GENUS_OR_BELOW)
+    assert "section" not in resolve.OTT_GENUS_OR_BELOW, "zoological, suprageneric"
+    assert "no rank" not in resolve.OTT_GENUS_OR_BELOW, "where a clade name lands"
 
 
 def test_a_refusal_carries_a_confidence_and_resolves_to_nothing():
