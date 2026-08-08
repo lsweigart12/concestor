@@ -10,15 +10,16 @@ project deploys on Cloudflare.
 | File | Trigger | Jobs |
 |---|---|---|
 | `.github/workflows/ci.yml` | every push to `main`, every pull request | `commits`, `web`, `server`, `pipeline`, `cloudflare` |
-| `.github/workflows/release.yml` | CI succeeding on `main`, or manual | `release` — semantic-release, fully automatic |
+| `.github/workflows/release.yml` | **daily at 16:00 UTC**, or the Release button | `release` — semantic-release over everything merged since the last tag |
 | `.github/workflows/deploy-web.yml` | **called by `release.yml`**, pull request, manual | `deploy` — skipped until Cloudflare credentials exist |
 | `.github/dependabot.yml` | monthly | npm, gomod, uv, github-actions — grouped |
 
-The chain is `merge → CI → release → deploy`, and no link waits for a human. The three
-halves share only files, so they get three independent jobs and a red run names the half
-that broke. **Nothing in CI needs `build/` (3.2 GB) or `snapshot/` (1.7 GB), and nothing
-in CI should try to produce them** — the pipeline is hours of work against academic APIs
-with no rate limiting (see `docs/data-sources.md`).
+The chain is `merge → CI → (merges accumulate) → the train → release → deploy`, and no
+link waits for a human: the cron is what replaces "someone remembered". Merging does not
+release — §4. The three halves share only files, so they get three independent jobs and a
+red run names the half that broke. **Nothing in CI needs `build/` (3.2 GB) or `snapshot/`
+(1.7 GB), and nothing in CI should try to produce them** — the pipeline is hours of work
+against academic APIs with no rate limiting (see `docs/data-sources.md`).
 
 - **`web`** — `npm ci`, then `prettier --check`, `oxlint`, typecheck, vitest (two
   projects, `node` and `dom`), `vite build`. The built `dist` is uploaded and handed to
@@ -148,12 +149,30 @@ container (which means Docker and a 2.2 GB image).
 
 ## 4. Releases
 
-Fully automatic: merge to `main`, CI passes, a release is cut. Nobody decides a version or
-writes release notes.
+**Releases are batched onto a train.** Merging does not release. Everything merged since
+the last tag rides the next run of `release.yml` — daily at **16:00 UTC**, or whenever
+somebody presses **Release** (uncheck `dry_run`). Nobody decides a version or writes
+release notes.
 
 ```
-merge → CI green on main → semantic-release → tag + GitHub Release → deploy
+merges accumulate on main
+        │
+        ├── 16:00 UTC daily ──┐
+        └── the Release button┴─→ tip-green gate → semantic-release → tag + Release → deploy
 ```
+
+### Why a train
+
+One release per releasable merge was one *production deploy* per releasable merge. This
+project is worked in several parallel worktrees, so a sitting produces several pull
+requests; five merges became five versions and five deploys, four of them pointless, each
+with notes describing one pull request. Batching is semantic-release's native mode —
+highest bump wins, the notes cover every commit since the last tag — so `release.config.cjs`
+is untouched and the whole change is the trigger.
+
+What it costs: **a merged fix waits up to a day** unless somebody presses the button, and
+a red release run now blocks several pull requests' worth of work rather than one. The
+button is the escape hatch for the first; the gate below makes the second rare.
 
 ### The version is a function of the commit log
 
@@ -233,12 +252,27 @@ with the same token, so the guard applies. A guard step in `release.yml` diffs t
 tag list across semantic-release and **fails** if a tag was cut without the deploy's
 trigger output being set.
 
-### Two guards worth knowing
+### The tip-green gate
 
-- **The release runs on CI succeeding, not on push to `main`** — `workflow_run` is the
-  only trigger that can know the commit's tests were green.
-- **If `main` moved while CI was running, the release skips** with a notice rather than
-  shipping the newer, untested tip. That commit has its own CI run.
+A train has no event telling it the tests passed, so it asks. The first step of
+`release.yml` looks up the `ci.yml` run for `main`'s exact tip sha, on the `push` that
+landed it, and requires `conclusion == success`. **The two triggers answer a non-green tip
+differently, on purpose:**
+
+| Tip state | Cron | Release button |
+|---|---|---|
+| green | releases | releases |
+| red, still running, or no run at all | **skips with a notice** | **fails** |
+
+Nobody asked for the cron, so a red morning is a notice and tomorrow's train ships the
+fix; a red train every day until somebody noticed would teach people to stop reading red.
+A human who pressed the button is standing there and should be told no rather than
+silently obliged tomorrow. *No run at all* is treated as red on both paths: CI runs on
+every push to `main`, so its absence is a broken assumption, and "no evidence" must never
+read as "green".
+
+This needs `actions: read` in `release.yml`'s `permissions:` — reading another workflow's
+runs is its own scope, and without it the gate 404s and every train fails.
 
 ### The baseline
 
@@ -259,8 +293,8 @@ manually with `dry_run` on to watch it decide without releasing.
 - **No coverage percentage** — the number that matters is the pass/skip split in §2, and a
   coverage badge computed without a dataset would report the tiny dataset-free figure as
   the truth.
-- **No release-approval step** — the gate is CI; to hold a release back, do not merge the
-  `feat:`.
+- **No release-approval step** — the gates are CI and the train's tip-green check; to hold
+  a release back, do not merge the `feat:`.
 - **No end-to-end browser test** — it needs a dataset, so it belongs with
   `scripts/check.sh` and a real build.
 - **Nothing times the deployed API** — every latency figure was taken on a developer

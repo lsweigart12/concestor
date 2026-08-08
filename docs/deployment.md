@@ -44,6 +44,10 @@ published, passing the tag. Not a trigger on the release: semantic-release
 publishes with `secrets.GITHUB_TOKEN`, and GitHub does not start workflows from
 events that token raises.
 
+**A merge does not deploy.** `release.yml` runs on a daily train (16:00 UTC) or
+the Release button, so production moves once per release rather than once per
+releasable merge — `docs/ci.md` §4.
+
 - **The production deploy log is in the Release run**, under a job called
   `deploy`. `deploy-web.yml`'s own run list holds PR previews and hand-deploys
   only.
