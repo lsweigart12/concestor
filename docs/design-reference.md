@@ -112,11 +112,10 @@ reader who asked for no motion is better served by the answer.
 ### Taxa queue, and draw one at a time
 
 **A taxon may be asked for at any moment; it is drawn when the canvas is free.**
-Adds go into a queue — an opening's remaining taxa, a press of `R`, a palette
-row, **a fossil**, all the same queue — and the head is released when its lineage
-has arrived _and_ the previous draw has landed. Holding `R` down therefore draws
-every species it rolls, in turn, instead of each press cutting the last animation
-off at the knees.
+Adds go into a queue — a press of `R`, a palette row, **a fossil**, all the same
+queue — and the head is released when its lineage has arrived _and_ the previous
+draw has landed. Holding `R` down therefore draws every species it rolls, in
+turn, instead of each press cutting the last animation off at the knees.
 
 **A fossil is a taxon here.** It waits its turn, it draws itself on, and its mark
 blooms where the line arrives, exactly as a species does — the only differences
@@ -127,14 +126,13 @@ cause of a real rendering bug.
 
 **Nothing outside the canvas knows how long a draw takes.** The canvas reports
 each one as it lands and the queue follows; there is no step interval to keep
-equal to the draw's own constants. That is what the pacing above replaces — a
-`STEP_MS` floor that had to be kept in step with three numbers in another file
-by hand, and was wrong the moment any of them moved.
+equal to the draw's own constants.
 
-An opening therefore needs no clock of its own. It presses the first taxon,
-queues the rest, and watches for the queue to drain before it pays its answer.
-Any interaction ends it at the _finished_ tree: the reader interrupted the
-telling, not the argument.
+**An opening is one press and draws in one go.** Its whole set enters the view
+together and the tree draws itself on exactly as a shared link does — the reach
+out of the root, wave after wave, which is the drawing this app is for. The
+answer goes up with it: the finished shape is the argument, and nothing is
+withheld to narrate it.
 
 Implementation: React Flow edges are SVG paths — use `getTotalLength()` with
 `stroke-dasharray` / `stroke-dashoffset`. Decay is a separate opacity or filter

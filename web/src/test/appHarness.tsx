@@ -15,9 +15,9 @@
  *   simulated: jsdom lays nothing out, so every rect is zero either way, and the
  *   viewport arithmetic that cares is `viewport.test.ts`'s subject and pure.
  * - **`matchMedia`** answers `prefers-reduced-motion`. It is stubbed to *reduce*
- *   on purpose — `openSequenced` then draws an opening's taxa in one go rather
- *   than stepping them in over several seconds, which is the same tree by the
- *   same path and is the reader this suite can actually wait for.
+ *   on purpose — `Graph.tsx` then lands the tree at once instead of drawing it
+ *   on over seconds, which is the same tree by the same path and is the reader
+ *   this suite can actually wait for.
  * - **`getBoundingClientRect`** is left alone. Nothing here asserts a position.
  * - **the network** is already walled off by `setup-dom.ts`, whose `fetch`
  *   throws. Every `api` method these tests reach is spied, and one that is not
