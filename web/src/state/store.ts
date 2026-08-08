@@ -3,7 +3,7 @@
  * store's serialisation and everything visible round-trips through
  * `encode`/`decode`:
  *
- *   /?n=770315,153563,664349&axis=log&sel=770315&iso=1
+ *   /?n=770315,153563,664349&axis=log&sel=770315&seg=12-34
  *
  * The three canvas modes (bioluminescence, labels, ages) live in
  * `sessionStorage` and never in a link, because they are claims about the reader
@@ -41,7 +41,6 @@ export interface ViewState {
   keys: string[];
   axis: AxisMode;
   selected: string | null;
-  isolate: boolean;
   /**
    * The segment whose drill-down lane is open, as two node indices (what
    * `/v1/segment` takes). `seg=upper-lower` in the URL.
@@ -150,7 +149,6 @@ const DEFAULT: ViewState = {
   keys: [],
   axis: "linear",
   selected: null,
-  isolate: false,
   drill: null,
   fossils: [],
 };
@@ -176,7 +174,6 @@ export function decode(search: string): ViewState {
     axis: p.get("axis") === "log" ? "log" : "linear",
     // Normalised with `keys`, so `remove` can clear it. Empty `sel=` is null.
     selected: sel ? toUrlKey(sel) : null,
-    isolate: p.get("iso") === "1",
     drill:
       seg.length === 2 && Number.isInteger(seg[0]) && Number.isInteger(seg[1])
         ? { upper: seg[0]!, lower: seg[1]! }
@@ -190,7 +187,6 @@ export function encode(v: ViewState): string {
   if (v.keys.length) p.set("n", v.keys.join(","));
   if (v.axis !== "linear") p.set("axis", v.axis);
   if (v.selected) p.set("sel", v.selected);
-  if (v.isolate) p.set("iso", "1");
   if (v.drill) p.set("seg", `${v.drill.upper}-${v.drill.lower}`);
   if (v.fossils.length) p.set("f", v.fossils.join(","));
   const q = p.toString();
@@ -718,10 +714,10 @@ export function useTree() {
 
   /**
    * Open on a selection — the whole of an opening, in one press. Replaces
-   * rather than appends and resets the rest of the view (`isolate`, `drill`),
-   * because an opening is only true of its own set of taxa. The tree then draws
-   * itself on exactly as a cold load does, which is the drawing this app is
-   * for.
+   * rather than appends and resets the rest of the view (the selection,
+   * `drill`), because an opening is only true of its own set of taxa. The tree
+   * then draws itself on exactly as a cold load does, which is the drawing this
+   * app is for.
    */
   const open = useCallback((keys: readonly string[], axis?: AxisMode) => {
     // Reset the animation baseline: `addDelta` splits the new tree into waves
@@ -879,10 +875,6 @@ export function useTree() {
       setView((v) => ({ ...v, selected: key && toUrlKey(key) })),
     [],
   );
-  const toggleIsolate = useCallback(
-    () => setView((v) => ({ ...v, isolate: !v.isolate })),
-    [],
-  );
   const setDrill = useCallback(
     (drill: ViewState["drill"]) => setView((v) => ({ ...v, drill })),
     [],
@@ -934,7 +926,6 @@ export function useTree() {
     setLabels,
     setAges,
     select,
-    toggleIsolate,
     toggleBiolum,
     setDrill,
     addFossil,

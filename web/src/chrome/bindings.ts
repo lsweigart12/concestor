@@ -20,7 +20,6 @@ export type ActionId =
   | "add-taxon"
   | "fit"
   | "fit-selection"
-  | "isolate"
   | "step"
   | "step-back"
   | "axis"
@@ -111,13 +110,6 @@ export const BINDINGS: readonly Binding[] = [
     shift: false,
     kbd: "F",
     label: "Fit",
-  },
-  {
-    id: "isolate",
-    key: "i",
-    shift: false,
-    kbd: "I",
-    label: "Isolate",
   },
   {
     id: "step-back",

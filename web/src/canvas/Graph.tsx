@@ -228,7 +228,6 @@ export interface GraphProps {
   onDeltaLanded?: () => void;
   focusedIdx: number | null;
   onFocus: (idx: number | null) => void;
-  isolate: boolean;
   axisMode: AxisMode;
   /** Which words the marks carry, and whether they print a date. Switched in the sidebar. */
   labels: LabelMode;
@@ -282,7 +281,6 @@ function Inner(props: GraphProps) {
     onDeltaLanded,
     focusedIdx,
     onFocus,
-    isolate,
     axisMode,
     labels,
     ages,
@@ -521,8 +519,8 @@ function Inner(props: GraphProps) {
 
   const laneH = activeDrill ? laneHeight(laneRowsData) : 0;
 
-  // The lineage from the focused node to the induced root. `⌘\` isolates it;
-  // otherwise it is what "selected path burns bright" is measured against.
+  // The lineage from the focused node to the induced root. It is what "selected
+  // path burns bright" is measured against: everything off it dims.
   const focusLineage = useMemo(() => {
     const out = new Set<number>();
     let cur: number | null = focusedIdx;
@@ -738,9 +736,7 @@ function Inner(props: GraphProps) {
   const rfNodes: Node[] = useMemo(
     () =>
       [...lay.placed.values()].map((p) => {
-        const dim =
-          (isolate && !focusLineage.has(p.idx)) ||
-          (!isolate && focusedIdx !== null && !focusLineage.has(p.idx));
+        const dim = focusedIdx !== null && !focusLineage.has(p.idx);
         // The clade travels on the node itself, deliberately. The drawing's
         // own node is usually a *cousin* and so is not in the induced subtree
         // at all — looking it up in `nodeMap` returned undefined and silently
@@ -815,7 +811,6 @@ function Inner(props: GraphProps) {
       lay,
       focusedIdx,
       focusLineage,
-      isolate,
       flaring,
       labels,
       ages,
@@ -841,9 +836,7 @@ function Inner(props: GraphProps) {
       const unbounded =
         b.node.tier === TIER_STRUCTURAL && !hasDatedDescendant(v, ind, nodeMap);
 
-      const dim =
-        (isolate && !(focusLineage.has(v) && focusLineage.has(seg.anc))) ||
-        (!isolate && focusedIdx !== null && !focusLineage.has(v));
+      const dim = focusedIdx !== null && !focusLineage.has(v);
 
       const data: TraceEdgeData = {
         d: orthPath(a.x, a.y, b.x, b.y),
@@ -885,11 +878,9 @@ function Inner(props: GraphProps) {
         // the dash channel answers exactly that question.
         tier: TIER_OCCURRENCE,
         dim:
-          (isolate && !focusLineage.has(l.graft.anchor)) ||
-          (!isolate &&
-            focusedIdx !== null &&
-            focusedIdx !== l.idx &&
-            !focusLineage.has(l.graft.anchor)),
+          focusedIdx !== null &&
+          focusedIdx !== l.idx &&
+          !focusLineage.has(l.graft.anchor),
         unbounded: false,
         drilled: false,
         attachment: true,
@@ -913,7 +904,6 @@ function Inner(props: GraphProps) {
     placed,
     focusedIdx,
     focusLineage,
-    isolate,
     drawDelay,
     delta,
     reduced,
@@ -1258,8 +1248,8 @@ function Inner(props: GraphProps) {
    * all since an add attaches to a branch already on screen.
    *
    * **Only a pure add takes the second path.** An opening replaces the canvas
-   * and a remove or an isolate takes lineages out of it, and no pan answers
-   * those. Length alone cannot tell them apart, hence the previous set.
+   * and a remove takes lineages out of it, and no pan answers those. Length
+   * alone cannot tell them apart, hence the previous set.
    *
    * `atFit` is read through a ref for `scheduleFit`'s reason: this arms a timer
    * on a count change and clears it on cleanup, so a re-run for any other

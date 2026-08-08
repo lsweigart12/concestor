@@ -5,7 +5,7 @@
  * to draw the labels and ages switches while nothing is on screen, and that
  * refusal is right: those two annotate *marks*, so with no marks they are
  * controls a reader can throw and watch do nothing — the same failure the
- * control bar avoids by disabling fit, isolate and step on the same canvas.
+ * control bar avoids by disabling fit and step on the same canvas.
  * Bioluminescence looked like a third member of that set and is not one. Its
  * subject is not a mark; its subject is **the water and what is lit in it**,
  * and something is on this canvas. The wordmark, the opening card and its row

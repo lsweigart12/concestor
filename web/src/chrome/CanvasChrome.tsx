@@ -16,10 +16,10 @@
  * a panel that stays open across a whole session a second press has to be able
  * to close what the first press opened without hunting for the button again.
  *
- * ## Top right: the three that are about looking
+ * ## Top right: the two that are about looking
  *
- * Fit, isolate and fullscreen. What they have in common is the argument for the
- * cluster existing at all: none of them changes the tree, they change *your
+ * Fit and fullscreen. What they have in common is the argument for the
+ * cluster existing at all: neither changes the tree, they change *your
  * view of it*, and a control that acts on the viewport belongs on the viewport
  * rather than in a list of the tree's contents. Everything else that used to be
  * on the control bar is in the panel, where it is about a thing rather than

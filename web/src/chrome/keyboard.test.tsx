@@ -70,7 +70,6 @@ function press(key: string, shiftKey = false): boolean {
 function viewActions(run = vi.fn()): ViewportAction[] {
   return [
     { id: "fit", glyph: "⤢", run },
-    { id: "isolate", glyph: "◎", run },
     { id: "fullscreen", glyph: "⛶", run },
   ];
 }
@@ -113,7 +112,6 @@ describe("the keys the browser needs back", () => {
       expect(press("d")).toBe(true);
       expect(press("a")).toBe(true);
       expect(press("s")).toBe(true);
-      expect(press("i")).toBe(true);
       expect(press("b")).toBe(true);
     } finally {
       off();
@@ -133,7 +131,7 @@ describe("what Tab arrives at", () => {
     render(<ViewportControls actions={viewActions()} />);
     // Named from the table, so a row moving letter takes the name with it —
     // `step` printed "Tab" and "Step" here until the key moved to `n`.
-    for (const name of ["Fit", "Isolate", "Fullscreen"]) {
+    for (const name of ["Fit", "Fullscreen"]) {
       const b = screen.getByRole("button", { name: new RegExp(name) });
       b.focus();
       expect(document.activeElement).toBe(b);
@@ -149,15 +147,15 @@ describe("what Tab arrives at", () => {
       <ViewportControls
         actions={[
           {
-            id: "isolate",
-            glyph: "◎",
+            id: "fit",
+            glyph: "⤢",
             run,
-            disabledBecause: "Select a taxon first",
+            disabledBecause: "Nothing on the canvas to frame yet",
           },
         ]}
       />,
     );
-    const b = screen.getByRole("button", { name: /Isolate/ });
+    const b = screen.getByRole("button", { name: /Fit/ });
     expect(b.getAttribute("aria-disabled")).toBe("true");
     b.focus();
     expect(document.activeElement).toBe(b);
