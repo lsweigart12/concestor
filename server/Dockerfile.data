@@ -1,0 +1,47 @@
+# The dataset, and nothing else. The other half of the API image.
+#
+# `docs/deployment.md` §5 is the argument; the short version is that this image
+# and `Dockerfile.api` change on different cadences. This one moves when the
+# pipeline runs — rarely, and only from a machine that has `build/`. That one
+# moves on every release, and is assembled in CI in seconds because the 2.2 GB
+# underneath it is already in the registry.
+#
+# Built by `scripts/deploy/push-data-image.sh`, which assembles the build
+# context — this file expects a staging directory, not the repository root.
+# That is deliberate: the context is 2.2 GB of pipeline output that lives
+# outside the repository, and `docker build .` at the root would try to send
+# the whole checkout, snapshot/ included, to the daemon.
+#
+# **There is no binary here and no runtime configuration** — no `USER`, no
+# `EXPOSE`, no `ENTRYPOINT`. This image cannot be run, and that is the point: a
+# runnable image with a stale binary in it is exactly the drift the split
+# exists to end. `Dockerfile.api` adds all four.
+#
+# linux/amd64 is required by Cloudflare Containers, and the machine holding
+# build/ is very likely an arm64 Mac, so the push script passes `--platform`.
+FROM gcr.io/distroless/static-debian12:nonroot
+
+# Everything the server opens at startup, in the layout it expects. `-build`
+# points at /srv/build and the server derives *both* the silhouette mirror and
+# snapshot/manifest.json from that directory's parent, so /srv/snapshot has to
+# sit beside /srv/build — the same relationship scripts/lib/paths.sh resolves
+# locally. Get that wrong and there is no error: 12,863 silhouettes 404 and
+# /v1/about reports no sources.
+#
+# The small JSON is not decoration. `store.computeBuildID` hashes the name,
+# size and mtime of the arrays, the database, timescale.json and
+# `phase*_gates*.json`, and folds in the snapshot's `synth_id` — and that id is
+# what every ETag and `Cache-Control: immutable` on /v1 keys on. Leaving those
+# files out does not fail; it quietly changes the identity of the build.
+#
+# Ordered coldest-first. That ordering used to be what made a binary-only
+# rebuild cheap; now the binary is not in this file at all, and the ordering is
+# what makes a *dataset* rebuild that only moves the small JSON reuse the
+# 2 GB underneath it.
+COPY --chown=nonroot:nonroot snapshot/phylopic /srv/snapshot/phylopic
+COPY --chown=nonroot:nonroot build/concestor.db /srv/build/concestor.db
+COPY --chown=nonroot:nonroot build/topology /srv/build/topology
+COPY --chown=nonroot:nonroot snapshot/manifest.json /srv/snapshot/manifest.json
+COPY --chown=nonroot:nonroot build/manifest.json /srv/build/manifest.json
+COPY --chown=nonroot:nonroot build/timescale.json /srv/build/timescale.json
+COPY --chown=nonroot:nonroot build/gates/ /srv/build/

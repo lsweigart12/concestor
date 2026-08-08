@@ -1,19 +1,33 @@
 #!/usr/bin/env bash
 #
-# Build and push the read API's container image: the Go binary plus the whole
-# baked artifact set, ~2.2 GB, tagged with the build id it contains.
+# Build and push the **data base image**: the whole baked artifact set, ~2.2 GB,
+# tagged with the build id it contains. No binary, no entrypoint — it cannot be
+# run, and that is deliberate.
 #
 # This runs on a machine that has build/, and nowhere else. CI does not have
-# the dataset and must never produce it — docs/ci.md §5 — so the image cannot
-# be built there, which is why web/wrangler.jsonc references it by registry
-# tag rather than by Dockerfile path. docs/deployment.md §5 is the whole
-# argument, including the bootstrap order the first time.
+# the dataset and must never produce it — docs/ci.md §5 — which is why
+# web/wrangler.jsonc references an image by registry tag rather than by
+# Dockerfile path.
+#
+# **The binary is not here any more.** It used to be: this script cross-compiled
+# the server, baked it into the same image, and the tag carried both halves.
+# That welded a 10 MB artifact to a 2.2 GB one on the wrong cadence — server
+# code changed, a release shipped, and production went on running the old binary
+# until somebody remembered to rebuild 2.2 GB locally. It happened, for two
+# releases. The binary is now added in CI from the tag being deployed
+# (.github/workflows/deploy-web.yml, `Assemble the API image`), so it cannot
+# drift from the release by construction. docs/deployment.md §5.
+#
+# Two hazards died with it, and both were real: a `-dirty` tag naming no
+# commit, and a tag whose dataset id was a lie after a single-phase rerun
+# without `package`. Both lived in the local binary build. The second is now an
+# observation in scripts/check.sh instead.
 #
 # It prints the tag. Commit that tag into web/wrangler.jsonc: pinning it is
 # what makes rolling the Worker back roll the dataset back with it.
 #
 # Usage:
-#   CLOUDFLARE_ACCOUNT_ID=… scripts/deploy/push-api-image.sh [--no-push]
+#   CLOUDFLARE_ACCOUNT_ID=… scripts/deploy/push-data-image.sh [--no-push]
 #
 # Runs unchanged inside a git worktree, borrowing build/ and snapshot/ from
 # the main checkout the same way scripts/serve.sh does.
@@ -45,14 +59,12 @@ if [ "$PUSH" = 1 ] && [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
   exit 1
 fi
 
-for tool in docker go python3; do
+for tool in docker python3; do
   command -v "$tool" >/dev/null || { echo "$tool is required but not on PATH" >&2; exit 1; }
 done
 
-# The tag names the *image*, and an image is a dataset **and** a binary.
-#
-# The first half is the manifest's build id — `concestor-build package`'s,
-# hashed from artifact *content*.
+# The tag names the dataset, and now names *only* the dataset — the manifest's
+# build id from `concestor-build package`, hashed from artifact *content*.
 #
 # It is deliberately not the id /v1/about reports. `store.computeBuildID`
 # hashes file sizes and *mtimes*, so it changes when a file is copied and
@@ -60,54 +72,28 @@ done
 # exactly right for what it does — keying an ETag on something that changes
 # whenever the bytes on this disk do — and exactly wrong as a name for an
 # artifact set. docs/deployment.md §5 records both.
+#
+# There is no code half. An image with no binary in it has no code identity to
+# carry, and the API tag CI mints (`<build_id>-<release>`) is where the other
+# half now lives.
 BUILD_ID=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["build_id"])' \
   "$CONCESTOR_BUILD/manifest.json")
 
-# The second half is the commit the binary is compiled from, and it is here
-# because the dataset id alone was a name for half the image.
-#
-# The image carries the Go server as well as the arrays, so the code can change
-# while the artifacts do not — which is exactly what happened between #47 and
-# #51. The server grew `Entry.Vernacular`, the dataset did not move, and a
-# rebuild would have produced the *same* tag as the image already in the
-# registry: a silent overwrite, `web/wrangler.jsonc` unchanged, and the
-# promise this pinning exists to keep — roll the Worker back and the dataset
-# rolls back with it — quietly not holding for the binary. Production ran a
-# pre-#51 server for two releases and the tag had no way to say so.
-#
-# So the code identity goes in the tag. Two consequences worth keeping:
-#
-#   - A dataset rebuild and a code change now both mint a new tag, which is
-#     what makes an unchanged tag mean an unchanged image.
-#   - `--dirty` is carried through for the same reason VERSION carries it
-#     below: an image built from uncommitted edits must not take the name of
-#     the commit it was nearly built from. A dirty tag is not reproducible,
-#     and having it say so in the registry is the point.
-#
-# `git describe` is not used here. It is right for VERSION, which answers
-# "which release is this near"; a tag answers "which code is this exactly",
-# and the abbreviated sha answers that without a tag's distance arithmetic.
-VERSION=$(git -C "$ROOT" describe --tags --always --dirty 2>/dev/null || echo dev)
-COMMIT=$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo "")
-CODE_ID="${COMMIT:-nogit}"
-git -C "$ROOT" diff-index --quiet HEAD -- 2>/dev/null || CODE_ID="${CODE_ID}-dirty"
 # The fallback is lowercase and that is not a style choice: Docker refuses a
 # repository name containing an uppercase letter, so an `ACCOUNT_ID` stand-in
 # fails the build itself with `repository name must be lowercase` — which is
 # only ever hit under --no-push, the one path that has no account id and the
-# one path whose whole job is to prove the image builds. A real Cloudflare
-# account id is 32 lowercase hex characters and was never at risk.
+# one path whose whole job is to prove the image builds.
 #
-# web/wrangler.jsonc's placeholder stays uppercase ACCOUNT_ID deliberately.
-# It is a config string that deploy-web.yml greps for and substitutes, never a
-# tag handed to Docker, and making it shout is what stops it being mistaken
-# for a real account id in review.
-TAG="registry.cloudflare.com/${CLOUDFLARE_ACCOUNT_ID:-account_id}/concestor-api:${BUILD_ID}-${CODE_ID}"
+# web/wrangler.jsonc's placeholders stay uppercase ACCOUNT_ID and RELEASE
+# deliberately. They are config strings that deploy-web.yml greps for and
+# substitutes, never tags handed to Docker, and making them shout is what stops
+# them being mistaken for a real account id or a real version in review.
+TAG="registry.cloudflare.com/${CLOUDFLARE_ACCOUNT_ID:-account_id}/concestor-data:${BUILD_ID}"
 
 echo "build    $CONCESTOR_BUILD${CONCESTOR_BORROWED_FROM:+  (borrowed from $CONCESTOR_BORROWED_FROM)}"
 echo "phylopic $CONCESTOR_SILHOUETTES"
 echo "dataset  $BUILD_ID"
-echo "code     $CODE_ID"
 echo "tag      $TAG"
 
 # --- staging ----------------------------------------------------------------
@@ -163,34 +149,7 @@ if find "$CTX" -type l -print -quit | grep -q .; then
   exit 1
 fi
 
-# Cross-compiled here rather than in the image, so the image needs no
-# toolchain and no build stage. Static for the same reason release.yml's
-# binaries are: the SQLite driver is modernc.org/sqlite, not a cgo wrapper,
-# so CGO_ENABLED=0 costs nothing.
-#
-# The version is injected for the same reason scripts/ci/build-release.sh
-# injects it: without -X main.version the binary keeps main.go's honest "dev"
-# default, and the first deploy proved what that costs — /v1/about reported
-# `release: "dev"`, so the one field naming which *code* is live named
-# nothing. docs/ci.md §4 promises that field.
-#
-# `git describe` rather than a bare tag, because this script runs on the
-# pipeline's cadence and not the release's: the commit that holds a dataset is
-# usually some way past the last tag, and `v0.5.0-2-g62f488b` says so where a
-# bare `v0.5.0` would claim to be a release it is not. --dirty is deliberate —
-# an image built from uncommitted edits should say it on /v1/about rather than
-# impersonate the commit it was nearly built from.
-#
-# VERSION and COMMIT are derived up where the tag is built, because the tag
-# needs the commit too and deriving it twice is how the two drift apart.
-echo "version  $VERSION"
-echo "compiling server for linux/amd64…"
-(cd "$ROOT/server" && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-  go build -trimpath \
-    -ldflags "-s -w -X main.version=$VERSION -X main.commit=$COMMIT" \
-    -o "$CTX/concestor-server" .)
-
-cp "$ROOT/server/Dockerfile" "$CTX/Dockerfile"
+cp "$ROOT/server/Dockerfile.data" "$CTX/Dockerfile"
 
 # Apparent size, not `du`. On APFS the clones above share blocks, so `du`
 # reports about ten megabytes for a context Docker is going to read 2.2 GB out
@@ -202,7 +161,15 @@ echo "context  ${CTX_MB} MB"
 # --platform is not optional: Cloudflare Containers requires linux/amd64 and
 # the machine holding build/ is very likely an arm64 Mac, where Docker would
 # otherwise produce an arm64 image that fails at deploy rather than here.
-docker build --platform linux/amd64 -t "$TAG" "$CTX"
+#
+# --provenance=false is not optional either, and it is the one flag here that
+# is about CI rather than about this machine. BuildKit's default attaches an
+# attestation, which makes the pushed artifact an *index* of two manifests
+# rather than one image — and `crane mutate`, which is how the release
+# assembles the API image on top of this one, refuses an index. Without this
+# flag every release fails at the assembly step with a media-type error that
+# says nothing about where it came from.
+docker build --platform linux/amd64 --provenance=false -t "$TAG" "$CTX"
 
 if [ "$PUSH" = 0 ]; then
   echo
@@ -216,21 +183,17 @@ cat <<EOF
 
 Pushed. Now pin it, or nothing points at it:
 
-  web/wrangler.jsonc  ->  "image": "registry.cloudflare.com/ACCOUNT_ID/concestor-api:${BUILD_ID}-${CODE_ID}"
+  web/wrangler.jsonc  ->  "image": "registry.cloudflare.com/ACCOUNT_ID/concestor-api:${BUILD_ID}-RELEASE"
 
-The tag is committed and the account id is substituted at deploy time. Rolling
-the Worker back to a previous version rolls the dataset back with it, which is
-the whole reason this is not :latest — and the code half is why it rolls the
-*server* back too, which the dataset id alone could not say.
+Note the repository: the pin names **concestor-api**, not concestor-data. The
+API image at that tag does not exist yet and does not need to — the release's
+deploy assembles it from this base and the binary compiled from the tag it is
+shipping, and skips the work when it is already there. Both placeholders are
+substituted at deploy time: ACCOUNT_ID from the secret, RELEASE from the tag
+being deployed.
+
+Rolling the Worker back to a previous version rolls the dataset back with it,
+which is the whole reason this is not :latest — and the code half rolls back
+too, because the tag it names is a release and that release's source is what
+built its binary.
 EOF
-
-case "$CODE_ID" in
-  *-dirty)
-    cat <<EOF
-
-WARNING: this tag says -dirty, so it names no commit and cannot be rebuilt.
-Fine for a throwaway check; do not pin it in web/wrangler.jsonc. Commit, then
-run this again.
-EOF
-    ;;
-esac

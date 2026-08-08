@@ -1,0 +1,44 @@
+# The read API: one 4.7 MB binary on top of `Dockerfile.data`'s 2.2 GB.
+#
+# This is the *fallback* path, and it is here so that the image can always be
+# rebuilt with nothing but Docker — locally, in an emergency, or if the
+# registry-side assembly ever stops working. **The path CI actually takes is
+# `crane mutate`**, which appends the same layer and sets the same four
+# directives against the remote base without pulling it: seconds instead of the
+# minutes a 2.2 GB pull costs. `.github/workflows/deploy-web.yml`'s
+# `Assemble the API image` step is the one that runs on every release.
+#
+# The two must stay equivalent. What "equivalent" means is exactly the four
+# lines below plus the binary's path — if this file grows a fifth, the crane
+# invocation grows with it, and `docs/deployment.md` §5 is where that pairing
+# is written down.
+#
+# Build context: a directory holding `concestor-server`, cross-compiled for
+# linux/amd64. `DATA_IMAGE` is the full registry reference of the data base,
+# tag included.
+#
+#   docker build --platform linux/amd64 \
+#     --build-arg DATA_IMAGE=registry.cloudflare.com/<account>/concestor-data:<build_id> \
+#     -f server/Dockerfile.api -t <api tag> <context>
+ARG DATA_IMAGE
+FROM ${DATA_IMAGE}
+
+# Cross-compiled outside the image, so this needs no toolchain and no build
+# stage. Static for the same reason release.yml's binaries are: the SQLite
+# driver is modernc.org/sqlite, not a cgo wrapper, so CGO_ENABLED=0 costs
+# nothing.
+COPY --chown=nonroot:nonroot concestor-server /usr/local/bin/concestor-server
+
+USER nonroot
+EXPOSE 8080
+
+# 8080 is worker/index.ts's `defaultPort`. Nothing may hardcode a port
+# elsewhere in this project; here the image and the Worker have to agree on
+# one, and this is the pair.
+#
+# No frontend is copied, so the server's default `<build>/../web/dist` does
+# not exist and it serves the API alone — which is what we want, because the
+# bundle is served by Workers static assets. Two sources of one bundle is two
+# bundles that can differ.
+ENTRYPOINT ["/usr/local/bin/concestor-server"]
+CMD ["-addr", ":8080", "-build", "/srv/build"]

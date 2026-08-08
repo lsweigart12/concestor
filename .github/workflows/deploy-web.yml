@@ -1,12 +1,15 @@
 # Deploy Concestor to Cloudflare: the Worker, its static assets, and the
 # Container binding that runs the Go read API.
 #
-# It does not build the API image. That image carries 2.2 GB of pipeline
-# output which is not in this repository and must never be produced in CI, so
-# it is pushed by `scripts/deploy/push-api-image.sh` from a checkout that has
-# build/, and web/wrangler.jsonc names it by tag. This workflow deploys the
-# Worker that points at it. docs/deployment.md is the decision and §5 is the
-# deploy mechanics; docs/ci.md §3 is the short version.
+# **It assembles the API image, and it does not build the dataset.** Those are
+# two different claims and the split is the point. The *dataset* — 2.2 GB of
+# pipeline output that is not in this repository — is pushed as a base image by
+# `scripts/deploy/push-data-image.sh` from a checkout that has build/, and
+# must never be produced here. The *binary* is 10 MB compiled from the tag this
+# run is deploying, and adding it to that base is seconds of work against the
+# registry. Doing it here is what stops production running a server nobody
+# shipped. docs/deployment.md is the decision and §5 is the deploy mechanics;
+# docs/ci.md §3 is the short version.
 #
 # Nothing is configured yet, and this workflow is written so that costs
 # nothing: with no credentials in the repository every deploy step is skipped
@@ -15,8 +18,9 @@
 # that the pipeline was never wired up.
 #
 # To turn it on, set in the repository:
-#   secret CLOUDFLARE_API_TOKEN    — "Edit Cloudflare Workers", and registry
-#                                    write if the image is ever pushed from CI
+#   secret CLOUDFLARE_API_TOKEN    — "Edit Cloudflare Workers", and container
+#                                    registry write, which the assembly step
+#                                    below now genuinely needs
 #   secret CLOUDFLARE_ACCOUNT_ID
 #   variable CONCESTOR_API_ORIGIN  — optional. Set it only to route /v1 to an
 #                                    API *outside* Cloudflare; leaving it
@@ -188,6 +192,19 @@ jobs:
           # describe. Empty on a pull request, which checks out the
           # triggering ref.
           ref: ${{ inputs.release_tag }}
+          # The whole history, because a hand tip-deploy names the image it is
+          # about to assemble with `git describe`, and a shallow clone has no
+          # tags to describe against. It is a source-only repository — the
+          # dataset is deliberately not in it — so this costs seconds.
+          fetch-depth: 0
+
+      # For the cross-compile in `Assemble the API image`. Not needed on the
+      # preview path, which ships no binary at all.
+      - uses: actions/setup-go@v7
+        if: steps.guard.outputs.configured == 'true' && steps.guard.outputs.mode == 'production'
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
 
       - uses: actions/setup-node@v7
         if: steps.guard.outputs.configured == 'true'
@@ -213,33 +230,196 @@ jobs:
           npm ci
           npm run build
 
-      # Wrangler does not interpolate environment variables into
-      # wrangler.jsonc — a literal ${CLOUDFLARE_ACCOUNT_ID} is pushed straight
-      # through to the registry path — so the account id is substituted here.
-      # The committed placeholder is what lets ci.yml's dry run validate the
-      # config on a repository with no account at all.
+      # `web/wrangler.jsonc` commits an image reference with two shouting
+      # placeholders, and they are substituted for opposite reasons.
       #
-      # The *tag* is not substituted. It is committed, because pinning it is
-      # what makes rolling the Worker back roll the dataset back with it.
+      #   registry.cloudflare.com/ACCOUNT_ID/concestor-api:<build_id>-RELEASE
       #
-      # It runs on the preview path too, where the substitution is inert —
-      # `wrangler.preview.jsonc` has no container and never reads this file.
-      # The two greps are why it stays there: a committed tag that names no
-      # image is worth failing a pull request over, and this is the only place
-      # that is checked at all.
+      # **ACCOUNT_ID** because wrangler does not interpolate environment
+      # variables into its config — a literal ${CLOUDFLARE_ACCOUNT_ID} is
+      # pushed straight through to the registry path — and because a committed
+      # account id is what lets ci.yml's dry run validate this file on a
+      # repository with no account at all.
+      #
+      # **RELEASE** because the code half of the tag is derived from the thing
+      # being deployed rather than maintained by hand. It used to be a commit
+      # somebody pasted in after building an image locally, and it drifted: the
+      # server changed, a release shipped, and the pin still named the old
+      # binary. Deriving it here means it cannot.
+      #
+      # **`<build_id>` is committed and stays committed.** That half is the
+      # dataset, it moves on the pipeline's cadence, and pinning it is what
+      # makes rolling the Worker back roll the dataset back with it.
+      #
+      # The greps run on the preview path too, where the substitution itself is
+      # inert — `wrangler.preview.jsonc` has no container and never reads this
+      # file. That is deliberate: a pin that names no image is worth failing a
+      # pull request over, and this is the only place it is checked at all.
       - name: Resolve the container image reference
+        id: image
         if: steps.guard.outputs.configured == 'true'
         working-directory: web
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          MODE: ${{ steps.guard.outputs.mode }}
         run: |
           if ! grep -q 'registry.cloudflare.com/ACCOUNT_ID/' wrangler.jsonc; then
             echo "::error::wrangler.jsonc has no ACCOUNT_ID placeholder to substitute. Did the image reference change shape?"
             exit 1
           fi
           if grep -q 'concestor-api:unpublished' wrangler.jsonc; then
-            echo "::error::The container image tag is still 'unpublished'. Run scripts/deploy/push-api-image.sh from a checkout with build/, then commit the tag it prints. docs/deployment.md §5."
+            echo "::error::The container image pin is still 'unpublished'. Run scripts/deploy/push-data-image.sh from a checkout with build/, then commit the pin it prints. docs/deployment.md §5."
             exit 1
           fi
-          sed -i "s|registry.cloudflare.com/ACCOUNT_ID/|registry.cloudflare.com/${CLOUDFLARE_ACCOUNT_ID}/|" wrangler.jsonc
+
+          # The pin, read back rather than assumed, which is also how the
+          # build id is extracted. A pin that has lost its -RELEASE suffix is a
+          # hand-edit that would deploy a tag nothing mints.
+          pin=$(grep -o 'concestor-api:[A-Za-z0-9_.-]*' wrangler.jsonc | head -1)
+          case "$pin" in
+          concestor-api:*-RELEASE) build_id=${pin#concestor-api:}; build_id=${build_id%-RELEASE} ;;
+          *)
+            echo "::error::The container image pin is '${pin}', which does not end in -RELEASE. The committed tag names the dataset; the release half is substituted here. docs/deployment.md §5."
+            exit 1
+            ;;
+          esac
+
+          if [ "$MODE" != "production" ]; then
+            echo "::notice::Preview — the pin is validated but not substituted; wrangler.preview.jsonc has no container."
+            exit 0
+          fi
+
+          # On the release path the tag is handed in and is authoritative. On a
+          # hand tip-deploy it is worked out, and `--always` matters: at the tag
+          # itself `describe` says `v0.6.0` and the release's own image is
+          # reused, while three commits past it says `v0.6.0-3-gabc1234` — a
+          # name that is unique and true, where a bare `v0.6.0` would put a tip
+          # binary in an image claiming to be that release.
+          release="$RELEASE_TAG"
+          if [ -z "$release" ]; then
+            release=$(git describe --tags --always --dirty)
+            echo "::notice::No release_tag given — deploying the tip and naming its image ${release}."
+          fi
+
+          api="registry.cloudflare.com/${CLOUDFLARE_ACCOUNT_ID}/concestor-api:${build_id}-${release}"
+          data="registry.cloudflare.com/${CLOUDFLARE_ACCOUNT_ID}/concestor-data:${build_id}"
+
+          sed -i "s|registry.cloudflare.com/ACCOUNT_ID/${pin}|${api}|" wrangler.jsonc
+
+          # Read back, because a sed that matched nothing exits 0. The patterns
+          # are the *reference* forms rather than the bare words: this file's
+          # comments talk about both placeholders at length, and a guard that
+          # tripped on prose would have to be deleted the first time somebody
+          # explained the mechanism.
+          if grep -qE 'registry\.cloudflare\.com/ACCOUNT_ID/|concestor-api:[A-Za-z0-9_.]+-RELEASE' wrangler.jsonc; then
+            echo "::error::A placeholder survived substitution in wrangler.jsonc. Deploying it would name an image that cannot exist."
+            grep -nE 'registry\.cloudflare\.com/ACCOUNT_ID/|concestor-api:[A-Za-z0-9_.]+-RELEASE' wrangler.jsonc
+            exit 1
+          fi
+
+          {
+            echo "api=$api"
+            echo "data=$data"
+            echo "release=$release"
+          } >> "$GITHUB_OUTPUT"
+          echo "dataset  $build_id"
+          echo "release  $release"
+
+      # **The image the deploy is about to name, made to exist.** Idempotent by
+      # design, and inside the deploy rather than beside it, which buys four
+      # things at once: a deploy can never point at an image that is not there;
+      # a failed assembly is a red deploy next to the release it failed;
+      # re-running **Deploy web** heals any gap; and rolling back to an old tag
+      # reconstructs that tag's exact image — its wrangler.jsonc names its data
+      # base, its source builds its binary — even if the registry has been
+      # cleaned since.
+      #
+      # It is `crane mutate` against the remote base, not a Docker build. The
+      # registry already holds the 2.2 GB, so appending a 10 MB layer and
+      # setting four config directives is a manifest write: **measured at 7
+      # seconds**, against the several minutes pulling the base would cost.
+      # `server/Dockerfile.api` is the same operation expressed for Docker and
+      # is the fallback for a local or emergency rebuild; the two must stay
+      # equivalent, and that file says so.
+      - name: Assemble the API image
+        if: steps.guard.outputs.configured == 'true' && steps.guard.outputs.mode == 'production'
+        env:
+          API_IMAGE: ${{ steps.image.outputs.api }}
+          DATA_IMAGE: ${{ steps.image.outputs.data }}
+          RELEASE: ${{ steps.image.outputs.release }}
+          # Pinned with its published checksum rather than floating on
+          # `latest`: this step has registry write, and a release pipeline that
+          # changes behaviour because an upstream published on a Tuesday is not
+          # a pipeline.
+          CRANE_VERSION: v0.21.9
+          CRANE_SHA256: 5c16d8ddb971cb1d5e6ed8b1e743da8224414eeba2c2762d8f1a61b2f095699e
+        run: |
+          set -euo pipefail
+
+          curl -sSL -o "$RUNNER_TEMP/crane.tgz" \
+            "https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/go-containerregistry_Linux_x86_64.tar.gz"
+          echo "${CRANE_SHA256}  ${RUNNER_TEMP}/crane.tgz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/crane.tgz" -C "$RUNNER_TEMP" crane
+          CRANE="$RUNNER_TEMP/crane"
+
+          # A short-lived registry token from the same credential wrangler
+          # pushes with, so nothing new has to be stored. `--push --pull`
+          # because this both reads the base's manifest and writes the result.
+          creds=$(npx --prefix web wrangler containers registries credentials \
+            registry.cloudflare.com --push --pull --json)
+          printf '%s' "$creds" |
+            python3 -c 'import json,sys; d=sys.stdin.read(); print(json.loads(d[d.index("{"):])["password"])' |
+            "$CRANE" auth login registry.cloudflare.com -u v1 --password-stdin
+
+          # **Step one is a question, not a build.** A re-run, a rollback and a
+          # second deploy of the same tag all land here and stop.
+          if "$CRANE" manifest "$API_IMAGE" >/dev/null 2>&1; then
+            echo "::notice::${API_IMAGE} already exists — nothing to assemble."
+            exit 0
+          fi
+
+          # **The existence gate.** A missing data base is the one failure this
+          # design cannot fix by itself: it means a dataset was pinned but never
+          # pushed, or pushed but never pinned. Saying which tag was wanted is
+          # the whole value of failing here rather than shipping a container
+          # that boots without a dataset.
+          if ! "$CRANE" manifest "$DATA_IMAGE" >/dev/null 2>&1; then
+            echo "::error::No data base image at ${DATA_IMAGE}. web/wrangler.jsonc pins a dataset build id that is not in the registry — run scripts/deploy/push-data-image.sh from a checkout with build/, or correct the pin. docs/deployment.md §5."
+            exit 1
+          fi
+
+          # The same static cross-compile scripts/ci/build-release.sh does, and
+          # for the same reason it injects the version: without -X main.version
+          # the binary keeps main.go's honest "dev" default and /v1/about
+          # reports `release: "dev"` — the one field naming which code is live,
+          # naming nothing.
+          echo "compiling the server for linux/amd64 at ${RELEASE}…"
+          mkdir -p "$RUNNER_TEMP/layer/usr/local/bin"
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -C server \
+            -trimpath \
+            -ldflags "-s -w -X main.version=${RELEASE} -X main.commit=$(git rev-parse --short HEAD)" \
+            -o "$RUNNER_TEMP/layer/usr/local/bin/concestor-server" .
+
+          # 65532 is distroless's `nonroot`, matching the `COPY --chown` the
+          # Dockerfile used to do. The rest is determinism: the same source at
+          # the same version produces the same layer, so re-assembling a tag
+          # that was deleted from the registry restores it rather than
+          # replacing it with something new that happens to work.
+          tar --sort=name --owner=65532 --group=65532 --numeric-owner --mtime=@0 \
+            -C "$RUNNER_TEMP/layer" -cf "$RUNNER_TEMP/layer.tar" usr
+
+          # The four directives `Dockerfile.api` carries, in one write. 8080 is
+          # worker/index.ts's `defaultPort`; the image and the Worker have to
+          # agree on one and this is the pair.
+          "$CRANE" mutate "$DATA_IMAGE" \
+            --append "$RUNNER_TEMP/layer.tar" \
+            --user nonroot \
+            --exposed-ports 8080/tcp \
+            --entrypoint /usr/local/bin/concestor-server \
+            --cmd='-addr,:8080,-build,/srv/build' \
+            --tag "$API_IMAGE"
+
+          echo "::notice::Assembled ${API_IMAGE} from ${DATA_IMAGE}."
 
       # `wrangler versions upload` refuses outright on a Worker that does not
       # exist: "You cannot upload a new version of a Worker that does not yet

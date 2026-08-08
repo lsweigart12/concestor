@@ -99,12 +99,17 @@ which rules out any design that turns array reads into round trips).
 
 Three things about the deploy path:
 
-- **The API image is never built in CI, and cannot be** — it carries 2.2 GB of pipeline
-  output not in this repository. `scripts/deploy/push-api-image.sh` builds and pushes it
-  from a checkout that has `build/`, and `web/wrangler.jsonc` names it by **registry
-  tag**. (A Dockerfile in that config makes `wrangler deploy --dry-run` require Docker
-  even for a dry run, which would break the `cloudflare` job; a registry reference passes
-  clean.)
+- **The *dataset* is never built in CI, and cannot be** — it is 2.2 GB of pipeline output
+  not in this repository. **The image is assembled in CI**, from a data base pushed
+  earlier. `scripts/deploy/push-data-image.sh` builds and pushes
+  `concestor-data:<build_id>` from a checkout that has `build/`; the deploy appends the
+  binary compiled from the tag it is shipping and pushes
+  `concestor-api:<build_id>-<release>`. The two halves are on two cadences and that is the
+  whole reason for the split — the binary used to ride along inside the 2.2 GB, so a
+  server change reached production only when somebody remembered to rebuild the dataset
+  locally. `web/wrangler.jsonc` names the result by **registry tag**. (A Dockerfile in
+  that config makes `wrangler deploy --dry-run` require Docker even for a dry run, which
+  would break the `cloudflare` job; a registry reference passes clean.)
 - **`assets.run_worker_first: ["/v1/*"]` is load-bearing.** Without it,
   `not_found_handling: "single-page-application"` answers every unmatched path with
   `index.html` and the Worker never runs — `/v1/search` would return the HTML shell with
@@ -117,16 +122,18 @@ Three things about the deploy path:
 
 ### Turning the deploy on
 
-Nothing is configured; `deploy-web.yml` skips every later step with no credentials, so the
-run is green with a notice. The `cloudflare` job in `ci.yml` still bundles the Worker and
-validates the config on every PR. Order matters — a Worker whose container image does not
-exist will not deploy. Push the image first and commit the tag it prints, then set:
+`deploy-web.yml` skips every later step with no credentials, so the run is green with a
+notice. The `cloudflare` job in `ci.yml` still bundles the Worker and validates the config
+on every PR. Order matters — a Worker whose container image does not exist will not
+deploy. Push the **data base** image first and commit the pin it prints, then set:
 
 | | Name | Value |
 |---|---|---|
-| secret | `CLOUDFLARE_API_TOKEN` | *Edit Cloudflare Workers* + registry write |
+| secret | `CLOUDFLARE_API_TOKEN` | *Edit Cloudflare Workers* + container registry write |
 | secret | `CLOUDFLARE_ACCOUNT_ID` | substituted into the image reference at deploy time |
 | variable | `CONCESTOR_API_ORIGIN` | **optional** — set only to route `/v1` outside Cloudflare |
+
+The API image itself needs no bootstrap step: the deploy assembles it if it is not there.
 
 A release then runs `wrangler deploy`; a PR from this repository uploads a preview version
 and comments the URL. The preview is a version of a **second** Worker, `concestor-preview`
@@ -287,9 +294,10 @@ manually with `dry_run` on to watch it decide without releasing.
 
 - **No pipeline run in CI** — release cadence, not per commit, and the upstream APIs must
   be paced.
-- **No workflow that builds the read API's image** — its image contains the dataset, so a
-  workflow that builds it would need the pipeline's output in CI.
-  `scripts/deploy/push-api-image.sh` runs where `build/` already is.
+- **No workflow that builds the *dataset*** — it is hours against unpaced upstream APIs
+  and 2.2 GB of output. `scripts/deploy/push-data-image.sh` runs where `build/` already
+  is. The API image on top of it *is* built in CI, in about seven seconds, because
+  appending a 10 MB layer to a base the registry already holds is a manifest write.
 - **No coverage percentage** — the number that matters is the pass/skip split in §2, and a
   coverage badge computed without a dataset would report the tiny dataset-free figure as
   the truth.

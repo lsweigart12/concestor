@@ -69,6 +69,30 @@ if [ "$WANT_DATASET" = 1 ] && concestor_resolve_artifacts; then
   fi
   export CONCESTOR_REQUIRE_BUILD=1
   echo "Dataset tests: required, against $CONCESTOR_BUILD" >&2
+
+  # **Observe, not require.** web/wrangler.jsonc pins the dataset production
+  # serves, and this checkout's build/ is whatever the pipeline last produced
+  # here — a rebuilt local dataset is the normal state of a machine that runs
+  # the pipeline, so a gate that failed on the difference would block every
+  # experiment. What it is worth saying is that the two have parted, because
+  # the only other way to find out is a deploy that serves the old data.
+  #
+  # This is also what replaced a hazard rather than adding one. The image tag
+  # used to be minted locally from build/manifest.json, so a single-phase rerun
+  # without `package` left the manifest stale and the tag quietly lied about
+  # which artifacts it held. Nothing local mints that tag any more; this note
+  # is where the same question gets asked instead.
+  LOCAL_BUILD_ID=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["build_id"])' \
+    "$CONCESTOR_BUILD/manifest.json" 2>/dev/null || echo "")
+  PINNED_BUILD_ID=$(sed -n 's|.*/concestor-api:\([A-Za-z0-9_.]*\)-RELEASE.*|\1|p' \
+    "$ROOT/web/wrangler.jsonc" | head -1)
+  if [ -n "$LOCAL_BUILD_ID" ] && [ -n "$PINNED_BUILD_ID" ] && [ "$LOCAL_BUILD_ID" != "$PINNED_BUILD_ID" ]; then
+    printf '\033[33mDataset pin: local build/ is %s, web/wrangler.jsonc pins %s.\033[0m\n' \
+      "$LOCAL_BUILD_ID" "$PINNED_BUILD_ID" >&2
+    echo "  Production is not serving what this checkout holds. When it should:" >&2
+    echo "    CLOUDFLARE_ACCOUNT_ID=… scripts/deploy/push-data-image.sh" >&2
+    echo "  then commit the pin it prints. Observation, not a failure." >&2
+  fi
 elif [ "$WANT_DATASET" = 1 ]; then
   echo "Dataset tests: skipped — no build/ in this checkout or the main one." >&2
   echo "  This is CI's coverage, not a full run. See docs/ci.md §2." >&2
