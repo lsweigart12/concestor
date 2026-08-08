@@ -71,30 +71,48 @@ import { laneHue } from "./tree/layout";
 import { divergenceFor, nestedSelections } from "./tree/naming";
 
 /**
- * What the label command switches to next, and how each state describes itself.
- * A table, not ternaries, so the title, subtitle and destination cannot
- * disagree. Order is the chip's own: off → common → scientific → off.
+ * What the label command switches to next, and what the row calls it.
+ * A table, not ternaries, so the title and the destination cannot disagree.
+ * Order is the chip's own: off → common → scientific → off.
  */
-const LABEL_TURN: Record<
-  LabelMode,
-  { next: LabelMode; title: string; subtitle: string }
-> = {
-  off: {
-    next: "common",
-    title: "common names",
-    subtitle: "The name people use, for species, genera and subspecies",
-  },
-  common: {
-    next: "scientific",
-    title: "scientific names",
-    subtitle: "The name in the taxonomy, on every mark that has one",
-  },
-  scientific: {
-    next: "off",
-    title: "no labels",
-    subtitle: "The tree as a shape: marks, traces and silhouettes",
-  },
+const LABEL_TURN: Record<LabelMode, { next: LabelMode; title: string }> = {
+  off: { next: "common", title: "common names" },
+  common: { next: "scientific", title: "scientific names" },
+  scientific: { next: "off", title: "no labels" },
 };
+
+/**
+ * A clock, for the dates command. Drawn rather than typed, and for a stronger
+ * reason than `SearchGlyph`'s: the honest character is `⌛`, which carries
+ * `Emoji_Presentation`, so every browser renders it in colour at emoji weight —
+ * one saturated pictogram in a column of hairline glyphs, and the one row in
+ * the palette that did not look like it belonged to this app.
+ *
+ * Same box and the same stroke as `chrome/CanvasChrome.tsx` draws to, so it
+ * takes `currentColor` and goes accent with the row like everything else.
+ */
+function DatesGlyph() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="14"
+      height="14"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <g
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <circle cx="8" cy="8" r="5.7" />
+        <path d="M8 4.6 V8 L10.4 9.4" />
+      </g>
+    </svg>
+  );
+}
 
 /**
  * The line beside the search pill once an opening has finished drawing — one
@@ -633,7 +651,6 @@ export default function App() {
             {
               id: "fit-all",
               title: "Fit all",
-              subtitle: "Frame the whole induced subtree",
               icon: "⤢",
               keys: kbd("fit"),
               section: "View",
@@ -648,11 +665,10 @@ export default function App() {
         // rows that set, because the palette is a list of *actions* and "set
         // labels to scientific" is not one when they already are. The title
         // names what you would be switching *to*, never the current state.
-        // `LABEL_TURN` is what keeps this row's title, its subtitle and the
-        // key's handler agreeing about where the press lands.
+        // `LABEL_TURN` is what keeps this row's title and the key's handler
+        // agreeing about where the press lands.
         id: "labels",
         title: `Switch labels to ${LABEL_TURN[tree.labels].title}`,
-        subtitle: LABEL_TURN[tree.labels].subtitle,
         icon: "Aa",
         keys: kbd("labels"),
         section: "View",
@@ -669,10 +685,7 @@ export default function App() {
         // control kept a letter that names it by changing which word names it.
         id: "ages",
         title: tree.ages ? "Hide dates" : "Show dates",
-        subtitle: tree.ages
-          ? "Leave the dates to the axis"
-          : "Print each mark's date, bound or fossil range",
-        icon: "⌛",
+        icon: <DatesGlyph />,
         keys: kbd("ages"),
         section: "View",
         run: () => {
@@ -689,9 +702,6 @@ export default function App() {
         title: tree.biolum
           ? "Turn bioluminescence off"
           : "Turn bioluminescence on",
-        subtitle: tree.biolum
-          ? "Back to the plain instrument"
-          : "Light the canvas like the deep sea",
         icon: "✷",
         keys: kbd("biolum"),
         section: "View",
@@ -713,9 +723,6 @@ export default function App() {
               // in a list, with nothing beside it to compare against, and
               // "Fullscreen" there would not say whether it takes you in or out.
               title: fullscreen.on ? "Leave fullscreen" : "Go fullscreen",
-              subtitle: fullscreen.on
-                ? "Give the browser its chrome back"
-                : "Spend the tab strip and the URL bar on the time axis",
               icon: "⛶",
               keys: kbd("fullscreen"),
               section: "View",
@@ -732,21 +739,15 @@ export default function App() {
         // for share, `l` for link — are the two most-used bindings in the app.
         // It is one of the few actions nobody reaches for mid-flow.
         id: "share",
+        // **Never "copy this view"**, whichever line says it. `store.ts` puts
+        // the tree, the axis, the selection and the drill in the link and
+        // holds the light, the labels and the ages in `sessionStorage` on
+        // purpose — a setting that is a claim about the **reader** may not
+        // ride in a link, and one made with the labels off would open on a
+        // canvas of unnamed dots. So a shared tree arrives unlit, however you
+        // are reading it, and the honest promise is the tree and not the view.
+        // The toast `share()` raises is where that promise is made now.
         title: "Copy shareable link",
-        // **Not "all view state lives in the URL"**, which is what this said
-        // and which the bioluminescence row four entries above already
-        // contradicted: *a tree you share arrives unlit, however you are
-        // reading it.* `store.ts` puts the tree, the axis, the selection and
-        // the drill in the link and holds the light, the labels and the ages
-        // in `sessionStorage` on purpose — a setting that is a
-        // claim about the **reader** may not ride in a link, and one made with
-        // the labels off would open on a canvas of unnamed dots.
-        //
-        // So the subtitle promises the thing that does travel and says nothing
-        // about what does not. It matters to the same reader: somebody who
-        // sends a bioluminescent canvas and is told it is "the exact view"
-        // finds out otherwise from whoever opens it.
-        subtitle: "It opens on this exact tree",
         icon: "↗",
         section: "View",
         run: () => {
@@ -765,7 +766,6 @@ export default function App() {
       {
         id: "random-species",
         title: "Add a random species",
-        subtitle: "Something illustrated, picked for you",
         icon: "✦",
         keys: kbd("random-species"),
         section: "Selection",
@@ -791,7 +791,6 @@ export default function App() {
             {
               id: "step",
               title: "Go to the next species",
-              subtitle: "Opens each card in turn, and wraps at the end",
               icon: "→",
               keys: kbd("step"),
               section: "Selection",
@@ -804,7 +803,6 @@ export default function App() {
       {
         id: "clear",
         title: "Clear the canvas",
-        subtitle: "Remove every selection",
         icon: "×",
         keys: kbd("clear"),
         section: "Selection",
@@ -827,8 +825,6 @@ export default function App() {
       {
         id: "about",
         title: "About Concestor",
-        subtitle:
-          "What this is, where the data comes from, what the dashes mean",
         icon: "i",
         section: ABOUT_SECTION,
         run: () => {
@@ -854,7 +850,6 @@ export default function App() {
         */
         id: "reset-ranking",
         title: "Clear search history",
-        subtitle: "Forgets your recent species and the ranking they feed",
         icon: "↺",
         section: ABOUT_SECTION,
         run: () => {
@@ -892,9 +887,6 @@ export default function App() {
           title: open
             ? "Close the fossil lane"
             : `Show fossil occurrences along the branch to ${nm}`,
-          subtitle: open
-            ? "The lane below the chronogram"
-            : "Intermediate clades, and what the rock records on this segment",
           icon: "⌗",
           ...(open ? { keys: kbd("escape") } : {}),
           section: "This node",
