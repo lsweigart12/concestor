@@ -150,8 +150,8 @@ timer decides when a mark becomes visible.
   cycles labels, `D` flips dates, `B` the light, `R` adds a random species, `C`
   clears, `E` fills the screen. The three canvas modes hold the letters that
   name them. `T` is unclaimed — it switched the time scale, and nothing took it
-  when the second scale went. Shift is the _variant_ of a
-  binding, never a second one. `web/src/chrome/bindings.ts` is the one table;
+  when the second scale went. Shift is the _variant_ of a binding, never a
+  second one. `web/src/chrome/bindings.ts` is the one table;
   `matchKey` refuses any press holding ctrl, meta or alt.
 - **`/` opens search**, matching what `/` does everywhere else. It is the root of
   the command surface.
