@@ -14,17 +14,26 @@ import (
 // **They are a census of one artifact set, so a pipeline rerun can move them,
 // and a move is a fact worth reading rather than a number to bump.** Whichever
 // dataset is named below is the one they hold for; against another build this
-// test is measuring that build's difference from it. The one move so far:
-// `1a06c3c2a2be4ccf` promoted *Delphinoidea* from `structural` to
-// `occurrence`, because letting an accepted PBDB record reach the tree under
-// the name the tree writes gave it a walk-0 attachment it did not have before
-// (`fossils.under_accepted_name`). One node, and both totals it appears in.
+// test is measuring that build's difference from it. Both moves so far are the
+// same node, going opposite ways:
+//
+//   - `1a06c3c2a2be4ccf` promoted *Delphinoidea* from `structural` to
+//     `occurrence`, because letting an accepted PBDB record reach the tree
+//     under the name the tree writes gave it a walk-0 attachment it did not
+//     have before (`fossils.under_accepted_name`).
+//   - `70780a4c35b8a617` put it back. PBDB's *Delphinoidea* is the dolphin
+//     superfamily and OTT's is a one-tip genus, so phase 3's rank-disagreement
+//     sweep withdrew the resolutions the walk-0 attachments rested on: five of
+//     its six rows now attach at *Odontoceti* two hops up, and the node holds
+//     no bracket of its own. A fossil range on a one-tip genus was the bug.
+//
+// One node, and both totals it appears in.
 const (
-	measuredAgainstBuild = "1a06c3c2a2be4ccf"
+	measuredAgainstBuild = "70780a4c35b8a617"
 
-	wantStructural      = 186316
+	wantStructural      = 186317
 	wantWithLowerBound  = 5168
-	wantAtPresentBelow  = 181148
+	wantAtPresentBelow  = 181149
 	wantWithoutAncestor = 0
 )
 

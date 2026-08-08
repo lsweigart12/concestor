@@ -6,7 +6,7 @@
     "num_source_studies": 1931,
     "num_source_trees": 2064,
     "phase0_gates_ok": true,
-    "written_at": "2026-08-08T01:24:14+00:00",
+    "written_at": "2026-08-08T23:00:12+00:00",
     "phylopic_mirror": {
       "images": 12891,
       "mirrored": 12891,
@@ -41,8 +41,8 @@
       "url": "https://zenodo.org/api/records/19049120",
       "path": "snapshot/duke2026/zenodo_record.json",
       "bytes": 11365,
-      "sha256": "496979c40f515d4a79f8be9fccbbf04df0d2ba67ad05885e2cf5e1ba73f637c8",
-      "fetched_at": "2026-08-01T01:08:29+00:00",
+      "sha256": "b3fe279789bbaf0e7e702131f2d13167e9c6f34e68925ac6084ac652475a9005",
+      "fetched_at": "2026-08-08T21:47:25+00:00",
       "content_length": null,
       "note": "Deposit metadata incl. per-file md5 and license."
     },
@@ -82,7 +82,7 @@
       "path": "snapshot/gbif_pbdb_checklist/nubkeys.ndjson",
       "bytes": 4035692,
       "sha256": "213500278ea45b94caeb4f069432d3ccfa4b84bb3c5fe71123943786c43941f2",
-      "fetched_at": "2026-08-01T20:34:23+00:00",
+      "fetched_at": "2026-08-08T23:00:12+00:00",
       "content_length": null,
       "note": "25,950 point lookups, ordered by n_occs descending, resumable. Not a bulk export: the lookup does not page, so GBIF's offset cap never applies."
     },
@@ -141,8 +141,8 @@
       "url": "https://paleobiodb.org/data1.2/taxa/list.json?all_records&limit=1&datainfo",
       "path": "snapshot/pbdb/datainfo.json",
       "bytes": 817,
-      "sha256": "71529245cc18f8807ef580d4ab7306ba166ead1dab7cfdc8dce1dca6cb3037a2",
-      "fetched_at": "2026-08-01T01:08:29+00:00",
+      "sha256": "5dc78217615f6810c5bdb6c81cb032c9147d1343d9a64aa0caa51aa3005967e8",
+      "fetched_at": "2026-08-08T21:47:25+00:00",
       "content_length": null,
       "note": "Embeds access timestamp, license declaration and a re-runnable data_url. This block IS the citation PBDB asks for."
     },
@@ -162,7 +162,7 @@
       "path": "snapshot/phylopic/index.jsonl",
       "bytes": 6143713,
       "sha256": "100028ff0df3cebdf377b8adda407fd2617770457f927b1f33e2e6849ebd0ae1",
-      "fetched_at": "2026-08-08T01:24:14+00:00",
+      "fetched_at": "2026-08-08T21:56:26+00:00",
       "content_length": null,
       "note": "12,891 images with licence, attribution, contributor and their specific node's OTT ids. ~268 paged requests, not one per node."
     }

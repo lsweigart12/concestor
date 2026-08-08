@@ -81,7 +81,14 @@ MIN_OCCURRENCE_NODES = 2_000
 # Accepted taxa the tree holds under a name PBDB files on a second `taxon_no` —
 # see `under_accepted_name`. 6,271 of them are the accepted record itself, which
 # is the row `is_primary` picks and search serves.
-EXPECT_UNDER_ACCEPTED_NAME = 37_720
+#
+# Was 37,720 before phase 3 grew the rank-disagreement sweep. Only a *resolved*
+# row qualifies here, so a withdrawal upstream is a key lost downstream: the
+# sweep takes 148 rows, worth 81 keys on its own, and the ambiguity sweep that
+# runs after it hands ~21 back because removing a claimant leaves the name no
+# longer in doubt. 37,720 - 81 + 21 = 37,660, and the twelve `XREF_ANCHORS`
+# pin which withdrawals those are.
+EXPECT_UNDER_ACCEPTED_NAME = 37_660
 
 SPOT_TYRANNOSAURUS = 38613
 SPOT_AUBLYSODON = 38614

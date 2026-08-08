@@ -82,7 +82,15 @@ EXPECT_SCI = 2_599_664
 EXPECT_SYNONYM_ROWS = 2_226_375
 EXPECT_BROKEN = 9_839
 # The names the fossil record uses for taxa the tree holds — `load_pbdb_names`.
-EXPECT_PBDB_NAMES = 2_584
+#
+# Was 2,584 before phase 3 grew the rank-disagreement sweep. The corpus is drawn
+# from `attach_walk = 0` rows — the PBDB taxon *is* the node — and a withdrawn
+# resolution stops a taxon being the node at all: 135 of the 148 rows the sweep
+# takes had `attach_walk = 0` in the shipped build and 22 do now, so 113 leave
+# the population and 36 of them were the only catalogue offering that spelling.
+# The claim the corpus exists to make is unchanged and still gated at 0 — every
+# taxon the tree holds stays findable under the fossil record's name.
+EXPECT_PBDB_NAMES = 2_548
 
 # Ranking weights, tuned so `log1p(tip_count)` dominates: the boolean signals
 # only ever break ties between taxa of comparable size, never promoting a
