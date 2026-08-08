@@ -90,16 +90,40 @@ and does not re-export `ReadApi`, which is what makes it preview-eligible.
   deploy. Exercise the dispatch path from `main`: if the input fails to arrive
   the run reads as a production deploy, and from `main` that costs nothing.
 
-## The container image
+## The container image, and its two cadences
 
-The image contains ~2.2 GB of pipeline output that is not in the repository and
-**must never be produced in CI** (`docs/ci.md` §5). It is built and pushed from
-a machine that has `build/`, by `scripts/deploy/push-api-image.sh`, and
-`web/wrangler.jsonc` references it **by registry tag**:
+**The image is a dataset and a binary, and they do not move together.** The
+dataset is ~2.2 GB of pipeline output that is not in the repository and **must
+never be produced in CI** (`docs/ci.md` §5); it changes when the pipeline runs.
+The binary is ~10 MB and changes on every release. Welded into one hand-built
+image they drifted, and the drift was silent: production ran a pre-#51 server
+for two releases because shipping a 10 MB change meant rebuilding 2.2 GB on a
+laptop.
+
+So the image is two images.
+
+| | Built by | Where | Cadence | Tag |
+|---|---|---|---|---|
+| **data base** | `scripts/deploy/push-data-image.sh` | a checkout with `build/` | pipeline runs | `concestor-data:<build_id>` |
+| **API** | `deploy-web.yml`, `Assemble the API image` | CI, every production deploy | releases | `concestor-api:<build_id>-<release>` |
+
+`server/Dockerfile.data` is the first. It has no binary, no `USER`, no
+`EXPOSE`, no `ENTRYPOINT` — **it cannot be run**, which is the point: a runnable
+image with a stale binary in it is the drift this split exists to end.
+
+The second is `crane mutate` against the remote base: append one layer, set the
+four directives, push. The registry already holds the 2.2 GB and dedupes blobs
+across repositories in an account, so **the whole assembly is ~7 s and uploads
+about 10 MB** (measured 2026-08-08, including the crane download). Pulling the
+base to run `docker build` was the fallback design and would have cost minutes;
+`server/Dockerfile.api` is that fallback, kept for local and emergency rebuilds,
+and the two must stay equivalent.
+
+`web/wrangler.jsonc` references the API image **by registry tag**:
 
 ```jsonc
 "containers": [{ "class_name": "ReadApi",
-                 "image": "registry.cloudflare.com/<account>/concestor-api:<build_id>-<commit>" }]
+                 "image": "registry.cloudflare.com/ACCOUNT_ID/concestor-api:<build_id>-RELEASE" }]
 ```
 
 The registry-reference form is load-bearing: with `"image": "./Dockerfile"`,
@@ -107,11 +131,20 @@ The registry-reference form is load-bearing: with `"image": "./Dockerfile"`,
 `cloudflare` CI job. With a registry reference the dry run completes with no
 Docker, no credentials and no network — the form CI validates.
 
-- **Wrangler does not interpolate env vars into the config.** The account id is
-  substituted into the config by the deploy workflow before `wrangler deploy`;
-  the committed file carries a placeholder the dry run validates.
-- The image must be **`linux/amd64`**. The Go binary is already cross-compiled;
-  the Docker build must be told too, on what is likely an arm64 machine.
+- **`ACCOUNT_ID` and `RELEASE` are substituted at deploy time; `<build_id>` is
+  committed.** Wrangler does not interpolate env vars into its config, and the
+  placeholders are what let the dry run validate this file on a checkout with no
+  account. The build id stays committed because pinning the dataset is what
+  makes a rollback roll the data back too.
+- **Nothing has to exist at the API tag when it is committed.** The deploy
+  checks, and builds it if it is missing.
+- The image must be **`linux/amd64`**. The Go binary is cross-compiled; the data
+  image's Docker build is told too, on what is likely an arm64 machine.
+- **`--provenance=false` on that Docker build is not optional.** BuildKit's
+  default attaches an attestation, which makes the pushed artifact an *index* of
+  two manifests rather than one image, and `crane mutate` refuses an index.
+  Without it every release fails at assembly with a media-type error that says
+  nothing about where it came from.
 
 ### Two build ids
 
@@ -120,31 +153,45 @@ a stable name for an artifact set. `store.computeBuildID` computes its own from
 the name, size and mtime of the arrays, database, `timescale.json` and gate
 files, plus the snapshot's `synth_id` — the id every ETag and `Cache-Control`
 on `/v1` keys on. Both are correct for their job; `/v1/about` reports both. The
-image tag is the manifest's. The Dockerfile must copy `snapshot/manifest.json`
-and the phase gate files, because leaving them out silently changes the store's
-identity of the build.
+data image tag is the manifest's. `Dockerfile.data` must copy
+`snapshot/manifest.json` and the phase gate files, because leaving them out
+silently changes the store's identity of the build.
 
-### The tag is `<build_id>-<commit>`, committed
+### The tag is `<build_id>-<release>`, and only the first half is committed
 
-A dataset rebuild and a code change both mint a new tag, so an unchanged tag
+A dataset rebuild and a release both mint a new tag, so an unchanged tag still
 means an unchanged image, and rolling the Worker back rolls the *server* back
-and not only the data. A dirty tree appends `-dirty` and `push-api-image.sh`
-refuses to pin it.
+and not only the data.
 
-**To revert the dataset, revert the tag in `web/wrangler.jsonc` and run
+The halves are pinned differently on purpose. `<build_id>` is **committed**: it
+is a choice, taken when a new dataset is ready, and reverting the file reverts
+the data. `<release>` is **derived** from the tag being deployed, so it is not a
+choice at all and cannot be forgotten. A hand tip-deploy (empty `release_tag`)
+names it with `git describe --tags --always --dirty`, so a tip three commits
+past `v0.6.0` assembles `…-v0.6.0-3-gabc1234` rather than claiming to be the
+release.
+
+**To revert the dataset, revert the pin in `web/wrangler.jsonc` and run
 `deploy`.** Not `wrangler rollback`: Wrangler warns that container config changes
 (image, `max_instances`) are not rolled out with versions and only take effect
 on `deploy`, so a version rollback would leave the container on the newer image
 — the new dataset under old code. Treat `wrangler rollback` as unsafe here.
 
-**A stale image is invisible to a Worker deploy.** If `server/` changed between
-the pinned commit and the commit being deployed, the pinned image predates a
-server change and endpoints the new frontend calls will 404 or misbehave. Check
-before every deploy:
+**The staleness check that used to belong here is gone, and nothing replaced
+it,** because there is nothing left to be stale. The binary in the deployed
+image is compiled from the deployed tag on every release. What survives is the
+opposite question — is the *dataset* the local one? — and `scripts/check.sh`
+answers it as an observation, never a failure: a rebuilt local `build/` is the
+normal state of a machine that runs the pipeline.
 
-```bash
-git diff --quiet <pinned-commit> HEAD -- server/ || echo "pinned image predates a server change"
-```
+### The dirty-tag and stale-manifest hazards are gone
+
+Two hazards lived in the local binary build and died with it. A `--dirty` tag
+named no commit and could not be rebuilt, so the script had to warn against
+pinning it. And a single-phase pipeline rerun without `package` left
+`build/manifest.json` stale, so the tag's dataset id was a lie. Neither is
+reachable now: the local script names only the dataset, and the release half is
+minted by CI from a tag.
 
 ### The ETag names the binary too
 
@@ -154,18 +201,40 @@ stale content. `code_id` is the commit from `-X main.commit` where there is one,
 else `dev-<12 hex>` over the executable's path, size and mtime. `writeJSON`,
 `/v1/timescale` and `/v1/silhouette` all stamp through `stampCacheable`.
 
-### Bootstrap order
+### Shipping a new dataset
 
-Every deploy step is skipped while credentials are unset (`docs/ci.md` §3). When
-they exist:
+1. `CLOUDFLARE_ACCOUNT_ID=… scripts/deploy/push-data-image.sh` — from a checkout
+   that has `build/`. It prints the pin.
+2. Commit that pin into `web/wrangler.jsonc`. It rides the next train like any
+   other change.
+3. The release's `deploy` job assembles `concestor-api:<new build_id>-<tag>` and
+   ships it. Nothing else is run by hand.
 
-1. `scripts/deploy/push-api-image.sh` — build and push the image from a checkout
-   that has `build/`. It prints the tag.
-2. Commit that tag into `web/wrangler.jsonc`.
-3. Set repository secrets `CLOUDFLARE_API_TOKEN` (needs *Edit Cloudflare
-   Workers* **and** container registry write) and `CLOUDFLARE_ACCOUNT_ID`.
-4. Merge. CI passes, semantic-release cuts the release, and the release's
-   `deploy` job deploys the Worker.
+Bootstrapping an account from nothing is the same list with the two repository
+secrets — `CLOUDFLARE_API_TOKEN` (*Edit Cloudflare Workers* **and** container
+registry write) and `CLOUDFLARE_ACCOUNT_ID` — set between 2 and 3. Every deploy
+step is skipped while they are unset (`docs/ci.md` §3).
+
+### Rebuilding the image without CI
+
+The emergency procedure, for a registry-side assembly that has stopped working
+or a machine with no network to GitHub. It needs Docker and the data base:
+
+```bash
+CLOUDFLARE_ACCOUNT_ID=… scripts/deploy/push-data-image.sh      # if the base is missing
+mkdir -p /tmp/api && cd server
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath \
+  -ldflags "-s -w -X main.version=$(git describe --tags --always) -X main.commit=$(git rev-parse --short HEAD)" \
+  -o /tmp/api/concestor-server .
+docker build --platform linux/amd64 \
+  --build-arg DATA_IMAGE=registry.cloudflare.com/<account>/concestor-data:<build_id> \
+  -f server/Dockerfile.api -t registry.cloudflare.com/<account>/concestor-api:<build_id>-<version> /tmp/api
+npx --prefix web wrangler containers push registry.cloudflare.com/<account>/concestor-api:<build_id>-<version>
+```
+
+It pulls the 2.2 GB base, which is why it is not the normal path. The result is
+the same image `crane mutate` produces — `Dockerfile.api` and the assembly step
+are two spellings of one operation, and changing either means changing both.
 
 ## Caching
 

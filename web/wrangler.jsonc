@@ -105,32 +105,44 @@
   // and not a Dockerfile path, and both halves are load-bearing:
   //
   //   - The image carries 2.2 GB of pipeline output that is not in this
-  //     repository and must never be built in CI, so it is pushed from a
-  //     checkout that has build/ — scripts/deploy/push-api-image.sh.
+  //     repository and must never be built in CI. That half is pushed as a
+  //     *data base image* from a checkout that has build/ —
+  //     scripts/deploy/push-data-image.sh — and the deploy adds the 10 MB
+  //     binary on top of it in seconds.
   //   - With a Dockerfile here, `wrangler deploy --dry-run` refuses to run
   //     without Docker, *even in a dry run*. That would break the cloudflare
-  //     job in ci.yml, which is the only check this design has until there is
-  //     an account. With a registry reference the dry run passes clean.
+  //     job in ci.yml, which is the only check this design has without
+  //     credentials. With a registry reference the dry run passes clean.
   //
-  // ACCOUNT_ID is substituted by the deploy workflow: wrangler does not
-  // interpolate environment variables into this file, and a literal
-  // ${CLOUDFLARE_ACCOUNT_ID} would be pushed through to the registry path
-  // verbatim. The tag is *committed*, so that rolling the Worker back rolls
-  // the dataset back with it — `:latest` would make "roll back the frontend"
-  // quietly mean "keep the new database".
+  // **Two placeholders below, substituted at deploy time for opposite
+  // reasons, and one real value that is committed on purpose.**
   //
-  // The tag is `<dataset build id>-<commit>` and the second half is not
-  // decoration. It used to be the dataset id alone, which named half the
-  // image: the Go server ships in here too, so code could change while the
-  // artifacts did not and the rebuild would mint the tag already in the
-  // registry. That is not hypothetical — it is how a pre-#51 server ran in
-  // production for two releases while the frontend had the labels switcher,
-  // serving no vernacular on /v1/path so every mark fell back to its
-  // scientific name. An unchanged tag now means an unchanged image.
+  // The account id is substituted because wrangler does not interpolate
+  // environment variables into this file — a literal ${CLOUDFLARE_ACCOUNT_ID}
+  // would be pushed through to the registry path verbatim — and because a
+  // placeholder is what lets ci.yml's dry run validate this config on a
+  // checkout with no account at all.
+  //
+  // The release half is substituted because it is *derived*, from the tag the
+  // deploy is shipping. It used to be a commit sha pasted in by hand after
+  // building an image on a laptop, and it drifted: the server changed, a
+  // release shipped, and the pin still named the old binary. A pre-#51 server
+  // ran in production for two releases that way — the frontend had the labels
+  // switcher and /v1/path served no vernacular, so every mark fell back to its
+  // scientific name. Derived from the deployed tag, it cannot drift.
+  //
+  // **The dataset build id is committed and stays committed.** It moves on the
+  // pipeline's cadence, and pinning it is what makes rolling the Worker back
+  // roll the dataset back with it — `:latest` would make "roll back the
+  // frontend" quietly mean "keep the new database".
+  //
+  // The repository named is the api one, not the data one. Nothing has to
+  // exist at this tag when it is committed: the deploy checks, and assembles
+  // it from the data base when it is missing.
   "containers": [
     {
       "class_name": "ReadApi",
-      "image": "registry.cloudflare.com/ACCOUNT_ID/concestor-api:1a06c3c2a2be4ccf-80f9684",
+      "image": "registry.cloudflare.com/ACCOUNT_ID/concestor-api:1a06c3c2a2be4ccf-RELEASE",
 
       // `standard-1`: 1/2 vCPU, 4 GiB, 8 GB of disk, against a measured 463 MB
       // working set and a 2,229 MB image. The next size down, `basic`, is
