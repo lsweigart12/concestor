@@ -253,7 +253,11 @@ leave the solid bar undrawn — not zero-width, which reads as precision.
    node's **closest drawn relative** (not its nearest drawn ancestor — the ancestor rule
    resolves a riffle beetle to a picture of all arthropods). Seeding is five passes in
    decreasing strength: OTT id, forwarded OTT id, one-hop lift, node name, truncated node
-   name. `node_image.clade_idx` (the smallest clade holding both node and drawing) is the
+   name. The two name passes test ambiguity against **OTT, not against the tree** — see
+   data-sources.md; the tree cannot see a homonym whose other kingdom it does not carry,
+   which is how a wheatear reached the celery genus *Oenanthe*. Where OTT holds a name
+   twice, the image's own cited OTT id says which taxon was drawn.
+   `node_image.clade_idx` (the smallest clade holding both node and drawing) is the
    size of the claim the picture makes — the UI must render it. The `images.py` module
    docstring is the reference; read it before changing anything here.
 3. Store license URL, `attribution` (creator) **and** `contributor` (uploader)
@@ -266,6 +270,10 @@ leave the solid bar undrawn — not zero-width, which reads as precision.
 ### Gates
 
 - Node coverage ≥ 88% internal, ≥ 94% leaf.
+- Five cross-kingdom homonyms (`HOMONYM_ANCHORS`) each drawn as a taxon inside the right
+  clade. Asked of the **drawing's** OTT citation, not of the node it landed on: an exact
+  seed is its own `source_idx`, so a gate phrased against the source asks whether
+  *Oenanthe* is inside Apiaceae — which it is — and passes on the broken build.
 - Zero images stored without a license URL.
 - Zero attribution-required images with a null `attribution`.
 - Timescale: 178 concepts, 100% with color/age/rank, 176 with `skos:broader`, root ages

@@ -12,6 +12,17 @@ service. The corpus is only ~12,863 images, so crawl the index instead:
    then give every other node the picture of its closest drawn relative. Preorder
    (`parent[i] < i`) makes this a sweep. See `propagate`.
 
+## A name is not a key
+
+Images that cite no OTT id are reached through their node's name, and a name
+has to be unambiguous in **OTT** to be usable — not merely in the synthesis
+tree, which carries a small fraction of it. Testing ambiguity against the tree
+is the same mistake as trusting `is_extant` below: when two kingdoms share a
+name the other kingdom is usually the one missing, so the tree reports no
+ambiguity precisely when the wrong answer is about to be used. Where OTT holds
+a name twice the image's own citation decides, by lineage. See `_seed_by_name`
+and `HOMONYM_ANCHORS`.
+
 ## `clade_idx`, not `climb`
 
 Giving a node the image of its nearest seeded ancestor resolves everything (100%
@@ -196,6 +207,11 @@ T_UNSEEDED, T_NAME_TRUNCATED, T_NAME, T_LIFTED, T_OTT_ID = 0, 1, 2, 3, 4
 # doubling cover any chain. The loop exits on a fixpoint anyway; the cap only
 # stops a malformed `parent` array spinning forever.
 MAX_JUMPS = 16
+
+# How far up `taxonomy.tsv` a cited OTT id may be walked looking for the taxon
+# it names — see `intended_uid`. OTT's own root-to-tip depth is well under
+# this; the cap only stops a cycle in `parent_uid` spinning forever.
+MAX_LINEAGE = 256
 
 # Licences whose terms require the creator be credited. Everything else in the
 # corpus is CC0 or the Public Domain Mark, neither of which does.
@@ -539,6 +555,33 @@ class NameSeeds:
     exact: list[tuple[int, int]] = field(default_factory=list)
     truncated: list[tuple[int, int]] = field(default_factory=list)
     ambiguous: int = 0
+    disambiguated: int = 0
+
+
+def intended_uid(
+    uids: Sequence[int], cited: Sequence[int], parents: Mapping[int, int]
+) -> int | None:
+    """Which of several same-named taxa an image says it is, or `None`.
+
+    The image cites its own OTT id, and the taxon it means is the one that id
+    sits inside — so where the string cannot choose, the citation can. Walks
+    each cited id up `taxonomy.tsv` and takes the first same-named ancestor it
+    meets. Every cited id has to arrive at the same one; a citation that
+    reaches none of them is not an answer, and disagreement is not either.
+    """
+    same = set(uids)
+    answers: set[int] = set()
+    for start in cited:
+        v = int(start)
+        for _ in range(MAX_LINEAGE):
+            if v in same:
+                answers.add(v)
+                break
+            up = parents.get(v)
+            if up is None or up == v:
+                break
+            v = up
+    return answers.pop() if len(answers) == 1 else None
 
 
 def _seed_by_name(
@@ -549,30 +592,54 @@ def _seed_by_name(
     forwards: dict[int, int],
     tip_count: U32Array,
     max_tips: int,
+    cited: Sequence[Sequence[int]] | None = None,
+    parents: Mapping[int, int] | None = None,
 ) -> NameSeeds:
     """Passes 4 and 5 of `seed_nodes` — reach an image through its node's name.
 
     Only images that seeded nothing through an OTT id are considered, so this
     can add nodes but never move one an id already claimed.
+
+    A name is a key only where OTT knows exactly one taxon by it. That test is
+    made against **OTT**, not against the tree, and the difference is the whole
+    bug this rule replaced: synthesis carries a small fraction of OTT, so when
+    two kingdoms share a name the other one is usually *absent*, the tree
+    reports no ambiguity, and the drawing lands on whichever homonym happened
+    to make it in. Measured on the built corpus that put a wheatear on the
+    celery genus *Oenanthe*, a fig on a sea snail, an anthrax bacillus on a
+    stick insect and a stinging wasp on a fungus.
+
+    Where OTT holds a name twice, `intended_uid` asks the image which one it
+    meant. Twenty of the twenty-two homonym seeds that carried a citation were
+    contradicted by it, so the citation is not a tie-break here — it is the
+    evidence, and the name was overriding it.
     """
     found = NameSeeds()
     if not titles or not name_uids:
         return found
 
-    def resolve(uids: list[int]) -> tuple[int, bool]:
-        """`(node idx, ambiguous)`. Chases a forward, as pass 2 does."""
-        ids = np.array(uids, dtype=np.int64)
-        hit = lookup(ids)
-        miss = hit == NO_IMAGE
-        if bool(miss.any()) and forwards:
-            fwd = np.array(
-                [forwards.get(int(o), int(o)) for o in ids[miss]], dtype=np.int64
-            )
-            hit[miss] = lookup(fwd)
-        nodes = {int(n) for n in hit.tolist() if n != NO_IMAGE}
-        if len(nodes) > 1:
-            return NO_IMAGE, True
-        return (nodes.pop() if nodes else NO_IMAGE), False
+    def resolve(uid: int) -> int:
+        """The node for one OTT id, chasing a forward as pass 2 does."""
+        ids = np.array([uid], dtype=np.int64)
+        node = int(lookup(ids)[0])
+        if node == NO_IMAGE and forwards:
+            node = int(lookup(np.array([forwards.get(uid, uid)], dtype=np.int64))[0])
+        return node
+
+    def narrow(uids: list[int], record: int) -> int | None:
+        """The one OTT taxon a name may stand for here, or `None` to refuse.
+
+        Called only for names OTT actually carries, so `None` always means
+        refused — never "no such name".
+        """
+        if len(uids) == 1:
+            return uids[0]
+        chosen = intended_uid(uids, (cited[record] if cited else ()), parents or {})
+        if chosen is None:
+            found.ambiguous += 1
+            return None
+        found.disambiguated += 1
+        return chosen
 
     for record, raw in enumerate(titles):
         if record in landed:
@@ -583,12 +650,13 @@ def _seed_by_name(
 
         uids = name_uids.get(title)
         if uids:
-            node, ambiguous = resolve(uids)
-            if ambiguous:
-                # A homonym tells us the title is not enough to identify the
-                # taxon. Truncating it would only widen the ambiguity.
-                found.ambiguous += 1
+            uid = narrow(uids, record)
+            if uid is None:
+                # A homonym the image will not choose between tells us the
+                # title is not enough to identify the taxon. Truncating it only
+                # widens that.
                 continue
+            node = resolve(uid)
             if node != NO_IMAGE:
                 found.exact.append((node, record))
                 continue
@@ -597,10 +665,10 @@ def _seed_by_name(
             uids = name_uids.get(candidate)
             if not uids:
                 continue
-            node, ambiguous = resolve(uids)
-            if ambiguous:
-                found.ambiguous += 1
+            uid = narrow(uids, record)
+            if uid is None:
                 break
+            node = resolve(uid)
             if node == NO_IMAGE:
                 continue
             # Truncations run specific-first, so a target too broad here is
@@ -621,6 +689,7 @@ def seed_nodes(
     lift_max_tips: int = LIFT_MAX_TIPS,
     titles: Sequence[str | None] | None = None,
     name_uids: Mapping[str, list[int]] | None = None,
+    cited: Sequence[Sequence[int]] | None = None,
 ) -> tuple[I64Array, JsonDict]:
     """Map PhyloPic's images onto node indices.
 
@@ -640,8 +709,10 @@ def seed_nodes(
     5. Named, truncated: a title naming no node may once the trailing epithet
        comes off (`Equus quagga chapmani → Equus`). Bounded like pass 3.
 
-    Passes 4 and 5 refuse a name resolving to more than one node (cross-kingdom
-    homonyms). A direct hit beats a lifted one; an OTT id beats a name.
+    Passes 4 and 5 refuse a name **OTT** carries more than once, and consult
+    `cited` — the OTT ids the image's own node declares, parallel to `titles` —
+    to say which homonym was drawn. See `_seed_by_name`. A direct hit beats a
+    lifted one; an OTT id beats a name.
     """
     order = np.argsort(ott_id, kind="stable")
     order = order[ott_id[order] != NO_OTT]
@@ -694,6 +765,8 @@ def seed_nodes(
         forwards=forwards,
         tip_count=tip_count,
         max_tips=lift_max_tips,
+        cited=cited,
+        parents=parents,
     )
 
     seed = np.full(ott_id.size, NO_IMAGE, dtype=np.int64)
@@ -717,6 +790,7 @@ def seed_nodes(
         "names_matched": len(by_name.exact),
         "names_matched_truncated": len(by_name.truncated),
         "names_ambiguous": by_name.ambiguous,
+        "names_disambiguated_by_citation": by_name.disambiguated,
         # Nodes seeded by a name and by nothing stronger.
         "nodes_from_name": int((tier == T_NAME).sum()),
         "nodes_from_name_truncated": int((tier == T_NAME_TRUNCATED).sum()),
@@ -1637,6 +1711,121 @@ def coverage_gates(
     }
 
 
+# Names two kingdoms share, and the clade each node's drawing has to come from.
+# Pinned by OTT id, because the name is the whole problem: every one of these
+# drew the other kingdom's animal before `_seed_by_name` started testing
+# ambiguity against OTT rather than against the tree. Issue #137 is the first
+# line — the celery genus *Oenanthe* drew a wheatear, because OTT holds the
+# bird genus too, synthesis does not, and one homonym in the tree looks exactly
+# like an unambiguous name.
+#
+# The check is containment, not identity: what makes these wrong is the
+# kingdom, and a gate that named the expected drawing would fail on any new
+# upload. `Bacillus` here is the stick insect, not the bacterium.
+HOMONYM_ANCHORS: tuple[tuple[int, str, int, str], ...] = (
+    (130942, "Oenanthe", 372831, "Apiaceae"),
+    (752683, "Morus", 81461, "Aves"),
+    (1068336, "Ficus", 802117, "Mollusca"),
+    (990933, "Bacillus", 1062253, "Insecta"),
+    (7514773, "Aculeata", 352914, "Fungi"),
+)
+
+
+def _ott_lineage(uid: int, parents: Mapping[int, int]) -> list[int]:
+    """A taxon and its ancestors in `taxonomy.tsv`, cycle-safe."""
+    out, v = [], int(uid)
+    for _ in range(MAX_LINEAGE):
+        out.append(v)
+        up = parents.get(v)
+        if up is None or up == v:
+            break
+        v = up
+    return out
+
+
+def homonym_gates(
+    g: GateSet,
+    assign: Assignment,
+    records: list[ImageRecord],
+    con: sqlite3.Connection,
+    parents: Mapping[int, int],
+    ott_id: I64Array,
+) -> None:
+    """The drawing on a shared name must be *of* something in the right kingdom.
+
+    A content gate, and the reason it exists is that every structural gate
+    above passed while a bird sat on a plant: `Oenanthe` was seeded `exact`,
+    climb 0, clade 46 tips — as confident and as small a claim as this build
+    can make, and about the wrong organism. Size of claim is not truth of it.
+
+    Asked of the **drawing's own OTT citation**, not of the node it landed on.
+    The first version of this gate checked `source_idx` against the container
+    and passed on the broken build without blinking: an exact seed is its own
+    source, so it asked whether *Oenanthe* is inside Apiaceae, which it is. The
+    wrongness was never in the node — it was in what the picture depicted.
+    """
+    ott = {o: i for i, o in con.execute("SELECT idx, ott_id FROM node WHERE ott_id")}
+    for node_ott, name, host_ott, host in HOMONYM_ANCHORS:
+        node = ott.get(node_ott)
+        img = int(assign.image[node]) if node is not None else NO_IMAGE
+        if node is None or img == NO_IMAGE:
+            g.require(
+                f"{name} is drawn as something from {host}",
+                "no drawing" if node is not None else "not in the tree",
+                f"a taxon inside {host}",
+                ok=False,
+                note=f"OTT {node_ott} resolved to nothing; the gate cannot look.",
+            )
+            continue
+        rec = records[img]
+        inside = any(host_ott in _ott_lineage(u, parents) for u in rec.ott_ids)
+        g.require(
+            f"{name} is drawn as something from {host}",
+            f"a drawing of {rec.node_title!r} (OTT {rec.ott_ids or 'none cited'})",
+            f"a taxon inside {host}",
+            ok=inside,
+            note=(
+                f"OTT holds {name!r} in more than one kingdom and synthesis "
+                "carries one of them, so a name match cannot tell them apart. "
+                "Containment in `taxonomy.tsv`, since the drawn taxon is often "
+                "not a node — an image that cites no OTT id at all fails here, "
+                "because then it makes no claim this can check."
+            ),
+        )
+
+    # The population the five anchors are sampled from. Not a `require`: the
+    # residue is a different problem — OTT carrying one taxon under two ids
+    # (`Sequoia sempervirens` cites 1079506 and is node 538150) and honest
+    # disagreement about placement (`Norops sagrei` is `Anolis sagrei` here) —
+    # and putting a floor under it would be ratifying OTT's duplicates. It read
+    # 37 before the citation rule and 17 after; the 20 that went were every
+    # homonym seed whose image contradicted it. A climb back toward 37 is the
+    # regression to watch for.
+    exact = np.flatnonzero(assign.method == M_EXACT)
+    outside = 0
+    checked = 0
+    for node in exact.tolist():
+        rec = records[int(assign.image[node])]
+        if not rec.ott_ids:
+            continue
+        checked += 1
+        n_ott = int(ott_id[node])
+        if not any(n_ott in _ott_lineage(u, parents) for u in rec.ott_ids):
+            outside += 1
+    g.observe(
+        "exact seeds whose drawing's own OTT id sits outside them",
+        f"{outside} of {checked:,} that cite one",
+        "17",
+        note=(
+            "An image seeded onto a node it does not claim to depict. This is "
+            "how issue #137 reads in aggregate, and it is the measure that "
+            "separates the two rules — the first version of the anchors above "
+            "checked `source_idx`, which an exact seed satisfies by "
+            "definition, and passed on the broken build."
+        ),
+    )
+
+
 def _licence_label(url: str) -> str:
     if not url:
         return "<none>"
@@ -1985,6 +2174,7 @@ def run(budget: int = 0, mirror_only: bool = False, log: Log = _log) -> int:
             parents,
             titles=[r.node_title for r in records],
             name_uids=name_uids,
+            cited=[r.ott_ids for r in records],
         )
         assign = propagate(parent, depth, subtree_out, seed, tip_count)
         # The join that makes a fossil drawable has to happen before the witness
@@ -2051,12 +2241,34 @@ def run(budget: int = 0, mirror_only: bool = False, log: Log = _log) -> int:
                 "passes actually made: most land on a node an OTT id also "
                 "reaches, and crediting those to the name would be counting "
                 "work rather than result. "
-                f"{stats['names_ambiguous']:,} refused as homonyms, resolving "
-                "to more than one node."
+                f"{stats['names_ambiguous']:,} refused as homonyms, OTT "
+                "holding the name more than once."
                 if name_uids
                 else "taxonomy.tsv not extracted; name matching skipped"
             ),
         )
+        g.observe(
+            "names OTT holds more than once",
+            f"{stats['names_disambiguated_by_citation']:,} settled by the "
+            f"image's own OTT id, {stats['names_ambiguous']:,} refused",
+            note=(
+                "The ambiguity test used to run against the tree, which "
+                "carries a small fraction of OTT: when two kingdoms share a "
+                "name the other one is usually absent, so the tree reported no "
+                "ambiguity and the drawing went to whichever homonym had made "
+                "it in. That is issue #137 — a wheatear on the celery genus "
+                "Oenanthe — and it also put a fig on a sea snail, an anthrax "
+                "bacillus on a stick insect and a stinging wasp on a fungus. "
+                "Settling by citation is mostly a refusal arrived at properly: "
+                "it recovers 2 seeds outright, and the value is that the other "
+                "55 are now determinations rather than guesses. Net cost of "
+                "the whole rule is 34 seeds of 7,470, and 0.3pp of the "
+                "informative-clade figures below."
+            ),
+        )
+        con = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
+        homonym_gates(g, assign, records, con, parents, ott_id)
+        con.close()
         cov = coverage_gates(g, assign, tip_count, subtree_out, depth)
         (BUILD / "phase5a_coverage.json").write_text(json.dumps(cov, indent=2) + "\n")
         if witness is None:

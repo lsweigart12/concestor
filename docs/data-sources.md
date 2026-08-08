@@ -95,6 +95,21 @@ Related:
   `/images?filter_clade={uuid}&filter_license_nc=false&page=0&embed_items=true` and take
   item 0 (93.7% coverage); walk `/lineage` for the remainder.
 
+- **A PhyloPic node's name is not a key, and the synthesis tree cannot tell you
+  that.** 1,783 images cite no OTT id and are reachable only through
+  `node_title`, so the name pass is load-bearing — but a name has to be
+  unambiguous in **OTT**, not in synthesis. Synthesis carries a small fraction
+  of OTT, so when two kingdoms share a name the other kingdom is usually the
+  one missing: of 350 homonyms among the names this build looks up, only 11
+  resolve two ways *in the tree*. Testing there reports no ambiguity precisely
+  when the wrong answer is about to be used, and it put a wheatear on the
+  celery genus *Oenanthe* (issue #137), a fig on a sea snail, an anthrax
+  bacillus on a stick insect, a stinging wasp on a fungus and a cholera
+  vibrio on a diatom. **The image's own citation settles it**: 20 of the 22
+  homonym seeds that carried an OTT id were contradicted by that id. OTT marks
+  these itself in `uniqname` — `Oenanthe (genus in kingdom Archaeplastida)`
+  against `Oenanthe (genus in Opisthokonta)`.
+
 Corpus: 12,863 images, 24,007 nodes, 883 contributors, ~150 MB mirrored. License:
 CC0 51.8%, CC-BY 4.0 18.9%, CC-BY-SA 3.0 9.3%, CC-BY 3.0 8.2%, Public Domain Mark 6.0%,
 CC-BY-NC 3.0 3.3%, CC-BY-NC-SA 3.0 2.5%. Attribution is two fields: `attribution` is the
