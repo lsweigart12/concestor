@@ -150,7 +150,7 @@ const MAX_EVENTS = 32;
 const MAX_SUBJECT = 128;
 const MAX_TREE = 1024;
 const MAX_SESSION = 64;
-/** `blob4`'s width. The longest cause, `sequence-cut`, is 12 characters. */
+/** `blob4`'s width. The longest cause today is 6 characters; this is the guard. */
 const MAX_CAUSE = 16;
 
 /**

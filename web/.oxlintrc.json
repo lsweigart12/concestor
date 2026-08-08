@@ -70,15 +70,15 @@
     // be left. Zero findings today.
     "import/no-duplicates": "error",
 
-    // **Off, and this is the one deliberate hole.** It reports five sites and
-    // all five are the same false positive: a dependency array narrowed to
-    // `tree.broken` or `tree.sequencing` where the rule can only see that the
-    // member came off `tree`, so it demands the whole object and would
-    // re-subscribe three window listeners on every selection change. The other
-    // two are `setAbout`, a setter returned by `useBoot()` and stable for the
-    // same reason a `useState` setter is — which the rule cannot see through a
-    // custom hook — and one dependency it calls unnecessary that is read
-    // inside a command's `run`.
+    // **Off, and this is the one deliberate hole.** It reports four sites and
+    // every one is a false positive. One is a dependency array narrowed to
+    // `tree.broken` where the rule can only see that the member came off
+    // `tree`, so it demands the whole object and would re-announce on every
+    // selection change. The others are `setAbout`, a setter returned by
+    // `useBoot()` and stable for the same reason a `useState` setter is —
+    // which the rule cannot see through a custom hook — one dependency it
+    // calls unnecessary that is read inside a command's `run`, and an edge's
+    // data narrowed to the three fields its landing subscription turns on.
     //
     // `rules-of-hooks`, which is in `correctness` above and stays on, is the
     // half of this pair that is never a judgement call: a hook behind an `if`

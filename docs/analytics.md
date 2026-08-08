@@ -51,9 +51,8 @@ The rules that keep each event answering its question:
 - **A tree of one is not a tree.**
 - **A tree carries its `cause`**, so a received tree (`link`, `back`) is not
   counted as a made one (`add`, `remove`). An **opening emits no `add` events**:
-  its taxa were chosen by us. An opening's cause is `open` (drawn at once),
-  `sequence` (revealed step by step, ran to end), or `sequence-cut`
-  (interrupted); a sequence emits one row carrying the last mutator's cause.
+  its taxa were chosen by us. An opening's cause is `open`, and it is one press
+  and so one row.
 
 The store is the only feed: one effect watches `view.keys`, so nothing changes
 the canvas without the beacon seeing it, and an add that changed nothing is not
@@ -72,7 +71,7 @@ Analytics Engine has no column names — the SQL API reads `blob1`, `blob2`, …
 | `blob1` | kind: `search` \| `add` \| `tree` |
 | `blob2` | subject: the query typed, or the key added. Empty on `tree` |
 | `blob3` | tree: the sorted key set. Empty except on `tree` |
-| `blob4` | cause: `add` \| `remove` \| `open` \| `sequence` \| `sequence-cut` \| `link` \| `back` \| `clear` |
+| `blob4` | cause: `add` \| `remove` \| `open` \| `link` \| `back` \| `clear` |
 | `blob5` | session id — random, per tab, 8 chars |
 | `double1` | keys in the tree, derived in the Worker from `blob3` |
 
@@ -249,7 +248,7 @@ concestor = "beacon" AND kind = "tree" AND (cause = "add" OR cause = "remove")
                                                     → group by tree
 ```
 
-The openings split (`startsWith(cause, "sequence")` vs `cause = "open"`), the
+The openings (`cause = "open"`), the
 big canvases (`size >= 5`), one reader's visit (`session = "…"`), divergence
 adds (`startsWith(subject, "mrcaott")`), and trees holding one taxon
 (`contains(tree, "ott770315")`) all follow the same shape.
