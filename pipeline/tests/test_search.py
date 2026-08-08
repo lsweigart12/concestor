@@ -16,6 +16,7 @@ from concestor_build.search import (
     INDEXES,
     KIND_ABBR,
     KIND_BROKEN,
+    KIND_PBDB,
     KIND_SCI,
     KIND_SYN,
     KIND_VERN,
@@ -328,6 +329,60 @@ def test_all_four_corpora_are_populated(con):
     assert kinds.get(KIND_SCI) == 2_599_664
     assert kinds.get(KIND_ABBR, 0) > 1_000_000
     assert kinds.get(KIND_SYN, 0) > 1_000_000
+
+
+# --------------------------------------------------------------------------
+# The fossil record's name for a taxon the tree holds
+# --------------------------------------------------------------------------
+
+
+@built
+def test_a_taxon_the_tree_holds_is_findable_under_the_fossil_records_name(con):
+    """`notInTree` refuses these rows, so this corpus is all that answers.
+
+    *Opisthobranchiata* is PBDB's name for the taxon OTT calls *Opisthobranchia*,
+    and OTT carries no synonym for it — so with the row refused and this corpus
+    absent, the name reached nothing that is the taxon.
+    """
+    hits = query(con, "Opisthobranchiata", limit=5)
+    assert hits, "a name the fossil record uses returned nothing"
+    assert hits[0]["name"] == "Opisthobranchia"
+    assert hits[0]["kind"] == "pbdb"
+
+
+@built
+def test_no_taxon_the_tree_holds_is_left_without_a_name_that_finds_it(con):
+    """The whole statement, over the corpus rather than one example."""
+    assert (
+        con.execute(
+            "SELECT count(*) FROM (SELECT DISTINCT attach_idx, name FROM fossil "
+            " WHERE attach_walk = 0 AND name IS NOT NULL AND trim(name) <> '') f "
+            "WHERE NOT EXISTS (SELECT 1 FROM search_name sn "
+            "  WHERE sn.idx = f.attach_idx AND lower(sn.name) = lower(f.name))"
+        ).fetchone()[0]
+        == 0
+    )
+
+
+@built
+def test_a_fossil_record_name_never_displaces_the_taxons_own(con):
+    """It is a way in, not a rename: the row still prints the tree's name."""
+    hits = query(con, "Homo sapiens", limit=3)
+    assert hits[0]["name"] == "Homo sapiens"
+    assert hits[0]["kind"] == "sci"
+
+
+@built
+def test_the_fossil_record_corpus_never_duplicates_a_name_a_node_already_has(con):
+    """A duplicate row would compete with the scientific name for one taxon."""
+    assert (
+        con.execute(
+            f"SELECT count(*) FROM search_name p JOIN search_name o "
+            f"  ON o.idx = p.idx AND lower(o.name) = lower(p.name) AND o.kind <> p.kind "
+            f"WHERE p.kind = {KIND_PBDB} AND o.kind <> {KIND_VERN}"
+        ).fetchone()[0]
+        == 0
+    )
 
 
 @built

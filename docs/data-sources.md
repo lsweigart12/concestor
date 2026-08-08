@@ -172,6 +172,17 @@ missing set is essentially those with `n_occs = 0`. `is_extant` is not binary: e
 (Tyrannosauridae), which breaks naive rank-based grouping. Always display
 `accepted_name`, key on `accepted_no`, check `difference` for the reason.
 
+**The accepted record is often not the row carrying the accepted name.** A
+recombination gets a `taxon_no` of its own and the accepted record keeps the
+original combination, so `accepted_no` points at a row whose `taxon_name` is a
+name nobody uses. *Homo erectus* is three rows on one `orig_no`: 83084 is the
+accepted record and reads *Pithecanthropus erectus*, 376854 reads *Homo erectus*,
+83083 is *Homo ergaster*. **Anything matching on `taxon_name` therefore resolves
+the wrong row of the right taxon** — which is how a taxon the synthesis tree
+holds as a node came to be offered as a graftable fossil beside it. Match on
+`taxon_name`, then reconcile across the accepted group by name equality; see
+`fossils.under_accepted_name` and fossil-grafts.md §9.
+
 Bulk snapshot: `taxa/list.csv?all_records&show=app,attr,parent,size&limit=all` → 110 MB,
 523,113 rows, 64 s. `show=seq` adds `lft`/`rgt` nested-set bounds. The compact field
 `ext` is `is_extant`, not "external".

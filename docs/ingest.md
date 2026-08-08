@@ -188,7 +188,15 @@ Runs in strict precedence order (architecture §5). Later methods never overwrit
    taxon resolves via `xref` to an in-tree `idx`. Record `attach_idx` and `attach_method`.
    Every fossil attaches somewhere (root is the terminal fallback); the attachment-depth
    distribution is a quality signal — everything landing at Eukaryota means the chain is
-   broken.
+   broken. **Before walking, look for a row that spells out the accepted name**
+   (`under_accepted_name`, 37,720 accepted taxa): PBDB files a recombination on a
+   `taxon_no` of its own and leaves the accepted record under the original combination,
+   and phase 3 matches `taxon_name` — so *Homo erectus* the node was found by taxon
+   376854 while accepted record 83084 (*Pithecanthropus erectus*) walked to the genus and
+   was served as a fossil beside its own node. Reaching such a row is **walk 0**, not a
+   hop: it is the same taxon, not an ancestor. Only a row whose own name *is* the accepted
+   name qualifies — see fossil-grafts.md §9 for the *Radiolaria* trap that rules out
+   grouping on `accepted_no` alone.
 4. Carry all four appearance bounds (`fea`, `fla`, `lea`, `lla`) — two uncertainty
    brackets, not one range.
 5. Carry `n_occs` as the notability signal, and `is_extant` as **nullable** (1.7% are
@@ -307,6 +315,12 @@ exact binomials always win.
   `node.name`, so the palette returned nothing for *Escherichia coli* or *Dinosauria*.
   They are a fifth FTS column flagged `kind = broken` and answer with the substitution
   explained rather than performed.
+- **So do the fossil record's own spellings.** `notInTree` refuses a PBDB taxon the tree
+  holds as a node (fossil-grafts.md §9), and the node then answers under OTT's name — so
+  where the two catalogues spell it differently and OTT carries no synonym, **847 names
+  reached nothing that is the taxon** (779 of them before this branch). `load_pbdb_names` indexes those 2,584 names as `kind = 5`, in
+  the `syn` column (a synonym's weight) with its own kind (`matched_on: "fossil-name"`,
+  because "the fossil record calls it this" is not "the taxonomy files it under this").
 
 Phase 6b (`concestor-build names`) writes `vernacular.usage_rank` from English Wikipedia's
 title and redirect graph — see [name-ranking.md](name-ranking.md).

@@ -155,6 +155,12 @@ Five FTS columns as built: `abbr` (the *T. rex* form), `syn` (synonyms), `vern` 
 names, phase 6), and `broken` (the 9,839 rejected taxa, which otherwise have no
 `node.name` and are unsearchable).
 
+**Six corpora in five columns.** `search_name.kind = 5` is the name PBDB uses for a
+taxon the tree holds as a node, and it shares the `syn` column: the *weight* it wants is
+a synonym's, but the *caption* is a different claim and `kind` is what carries that
+(`matched_on: "fossil-name"`). Without it, refusing those rows from the fossil list
+leaves 847 taxa with no name that finds them — see fossil-grafts.md §9.
+
 ```sql
 -- fossil taxa, attached to the tree rather than placed in it
 CREATE TABLE fossil (

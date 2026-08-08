@@ -220,10 +220,18 @@ interface HitBase {
   rank: string | null;
   has_age: boolean;
   has_image: boolean;
+  /**
+   * Which corpus the winning name came from: `name`, `abbreviation`, `synonym`,
+   * `vernacular`, `fossil-name`, `fts` or `key`.
+   *
+   * `fossil-name` is the Paleobiology Database's name for a taxon the tree
+   * holds as a node. Those rows are refused from the fossil list on purpose
+   * (fossil-grafts.md §9), so this is the only way they answer at all.
+   */
   matched_on: string;
   /**
    * The name that actually matched, when the row does not already show it —
-   * a synonym or an abbreviation.
+   * a synonym, an abbreviation, or the fossil record's spelling.
    *
    * The one field that contains what the reader typed. Without it a synonym
    * hit is an unexplained answer, and OTT files *Homo floresiensis* as a

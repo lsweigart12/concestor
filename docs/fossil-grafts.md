@@ -288,17 +288,81 @@ The two catalogues are not "living" and "extinct" and are not disjoint:
 | holds living taxa? | yes | yes |
 | what a row has | an ancestry, a subtree, an MRCA | a stratigraphic bracket, an `attach_idx` |
 
-They **overlap**: `attach_walk = 0` means the PBDB taxon *is* a node (32,386
+They **overlap**: `attach_walk = 0` means the PBDB taxon *is* a node (38,657
 accepted rows — *Tyrannosaurus*, *T. rex*, *Stegosaurus* among them). So a search
 used to return such an animal twice with two different futures.
 
 **`store.notInTree` refuses `attach_walk = 0` from `SearchFossils` and
 `RandomFossils`.** The node wins on the merits: phase 4 has already written the
 taxon's PBDB bracket onto the node as its `occurrence` row, so the node carries
-the dates *and* an ancestry *and* an MRCA. That costs 8.9% of the accepted
+the dates *and* an ancestry *and* an MRCA. That costs 10.6% of the accepted
 corpus, all reachable by the same name through the node path. Name equality is
-deliberately **not** also required — 1,320 rows are spelled differently from
+deliberately **not** also required — 1,559 rows are spelled differently from
 their node (`Animalia`/`Metazoa`) and are the same taxon written twice.
+
+### The overlap is only detected if the accepted record is the one that resolves
+
+`attach_walk` is computed per PBDB row, and PBDB does not keep a taxon on one
+row. It enters a **recombination under a `taxon_no` of its own** and leaves the
+accepted record under the original combination:
+
+| taxon_no | `taxon_name` | `accepted_name` | phase 3 |
+|---|---|---|---|
+| 83084 — the accepted record | *Pithecanthropus erectus* | Homo erectus | unresolved |
+| 376854 — the recombination | *Homo erectus* | Homo erectus | `name_exact` → node 594490 |
+
+Phase 3's `name_exact` reads `taxon_name`, so only 376854 found the tree's own
+*Homo erectus*. The accepted record — the row `is_primary` picks, and therefore
+the only one search and the lane ever serve — walked up to genus *Homo* and
+carried `attach_walk = 1`. `notInTree` had nothing to refuse, and the palette
+offered a fossil to graft below *Homo* beside the node for the same animal.
+
+**`fossils.under_accepted_name` closes it**: an accepted taxon reaches the tree
+through any row that spells out its accepted name, at walk 0, because that row
+is not an ancestor — it is the same taxon written the way the tree writes it.
+37,720 accepted taxa are reachable this way and 6,271 of them are accepted
+records that were walking; the rest already resolved on their own.
+
+**Only a row whose own name IS the accepted name may donate.** Grouping on
+`accepted_no` alone would hand a class its synonym's node: PBDB files the
+radiolarian genus *Cenellipsis* under accepted name *Radiolaria*, and OTT has a
+*Cenellipsis*, so *Radiolaria* would attach inside one of its own genera. The
+map is consulted **inside** the parent-walk as well as at its start, so a child
+of a recombined taxon stops at it rather than climbing past.
+
+Two gates hold the line: `accepted records the tree holds exactly, still walking
+to an ancestor` is 0, and the *Homo erectus* spot check pins 83084 to its node.
+
+### Refusing the row takes the name with it, so the name is given back
+
+`notInTree` refuses a taxon the tree holds — but the node answers under **OTT's**
+spelling, and the two catalogues disagree about 1,559 of these names. Where OTT
+does not also carry PBDB's spelling as a synonym, refusing the row removed the
+last thing that could match it. Searching *Opisthobranchiata* returned nothing
+that is that taxon, though the tree holds it as *Opisthobranchia*.
+
+**This is inherited, not caused.** Measured against the shipped build, **779** of
+the 1,559 already reached nothing; `under_accepted_name` would have added **68**
+more by converging taxa whose only remaining answer was the fossil row, taking it
+to 847. Afterwards the population is **2** — *Labridae* and *Heteronemiini*, both
+broken taxa, which the `broken` corpus already answers for by explaining the
+substitution rather than performing it.
+
+So phase 6 indexes **the name the fossil record uses for a taxon the tree holds**
+as a sixth corpus, `search_name.kind = 5` (`load_pbdb_names`, 2,584 names — only
+those nothing else already offers for that node). It rides in the **`syn` FTS
+column**, because the weighting question ("a name it also goes by") has the same
+answer and a sixth column would be a schema change for no ranking gain.
+
+**The `kind` is still its own, because the caption is not the same claim.** The
+palette says *"matched Opisthobranchiata, the name the fossil record uses for
+this taxon"* — never "which the taxonomy files under this name", which would be
+false: OTT has no opinion here. `matched_on` reports `fossil-name`,
+`matchStrength` puts it below `synonym` so the taxonomy's own filing wins a tie,
+and `matchTier` groups it with synonyms as a name the taxon does not print.
+
+The gate is the statement itself: *every taxon the tree holds is findable under
+the fossil record's name*, expected 0 missing.
 
 That exclusion earns the badge's one sentence:
 

@@ -185,17 +185,33 @@ export function suggestionBands(s: {
 }
 
 /**
- * The synonym that got this row onto the page, or null.
+ * The name that got this row onto the page when the row shows it nowhere else.
  *
- * Synonyms only. A `vernacular` match can also hide the typed word, but crediting
- * it re-asserts an `elsewhere` claim phase 6b measured as false. A `name` match
- * is the string the row prints; an `abbreviation` is lit word-by-word by
- * {@link litRanges} and repeats identically down every row. A synonym is where
- * the word is absent *and* crediting it tells one row from the next.
+ * Two kinds qualify. A `vernacular` match can also hide the typed word, but
+ * crediting it re-asserts an `elsewhere` claim phase 6b measured as false. A
+ * `name` match is the string the row prints; an `abbreviation` is lit
+ * word-by-word by {@link litRanges} and repeats identically down every row.
+ * These two are where the word is absent *and* crediting it tells one row from
+ * the next.
+ *
+ * `who` is why they are not one case. A synonym is the taxonomy's own filing;
+ * a `fossil-name` is what the Paleobiology Database calls the same taxon, which
+ * is a claim about a second catalogue and not about the tree. Saying "the
+ * taxonomy files it under this name" of a PBDB spelling would be false — and
+ * these are exactly the rows where the reader typed a name the tree does not
+ * print, so the caption is the only thing that explains the row.
  */
-function matchedVia(h: SearchHit): string | null {
-  if (h.matched_on !== "synonym") return null;
-  return h.matched_name ?? null;
+function matchedVia(
+  h: SearchHit,
+): { name: string; who: "taxonomy" | "fossils" } | null {
+  const who =
+    h.matched_on === "synonym"
+      ? "taxonomy"
+      : h.matched_on === "fossil-name"
+        ? "fossils"
+        : null;
+  if (who === null || !h.matched_name) return null;
+  return { name: h.matched_name, who };
 }
 
 /** Whether PBDB gives this taxon anywhere to stand on a time axis. */
@@ -818,17 +834,23 @@ function RowView({
           {h.tip_count.toLocaleString()} species
         </span>
         {/*
-          Why this row matched, when the synonym that got it here appears nowhere
+          Why this row matched, when the name that got it here appears nowhere
           else on it — otherwise the reader types *Homo floresiensis* and is
-          silently handed *Homo sapiens*. Stated as the taxonomy's filing, not an
-          alias.
+          silently handed *Homo sapiens*. Stated as a filing or a usage, never as
+          an alias: neither catalogue is claiming the two names mean one animal.
         */}
-        {matchedVia(h) && (
-          <span className="row-via">
-            matched <em className="sci-italic">{matchedVia(h)}</em>, which the
-            taxonomy files under this name
-          </span>
-        )}
+        {(() => {
+          const via = matchedVia(h);
+          if (!via) return null;
+          return (
+            <span className="row-via">
+              matched <em className="sci-italic">{via.name}</em>,{" "}
+              {via.who === "taxonomy"
+                ? "which the taxonomy files under this name"
+                : "the name the fossil record uses for this taxon"}
+            </span>
+          );
+        })()}
       </span>
       <span className="row-accessory">
         {already && <span className="kbd">on canvas</span>}

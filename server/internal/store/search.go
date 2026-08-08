@@ -342,10 +342,15 @@ func Interleave(nodes []SearchResult, fossils []Fossil, q string) Answer {
 func matchStrength(m string) int {
 	switch m {
 	case "name":
-		return 5
+		return 6
 	case "abbreviation":
-		return 4
+		return 5
 	case "synonym":
+		return 4
+	// Below a synonym: OTT's own filing is the better thing to credit when both
+	// matched equally well, because it is a statement about the name the reader
+	// typed rather than about a second catalogue's usage.
+	case "fossil-name":
 		return 3
 	case "fts":
 		return 2
@@ -356,8 +361,10 @@ func matchStrength(m string) int {
 }
 
 // matchTier splits "a name this taxon goes by" from "a name it used to go by".
+// A fossil-record name is the second: PBDB is where the name is current, and
+// the tree prints something else.
 func matchTier(m string) int {
-	if m == "synonym" {
+	if m == "synonym" || m == "fossil-name" {
 		return 1
 	}
 	return 0
@@ -636,7 +643,16 @@ func (s *Store) resultsForIdxs(ctx context.Context, idxs []int, matchedOn string
 // nameKind maps search_name.kind onto the matched_on value the API reports.
 // There is deliberately no entry for kindBrokenName: those rows are filed
 // against a node that does not bear the name, so they never become node hits.
-var nameKind = map[int64]string{0: "name", 1: "abbreviation", 2: "synonym", 3: "vernacular"}
+//
+// Kind 5 is the name the Paleobiology Database uses for a taxon the synthesis
+// tree holds. It rides in the `syn` FTS column because it wants a synonym's
+// weight, but it is reported separately because it is a different claim: OTT
+// filing a name is a statement about the taxonomy, PBDB using one is a
+// statement about the fossil record. A build predating the corpus simply never
+// emits a 5.
+var nameKind = map[int64]string{
+	0: "name", 1: "abbreviation", 2: "synonym", 3: "vernacular", 5: "fossil-name",
+}
 
 // kindBrokenName is search_name.kind for a broken taxon's name. The row's idx
 // is the MRCA that swallowed the taxon, not the taxon — it has no idx, being
