@@ -83,7 +83,7 @@ export function goAbout(): void {
  *
  * `history.back()` when this session pushed `/about` itself, because that is
  * the entry holding whatever the reader had drawn — including a selection, an
- * axis and a drill lane that `/` cannot reconstruct. A plain navigation
+ * isolate and a drill lane that `/` cannot reconstruct. A plain navigation
  * otherwise.
  */
 export function leaveAbout(): void {

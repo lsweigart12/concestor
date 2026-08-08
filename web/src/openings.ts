@@ -23,8 +23,6 @@
  * its crown age, so prefer a species at `climb` 0.
  */
 
-import type { AxisMode } from "./tree/layout";
-
 /**
  * One taxon in an opening: what to select and what to draw. Key and art live in
  * one object so they cannot drift. `art` is a PhyloPic id served off
@@ -54,11 +52,6 @@ export interface Opening {
    * the rows in the Taxa list — not of anything the canvas animates.
    */
   taxa: readonly OpeningTaxon[];
-  /**
-   * The scale this one reads best on. Omitted means linear (the default). Only
-   * the opening whose ages span an order of magnitude sets symlog.
-   */
-  axis?: AxisMode;
 }
 
 const HUMAN: OpeningTaxon = {
@@ -218,8 +211,9 @@ export const OPENINGS: readonly Opening[] = [
     ],
   },
   {
-    // The one opening that asks for symlog, whose ages span an order of
-    // magnitude (6.7 Ma for us and the chimp against ~83 where the pairs join).
+    // The widest span of any opening: 6.7 Ma for us and the chimp against ~83
+    // where the two pairs join. The claim is about which pair meets first,
+    // which the nesting shows whatever the two figures are.
     id: "chimp",
     question: "Who are closer cousins — you and a chimp, or a rat and a mouse?",
     reveal:
@@ -242,7 +236,6 @@ export const OPENINGS: readonly Opening[] = [
         label: "house mouse",
       },
     ],
-    axis: "log",
   },
   {
     // The orca and bottlenose are the same dark torpedo at 30px, which here

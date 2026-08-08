@@ -48,12 +48,10 @@
  * closing — see its own header. A child of the panel goes where the panel goes.
  */
 
-import type { AxisMode } from "../state/store";
 import type { LabelMode } from "../tree/naming";
 import { BIOLUM_AVAILABLE } from "../canvas/capability";
 import { BiolumToggle } from "../chrome/BiolumToggle";
 import { AgesToggle, LabelsToggle } from "../chrome/LabelModes";
-import { TimeScaleToggle } from "../chrome/TimeScaleToggle";
 import { SourceLinks } from "../chrome/SourceLinks";
 import { PendingLine } from "../chrome/Pending";
 import { PanelToggle } from "../chrome/CanvasChrome";
@@ -76,8 +74,6 @@ export interface SidebarProps {
   onLabels: (m: LabelMode) => void;
   ages: boolean;
   onAges: (v: boolean) => void;
-  axis: AxisMode;
-  onAxis: (m: AxisMode) => void;
   biolum: boolean;
   onBiolum: (v: boolean) => void;
   /** The one-way action that is about the whole tree. `clear` is the list's. */
@@ -164,19 +160,16 @@ export function Sidebar(p: SidebarProps) {
             <span>Canvas</span>
           </h2>
           {/*
-              All four together for the first time, and the fourth is the
-              interesting one. The time scale used to live on the axis footer,
-              on the rule that a control belongs on the thing it changes — and
-              that rule lost here, to a stronger one: these four are *one set*,
-              the controls that change how the canvas is drawn rather than what
-              is on it, and the set was only ever legible when its members were
-              beside each other. Under the ruler it was a switch on its own that
-              happened to wear the panel's anatomy.
+              One set: the controls that change how the canvas is drawn rather
+              than what is on it. They are only legible as a set when they sit
+              beside each other, which is why a mode never goes off on its own
+              next to the thing it changes — the time scale did that on the axis
+              footer, wearing this panel's anatomy at the far end of the window,
+              and it is gone now along with the second scale it switched.
             */}
           <div className="side-modes">
             <LabelsToggle mode={p.labels} onChange={p.onLabels} />
             <AgesToggle on={p.ages} onChange={p.onAges} />
-            <TimeScaleToggle mode={p.axis} onChange={p.onAxis} />
             {/*
                 No WebGL2, no switch. The mode is one instanced draw call and
                 six passes on the GPU; there is no software path and there is

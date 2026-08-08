@@ -11,36 +11,22 @@ import {
 } from "./store";
 
 /**
- * `encode` and `decode` each name the *non-default* axis explicitly, in
- * opposite directions, so flipping the default means editing both. Getting one
- * and not the other is silent and expensive: every shared link would either
- * carry a redundant `axis=` or, worse, drop the caller's choice and open on the
- * other scale. These pin the pair together.
+ * The URL *is* the store's serialisation, so every claim about taxa has to
+ * survive a round trip through it and nothing else may.
+ *
+ * `axis=` used to ride here, naming the non-default scale in each direction.
+ * There is one scale now, so an old link carrying `axis=log` is simply a link
+ * to the tree it names — the parameter is not read and is not written back.
  */
-describe("axis in the URL", () => {
-  it("omits the default so a plain link is the default view", () => {
-    expect(encode({ ...decode(""), axis: "linear" })).toBe("/");
-  });
-
-  it("names the non-default", () => {
-    expect(encode({ ...decode(""), axis: "log" })).toBe("?axis=log");
-  });
-
-  it("reads an absent axis as the default", () => {
-    expect(decode("").axis).toBe("linear");
-    expect(decode("?n=770315").axis).toBe("linear");
-  });
-
-  it("round-trips both modes", () => {
-    for (const axis of ["linear", "log"] as const) {
-      const v = { ...decode("?n=770315,417950"), axis };
-      expect(decode(encode(v)).axis, axis).toBe(axis);
-    }
+describe("the URL", () => {
+  it("ignores the scale an old link still asks for", () => {
+    expect(encode(decode("?axis=log"))).toBe("/");
+    expect(encode(decode("?n=770315&axis=log"))).toBe("?n=770315");
+    expect("axis" in decode("?axis=log")).toBe(false);
   });
 
   it("keeps bioluminescence out of the link entirely", () => {
-    // The inverse of the axis rule above, and deliberately so. Every other
-    // member of ViewState is a claim about taxa and belongs in a link; the
+    // Every member of ViewState is a claim about taxa and belongs in a link; the
     // lighting is a claim about nothing, and a reader who shares a tree should
     // not be imposing a moving canvas on whoever opens it. So it is not in
     // ViewState, `encode` cannot write it, and `decode` will not read it back —
@@ -51,10 +37,9 @@ describe("axis in the URL", () => {
   });
 
   it("keeps the selection across the round trip", () => {
-    const v = decode("?n=770315,773491,688328&axis=log&sel=770315");
+    const v = decode("?n=770315,773491,688328&sel=770315");
     const back = decode(encode(v));
     expect(back.keys).toEqual(["770315", "773491", "688328"]);
-    expect(back.axis).toBe("log");
     expect(back.selected).toBe("770315");
   });
 

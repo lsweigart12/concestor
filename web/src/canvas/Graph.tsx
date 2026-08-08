@@ -47,12 +47,11 @@ import {
 } from "../api";
 import {
   ageFrac,
-  fracToAgeIn,
+  fracToAge,
   layout,
   orthPath,
   PAD_X,
   PLOT_W,
-  type AxisMode,
   type LabelText,
 } from "../tree/layout";
 import { dotRect, labelRect, type Rect } from "../tree/labels";
@@ -228,7 +227,6 @@ export interface GraphProps {
   onDeltaLanded?: () => void;
   focusedIdx: number | null;
   onFocus: (idx: number | null) => void;
-  axisMode: AxisMode;
   /** Which words the marks carry, and whether they print a date. Switched in the sidebar. */
   labels: LabelMode;
   ages: boolean;
@@ -281,7 +279,6 @@ function Inner(props: GraphProps) {
     onDeltaLanded,
     focusedIdx,
     onFocus,
-    axisMode,
     labels,
     ages,
     intervals,
@@ -430,20 +427,10 @@ function Inner(props: GraphProps) {
         // count must not be solved from the stretch. See `layout`'s `baseWidth`.
         baseWidth: basePlotW,
         label: describeLabel,
-        axis: axisMode,
         grafts,
         holdMaxAge,
       }),
-    [
-      ind,
-      nodeMap,
-      plotWidth,
-      basePlotW,
-      describeLabel,
-      axisMode,
-      grafts,
-      holdMaxAge,
-    ],
+    [ind, nodeMap, plotWidth, basePlotW, describeLabel, grafts, holdMaxAge],
   );
 
   /**
@@ -1279,16 +1266,6 @@ function Inner(props: GraphProps) {
     return scheduleFit(first ? 0 : 160, reduced || first ? 0 : 440);
   }, [ind.rendered, scheduleFit, scheduleReveal, reduced]);
 
-  // Switching scales moves every node in x, and by a lot — the point of linear
-  // is that it collapses the recent past against the present. Reframing is what
-  // makes that legible as a change rather than as the tree wandering off-screen.
-  const lastAxis = useRef(axisMode);
-  useEffect(() => {
-    if (lastAxis.current === axisMode) return;
-    lastAxis.current = axisMode;
-    return scheduleFit(20, reduced ? 0 : 420);
-  }, [axisMode, scheduleFit, reduced]);
-
   // A stretch change is the same event by another route — every node moves in
   // x — and it is also the landing half of the fit's handoff: `fitToContent`
   // sets the stretch and returns, and this is what frames the relaid tree.
@@ -1395,9 +1372,8 @@ function Inner(props: GraphProps) {
 
   const toScreenX = useCallback(
     (age: number) =>
-      (PAD_X + plotWidth * (1 - ageFrac(age, lay.maxAge, axisMode))) * zoom +
-      tx,
-    [lay.maxAge, zoom, tx, plotWidth, axisMode],
+      (PAD_X + plotWidth * (1 - ageFrac(age, lay.maxAge))) * zoom + tx,
+    [lay.maxAge, zoom, tx, plotWidth],
   );
 
   /**
@@ -1408,12 +1384,8 @@ function Inner(props: GraphProps) {
    */
   const toAge = useCallback(
     (x: number) =>
-      fracToAgeIn(
-        1 - ((x - tx) / zoom - PAD_X) / plotWidth,
-        lay.maxAge,
-        axisMode,
-      ),
-    [lay.maxAge, zoom, tx, plotWidth, axisMode],
+      fracToAge(1 - ((x - tx) / zoom - PAD_X) / plotWidth, lay.maxAge),
+    [lay.maxAge, zoom, tx, plotWidth],
   );
 
   const onNodeClick = useCallback(
@@ -1568,7 +1540,6 @@ function Inner(props: GraphProps) {
         toScreenX={toScreenX}
         toAge={toAge}
         intervals={intervals}
-        axisMode={axisMode}
         onStretch={nudgeStretch}
         canWiden={canWiden}
         canNarrow={canNarrow}

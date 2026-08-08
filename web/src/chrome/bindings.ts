@@ -22,7 +22,6 @@ export type ActionId =
   | "fit-selection"
   | "step"
   | "step-back"
-  | "axis"
   | "labels"
   | "ages"
   | "random-species"
@@ -131,13 +130,6 @@ export const BINDINGS: readonly Binding[] = [
     shift: false,
     kbd: "B",
     label: "Bioluminescence",
-  },
-  {
-    id: "axis",
-    key: "t",
-    shift: false,
-    kbd: "T",
-    label: "Time scale",
   },
   {
     // Cycles rather than flips: off → scientific → common → off.

@@ -76,10 +76,10 @@ describe("one expression decides that nothing is drawn", () => {
 });
 
 /**
- * The four canvas modes, together for the first time.
+ * The canvas modes, together in one place.
  *
- * They were three chips stacked bottom-left over the axis plus a fourth on the
- * axis footer, and the empty canvas drew only one of the three — `labels` and
+ * They were chips stacked bottom-left over the axis plus a time-scale switch on
+ * the axis footer, and the empty canvas drew only one of them — `labels` and
  * `ages` annotate marks, so with none on screen they were switches a reader
  * could throw and watch do nothing.
  *
@@ -93,25 +93,24 @@ describe("one expression decides that nothing is drawn", () => {
  * one of them keeps its command.
  */
 describe("the canvas modes are one set in one place", () => {
-  it("draws all four, in the order the reader meets them", async () => {
+  it("draws all three, in the order the reader meets them", async () => {
     await renderApp();
     await drawOpening();
     expect(chips().map((c) => c.getAttribute("aria-label"))).toEqual([
       "Labels",
       "Dates",
-      "Time scale",
       "Bioluminescence",
     ]);
   });
 
   /**
-   * And the empty canvas draws exactly the same four. The panel is not a
+   * And the empty canvas draws exactly the same three. The panel is not a
    * canvas-side decoration any more, so there is no collision to dodge and no
    * reason for a control to appear halfway through a session.
    */
-  it("draws the same four over an empty canvas", async () => {
+  it("draws the same three over an empty canvas", async () => {
     await renderApp();
-    expect(chips()).toHaveLength(4);
+    expect(chips()).toHaveLength(3);
   });
 
   /**
@@ -120,10 +119,10 @@ describe("the canvas modes are one set in one place", () => {
    * two corner clusters and the timeline, so a control with no command is a
    * control that cannot be reached at all.
    */
-  it("leaves all four reachable from the palette", async () => {
+  it("leaves all three reachable from the palette", async () => {
     await renderApp();
     const rows = await openPalette();
-    for (const setting of ["labels", "dates", "bioluminescence", "time axis"]) {
+    for (const setting of ["labels", "dates", "bioluminescence"]) {
       expect(
         rows.some((t) => t.toLowerCase().includes(setting)),
         `${setting} has no command`,

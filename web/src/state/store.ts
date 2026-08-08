@@ -3,7 +3,7 @@
  * store's serialisation and everything visible round-trips through
  * `encode`/`decode`:
  *
- *   /?n=770315,153563,664349&axis=log&sel=770315&seg=12-34
+ *   /?n=770315,153563,664349&sel=770315&seg=12-34
  *
  * The three canvas modes (bioluminescence, labels, ages) live in
  * `sessionStorage` and never in a link, because they are claims about the reader
@@ -28,18 +28,16 @@ import {
   parseGraftKey,
   type GraftSet,
 } from "../tree/graft";
-import type { AxisMode } from "../tree/layout";
 import type { LabelMode } from "../tree/naming";
 import { releasable } from "./queue";
 
-// Re-exported from the modules that own them (the layout and naming), so there
-// is one definition of each union.
-export type { AxisMode, LabelMode };
+// Re-exported from the module that owns it (the naming), so there is one
+// definition of the union.
+export type { LabelMode };
 
 export interface ViewState {
   /** OTT ids or node keys, in selection order (which is *not* render order). */
   keys: string[];
-  axis: AxisMode;
   selected: string | null;
   /**
    * The segment whose drill-down lane is open, as two node indices (what
@@ -140,14 +138,8 @@ function saveAges(on: boolean): void {
   writeMode(AGES_KEY, on ? null : "0");
 }
 
-/**
- * `axis: "linear"` is the default: linear is the honest one about scale (log
- * flatters recent divergences), and deep time being vast is what the app is
- * for. The switch and one opening still reach symlog.
- */
 const DEFAULT: ViewState = {
   keys: [],
-  axis: "linear",
   selected: null,
   drill: null,
   fossils: [],
@@ -171,7 +163,6 @@ export function decode(search: string): ViewState {
     // Deduplicated after normalising: two spellings of one taxon are two React
     // keys for one mark.
     keys: [...new Set(raw ? raw.split(",").filter(Boolean).map(toUrlKey) : [])],
-    axis: p.get("axis") === "log" ? "log" : "linear",
     // Normalised with `keys`, so `remove` can clear it. Empty `sel=` is null.
     selected: sel ? toUrlKey(sel) : null,
     drill:
@@ -185,7 +176,6 @@ export function decode(search: string): ViewState {
 export function encode(v: ViewState): string {
   const p = new URLSearchParams();
   if (v.keys.length) p.set("n", v.keys.join(","));
-  if (v.axis !== "linear") p.set("axis", v.axis);
   if (v.selected) p.set("sel", v.selected);
   if (v.drill) p.set("seg", `${v.drill.upper}-${v.drill.lower}`);
   if (v.fossils.length) p.set("f", v.fossils.join(","));
@@ -719,7 +709,7 @@ export function useTree() {
    * then draws itself on exactly as a cold load does, which is the drawing this
    * app is for.
    */
-  const open = useCallback((keys: readonly string[], axis?: AxisMode) => {
+  const open = useCallback((keys: readonly string[]) => {
     // Reset the animation baseline: `addDelta` splits the new tree into waves
     // relative to the previous one, and an opening shares no leaf with what it
     // replaces — leaving these set would strand nodes in waves whose turn never
@@ -732,7 +722,6 @@ export function useTree() {
     setView(() => ({
       ...DEFAULT,
       keys: [...new Set(keys.map(toUrlKey))],
-      ...(axis ? { axis } : {}),
     }));
   }, []);
 
@@ -848,10 +837,6 @@ export function useTree() {
     cause.current = "clear";
     setView(DEFAULT);
   }, []);
-  const setAxis = useCallback(
-    (axis: AxisMode) => setView((v) => ({ ...v, axis })),
-    [],
-  );
   // Written through on the setter, not in an effect, so a render cannot
   // overwrite a choice.
   const setLabels = useCallback((mode: LabelMode) => {
@@ -922,7 +907,6 @@ export function useTree() {
     open,
     remove,
     clear,
-    setAxis,
     setLabels,
     setAges,
     select,

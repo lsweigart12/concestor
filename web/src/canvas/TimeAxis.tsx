@@ -1,12 +1,12 @@
 /**
  * The time axis, and the geologic band beneath it.
  *
- * Two scales, and the toggle really switches them. Symlog is the default —
- * linear from the present to 1 Ma, logarithmic above — and it is what makes
- * the app work at all, because linear time puts every hominin divergence
- * inside one pixel next to the Cambrian. Linear is offered so a reader can see
- * that for themselves. The knee is marked, because a scale that bends without
- * saying so misleads.
+ * One scale: proportional time, present at the right edge and the deepest node
+ * at the left. It is the honest one about how much of the past there is, and
+ * deep time being vast is what the app is for. There is no second scale to
+ * switch to — a symlog view lived here for a long time, and everything it
+ * bought (room for recent splits) is bought better by zooming, which does not
+ * ask the reader to hold two rulers in their head at once.
  *
  * **Everything here is generated from the range actually on screen**, not from
  * the extent of the tree. That is the difference between an axis and a
@@ -23,22 +23,21 @@
  * The ICS band keeps the official hue *relationships* and drops the official
  * saturation and luminance (architecture §6). It is a reference scale, not
  * data. Nothing in it glows. Level of detail is driven by pixels-per-Ma —
- * **per region, not per axis**, because one rank across a log axis cannot be
- * right anywhere. Picking a single rank by its median width meant either the
+ * **per region, not per axis**, because one rank across the whole strip cannot
+ * be right anywhere. Picking a single rank by its median width meant either the
  * Cenozoic said "Phanerozoic" across two thirds of the screen, or the
  * Precambrian was a row of unreadable slivers. The band is now grown down the
  * ICS containment tree and stops wherever the children stop being legible, so
  * the same strip can read Quaternary at one end and Precambrian at the other.
  *
  * The strip ends in a footer line that carries everything the reader needs in
- * order to *read a position*: what the units are, whether the scale is bent,
- * and what a dashed trace means. Those are one statement, so they get one
- * line — flat text on the axis, not a floating panel beside it.
+ * order to *read a position*: what the units are, and what a dashed trace
+ * means. Those are one statement, so they get one line — flat text on the
+ * axis, not a floating panel beside it.
  */
 
 import { useMemo } from "react";
 import type { TimescaleInterval } from "../api";
-import { LANDMARK_TICKS, SYMLOG_T0, type AxisMode } from "../tree/layout";
 
 interface Props {
   maxAge: number;
@@ -48,7 +47,6 @@ interface Props {
   /** Inverse of {@link Props.toScreenX} — what age sits under a screen x. */
   toAge: (x: number) => number;
   intervals: TimescaleInterval[] | null;
-  axisMode: AxisMode;
   /**
    * The stretch control, at the ruler's right end: one press gives time more
    * room (`1`) or less (`-1`). It is the *tree* that changes — the plot is
@@ -103,32 +101,11 @@ const EARTH_MA = 4567;
 /** A tick, and how much the axis wants to keep it when space runs out. */
 interface Tick {
   age: number;
-  /** Lower survives longer: 0 the present, 1 landmarks and the knee, then decades. */
+  /** Lower survives longer: 0 the present, then every fifth step, then the rest. */
   rank: number;
 }
 
-/** The 1–2–5 ladder, which is what makes a log decade readable. */
-function decadeTicks(lo: number, hi: number): Tick[] {
-  const out: Tick[] = [];
-  const from = Math.floor(Math.log10(Math.max(lo, 1e-6)));
-  const to = Math.ceil(Math.log10(Math.max(hi, 1e-6)));
-  for (let k = from; k <= to; k++) {
-    const p = 10 ** k;
-    // A power of ten reads as a rounder number than 5× it, which reads rounder
-    // than 2×; that ordering is what the cull spends its budget on.
-    for (const [m, rank] of [
-      [1, 2],
-      [5, 3],
-      [2, 4],
-    ] as const) {
-      const age = m * p;
-      if (age >= lo && age <= hi) out.push({ age, rank });
-    }
-  }
-  return out;
-}
-
-/** Evenly spaced ticks on a nice step, for the linear scale and below the knee. */
+/** Evenly spaced ticks on a nice step — the whole ladder, on one scale. */
 function linearTicks(lo: number, hi: number, approxCount: number): Tick[] {
   const span = hi - lo;
   if (!(span > 0) || !Number.isFinite(span)) return [];
@@ -148,43 +125,19 @@ function linearTicks(lo: number, hi: number, approxCount: number): Tick[] {
  * Ticks for what is on screen.
  *
  * Built as a *prioritised* candidate list rather than a set, then placed
- * greedily: the present first, then the boundaries a reader recognises, then
- * powers of ten, and so on down. Placing by priority rather than by position
- * is what stops 50 Ma crowding out the K–Pg.
+ * greedily: the present first, then every fifth step of the ladder, then the
+ * rest. Placing by priority rather than by position is what keeps "present"
+ * from being crowded out by the tick beside it.
  */
 export function buildTicks(
   lo: number,
   hi: number,
-  mode: AxisMode,
   toScreenX: (age: number) => number,
   width: number,
 ): number[] {
   const candidates: Tick[] = [];
-  const push = (t: Tick) => {
-    if (t.age >= lo && t.age <= hi) candidates.push(t);
-  };
-
-  push({ age: 0, rank: 0 });
-  if (mode === "log") {
-    for (const age of LANDMARK_TICKS) push({ age, rank: 1 });
-    // The knee is a fact about the scale, so it earns a number under it.
-    push({ age: SYMLOG_T0, rank: 1 });
-    if (hi > SYMLOG_T0) {
-      candidates.push(...decadeTicks(Math.max(lo, SYMLOG_T0), hi));
-    }
-    // Below the knee the scale is linear, so a log ladder would bunch there.
-    if (lo < SYMLOG_T0) {
-      const linHi = Math.min(hi, SYMLOG_T0);
-      const px = Math.abs(toScreenX(lo) - toScreenX(linHi));
-      for (const t of linearTicks(lo, linHi, px / TARGET_TICK_PX)) {
-        // Ranked below the decades, so a view spanning the knee spends its
-        // room on deep time rather than on the last 200,000 years.
-        candidates.push({ age: t.age, rank: t.rank + 3 });
-      }
-    }
-  } else {
-    candidates.push(...linearTicks(lo, hi, width / TARGET_TICK_PX));
-  }
+  if (lo <= 0 && hi >= 0) candidates.push({ age: 0, rank: 0 });
+  candidates.push(...linearTicks(lo, hi, width / TARGET_TICK_PX));
 
   // Collision is measured between the label *boxes*, not between the positions.
   // A flat centre-to-centre gap was fine while every tick was a short number and
@@ -319,7 +272,6 @@ export function TimeAxis({
   toScreenX,
   toAge,
   intervals,
-  axisMode,
   onStretch,
   canWiden,
   canNarrow,
@@ -370,12 +322,10 @@ export function TimeAxis({
   }, [intervals, toScreenX, width]);
 
   const ticks = useMemo(
-    () => buildTicks(ageLo, ageHi, axisMode, toScreenX, width),
-    [ageLo, ageHi, axisMode, toScreenX, width],
+    () => buildTicks(ageLo, ageHi, toScreenX, width),
+    [ageLo, ageHi, toScreenX, width],
   );
 
-  const kneeX = toScreenX(SYMLOG_T0);
-  const showKneeLabel = width > 560;
   // The deep end of the axis. Everything left of it is off the end of time, so
   // the rule stops there too rather than running on into a region it cannot
   // measure — an edge that is drawn and named, not one the reader trips over.
@@ -485,32 +435,6 @@ export function TimeAxis({
                 textAnchor="start"
               >
                 {shortest("Big Bang · 13787 Ma", "Big Bang")}
-              </text>
-            )}
-          </>
-        )}
-
-        {axisMode === "log" && kneeX > 0 && kneeX < width && (
-          <>
-            <line
-              className="axis-knee"
-              x1={kneeX}
-              y1={-2000}
-              x2={kneeX}
-              y2={36}
-            />
-            {showKneeLabel && (
-              <text
-                x={kneeX - 7}
-                y={26}
-                textAnchor="end"
-                style={{
-                  fill: "var(--accent-dim)",
-                  fontSize: 10,
-                  fontFamily: "var(--mono)",
-                }}
-              >
-                scale bends here · 1 Ma
               </text>
             )}
           </>

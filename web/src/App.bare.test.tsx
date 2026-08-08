@@ -54,21 +54,20 @@ describe("fullscreen is offered on both surfaces or on neither", () => {
  * asked in both of the canvas's branches.
  */
 describe("bioluminescence is offered on every canvas or on none", () => {
-  it("draws the other three and not the light", async () => {
+  it("draws the other two and not the light", async () => {
     await renderApp();
     await drawOpening();
     const chips = [...document.querySelectorAll(".side-modes .mode-chip")];
     expect(chips.map((c) => c.getAttribute("aria-label"))).toEqual([
       "Labels",
       "Dates",
-      "Time scale",
     ]);
   });
 
   /**
    * And the section they are in is still drawn, which is the half that would
    * fail silently. A capability check that took the caption with it would leave
-   * a heading over nothing on one browser and three switches on another.
+   * a heading over nothing on one browser and two switches on another.
    */
   it("keeps the section the missing switch would have been in", async () => {
     await renderApp();

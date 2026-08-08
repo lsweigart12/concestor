@@ -146,11 +146,12 @@ timer decides when a mark becomes visible.
 
 - **Every binding is a bare letter, and nothing holds a modifier**, with `/` the
   one exception. `/` opens search, `S` toggles the sidebar, `A` adds a taxon, `F`
-  fits (`⇧F` fit selection), `N` steps to next species (`⇧N`
-  previous), `T` switches the time scale, `L` cycles labels, `D` flips dates, `B`
-  the light, `R` adds a random species, `C` clears, `E` fills the screen. The
-  four canvas modes hold the letters that name them. Shift is the _variant_ of a
-  binding, never a second one. `web/src/chrome/bindings.ts` is the one table;
+  fits (`⇧F` fit selection), `N` steps to next species (`⇧N` previous), `L`
+  cycles labels, `D` flips dates, `B` the light, `R` adds a random species, `C`
+  clears, `E` fills the screen. The three canvas modes hold the letters that
+  name them. `T` is unclaimed — it switched the time scale, and nothing took it
+  when the second scale went. Shift is the _variant_ of a binding, never a
+  second one. `web/src/chrome/bindings.ts` is the one table;
   `matchKey` refuses any press holding ctrl, meta or alt.
 - **`/` opens search**, matching what `/` does everywhere else. It is the root of
   the command surface.
@@ -248,18 +249,13 @@ timer decides when a mark becomes visible.
   open drill lane. A key, not an explanation (the sentences live in the node
   card). It names only the patterns actually drawn, so a fully dated tree shows
   no key. It is not a panel.
-- **The right end of that line is the time-scale switch.** It reads `L | linear |
-log` as a segmented control — both options always legible, the live one lit. It
-  wears the same anatomy as the other three canvas modes (badge, caption,
-  recessed track) and sits beside them in the sidebar. The badge sits outside
-  both segments because `T` toggles rather than selects. `symlog` stays out of
-  the label; the knee is labelled on the axis, which is where the units are.
-- **Quiet at the default, accented away from it.** Linear is the default: the lit
-  segment is plain ink and the control announces nothing. Arriving at
-  logarithmic — pressed, via a link carrying `axis=log`, or asked for by an
-  opening — takes the accent at low alpha, so a reader who followed someone
-  else's link can see the view was set for them. This is the one place chrome may
-  carry the accent for something other than hover or focus.
+- **There is one time scale, and it is proportional.** No switch, no second
+  ruler, no knee. A symlog view was offered beside it for a long time — linear
+  to 1 Ma and logarithmic above, so a hominin divergence and the Cambrian could
+  share a screen — and it was removed: a reader who has to ask which scale they
+  are on cannot read a position off the axis at all, which is the one thing the
+  axis is for. Room for recent splits is bought by zooming, which is honest
+  because the ruler zooms with it.
 - **The fit gives time as much room as the frame has, up to roughly square.** A
   tall selection makes a tree far taller than it is wide, and a transform can
   only shrink it into a strip down the middle of an empty frame. So the fit
@@ -424,11 +420,10 @@ switch line up down a column of fixed width:
 - **None of the three is in the URL.** They join bioluminescence in
   `sessionStorage`, per-tab: everything in the link is a claim about taxa, and
   these are claims about the reader. A shared link would otherwise impose one
-  person's habits and could open on a canvas of unnamed dots. The time scale
-  stays in the link, because it is the scale the tree was _read_ on.
-- `L` cycles labels, `D` flips dates, `B` the light, `T` the time scale. Cycling
-  is legible on `L` because the chip beside it shows where the press landed and
-  what the next one will do.
+  person's habits and could open on a canvas of unnamed dots.
+- `L` cycles labels, `D` flips dates, `B` the light. Cycling is legible on `L`
+  because the chip beside it shows where the press landed and what the next one
+  will do.
 
 ## The detail card
 
@@ -582,7 +577,7 @@ flashing over facts the app already holds.
 ## State
 
 - **The tree is URL-encoded; how you are reading it is not.** Any tree is a
-  shareable link — the selection, axis and drill all ride in it. The
+  shareable link — the selection and drill both ride in it. The
   labels, ages and light are `sessionStorage`, per-tab, because a setting that is
   a claim about the reader may not travel in a link.
 - Full keyboard operation: search, add, remove, clear, fit and step

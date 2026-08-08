@@ -25,7 +25,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { TimeAxis } from "./TimeAxis";
-import { ageFrac, type AxisMode } from "../tree/layout";
+import { ageFrac } from "../tree/layout";
 import type { TimescaleInterval } from "../api";
 
 const ICS: TimescaleInterval[] = [
@@ -39,7 +39,6 @@ const ICS: TimescaleInterval[] = [
 function mount(
   toScreenX: (age: number) => number,
   toAge: (x: number) => number,
-  mode: AxisMode = "log",
   onStretch: (dir: 1 | -1) => void = vi.fn(),
   can = { canWiden: true, canNarrow: true },
 ) {
@@ -50,7 +49,6 @@ function mount(
       toScreenX={toScreenX}
       toAge={toAge}
       intervals={ICS}
-      axisMode={mode}
       onStretch={onStretch}
       canWiden={can.canWiden}
       canNarrow={can.canNarrow}
@@ -87,7 +85,7 @@ describe("TimeAxis", () => {
 
   it("still draws the axis when the transform is real", () => {
     // The guard above must not be doing its job by drawing nothing ever.
-    const toX = (age: number) => 1000 - 1000 * ageFrac(age, 1315, "log");
+    const toX = (age: number) => 1000 - 1000 * ageFrac(age, 1315);
     const { container } = mount(toX, (x) => 1315 * (1 - x / 1000));
     expect(attrs(container).filter((a) => a.includes("NaN"))).toEqual([]);
     expect(container.querySelectorAll("g.axis-tick").length).toBeGreaterThan(3);
@@ -95,7 +93,7 @@ describe("TimeAxis", () => {
   });
 
   it("keeps the ticks it can place when only one age is unprojectable", () => {
-    const toX = (age: number) => 1000 - 1000 * ageFrac(age, 1315, "log");
+    const toX = (age: number) => 1000 - 1000 * ageFrac(age, 1315);
     const holed = (age: number) => (age === 0 ? NaN : toX(age));
     const { container } = mount(holed, (x) => 1315 * (1 - x / 1000));
     expect(attrs(container).filter((a) => a.includes("NaN"))).toEqual([]);
@@ -110,14 +108,9 @@ describe("TimeAxis", () => {
    * click — at the end of its run.
    */
   it("presses the stretch control with a direction", () => {
-    const toX = (age: number) => 1000 - 1000 * ageFrac(age, 1315, "log");
+    const toX = (age: number) => 1000 - 1000 * ageFrac(age, 1315);
     const onStretch = vi.fn();
-    const { container } = mount(
-      toX,
-      (x) => 1315 * (1 - x / 1000),
-      "log",
-      onStretch,
-    );
+    const { container } = mount(toX, (x) => 1315 * (1 - x / 1000), onStretch);
     const [narrow, widen] = container.querySelectorAll(".axis-stretch button");
     (widen as HTMLButtonElement).click();
     expect(onStretch).toHaveBeenLastCalledWith(1);
@@ -126,15 +119,12 @@ describe("TimeAxis", () => {
   });
 
   it("disables the press that would do nothing", () => {
-    const toX = (age: number) => 1000 - 1000 * ageFrac(age, 1315, "log");
+    const toX = (age: number) => 1000 - 1000 * ageFrac(age, 1315);
     const onStretch = vi.fn();
-    const { container } = mount(
-      toX,
-      (x) => 1315 * (1 - x / 1000),
-      "log",
-      onStretch,
-      { canWiden: false, canNarrow: true },
-    );
+    const { container } = mount(toX, (x) => 1315 * (1 - x / 1000), onStretch, {
+      canWiden: false,
+      canNarrow: true,
+    });
     const [narrow, widen] = container.querySelectorAll(".axis-stretch button");
     expect((widen as HTMLButtonElement).disabled).toBe(true);
     expect((narrow as HTMLButtonElement).disabled).toBe(false);

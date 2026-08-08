@@ -420,13 +420,19 @@ layer (§3.4, phase 4's `age_layout` rewrite) and cannot live in phase 2.
 
 ### Scale
 
-Linear and logarithmic, toggleable. **Log of time-before-present is undefined at the
-present** (`log(0) = -Infinity`), so the mapping is a **symlog**: linear from 0 to a
-threshold `t₀` (1 Ma default), logarithmic above. The knee is marked with a visible tick.
-Log mode is what makes the app usable — linear time puts every hominin divergence inside
-one pixel next to the Cambrian. `ageFrac(age, maxAge, mode)` in `web/src/tree/layout.ts`
-is the single mapping; `layout()`, `toScreenX` and its inverse all take the mode.
-`AxisMode` is defined once, in `layout.ts`.
+**Proportional, and only proportional.** `ageFrac(age, maxAge)` in
+`web/src/tree/layout.ts` is the single mapping — `age / max(maxAge, 1)`, present at 0 and
+the deepest drawn node at 1 — and `layout()`, `toScreenX` and its inverse all go through
+it. There is no mode parameter and no second scale.
+
+A symlog view rode beside it for a long time: linear from 0 to `t₀` (1 Ma), logarithmic
+above, with the knee marked, because `log(0) = -Infinity` and because linear time puts
+every hominin divergence inside one pixel next to the Cambrian. It was removed (issue
+150). Two scales meant every position on the canvas had to be read against a ruler the
+reader first had to identify, and the tick ladder, the knee marker, the URL parameter,
+a key binding and a chip in the sidebar all existed to tell them which one they were on.
+Recent splits get their room from the zoom instead, which rescales the ruler with the
+tree rather than bending it.
 
 **The axis belongs to the canvas, not the selection.** It runs to the Big Bang
 (13787 Ma) and stops — no rule, tick, or band beyond it; `maxAge` (deepest drawn node)
@@ -443,7 +449,7 @@ powers of ten), so a zoom follows the view.
 
 From ICS `chart.ttl` (v2026/06, CC-BY, 178 concepts, official CGMW colors), parsed once at
 build into ~40 KB of JSON. Bands with level of detail driven by pixels-per-Ma **per region,
-not per axis** (on a log scale one rank across the whole strip is never right). The band is
+not per axis** (one rank across the whole strip is never right at every zoom). The band is
 grown down the ICS containment tree (`parent` is in the payload): a node hands over to its
 children when the children that carry their own names cover ≥ 70% of its width. Zooming
 refines it; panning does not. **A band is labelled with its whole name or not at all** —
@@ -477,7 +483,7 @@ The layout is deterministic, computed, not simulated; nodes are not draggable. A
 engine (dagre/ELK/d3-hierarchy) would assign `x` by depth, but here:
 
 ```
-x = f(age_ma)      symlog, linear below t₀ = 1 Ma, logarithmic above   (§6)
+x = f(age_ma)      proportional time, present at the right edge        (§6)
 y = tip lane       assigned by preorder idx                            (§3.1)
 ```
 
@@ -594,7 +600,7 @@ vernaculars are priority-one (phase 6).
 
 ### URL state
 
-`/?n=770315,153563,664349&axis=log&seg=1234-5678`
+`/?n=770315,153563,664349&seg=1234-5678`
 
 The selected set is the application state; encoding it in the URL makes every view
 shareable and back-button-correct. design-reference.md extends this to all view state — zoom,
@@ -613,8 +619,8 @@ scope, and isolation belong here too.
 3. **Click a branch → drill into intermediates.** The segment's suppressed nodes are already
    in memory; one `/segment` call fetches ranked fossils. Lane opens below, spine plus
    double-bracket range bars.
-4. **Time axis.** `x` from `age_ma` under linear or symlog, both driving the layout. Ticks
-   and ICS bands generated from the age range under the viewport. Provenance tiers rendered
+4. **Time axis.** `x` from `age_ma` under one proportional scale, driving the layout.
+   Ticks and ICS bands generated from the age range under the viewport. Provenance tiers rendered
    so measured, interpolated, and structural are distinguishable at a glance.
 
 ---

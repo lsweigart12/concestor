@@ -388,7 +388,7 @@ export default function App() {
   const openOpening = useCallback(
     (o: Opening) => {
       setPaletteOpen(false);
-      tree.open(keysOf(o), o.axis);
+      tree.open(keysOf(o));
       // Replaces whatever the last opening left on screen, including a flyout
       // offering this very question.
       setAfterglow({ at: "reveal", opening: o });
@@ -644,29 +644,10 @@ export default function App() {
             },
           ]),
       {
-        id: "axis",
-        title: `Switch time axis to ${tree.view.axis === "log" ? "linear" : "logarithmic"}`,
-        // Each names what you would be switching *to*, and neither disparages
-        // the other. The old copy called linear the one that "puts every recent
-        // divergence in one pixel", which was a fair warning while symlog was
-        // the default and is a poor way to describe the default now.
-        subtitle:
-          tree.view.axis === "log"
-            ? "True proportions; recent splits crowd the present"
-            : "Symlog: linear to 1 Ma, logarithmic above — room for recent splits",
-        icon: "⇄",
-        keys: kbd("axis"),
-        section: "View",
-        run: () => {
-          tree.setAxis(tree.view.axis === "log" ? "linear" : "log");
-          setPaletteOpen(false);
-        },
-      },
-      {
         // The label switch, as a command. One row that cycles rather than three
         // rows that set, because the palette is a list of *actions* and "set
-        // labels to scientific" is not one when they already are — the axis row
-        // above makes the same call and names what you would be switching to.
+        // labels to scientific" is not one when they already are. The title
+        // names what you would be switching *to*, never the current state.
         // `LABEL_TURN` is what keeps this row's title, its subtitle and the
         // key's handler agreeing about where the press lands.
         id: "labels",
@@ -1092,9 +1073,6 @@ export default function App() {
         case "step-back":
           stepSelection(true);
           break;
-        case "axis":
-          tree.setAxis(tree.view.axis === "log" ? "linear" : "log");
-          break;
         case "labels":
           tree.setLabels(LABEL_TURN[tree.labels].next);
           break;
@@ -1303,7 +1281,6 @@ export default function App() {
             const n = tree.nodes.get(idx);
             tree.select(n ? n.key : null);
           }}
-          axisMode={tree.view.axis}
           labels={tree.labels}
           ages={tree.ages}
           intervals={timescale}
@@ -1690,8 +1667,6 @@ export default function App() {
         onLabels={tree.setLabels}
         ages={tree.ages}
         onAges={tree.setAges}
-        axis={tree.view.axis}
-        onAxis={tree.setAxis}
         biolum={tree.biolum}
         onBiolum={(v) => {
           if (v !== tree.biolum) tree.toggleBiolum();
