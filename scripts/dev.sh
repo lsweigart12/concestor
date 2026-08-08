@@ -26,9 +26,18 @@ PORT="${PORT:-5173}"
 # shellcheck source=lib/paths.sh
 . "$ROOT/scripts/lib/paths.sh"
 
+# Cloned in first when this is a worktree, so the checkout owns the artifacts
+# it serves — and so a clone that has fallen behind the checkout it came from
+# says so here, at the one moment somebody is about to look at the data. This
+# script needs no *bundle* staleness check (Vite transforms on request), but
+# the dataset underneath it is mmap'd at startup and can be any age at all.
+concestor_borrow_build
+concestor_link_snapshot
 concestor_resolve_artifacts || concestor_artifacts_missing
 
-if [ -n "$CONCESTOR_BORROWED_FROM" ]; then
+if [ -n "${CONCESTOR_BORROW_NOTE:-}" ]; then
+  echo "$CONCESTOR_BORROW_NOTE" >&2
+elif [ -n "$CONCESTOR_BORROWED_FROM" ]; then
   echo "Borrowing read-only artifacts from $CONCESTOR_BORROWED_FROM" >&2
 fi
 

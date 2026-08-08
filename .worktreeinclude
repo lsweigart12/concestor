@@ -2,10 +2,19 @@
 # .gitignore syntax; only paths that match AND are gitignored are copied.
 #
 # Deliberately empty. The gitignored things a worktree needs are build/
-# (2.9 GB) and snapshot/ (1.7 GB), and copying either per session is absurd —
-# they are read-only pipeline output, identical in every checkout. So
-# scripts/lib/paths.sh borrows them from the main checkout instead, and
-# web/node_modules is cloned copy-on-write on first use.
+# (3.2 GB) and snapshot/ (1.7 GB), and copying either per session is absurd —
+# so scripts/lib/paths.sh arranges them on first use instead, and differently
+# for each:
+#
+#   build/     a copy-on-write clone (0.38 s and 2.2 MB for 3.2 GB on APFS).
+#              Cloned rather than linked so the worktree can run the pipeline
+#              on top of it without rewriting another checkout's artifacts,
+#              which every phase would otherwise do in place.
+#   snapshot/  per-entry symlinks. Nothing rewrites a file in there and a
+#              private copy would re-crawl upstream, so sharing is the goal.
+#
+# web/node_modules is cloned copy-on-write on first use by the same file.
+# docs/ci.md §2, "Running in a git worktree", is the account of record.
 #
 # Add a line here if this project ever grows a small local file a worktree
 # genuinely needs, such as a .env.

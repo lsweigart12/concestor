@@ -29,9 +29,20 @@ PORT="${PORT:-8080}"
 # --- the baked artifacts ----------------------------------------------------
 # The runtime is read-only over files the pipeline produces; without them there
 # is nothing to serve and no useful degraded mode.
+#
+# In a worktree the artifacts are cloned in first, copy-on-write, so this
+# checkout has its own. That costs 0.38 s and 2.2 MB the first time and nothing
+# after — and it is also where the dataset gets to say it is behind the
+# checkout it came from, which is the one staleness question this script could
+# not previously answer. The frontend bundle's freshness is checked below; this
+# is the same courtesy for the data underneath it.
+concestor_borrow_build
+concestor_link_snapshot
 concestor_resolve_artifacts || concestor_artifacts_missing
 
-if [ -n "$CONCESTOR_BORROWED_FROM" ]; then
+if [ -n "${CONCESTOR_BORROW_NOTE:-}" ]; then
+  echo "$CONCESTOR_BORROW_NOTE" >&2
+elif [ -n "$CONCESTOR_BORROWED_FROM" ]; then
   echo "Borrowing read-only artifacts from $CONCESTOR_BORROWED_FROM" >&2
 fi
 

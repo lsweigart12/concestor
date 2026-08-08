@@ -1,21 +1,27 @@
 #!/usr/bin/env bash
 #
-# Path resolution shared by scripts/serve.sh and scripts/dev.sh.
+# Path resolution shared by scripts/serve.sh, dev.sh, check.sh and
+# deploy/push-data-image.sh.
 #
 # This file exists because of git worktrees. Claude Code puts each parallel
 # session in its own worktree under .claude/worktrees/, and a worktree is a
 # checkout of *tracked* files only. So it has all the source and none of
-# build/ (2.9 GB), snapshot/ (1.7 GB) or web/node_modules. Rebuilding those
+# build/ (3.2 GB), snapshot/ (1.7 GB) or web/node_modules. Rebuilding those
 # per worktree is hours of pipeline time and gigabytes of disk for artifacts
 # that are byte-identical to the ones already on the machine.
 #
 # So a worktree borrows the main checkout's baked artifacts and keeps its own
 # frontend. That split is the whole idea: build/ and snapshot/ are inputs
-# nobody edits, web/ is the thing under development.
+# the session under way is not writing, web/ is the thing under development.
 #
-# Sharing them is safe rather than merely convenient. The server mmaps the
-# arrays and opens SQLite immutable, both read-only at startup, so N processes
-# reading one build/ behaves exactly like one process reading it.
+# **Borrowing is not one mechanism.** Reading really is free to share — the
+# server mmaps the arrays and opens SQLite immutable, both read-only at
+# startup, so N processes reading one build/ behaves exactly like one process
+# reading it. Writing is not, and the pipeline writes its arrays in place. So
+# build/ is cloned copy-on-write (cheap on APFS, and private), while snapshot/
+# is symlinked (append-only, and shared on purpose). `concestor_borrow_build`
+# and `concestor_link_snapshot` below carry the full argument; docs/ci.md §2
+# "Running in a git worktree" is the account of record.
 #
 # Every function here expects ROOT to be set to the calling script's checkout.
 
@@ -67,6 +73,168 @@ concestor_resolve_artifacts() {
       break
     fi
   done
+}
+
+# Links the gitignored halves of snapshot/ into $ROOT, and only those.
+#
+# **Symlinks here, clones for build/, and the asymmetry is deliberate.**
+# snapshot/ is 1.7 GB of pinned upstream sources and the crawl cache over them.
+# Nothing rewrites a file in it: `provenance.py` downloads to a part file and
+# renames, and a phase that fetches more only adds. So sharing it is not a
+# hazard, it is the point — a worktree that re-crawled into a private copy
+# would hammer upstream for bytes already on this disk, against APIs
+# docs/data-sources.md records as having no rate limiting.
+#
+# snapshot/manifest.json is skipped because it is the one tracked file in
+# there. It belongs to this checkout, `paths.SNAPSHOT_MANIFEST` reads it from
+# here, and linking it would hand a worktree the other branch's provenance.
+concestor_link_snapshot() {
+  local main=""
+  main=$(concestor_main_checkout) || return 0
+  [ -n "$main" ] && [ "$main" != "$ROOT" ] || return 0
+  [ -d "$main/snapshot" ] || return 0
+
+  mkdir -p "$ROOT/snapshot"
+  local src name linked=0
+  for src in "$main"/snapshot/*; do
+    [ -e "$src" ] || continue
+    name=$(basename "$src")
+    if [ "$name" = "manifest.json" ]; then
+      continue
+    fi
+    # -e follows the link and so answers "no" for a dangling one; -L catches
+    # exactly that case, which is what a link left behind by a deleted
+    # checkout looks like. Written as two tests rather than `a || b && c`,
+    # which bash groups as `(a || b) && c` and reads as the opposite.
+    if [ -e "$ROOT/snapshot/$name" ] || [ -L "$ROOT/snapshot/$name" ]; then
+      continue
+    fi
+    ln -s "$src" "$ROOT/snapshot/$name"
+    linked=$((linked + 1))
+  done
+
+  if [ "$linked" -gt 0 ]; then
+    echo "Linked $linked snapshot/ source(s) from $main (shared, not copied)" >&2
+  fi
+  return 0
+}
+
+# The dataset id `concestor-build package` wrote into a manifest, or empty.
+#
+# Deliberately not the id /v1/about reports: `store.computeBuildID` hashes file
+# sizes and *mtimes*, so a copy of an artifact set gets a different answer than
+# the original. That is right for an ETag and wrong for a name, and a clone is
+# exactly the case where the difference shows. docs/deployment.md §5.
+concestor_build_id() {
+  python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["build_id"])' \
+    "$1" 2>/dev/null || echo ""
+}
+
+# Gives $ROOT a build/ of its own, cloned from the checkout that has one.
+#
+# **The clone is the point.** A worktree used to borrow by symlink, which reads
+# perfectly and writes catastrophically: every pipeline phase writes its arrays
+# in place, so `concestor-build dates` in a worktree rewrote the main
+# checkout's artifacts under whatever had them mmap'd, and under every other
+# worktree pointing at the same directory. 26 of 28 worktrees on this machine
+# were in that state when this was written.
+#
+# It is affordable because of APFS. `cp -c` clones copy-on-write, so the whole
+# 3.2 GB artifact set costs 0.38 s and 2.2 MB of disk — measured on this
+# repository's build/, not estimated. Blocks are shared until something writes,
+# which means a worktree that rebuilds one phase pays only for that phase's
+# output. That is the "build on top" this is for.
+#
+# Where cloning is impossible — any filesystem without copy-on-write, where a
+# real copy would be 3.2 GB per session — it falls back to the old symlink and
+# says so. `paths.check_build_writable` in the pipeline refuses to run a phase
+# against that shape, which is the correct outcome: on such a machine a
+# worktree can serve and test the shared dataset but cannot rebuild it.
+#
+# Sets CONCESTOR_BORROW_NOTE to a line worth printing, or empty.
+concestor_borrow_build() {
+  CONCESTOR_BORROW_NOTE=""
+
+  local main=""
+  main=$(concestor_main_checkout) || return 0
+  # The main checkout owns its artifacts; there is nothing to borrow from.
+  [ -n "$main" ] && [ "$main" != "$ROOT" ] || return 0
+  concestor_has_artifacts "$main" || return 0
+
+  # The legacy shape, and the one that has to go. Removing a symlink removes
+  # the link and never the target — the artifacts it points at are untouched.
+  if [ -L "$ROOT/build" ]; then
+    echo "build/ was a symlink into $main — replacing it with a private clone…" >&2
+    rm "$ROOT/build"
+  fi
+
+  if [ -e "$ROOT/build" ]; then
+    concestor_borrow_staleness "$main"
+    return 0
+  fi
+
+  # Cloned straight to the final name rather than staged and renamed, because a
+  # staging directory inside $ROOT is untracked and un-gitignored and survives a
+  # crash as repository litter. The failure path below is what makes that safe.
+  if cp -Rc "$main/build" "$ROOT/build" 2>/dev/null; then
+    concestor_write_borrow_stamp "$main"
+    CONCESTOR_BORROW_NOTE="build/ is a copy-on-write clone of $main/build"
+    echo "Cloned build/ from $main (copy-on-write, gitignored, writable here)" >&2
+    return 0
+  fi
+
+  # Only ever a partial copy this function just made: any pre-existing symlink
+  # was removed above, and any pre-existing directory returned above. Checked
+  # anyway, because this is an `rm -rf` and the cost of being wrong is 3.2 GB
+  # of someone else's artifacts.
+  if [ -e "$ROOT/build" ] && [ ! -L "$ROOT/build" ]; then
+    rm -rf "$ROOT/build"
+  fi
+
+  ln -s "$main/build" "$ROOT/build"
+  CONCESTOR_BORROW_NOTE="build/ is a SYMLINK into $main — this filesystem has no copy-on-write"
+  printf '\n  %s\n\n' "build/ could not be cloned, so it is a symlink to $main/build.
+  Reading is fine — that is what serving and testing do. Writing is not: the
+  pipeline refuses to run a phase here, because it would rewrite that
+  checkout's artifacts in place. Rebuild the dataset from $main." >&2
+}
+
+# Records what was cloned and when, so a clone can later say it is behind
+# rather than look current. Inside build/, which is gitignored.
+concestor_write_borrow_stamp() {
+  local main=$1 bid
+  bid=$(concestor_build_id "$main/build/manifest.json")
+  printf '{\n  "from": "%s",\n  "build_id": "%s",\n  "cloned_at": "%s"\n}\n' \
+    "$main" "$bid" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$ROOT/build/.borrowed"
+}
+
+# Says when the checkout this build/ was cloned from has since rebuilt.
+#
+# This is the local half of the drift check scripts/check.sh already runs
+# against web/wrangler.jsonc's pin: the same question — "is the dataset in
+# front of me the one that is meant to be current?" — asked of the machine
+# rather than of production. An observation, never a failure: a worktree
+# deliberately holding an older dataset while a rebuild lands elsewhere is a
+# legitimate thing to be doing, and only the reader knows which it is.
+concestor_borrow_staleness() {
+  local main=$1 stamp="$ROOT/build/.borrowed" was now
+  [ -f "$stamp" ] || return 0
+
+  was=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("build_id",""))' \
+    "$stamp" 2>/dev/null || echo "")
+  now=$(concestor_build_id "$main/build/manifest.json")
+  [ -n "$was" ] && [ -n "$now" ] || return 0
+
+  if [ "$was" = "$now" ]; then
+    CONCESTOR_BORROW_NOTE="build/ is a clone of $main/build, dataset $was"
+    return 0
+  fi
+
+  CONCESTOR_BORROW_NOTE="build/ is dataset $was; $main has rebuilt to $now"
+  printf '\033[33m%s\033[0m\n' "build/ here was cloned from $main at dataset $was." >&2
+  echo "  That checkout is now on $now — this clone is behind." >&2
+  echo "  To take the newer one:  rm -rf build   (it is re-cloned on next run)" >&2
+  echo "  Observation, not a failure — an older dataset may be what you want." >&2
 }
 
 # The message for the one unrecoverable case. Kept here so both entry points
