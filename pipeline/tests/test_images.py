@@ -28,6 +28,7 @@ import numpy as np
 import pytest
 
 from concestor_build import images
+from concestor_build.gates import Gate, GateSet
 from concestor_build.images import (
     M_ANCESTOR,
     M_DESCENDANT,
@@ -36,6 +37,7 @@ from concestor_build.images import (
     M_RELATIVE,
     NO_IMAGE,
     ImageRecord,
+    intended_uid,
     name_candidates,
     ott_ids_from_node,
     pick_per_ott,
@@ -723,6 +725,114 @@ def test_a_homonym_seeds_nothing():
     assert stats["names_matched"] == 0
 
 
+def test_a_homonym_is_refused_even_when_only_one_of_them_is_in_the_tree():
+    """Issue #137. The whole bug: synthesis carries a fraction of OTT, so the
+    absent homonym is the usual case and the tree cannot see the ambiguity.
+
+    OTT holds `Oenanthe` twice — the celery genus (130942) and the wheatears
+    (945783). Only the plant is a node, so testing ambiguity against the tree
+    found none and hung a bird on it.
+    """
+    ott = np.array([NO_OTT, 130942], dtype=np.int64)
+    tips = np.array([9, 46], dtype=np.uint32)
+    seed, stats = seed_nodes(
+        ott,
+        tips,
+        {},
+        {},
+        titles=["Oenanthe hispanica"],
+        name_uids={"Oenanthe": [130942, 945783]},
+    )
+    assert seed.tolist() == [NO_IMAGE, NO_IMAGE]
+    assert stats["names_ambiguous"] == 1
+    assert stats["names_matched_truncated"] == 0
+
+
+def test_a_citation_says_which_homonym_was_drawn():
+    """The image cites the wheatear species, whose genus is not the plant."""
+    ott = np.array([NO_OTT, 130942, 945783], dtype=np.int64)
+    tips = np.array([9, 46, 30], dtype=np.uint32)
+    seed, stats = seed_nodes(
+        ott,
+        tips,
+        {},
+        {},
+        # 554159 is `Oenanthe hispanica`, whose parent is the bird genus.
+        parents={554159: 945783},
+        titles=["Oenanthe hispanica"],
+        name_uids={"Oenanthe": [130942, 945783]},
+        cited=[[554159]],
+    )
+    # Node 2, the birds — emphatically not node 1, the celery.
+    assert seed.tolist() == [NO_IMAGE, NO_IMAGE, 0]
+    assert stats["names_disambiguated_by_citation"] == 1
+    assert stats["names_ambiguous"] == 0
+
+
+def test_a_citation_for_an_absent_homonym_seeds_nothing():
+    """The right answer is often "the taxon I mean is not in your tree"."""
+    ott = np.array([NO_OTT, 130942], dtype=np.int64)
+    tips = np.array([9, 46], dtype=np.uint32)
+    seed, stats = seed_nodes(
+        ott,
+        tips,
+        {},
+        {},
+        parents={554159: 945783},
+        titles=["Oenanthe hispanica"],
+        name_uids={"Oenanthe": [130942, 945783]},
+        cited=[[554159]],
+    )
+    assert seed.tolist() == [NO_IMAGE, NO_IMAGE]
+    # Determined, not guessed: the citation answered, and the answer was no.
+    assert stats["names_disambiguated_by_citation"] == 1
+    assert stats["names_ambiguous"] == 0
+
+
+def test_a_citation_landing_on_neither_homonym_refuses():
+    ott = np.array([NO_OTT, 100, 200], dtype=np.int64)
+    tips = np.array([9, 1, 1], dtype=np.uint32)
+    seed, stats = seed_nodes(
+        ott,
+        tips,
+        {},
+        {},
+        parents={7: 8},
+        titles=["Prunella"],
+        name_uids={"Prunella": [100, 200]},
+        cited=[[7]],
+    )
+    assert seed.tolist() == [NO_IMAGE, NO_IMAGE, NO_IMAGE]
+    assert stats["names_ambiguous"] == 1
+
+
+def test_intended_uid_needs_every_citation_to_agree():
+    parents = {1: 100, 2: 200}
+    assert intended_uid([100, 200], [1], parents) == 100
+    assert intended_uid([100, 200], [1, 2], parents) is None
+    assert intended_uid([100, 200], [], parents) is None
+    # A cycle in `parent_uid` must terminate rather than spin.
+    assert intended_uid([100, 200], [5], {5: 6, 6: 5}) is None
+
+
+def test_a_unique_name_still_needs_no_citation():
+    """The citation only breaks a tie; it is not a second test to pass."""
+    ott = np.array([NO_OTT, 100], dtype=np.int64)
+    tips = np.array([9, 1], dtype=np.uint32)
+    seed, stats = seed_nodes(
+        ott,
+        tips,
+        {},
+        {},
+        titles=["Chlamydiae"],
+        name_uids={"Chlamydiae": [100]},
+        cited=[[999]],
+    )
+    assert seed.tolist() == [NO_IMAGE, 0]
+    assert stats["names_matched"] == 1
+    assert stats["names_disambiguated_by_citation"] == 0
+
+
 def test_a_name_never_displaces_an_ott_id():
     """Passes 1-3 are evidence about identity; a name is evidence about a label."""
     ott = np.array([NO_OTT, 100], dtype=np.int64)
@@ -828,6 +938,73 @@ def test_taxonomy_index_reads_names_and_parents_in_one_pass(tmp_path, monkeypatc
 def test_taxonomy_index_without_an_extracted_taxonomy(tmp_path, monkeypatch):
     monkeypatch.setattr(images, "TAXONOMY", tmp_path / "absent.tsv")
     assert taxonomy_index({"Phoca"}) == ({}, {})
+
+
+# --------------------------------------------------------------------------
+# The homonym anchors — a gate that has already been wrong once
+# --------------------------------------------------------------------------
+
+
+def _anchor_db(node_ott: int, host_ott: int) -> sqlite3.Connection:
+    con = sqlite3.connect(":memory:")
+    con.execute("CREATE TABLE node (idx INTEGER PRIMARY KEY, ott_id INTEGER)")
+    con.executemany("INSERT INTO node VALUES (?,?)", [(1, node_ott), (2, host_ott)])
+    return con
+
+
+def _anchor_assignment(image_of_node_1: int) -> images.Assignment:
+    """Node 1 is seeded `exact` with `image_of_node_1`; node 2 is its host."""
+    n = 3
+    return images.Assignment(
+        image=np.array([NO_IMAGE, image_of_node_1, NO_IMAGE], dtype=np.int64),
+        source=np.array([NO_IMAGE, 1, NO_IMAGE], dtype=np.int64),
+        clade=np.array([NO_IMAGE, 1, NO_IMAGE], dtype=np.int64),
+        climb=np.zeros(n, dtype=np.uint8),
+        method=np.array([M_NONE, M_EXACT, M_NONE], dtype=np.uint8),
+    )
+
+
+def _anchor_gate(image_ott_ids: list[int]) -> Gate:
+    """Run `homonym_gates` for one anchor and return its blocking gate."""
+    node_ott, _, host_ott, _ = images.HOMONYM_ANCHORS[0]
+    g = GateSet("t")
+    images.homonym_gates(
+        g,
+        _anchor_assignment(0),
+        [_rec("u", image_ott_ids)],
+        _anchor_db(node_ott, host_ott),
+        # The drawn taxon hangs under the host clade only when it should.
+        {900: host_ott, 901: 902},
+        np.array([NO_OTT, node_ott, host_ott], dtype=np.int64),
+    )
+    return g.gates[0]
+
+
+def test_the_anchor_gate_fails_when_the_drawing_is_from_another_kingdom():
+    """Issue #137 as the gate sees it: node right, picture wrong."""
+    assert not _anchor_gate([901]).passed
+
+
+def test_the_anchor_gate_passes_when_the_drawing_is_from_the_host_clade():
+    assert _anchor_gate([900]).passed
+
+
+def test_the_anchor_gate_refuses_a_drawing_that_cites_nothing():
+    """No citation is no claim, and a gate cannot pass what it cannot read."""
+    assert not _anchor_gate([]).passed
+
+
+def test_the_anchor_gate_does_not_ask_about_the_node_it_landed_on():
+    """The mistake this gate made first time out, pinned so it cannot return.
+
+    An exact seed is its own `source_idx`, so a gate phrased against the source
+    asks whether *Oenanthe* is inside Apiaceae — which it is — and passes on a
+    build where the celery genus is drawn as a wheatear. Node 1 here is inside
+    its own host by construction; only the drawing is foreign.
+    """
+    gate = _anchor_gate([901])
+    assert not gate.passed
+    assert "901" in str(gate.actual), "the verdict has to name what was drawn"
 
 
 def _rec_named(title) -> ImageRecord:
