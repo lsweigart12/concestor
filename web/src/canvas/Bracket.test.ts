@@ -8,9 +8,9 @@ import {
 } from "./Bracket";
 
 /**
- * A linear stand-in for the symlog axis: present at x=1000, one Ma per px
- * running left. Only the direction matters to the geometry — older is smaller
- * x — and a linear map makes the expected numbers readable.
+ * A stand-in for the axis: present at x=1000, one Ma per px running left. Only
+ * the direction matters to the geometry — older is smaller x — and one Ma per px
+ * makes the expected numbers readable.
  */
 const toX = (ma: number) => 1000 - ma;
 

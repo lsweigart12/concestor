@@ -91,8 +91,8 @@ type BracketGeom =
 /**
  * The narrowest a mark may be drawn, in px.
  *
- * Any mark has a floor, and on a symlog axis a Cretaceous stage can fall under
- * a pixel. This applies to the *envelope*, which is a real extent that would
+ * Any mark has a floor, and against 4.5 Ga of axis a Cretaceous stage can fall
+ * under a pixel. This applies to the *envelope*, which is a real extent that would
  * otherwise vanish. It is deliberately not applied to the certain bar, which
  * is never drawn at zero duration at all — see the header.
  */
@@ -117,9 +117,9 @@ function span(toX: (ma: number) => number, a: number, b: number): Span {
 /**
  * Pixel geometry for one taxon's appearance record.
  *
- * `toX` maps an age in Ma to a screen x — the same symlog mapping the axis and
- * the chronogram use, so a bracket in the lane is comparable with a node above
- * it. Nothing here knows about the scale beyond that.
+ * `toX` maps an age in Ma to a screen x — the same mapping the axis and the
+ * chronogram use, so a bracket in the lane is comparable with a node above it.
+ * Nothing here knows about the scale beyond that.
  */
 export function bracketGeom(
   a: Appearance,

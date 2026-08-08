@@ -12,7 +12,7 @@ import {
   makeGraft,
   parseGraftKey,
 } from "./graft";
-import { fracToAgeIn, layout, PAD_X, PLOT_W, ROW_H } from "./layout";
+import { fracToAge, layout, PAD_X, PLOT_W, ROW_H } from "./layout";
 
 /**
  * A hominin-shaped fixture, because it is the case the feature was built for
@@ -415,7 +415,7 @@ describe("the layout places a graft without disturbing the tree", () => {
     // Both ends read back as the bracket they came from, on the layout's own
     // scale — so the run is the range and not merely near it.
     const ageAt = (px: number) =>
-      fracToAgeIn(1 - (px - PAD_X) / PLOT_W, with_.maxAge, "log");
+      fracToAge(1 - (px - PAD_X) / PLOT_W, with_.maxAge);
     expect(ageAt(link.joinX)).toBeCloseTo(2.58, 6);
     expect(ageAt(link.x)).toBeCloseTo(0.774, 6);
   });

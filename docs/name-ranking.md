@@ -185,8 +185,9 @@ A control that flips the canvas between scientific and common names.
 - **It is not in the URL.** It lives in `sessionStorage` with bioluminescence,
   per-tab — a setting that is a claim about the reader may not travel in a link.
   `state/store.test.ts` pins that `encode` writes neither and `decode` drops them.
-- **It got the key `L`**, with the time scale moved to `T`; `A` flips the ages.
-  Both have a palette command and a button, from `bindings.ts` — the one table.
+- **It got the key `L`**, which the time scale gave up for `T` and then gave up
+  altogether with the second scale; `A` flips the ages. Both have a palette
+  command and a button, from `bindings.ts` — the one table.
 
 ---
 

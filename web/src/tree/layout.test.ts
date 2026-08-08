@@ -1,94 +1,49 @@
 import { describe, expect, it } from "vitest";
 import type { PathNode } from "../api";
 import { induced } from "./induced";
-import {
-  ageFrac,
-  fracToAge,
-  fracToAgeIn,
-  laneHue,
-  layout,
-  orthPath,
-  symlogFrac,
-  SYMLOG_T0,
-} from "./layout";
+import { ageFrac, fracToAge, laneHue, layout, orthPath } from "./layout";
 
-describe("symlog time axis", () => {
-  it("is defined at the present", () => {
-    // log(0) is where a naive implementation emits -Infinity and the layout
-    // silently collapses. This is the whole reason for the linear stretch.
-    expect(symlogFrac(0, 4247)).toBe(0);
-    expect(Number.isFinite(symlogFrac(0, 4247))).toBe(true);
+describe("the time axis", () => {
+  it("is proportional time, present at 0 and the deepest node at 1", () => {
+    expect(ageFrac(1315, 1315)).toBeCloseTo(1, 9);
+    expect(ageFrac(657.5, 1315)).toBeCloseTo(0.5, 9);
+    expect(ageFrac(0, 1315)).toBe(0);
   });
 
-  it("is monotone across the knee", () => {
-    let prev = -1;
-    for (const age of [
-      0, 0.1, 0.5, 0.99, 1, 1.01, 5, 66, 252, 541, 1000, 4247,
-    ]) {
-      const f = symlogFrac(age, 4247);
-      expect(f).toBeGreaterThan(prev);
-      prev = f;
-    }
+  it("is defined at the present", () => {
+    // Where the symlog this replaced needed a linear stretch to keep log(0)
+    // from emitting -Infinity and collapsing the layout. Nothing to bend now.
+    expect(ageFrac(0, 4247)).toBe(0);
+    expect(Number.isFinite(ageFrac(0, 4247))).toBe(true);
+  });
+
+  it("draws a tree at the present without dividing by zero", () => {
+    // Every node at age 0 — one species and its subspecies — used to lean on
+    // the symlog threshold as the floor. `MIN_MAX_AGE` is that floor now.
+    expect(ageFrac(0, 0)).toBe(0);
+    expect(Number.isFinite(ageFrac(0, 0))).toBe(true);
   });
 
   it("round-trips through its inverse", () => {
     for (const age of [0.25, 1, 12, 66, 252, 1000, 4000]) {
-      expect(fracToAge(symlogFrac(age, 4247), 4247)).toBeCloseTo(age, 4);
+      expect(fracToAge(ageFrac(age, 4247), 4247)).toBeCloseTo(age, 4);
     }
   });
 
-  it("gives the last million years real estate linear time would not", () => {
-    // Linear time puts every hominin divergence inside one pixel next to the
-    // Cambrian; the point of the toggle is that it does not.
-    const share = symlogFrac(SYMLOG_T0, 4247);
-    expect(share).toBeGreaterThan(1 / 4247);
-    expect(share).toBeGreaterThan(0.05);
-  });
-});
-
-describe("the axis mode is a scale, not a caption", () => {
-  it("puts linear time where linear time goes", () => {
-    // The toggle used to change the footer word and the knee marker and
-    // nothing else, so "linear" was the symlog view with its warning removed.
-    expect(ageFrac(1315, 1315, "linear")).toBeCloseTo(1, 9);
-    expect(ageFrac(657.5, 1315, "linear")).toBeCloseTo(0.5, 9);
-    expect(ageFrac(0, 1315, "linear")).toBe(0);
-  });
-
-  it("collapses the recent past, which is the comparison it exists for", () => {
-    // Homo/Pan against a 1,315 Ma root: a fifth of the axis under symlog, a
-    // rounding error under linear. Seeing that is the point of the toggle.
-    expect(ageFrac(6.7, 1315, "log")).toBeGreaterThan(0.2);
-    expect(ageFrac(6.7, 1315, "linear")).toBeLessThan(0.01);
-  });
-
-  it("round-trips in both modes", () => {
-    for (const age of [0.25, 1, 12, 66, 252, 1000]) {
-      for (const mode of ["log", "linear"] as const) {
-        expect(fracToAgeIn(ageFrac(age, 1315, mode), 1315, mode)).toBeCloseTo(
-          age,
-          4,
-        );
-      }
-    }
-  });
-
-  it("is monotone in both modes", () => {
-    for (const mode of ["log", "linear"] as const) {
-      let prev = -1;
-      for (const age of [0, 0.5, 1, 5, 66, 252, 1315]) {
-        const f = ageFrac(age, 1315, mode);
-        expect(f).toBeGreaterThan(prev);
-        prev = f;
-      }
+  it("is monotone", () => {
+    let prev = -1;
+    for (const age of [0, 0.5, 1, 5, 66, 252, 1315]) {
+      const f = ageFrac(age, 1315);
+      expect(f).toBeGreaterThan(prev);
+      prev = f;
     }
   });
 
   it("stays invertible off the ends, which is where a panned axis asks", () => {
     // The axis inverts screen x = 0 and x = width to find what it is over, and
     // both are routinely outside the plot once the view is panned.
-    expect(fracToAgeIn(1.4, 1315, "linear")).toBeCloseTo(1841, 3);
-    expect(ageFrac(2000, 1315, "linear")).toBeGreaterThan(1);
+    expect(fracToAge(1.4, 1315)).toBeCloseTo(1841, 3);
+    expect(ageFrac(2000, 1315)).toBeGreaterThan(1);
   });
 });
 
@@ -234,9 +189,9 @@ describe("a branch with no length on the axis still keeps its row", () => {
  * — twelve taxa, which drew a canvas that shook and never settled.
  *
  * Sauropsida is chosen, so it is a leaf; it is also the ancestor of exactly one
- * rendered node, Sauria, 23 Ma along the axis from it. Under `symlog` against a
- * 652 Ma root that gap is 1.1% of the plot, so the two are one mark below about
- * 1670 units of plot and two above it — and the row rule used to read the
+ * rendered node, Sauria, 23 Ma along the axis from it. Against a 652 Ma root
+ * that gap is 3.6% of the plot, so the two are one mark below about 500 units
+ * of plot and two above it — and the row rule used to read the
  * *stretched* width. The fit solves that width from the tree's height
  * (`plotWidthToFill`), so: four rows asks for a wider plot, the wider plot drops
  * a row, three rows asks for a narrower one, and nothing ever settles. The 5%
@@ -262,7 +217,7 @@ const SHAKE = induced([2, 3, 5, 6], (i) => SHAKE_PATHS[i]);
 
 describe("the row count is not a function of the axis stretch", () => {
   // Every width the fit may solve for, from the narrow-panel floor to
-  // `PLOT_W * 6`, either side of the ~1670 the real selection straddles.
+  // `PLOT_W * 6`, either side of the ~500 the real selection straddles.
   const widths = [340, 800, 1240, 1600, 1700, 2000, 2480, 4000, 7440];
 
   it("keeps one height across every stretch of the same tree", () => {

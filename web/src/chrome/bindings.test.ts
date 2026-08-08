@@ -98,18 +98,23 @@ describe("matchKey", () => {
     ).toEqual(["fullscreen"]);
   });
 
-  it("gives the four canvas modes one section and four letters", () => {
-    // `t` for time, `l` for labels, `d` for dates, `b` for the light. Two of
-    // the four have moved a letter and both moved the same way — the letter
-    // stayed the one that names the control, by changing which word names it.
-    // The axis gave `l` up when the labels arrived; `ages` gave `a` up when the
-    // Taxa list needed *add*, and became **Dates**, which is the better word
-    // for this audience anyway: an age is a duration in ordinary English and a
-    // position here.
-    expect(matchKey(press("t"))).toBe("axis");
+  it("gives the three canvas modes one section and three letters", () => {
+    // `l` for labels, `d` for dates, `b` for the light. Two of the three have
+    // moved a letter and both moved the same way — the letter stayed the one
+    // that names the control, by changing which word names it. The time scale
+    // gave `l` up when the labels arrived and then gave up `t` and itself when
+    // the second scale went; `ages` gave `a` up when the Taxa list needed
+    // *add*, and became **Dates**, which is the better word for this audience
+    // anyway: an age is a duration in ordinary English and a position here.
     expect(matchKey(press("l"))).toBe("labels");
     expect(matchKey(press("d"))).toBe("ages");
     expect(matchKey(press("b"))).toBe("biolum");
+  });
+
+  it("leaves `t` unclaimed now that there is one time scale", () => {
+    // Not reassigned. A reader with the old key in their fingers gets nothing
+    // rather than something else happening to their canvas.
+    expect(matchKey(press("t"))).toBeNull();
   });
 
   it("reads a shifted letter by its shifted character", () => {

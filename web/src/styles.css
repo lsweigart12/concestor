@@ -1194,21 +1194,11 @@ body {
   stroke-width: 1;
 }
 
-/* The axis changes character at t0, and a scale that bends without saying so
-   misleads. One gridline is a cheap price for an honest chart. The label sits
-   above the rule because the pinned hint bar owns the bottom-right corner. */
-.axis-knee {
-  stroke: var(--accent-dim);
-  stroke-dasharray: 2 4;
-  opacity: 0.75;
-}
-
 /* The two fixed edges of the axis: the Big Bang, where it ends, and the
    formation of the Earth, where the geologic band starts and 9,220 Ma of bare
-   axis stops. Solid where the knee is dashed — the knee is a change in the
-   *scale* and these are boundaries of the *domain*, and a reader should not have
-   to work out which of the two they are looking at. All three are recessive;
-   none of them is data. */
+   axis stops. A dashed rule used to stand between them, marking the knee of the
+   symlog scale; that scale is gone and these two are boundaries of the
+   *domain*, which is why they are solid. Both are recessive; neither is data. */
 .axis-origin {
   stroke: var(--hairline-strong);
   opacity: 0.8;
@@ -5611,12 +5601,7 @@ body.biolum .carousel-card:focus-visible {
 }
 
 /*
- * **A choice away from the default is not lit**, and that is a deliberate
- * reversal of the rule the scale switch used to follow on its own down in the
- * axis footer — where it took the accent whenever the axis was logarithmic.
- * That switch wears this anatomy now, so it lives under this rule too even
- * though it is still on the footer; `chrome/TimeScaleToggle.tsx` records what
- * it gave up and why.
+ * **A choice away from the default is not lit.**
  *
  * Every chip used to take the app's accent when it left its default: a tinted
  * row, an accent ring on the well, accent type on the chosen option. Three
@@ -5677,8 +5662,8 @@ body.biolum .carousel-card:focus-visible {
 /*
  * There is no palette button here any more, and no media block hiding a bar.
  *
- * Below 620px the control bar, the canvas-mode panel and the scale switch were
- * all hidden and one round `.palette-fab` stood in for the lot of them. That
+ * Below 620px the control bar and the canvas-mode panel were both hidden and
+ * one round `.palette-fab` stood in for the lot of them. That
  * was a good swap for the layout it was made in and it has nothing left to
  * swap: the bar and the panel are gone at every width, the search pill is the
  * same object collapsed as expanded, and the sidebar it opens is a drawer down

@@ -1,22 +1,22 @@
 import { describe, expect, it } from "vitest";
 import { bandTiling, buildTicks, fmtAge, tickLabel } from "./TimeAxis";
-import { ageFrac, type AxisMode } from "../tree/layout";
+import { ageFrac } from "../tree/layout";
 import type { TimescaleInterval } from "../api";
 
 /**
  * A screen mapping for a given axis, so the tests read positions the way the
  * canvas does: present on the right, deep time to the left.
  */
-function screen(maxAge: number, mode: AxisMode, px = 1000, zoom = 1) {
-  return (age: number) => (px - px * ageFrac(age, maxAge, mode)) * zoom;
+function screen(maxAge: number, px = 1000, zoom = 1) {
+  return (age: number) => (px - px * ageFrac(age, maxAge)) * zoom;
 }
 
 describe("axis ticks", () => {
   it("labels the last 10 Ma, which a fixed tick set could not", () => {
     // The whole human-and-chimp tree lives inside 7 Ma. The axis used to draw
     // one number on it — `0` — because its tick set jumped from 1 to 10.
-    const toX = screen(6.7, "log");
-    const ticks = buildTicks(0, 6.7, "log", toX, 1000);
+    const toX = screen(6.7);
+    const ticks = buildTicks(0, 6.7, toX, 1000);
     expect(ticks.length).toBeGreaterThan(3);
     expect(ticks.filter((t) => t > 1 && t < 10).length).toBeGreaterThan(1);
   });
@@ -24,8 +24,8 @@ describe("axis ticks", () => {
   it("follows the view in rather than emptying out", () => {
     // Zoomed into the Pliocene, every member of the old fixed set was
     // off-screen and the axis rendered nothing at all.
-    const toX = screen(1315, "log", 1000, 8);
-    const ticks = buildTicks(2, 6, "log", toX, 1000);
+    const toX = screen(1315, 1000, 8);
+    const ticks = buildTicks(2, 6, toX, 1000);
     expect(ticks.length).toBeGreaterThan(0);
     for (const t of ticks) {
       expect(t).toBeGreaterThanOrEqual(2);
@@ -33,34 +33,25 @@ describe("axis ticks", () => {
     }
   });
 
-  it("keeps the boundaries a reader recognises over the round numbers", () => {
-    // 66 Ma is the K–Pg and 50 Ma is nothing in particular. On a log axis they
-    // land close enough to collide, and priority is what decides it.
-    const toX = screen(1315, "log");
-    const ticks = buildTicks(0, 1315, "log", toX, 1000);
-    expect(ticks).toContain(66);
-    expect(ticks).toContain(252);
-  });
-
   it("never offers a tick outside the axis", () => {
-    const toX = screen(455, "log");
-    for (const t of buildTicks(0, 455, "log", toX, 1000)) {
+    const toX = screen(455);
+    for (const t of buildTicks(0, 455, toX, 1000)) {
       expect(t).toBeGreaterThanOrEqual(0);
       expect(t).toBeLessThanOrEqual(455);
     }
   });
 
-  it("steps evenly on the linear scale", () => {
-    const toX = screen(1315, "linear");
-    const ticks = buildTicks(0, 1315, "linear", toX, 1000);
+  it("steps evenly, which is the whole ladder now", () => {
+    const toX = screen(1315);
+    const ticks = buildTicks(0, 1315, toX, 1000);
     expect(ticks.length).toBeGreaterThan(4);
     const gaps = ticks.slice(1).map((t, i) => t - ticks[i]!);
     for (const g of gaps) expect(g).toBeCloseTo(gaps[0]!, 6);
   });
 
   it("resolves below 1 Ma when that is all the view holds", () => {
-    const toX = screen(6.7, "linear");
-    const ticks = buildTicks(0, 0.8, "linear", toX, 1000);
+    const toX = screen(6.7);
+    const ticks = buildTicks(0, 0.8, toX, 1000);
     expect(ticks.some((t) => t > 0 && t < 1)).toBe(true);
     // A step of 0.1 must print as "0.3", not as 0.30000000000000004.
     for (const t of ticks) expect(fmtAge(t)).not.toMatch(/000000|999999/);
@@ -69,8 +60,8 @@ describe("axis ticks", () => {
   it("keeps the labels apart, not just their positions", () => {
     // "present" is seven characters where every other tick is one to four, so
     // a flat centre-to-centre gap lets the neighbour print through it.
-    const toX = screen(1315, "log");
-    const ticks = buildTicks(0, 1315, "log", toX, 1000);
+    const toX = screen(1315);
+    const ticks = buildTicks(0, 1315, toX, 1000);
     const boxes = ticks
       .map((t) => {
         const half = (tickLabel(t).length * 6.3) / 2;
@@ -104,21 +95,23 @@ describe("axis ticks", () => {
    */
   it("offers no ticks at all through a projection that is not a number", () => {
     const nan = () => NaN;
-    expect(buildTicks(0, 1315, "log", nan, 1000)).toEqual([]);
-    expect(buildTicks(0, 1315, "linear", nan, 1000)).toEqual([]);
+    expect(buildTicks(0, 1315, nan, 1000)).toEqual([]);
     // The failure it replaces: exactly one survivor, at NaN.
-    expect(buildTicks(0, 96, "linear", nan, 1000)).not.toContain(0);
+    expect(buildTicks(0, 96, nan, 1000)).not.toContain(0);
   });
 
   it("drops only the ticks it cannot place, never the ones it can", () => {
     // A projection finite everywhere but at the present — the guard must be a
     // property of each tick rather than of the axis, or one bad age silences
     // the whole rule.
-    const toX = screen(1315, "log");
+    const toX = screen(1315);
     const holed = (age: number) => (age === 0 ? NaN : toX(age));
-    const ticks = buildTicks(0, 1315, "log", holed, 1000);
+    const ticks = buildTicks(0, 1315, holed, 1000);
     expect(ticks).not.toContain(0);
-    expect(ticks).toContain(66);
+    // Including its immediate neighbour, which is the one a whole-axis guard
+    // would have taken with it.
+    expect(ticks).toContain(200);
+    expect(ticks).toContain(1000);
     expect(ticks.length).toBeGreaterThan(3);
     for (const t of ticks) expect(Number.isFinite(holed(t))).toBe(true);
   });
@@ -160,9 +153,20 @@ const named = (rows: TimescaleInterval[]) => rows.map((r) => r.name);
 
 describe("geologic band tiling", () => {
   const maxAge = 538.8;
-  const toX = screen(maxAge, "log");
-  const widthOf = (i: TimescaleInterval) =>
-    Math.abs(toX(i.begin_ma) - toX(i.end_ma));
+  /**
+   * The band's level of detail is a function of pixels-per-Ma, and on a
+   * proportional axis that is a function of the zoom alone — the strip is the
+   * same density at the Cambrian as at the Pleistocene, which is exactly what
+   * proportional means. So each of these names the zoom it is a claim about.
+   */
+  const bandsAt = (zoom: number) => {
+    const toX = screen(maxAge, 1000, zoom);
+    return bandTiling(ICS, (i) => Math.abs(toX(i.begin_ma) - toX(i.end_ma)));
+  };
+  const widthOf = (i: TimescaleInterval) => {
+    const toX = screen(maxAge);
+    return Math.abs(toX(i.begin_ma) - toX(i.end_ma));
+  };
 
   it("tiles the axis without gaps or overlaps", () => {
     const out = bandTiling(ICS, widthOf).sort(
@@ -176,43 +180,44 @@ describe("geologic band tiling", () => {
   });
 
   it("does not hold the whole axis at one rank for one narrow sibling", () => {
-    // The Paleozoic is a sliver on a log axis next to the Cenozoic. Under the
-    // old single-rank rule that one interval put "Phanerozoic" across the whole
-    // strip; under an all-children-fit rule it does the same.
-    const out = named(bandTiling(ICS, widthOf));
+    // The Cenozoic is a sliver beside the Paleozoic. Under the old single-rank
+    // rule that one interval put "Phanerozoic" across the whole strip; under an
+    // all-children-fit rule it does the same.
+    const out = named(bandsAt(1));
     expect(out).not.toContain("Phanerozoic");
     expect(out).toContain("Paleozoic");
   });
 
-  it("gives the recent end more detail than the deep end", () => {
-    const out = bandTiling(ICS, widthOf);
-    const rankOf = (name: string) => out.find((i) => i.name === name)?.rank;
-    expect(rankOf("Paleozoic")).toBe("Era");
-    expect(rankOf("Neogene")).toBe("Period");
+  it("gives more detail the further in the reader goes", () => {
+    // The Cenozoic is 12% of the Phanerozoic, so at rest it is one Era and its
+    // Periods are slivers. Four times in they carry their own names.
+    const rest = bandsAt(1);
+    expect(named(rest)).toContain("Cenozoic");
+    expect(named(rest)).not.toContain("Neogene");
+    const close = bandsAt(4);
+    expect(close.find((i) => i.name === "Paleozoic")?.rank).toBe("Era");
+    expect(close.find((i) => i.name === "Neogene")?.rank).toBe("Period");
   });
 
   it("splits a band whose one legible child covers it", () => {
-    // The Quaternary's children are a screen-wide Pleistocene and an
-    // 11,700-year Holocene. One of two is not a majority by count, and that
-    // left a 470-pixel Pleistocene unnamed.
-    const out = named(bandTiling(ICS, widthOf));
+    // The Quaternary's children are a wide Pleistocene and an 11,700-year
+    // Holocene. One of two is not a majority by count, and that left a
+    // several-hundred-pixel Pleistocene unnamed.
+    const out = named(bandsAt(24));
     expect(out).toContain("Pleistocene");
     expect(out).not.toContain("Quaternary");
   });
 
   it("keeps a band whose children could not carry their own names", () => {
-    // Splitting the Mesozoic here buys three Periods too narrow to label, so
-    // the reader gets three anonymous slivers instead of one named Era.
-    const out = named(bandTiling(ICS, widthOf));
+    // Zoomed out past the point where the Mesozoic's Periods can be labelled,
+    // splitting it buys three anonymous slivers instead of one named Era.
+    const out = named(bandsAt(0.5));
     expect(out).toContain("Mesozoic");
     expect(out).not.toContain("Jurassic");
   });
 
   it("refines as the view zooms in", () => {
-    const deep = screen(maxAge, "log", 1000, 12);
-    const out = named(
-      bandTiling(ICS, (i) => Math.abs(deep(i.begin_ma) - deep(i.end_ma))),
-    );
+    const out = named(bandsAt(12));
     expect(out).toContain("Jurassic");
     expect(out).toContain("Cretaceous");
   });
@@ -221,7 +226,7 @@ describe("geologic band tiling", () => {
     // The band used to be cut off at the deepest node in the current
     // selection, so it began abruptly and unlabelled wherever that root
     // happened to fall — and moved every time a species was added.
-    const shallow = screen(6.7, "log");
+    const shallow = screen(6.7);
     const out = bandTiling(ICS, (i) =>
       Math.abs(shallow(i.begin_ma) - shallow(i.end_ma)),
     ).sort((a, b) => b.begin_ma - a.begin_ma);

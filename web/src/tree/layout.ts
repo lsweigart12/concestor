@@ -3,7 +3,7 @@
  * engine (no d3-hierarchy / ELK / dagre): they assign `x` by depth, and here `x`
  * is time (architecture §7).
  *
- *   x = symlog(age_layout)      linear below t0 = 1 Ma, logarithmic above
+ *   x = age_layout / maxAge     proportional time, present at the right edge
  *   y = tip lane                assigned by preorder idx
  *
  * Preorder `idx` gives both motion properties for free: sorting leaves by it is
@@ -23,13 +23,12 @@ import {
   type TraceRun,
 } from "./labels";
 
-/** Below this the axis is linear; above it, logarithmic. */
-export const SYMLOG_T0 = 1.0;
-/** Share of the axis given to the linear stretch. */
-const LIN_SHARE = 0.07;
-
-/** Which scale the axis is on. A real change of scale, not a caption. */
-export type AxisMode = "log" | "linear";
+/**
+ * Floor for the axis extent. A tree whose deepest node is at the present would
+ * otherwise divide by zero; one million years is the smallest span worth
+ * drawing a ruler across.
+ */
+const MIN_MAX_AGE = 1.0;
 
 export const ROW_H = 74;
 export const PLOT_W = 1240;
@@ -44,48 +43,19 @@ export const PAD_X = 150;
 const MARK_MIN_SEP = 18;
 
 /**
- * Fraction of the axis for an age, present at 0 and deep time at 1. log(0) is
- * undefined at the present, so there is a linear stretch below `SYMLOG_T0` (the
- * knee gets a visible tick). Not the default scale, but the only one that holds
- * a hominin divergence and the Cambrian at once.
+ * Fraction of the axis for an age: proportional time, present at 0 and the
+ * deepest node at 1. The one mapping — everything drawn against time goes
+ * through it. Unclamped, so it stays invertible off the ends of the plot (the
+ * axis inverts panned x).
  */
-export function symlogFrac(age: number, maxAge: number): number {
-  if (!Number.isFinite(age) || age <= 0) return 0;
-  if (age <= SYMLOG_T0) return (age / SYMLOG_T0) * LIN_SHARE;
-  const span = Math.log10(Math.max(maxAge, SYMLOG_T0 * 10) / SYMLOG_T0);
-  return LIN_SHARE + (1 - LIN_SHARE) * (Math.log10(age / SYMLOG_T0) / span);
-}
-
-/** Inverse of {@link symlogFrac}, for axis ticks and hit-testing. */
-export function fracToAge(frac: number, maxAge: number): number {
-  if (frac <= LIN_SHARE) return (frac / LIN_SHARE) * SYMLOG_T0;
-  const span = Math.log10(Math.max(maxAge, SYMLOG_T0 * 10) / SYMLOG_T0);
-  return SYMLOG_T0 * 10 ** (((frac - LIN_SHARE) / (1 - LIN_SHARE)) * span);
-}
-
-/**
- * Proportional time: deepest node at the far edge, present at 0. Unclamped, so
- * it stays invertible off the ends of the plot (the axis inverts panned x).
- */
-function linearFrac(age: number, maxAge: number): number {
+export function ageFrac(age: number, maxAge: number): number {
   if (!Number.isFinite(age)) return 0;
-  return age / Math.max(maxAge, SYMLOG_T0);
+  return age / Math.max(maxAge, MIN_MAX_AGE);
 }
 
-/** The scale in force, given the mode. Everything drawn against time uses it. */
-export function ageFrac(age: number, maxAge: number, mode: AxisMode): number {
-  return mode === "linear" ? linearFrac(age, maxAge) : symlogFrac(age, maxAge);
-}
-
-/** Inverse of {@link ageFrac}. */
-export function fracToAgeIn(
-  frac: number,
-  maxAge: number,
-  mode: AxisMode,
-): number {
-  return mode === "linear"
-    ? frac * Math.max(maxAge, SYMLOG_T0)
-    : fracToAge(frac, maxAge);
+/** Inverse of {@link ageFrac}, for axis ticks and hit-testing. */
+export function fracToAge(frac: number, maxAge: number): number {
+  return frac * Math.max(maxAge, MIN_MAX_AGE);
 }
 
 export interface Placed {
@@ -149,8 +119,8 @@ export function laneHue(idx: number): number {
  * Row order for grafts sharing a slot: ascending `joinAge`, so `joinX` only
  * decreases down the rows. That makes connector crossings unsatisfiable — no
  * crossings by construction. Ascending `joinAge` rather than `joinX` states it
- * without reference to the scale, so it holds under both axis modes and every
- * zoom. Stable, so the picture stays a function of the URL.
+ * without reference to the scale, so it holds at every zoom. Stable, so the
+ * picture stays a function of the URL.
  */
 export function graftOrder(a: Graft, b: Graft): number {
   return a.joinAge - b.joinAge;
@@ -183,7 +153,6 @@ export function layout(
      */
     baseWidth?: number;
     label?: LabelText;
-    axis?: AxisMode;
     /** Fossils drawn against the tree. See `graft.ts`; empty is the default. */
     grafts?: readonly Graft[];
     /**
@@ -199,7 +168,6 @@ export function layout(
   const rowH = opts.rowHeight ?? ROW_H;
   const plotW = opts.plotWidth ?? PLOT_W;
   const baseW = opts.baseWidth ?? plotW;
-  const mode = opts.axis ?? "log";
   const grafts = opts.grafts ?? [];
   const placed = new Map<number, Placed>();
   if (ind.rendered.length === 0) {
@@ -226,11 +194,11 @@ export function layout(
 
   // The present sits at the right edge and deep time runs left, so an older
   // node is further from the reader's starting point rather than closer.
-  const xAt = (age: number) => PAD_X + plotW * (1 - ageFrac(age, maxAge, mode));
+  const xAt = (age: number) => PAD_X + plotW * (1 - ageFrac(age, maxAge));
   const xOf = (v: number) => xAt(ageOf(v));
   // The same axis at {@link baseWidth}, for the one question that must not be
   // answered from a stretch the answer will be used to compute.
-  const xBaseOf = (v: number) => baseW * (1 - ageFrac(ageOf(v), maxAge, mode));
+  const xBaseOf = (v: number) => baseW * (1 - ageFrac(ageOf(v), maxAge));
 
   // y: one row per rendered leaf in preorder order, internal nodes at the
   // midpoint of their children's extent. Rendered leaves are the selections
@@ -472,13 +440,6 @@ const defaultLabelText: LabelText = (p) => ({
   meta: "",
   hasSilhouette: false,
 });
-
-/**
- * Boundaries a reader may recognise (66 K–Pg, 252 end-Permian, 541 Cambrian),
- * offered ahead of a nearby round number. Not the tick set — the axis generates
- * its ladder from the on-screen range (see `TimeAxis.tsx`).
- */
-export const LANDMARK_TICKS = [66, 252, 541];
 
 /**
  * Orthogonal edge path with a small corner radius. No bezier: curves make
