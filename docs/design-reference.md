@@ -255,14 +255,23 @@ log` as a segmented control — both options always legible, the live one lit. I
   opening — takes the accent at low alpha, so a reader who followed someone
   else's link can see the view was set for them. This is the one place chrome may
   carry the accent for something other than hover or focus.
-- **The fit gives time as much room as the frame has.** A tall selection makes a
-  tree far taller than it is wide, and a transform can only shrink it into a
-  strip down the middle of an empty frame. So the fit re-lays the tree out
-  instead: it solves the plot width whose tree matches the frame's shape
-  (`plotWidthToFill`) and reframes, with a screen-px margin on every side so the
-  outermost labels never sit flush against the window. The plot has hard bounds
-  — `MIN_PLOT_W` for legibility, six designed widths at the far end — and
-  between them the tree, not the zoom, absorbs the difference.
+- **The fit gives time as much room as the frame has, up to roughly square.** A
+  tall selection makes a tree far taller than it is wide, and a transform can
+  only shrink it into a strip down the middle of an empty frame. So the fit
+  re-lays the tree out instead: it solves the plot width whose tree matches the
+  frame's shape (`plotWidthToFill`) and reframes, with a screen-px margin on
+  every side so the outermost labels never sit flush against the window. The
+  plot has hard bounds — `MIN_PLOT_W` for legibility, six designed widths at the
+  far end — and between them the tree, not the zoom, absorbs the difference.
+- **A tree is drawn to a shape, not to a display.** The frame is a letterbox and
+  a large one is a long letterbox, so matching it exactly draws a handful of
+  leaves as lines the width of the desk with two thirds of the canvas empty
+  under them. `MAX_FILL_ASPECT` stops the fill at roughly square: a frame
+  squarer than that is still matched exactly, a wider one gets a tree of that
+  shape, centred, and the surplus stays margin. What a selection looks like is
+  then the reader's business and not their monitor's — the same tree on a laptop
+  and on a 27" is the same drawing, larger. Trees with too few rows to reach it
+  bottom out at `MIN_PLOT_W` and are as square as their own labels allow.
 - **The stretch control sits at the ruler's right end, on the thing it
   rescales.** Two small presses — arrows meeting, arrows parting — that give
   time less or more room than the fit chose. A press redraws the tree at the new

@@ -951,7 +951,13 @@ function Inner(props: GraphProps) {
       maxZoom: MAX_FIT_ZOOM,
     });
     if (fill === null) return null;
-    return clampPlotW(fill * stretchBias) / basePlotW;
+    // Clamped before the bias as well as after, so the reader's presses have a
+    // width to multiply. The fill comes back below `MIN_PLOT_W` whenever the
+    // aspect cap asks for a tree squarer than its own labels allow — a handful
+    // of leaves on a large display — and scaling that by even the largest bias
+    // lands back on the floor, which is a stretch control that looks live and
+    // does nothing.
+    return clampPlotW(clampPlotW(fill) * stretchBias) / basePlotW;
   }, [
     lay,
     vw,
