@@ -74,6 +74,27 @@ a build is found (a skip becomes a failure), and says so in yellow when it is no
 before anything that touches the server or the pipeline. **CI is the floor, not the
 check.**
 
+### The third way a dataset test goes quiet: Go's test cache
+
+A skip is not the only way. **Go's test cache does not key on `build/`** — the arrays are
+mmap'd and the database is opened at runtime, so no compiler input mentions them and a
+pipeline rerun invalidates nothing. `go test` prints `ok (cached)` for a test whose
+subject has been replaced underneath it.
+
+Measured 2026-08-08: a phase 4 rerun moved one node from the `structural` tier to
+`occurrence`, `TestLayoutSpreadCensus` went red, and `scripts/check.sh` reported **"All
+checks passed, dataset included"** in green for the rest of the day on every branch. So
+`check.sh` runs `go test -count=1`. It costs the full suite (~80 s) on every run, which is
+the right trade for the one tool that exists to catch what CI cannot. **CI keeps the
+cache**, and is right to: its runner has no `build/`, so its dataset tests skip and a
+stale entry has nothing to hide.
+
+Anything hard-coding a measured figure about the dataset is exposed to the same drift.
+Those constants are deliberate — the project pins measured numbers rather than trusting
+comments — but a mismatch is a question ("which nodes changed?") before it is a number to
+bump. `bounds_test.go` names the build its census holds for, so the next mismatch says
+which.
+
 ### Running in a git worktree
 
 `scripts/serve.sh` and `scripts/dev.sh` work unchanged in a parallel session's worktree,

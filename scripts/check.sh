@@ -116,7 +116,25 @@ if wants server; then
     out=$(gofmt -l .)
     [ -z "$out" ] || { echo "gofmt would rewrite:"; echo "$out"; exit 1; }'
   gate "server · go vet" go vet -C server ./...
-  gate "server · go test" go test -C server ./...
+  # **`-count=1` is not a preference, it is the whole point of this script.**
+  #
+  # Go's test cache keys on the source, the flags and the environment. It does
+  # not key on `build/` — 3.2 GB of mmap'd arrays and an immutable database
+  # that no compiler input mentions — so a rerun of a pipeline phase changes
+  # every dataset test's subject and invalidates nothing. `go test` then
+  # prints `ok (cached)` for a test that would now fail.
+  #
+  # That is not hypothetical. `TestLayoutSpreadCensus` went red the moment
+  # phase 4 promoted one node's tier, and this script reported "All checks
+  # passed, dataset included" in green over it for the rest of the day, on
+  # every branch, because the cached pass predated the rebuild. A tool whose
+  # entire reason to exist is catching what CI cannot must not be able to say
+  # that — it is the same silent success docs/ci.md §2 is about, one level up.
+  #
+  # The cost is the full suite every time, ~80 s. CI keeps the cache: its
+  # runner has no `build/`, so its dataset tests skip and there is nothing for
+  # a stale entry to hide.
+  gate "server · go test" go test -C server -count=1 ./...
 fi
 
 # --- web dependencies -------------------------------------------------------
