@@ -101,9 +101,10 @@ means a real bug — but check what the gate measures before changing either sid
 Commits carry a [Conventional Commits](https://www.conventionalcommits.org) type
 and nothing else changes. The subject is a sentence in this project's voice —
 `feat: Make the card say what a thing is, and let the reader walk from it` —
-because `subject-case` is off in `commitlint.config.cjs`. Merging to `main` cuts
-a release and the version comes from the type prefix. The type→bump mapping lives
-in `release.config.cjs`'s `releaseRules` — read it there, don't restate it.
+because `subject-case` is off in `commitlint.config.cjs`. Merges accumulate; a
+daily train (or the **Release** button) cuts one release covering all of them,
+and the version comes from the type prefixes it finds. The type→bump mapping
+lives in `release.config.cjs`'s `releaseRules` — read it there, don't restate it.
 
 ## The design docs
 

@@ -1,4 +1,5 @@
-# Cut a release. Fully automatic: nothing here waits for a human.
+# Cut a release. Batched: merges accumulate, the train ships daily, the button
+# ships now.
 #
 # The version is decided by the commits since the last tag, per Conventional
 # Commits; `release.config.cjs`'s `releaseRules` is where the type-to-bump
@@ -7,10 +8,21 @@
 # a pull request whose commits are not. So the release is a consequence of the
 # commit log rather than a decision taken afterwards, which is the only way
 # "100% automated" is honest rather than "automated, given someone remembered".
+# **The cron is what keeps that true**: a train nobody has to remember to
+# catch is still automation, where a button alone would be a habit.
 #
-# It runs on CI succeeding on main, not on push to main. The distinction
-# matters: a release must not be cut from a commit whose tests were never
-# green, and `workflow_run` is the only trigger that can know that.
+# It used to run on CI succeeding on main — one release, and one production
+# deploy, per releasable merge. That is exactly wrong for the way this project
+# is worked: several worktrees produce several pull requests in a sitting, and
+# five merges became five versions and five deploys, four of them pointless,
+# each with notes describing one pull request. Batching is semantic-release's
+# native mode — highest bump wins, the notes cover every commit since the last
+# tag — so the change is entirely in the trigger.
+#
+# What `workflow_run` bought was the guarantee that the released commit's tests
+# were green. The gate below buys it back by asking the API, which is a
+# question that can be asked of any commit at any time rather than only of the
+# one an event just named.
 #
 # What comes out: a git tag, a GitHub Release whose notes are generated from
 # the commits, four assets — two server binaries, the built frontend, and
@@ -29,10 +41,16 @@
 name: Release
 
 on:
-  workflow_run:
-    workflows: [CI]
-    types: [completed]
-    branches: [main]
+  # The train. A day with nothing releasable is a clean no-op: semantic-release
+  # answers "no release", the `released` output stays unset, and the deploy
+  # below does not run. The cadence is a starting point rather than a
+  # conviction — if daily is wrong, this is the one line to change.
+  schedule:
+    - cron: "0 16 * * *" # daily, 16:00 UTC ≈ morning US Pacific
+
+  # The button, for a fix that should not wait for tomorrow. `dry_run` defaults
+  # to true on purpose: a careless click should print, not ship. Releasing is
+  # unchecking the box.
   workflow_dispatch:
     inputs:
       dry_run:
@@ -42,6 +60,10 @@ on:
 
 permissions:
   contents: write
+  # The tip-green gate asks the Actions API which CI run belongs to the commit
+  # it is about to release. Reading another workflow's runs is its own scope,
+  # and without it the gate 404s and every train fails.
+  actions: read
 
 concurrency:
   # No cancel-in-progress. A cancelled release can leave a tag pushed and no
@@ -59,11 +81,6 @@ jobs:
     outputs:
       released: ${{ steps.semantic.outputs.released }}
       tag: ${{ steps.semantic.outputs.tag }}
-    # A failed or cancelled CI run must not reach this. `workflow_run` fires
-    # on completion whatever the conclusion, so the conclusion is the guard.
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      github.event.workflow_run.conclusion == 'success'
     steps:
       - uses: actions/checkout@v7
         with:
@@ -74,21 +91,66 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      # The checkout above takes main's tip, which is almost always the commit
-      # CI just passed on — but not if something landed in the seconds
-      # between. Releasing the tip in that case would ship a commit whose
-      # tests have not finished, so this stops instead. Nothing is lost: the
-      # newer commit has its own CI run, and its success triggers this again.
-      - name: Is main still the commit CI passed?
+      # **A release must not be cut from a commit whose tests were never
+      # green.** No event carries that fact any more, so it is asked for: the
+      # CI run for *this exact sha*, on the push that put it on main.
+      #
+      # The two paths answer a non-green tip differently, and the difference is
+      # the whole reason this is one step rather than a job-level `if:`.
+      #
+      #   - **Cron skips with a notice.** Nobody asked for this run; the next
+      #     train ships whatever `main` has been fixed into by then, and a red
+      #     train every morning until someone notices is noise that teaches
+      #     people to stop reading red.
+      #   - **Dispatch fails.** A human asked for a release and is standing
+      #     there. Being told no is the answer; being silently obliged tomorrow
+      #     is not.
+      #
+      # A tip with *no* CI run at all fails the same way, deliberately. CI runs
+      # on every push to `main`, so its absence means something is broken
+      # upstream of everything below — and "no evidence" must never read as
+      # "green". A run still in flight is the same answer for the same reason:
+      # `conclusion` is null until it finishes.
+      - name: Is main's tip green?
         id: gate
-        if: github.event_name == 'workflow_run'
         env:
-          TESTED: ${{ github.event.workflow_run.head_sha }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IS_CRON: ${{ github.event_name == 'schedule' }}
         run: |
-          head=$(git rev-parse HEAD)
-          if [ "$head" != "$TESTED" ]; then
-            echo "::notice::main moved from ${TESTED} to ${head} while CI was running. Skipping — the newer commit's own CI run will release it."
+          sha=$(git rev-parse HEAD)
+          # `event=push` because CI also runs on pull requests, and a pull
+          # request's run is against its own head — a different commit that
+          # could not be this one, but the filter says so rather than relying
+          # on it. Newest first is the API's default order, so a re-run of CI
+          # is the answer rather than the original attempt.
+          #
+          # `status` and `conclusion` are both read because they fail
+          # differently and the notice has to say which: an absent run, an
+          # unfinished one and a red one are three different mornings.
+          answer=$(gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${sha}&event=push&per_page=1" \
+            -q '"\(.workflow_runs[0].status // "absent") \(.workflow_runs[0].conclusion // "pending")"' \
+            2>/dev/null) || answer="absent pending"
+          status=${answer% *}
+          conclusion=${answer#* }
+
+          if [ "$conclusion" = "success" ]; then
+            echo "main's tip ${sha} has a green CI run."
+            exit 0
+          fi
+
+          case "$status" in
+          absent) why="has no CI run on the push that landed it" ;;
+          completed) why="has a CI run that concluded ${conclusion}" ;;
+          *) why="has a CI run that is still ${status}" ;;
+          esac
+
+          if [ "$IS_CRON" = "true" ]; then
+            echo "::notice::main's tip ${sha} ${why}. Skipping — tomorrow's train ships it once main is green."
             echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::main's tip ${sha} ${why}, so there is nothing safe to release. Fix main and press Release again."
+            exit 1
           fi
 
       - uses: actions/setup-node@v7
@@ -162,7 +224,7 @@ jobs:
   # annotation, and `startup_failure` as the only word about it.
   #
   # Two things make that worth a comment this long. It happens even though this
-  # job is **skipped** on the merge that caused it, because GitHub validates
+  # job is **skipped** on the run that caused it, because GitHub validates
   # every called workflow before it runs any job — so a permission a preview
   # needs took down the release path, which is the one thing in this repository
   # that must not go quiet (§4 of docs/ci.md is the last time it did). And the

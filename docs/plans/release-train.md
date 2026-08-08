@@ -68,61 +68,7 @@ Rejected, and why, so they stay rejected:
 
 ## 3. Phase 1 — the release train
 
-**Change `release.yml`'s triggers.** Delete the `workflow_run` trigger.
-Keep `workflow_dispatch` (its `dry_run` input stays, default stays `true` —
-a careless click should print, not ship; releasing is unchecking the box).
-Add:
-
-```yaml
-schedule:
-  - cron: "0 16 * * *"   # daily, 16:00 UTC ≈ morning US Pacific
-```
-
-A day with nothing releasable is a clean no-op: semantic-release answers "no
-release" and the `released` output gate already keeps the deploy from running.
-The cadence is a starting point, not a conviction — change the one line if
-daily is wrong.
-
-**Replace the "did main move" gate with a "is the tip green" gate.** The old
-gate compared the checkout against `workflow_run`'s tested SHA; that event no
-longer exists. New gate, before anything else runs:
-
-```bash
-sha=$(git rev-parse HEAD)
-conclusion=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$sha&per_page=1" \
-  -q '.workflow_runs[0].conclusion')
-[ "$conclusion" = "success" ] || { skip or fail; }
-```
-
-On the cron path a non-green tip **skips with a notice** (the next train will
-get it); on the dispatch path it **fails loudly** (a human asked and should be
-told no, not silently obliged tomorrow). CI runs on every push to `main`, so a
-tip with no CI run at all is a broken assumption worth a red run on both paths.
-
-Everything else in the job — full-history checkout, the tags-before/after
-witness, the `released`/`tag` outputs, the called deploy and its mirrored
-permissions block — carries over unchanged.
-
-**Rewrite the prose that asserts the old design.** This project's docs are the
-spec; leaving them describing per-merge release would be worse than the code
-change is good. The claims to hunt down:
-
-- `release.yml` header: "Fully automatic: nothing here waits for a human" —
-  now "batched: merges accumulate, the train ships daily, the button ships
-  now". The honesty argument inverts cleanly: the cron is what keeps
-  "automated" true without "given someone remembered".
-- `docs/ci.md` §1 (the chain diagram), §4 (the whole section opener), and the
-  §4 guard bullets (both describe `workflow_run` mechanics).
-- `CLAUDE.md` "Commits and releases": "Merging to `main` cuts a release"
-  becomes "Merges accumulate; a daily train (or the Release button) cuts one
-  release covering all of them".
-- `deploy-web.yml`'s header ("Production deploys on a *release*") stays true
-  and stays put.
-
-**Accepted cost:** a merged fix waits up to a day unless someone presses the
-button, and a red release run now blocks several PRs' worth of work rather
-than one. At this project's scale both are cheap; the button is the escape
-hatch for the first, and the tip-green gate means the second is rare.
+**Landed.** `docs/ci.md` §1 and §4 describe it.
 
 ---
 
