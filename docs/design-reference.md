@@ -163,7 +163,14 @@ timer decides when a mark becomes visible.
   `App.test.tsx` walks `bindings.ts` against the rendered palette so a control
   with no command cannot exist.
 - Palette rows follow Raycast anatomy: icon · title · subtitle · right-aligned
-  accessory metadata.
+  accessory metadata. **The subtitle is a taxon's**, and carries what its title
+  cannot hold — the vernacular that explains the match, the rank, the size of
+  the subtree.
+- **A row's icon is monochrome and takes `currentColor`,** so it goes accent
+  with the row it is on. A glyph where a character is honest at any weight, and
+  drawn where it is not: anything carrying `Emoji_Presentation` renders in
+  colour, at emoji weight, and reads as pasted in beside the rest. `⌛` was that
+  row, and the dates command draws a clock instead.
 - **A species row's icon is its silhouette** — the same one the node will wear
   once it lands. A borrowed image from a kingdom-sized ancestor is suppressed
   (the canvas rule); those rows keep the plain `◦`, as does a row whose
@@ -187,8 +194,10 @@ timer decides when a mark becomes visible.
   own. **One press in five draws from the fossil record instead**, and that pick
   also adds the clade it hangs below when the canvas lacks it; an empty fossil
   roll falls through to a species silently.
-- **A command row is a title and a subtitle and nothing more.** There is no
-  longer sentence behind it: what a row cannot say in a subtitle belongs on the
+- **A command row is one line.** The title says what the press does — which way
+  a toggle goes, what it will be switched to — so a second line could only
+  restate it, and thirteen restatements turn a list of actions into prose to be
+  read rather than scanned. What a row cannot say in its title belongs on the
   card or in the about page, where a reader goes looking for it.
 - Inline keybind hints on every row, from the same table the buttons read.
 - **Every control lives in the sidebar**, in the order a session takes them:

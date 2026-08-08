@@ -2,11 +2,17 @@
  * The command surface. `S` opens the same list filtered to species. Row anatomy
  * follows Raycast: icon · title · subtitle · accessory, with a keybind hint.
  *
- * Vernacular names ride in the subtitle so a row shows why it matched (OTT alone
- * returns nothing for "dog"). Broken taxa are explained rather than silently
- * answered about with a substituted MRCA — see {@link BrokenNote}.
+ * **A command row is one line.** The subtitle is a taxon's, and only a taxon's:
+ * a hit row has facts the title cannot hold — the vernacular that explains why
+ * "dog" matched, the rank, the size of the subtree — while an action's second
+ * line only ever restated its verb. Every command title says what the press
+ * does, so a list of them scans as a list rather than as prose.
+ *
+ * Broken taxa are explained rather than silently answered about with a
+ * substituted MRCA — see {@link BrokenNote}.
  */
 
+import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { beacon } from "../analytics/beacon";
 import {
@@ -27,8 +33,16 @@ import { fuzzy, highlight, litRanges, recordUse, sessionBoost } from "./fuzzy";
 export interface Command {
   id: string;
   title: string;
-  subtitle?: string;
-  icon: string;
+  /**
+   * A glyph or a drawn icon, whichever says the thing more plainly.
+   *
+   * A node rather than a string because the character sets disagree about what
+   * they are for: `⌛` carries `Emoji_Presentation`, so a browser renders it in
+   * colour, at emoji weight, beside twelve monochrome hairline glyphs. Where
+   * Unicode has no honest text-presentation character the icon is drawn — see
+   * `DatesGlyph` in `App.tsx`, which matches the chrome's own glyphs.
+   */
+  icon: ReactNode;
   keys?: string;
   section: string;
   run: () => void;
@@ -797,7 +811,6 @@ function RowView({
         <span className="row-icon">{c.icon}</span>
         <span className="row-body">
           <span className="row-title">{parts(c.title, row.ranges)}</span>
-          {c.subtitle && <span className="row-sub">{c.subtitle}</span>}
         </span>
         <span className="row-accessory">
           {c.keys && <span className="kbd">{c.keys}</span>}
