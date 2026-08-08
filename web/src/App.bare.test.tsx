@@ -27,12 +27,12 @@ describe("fullscreen is offered on both surfaces or on neither", () => {
   it("draws no button where the browser has no fullscreen", async () => {
     await renderApp();
     // The cluster is drawn: this is an absence inside something, not an empty
-    // page. Two survive it — the fit and the isolate — and both are about the
-    // view rather than about the browser.
+    // page. The fit survives it, because it is about the view rather than about
+    // the browser.
     const view = [...document.querySelectorAll(".viewport-btn")].map((n) =>
       n.getAttribute("aria-label"),
     );
-    expect(view.length).toBeGreaterThan(1);
+    expect(view).toContain("Fit");
     expect(view).not.toContain("Fullscreen");
   });
 

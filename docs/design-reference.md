@@ -112,11 +112,10 @@ reader who asked for no motion is better served by the answer.
 ### Taxa queue, and draw one at a time
 
 **A taxon may be asked for at any moment; it is drawn when the canvas is free.**
-Adds go into a queue — an opening's remaining taxa, a press of `R`, a palette
-row, **a fossil**, all the same queue — and the head is released when its lineage
-has arrived _and_ the previous draw has landed. Holding `R` down therefore draws
-every species it rolls, in turn, instead of each press cutting the last animation
-off at the knees.
+Adds go into a queue — a press of `R`, a palette row, **a fossil**, all the same
+queue — and the head is released when its lineage has arrived _and_ the previous
+draw has landed. Holding `R` down therefore draws every species it rolls, in
+turn, instead of each press cutting the last animation off at the knees.
 
 **A fossil is a taxon here.** It waits its turn, it draws itself on, and its mark
 blooms where the line arrives, exactly as a species does — the only differences
@@ -127,14 +126,13 @@ cause of a real rendering bug.
 
 **Nothing outside the canvas knows how long a draw takes.** The canvas reports
 each one as it lands and the queue follows; there is no step interval to keep
-equal to the draw's own constants. That is what the pacing above replaces — a
-`STEP_MS` floor that had to be kept in step with three numbers in another file
-by hand, and was wrong the moment any of them moved.
+equal to the draw's own constants.
 
-An opening therefore needs no clock of its own. It presses the first taxon,
-queues the rest, and watches for the queue to drain before it pays its answer.
-Any interaction ends it at the _finished_ tree: the reader interrupted the
-telling, not the argument.
+**An opening is one press and draws in one go.** Its whole set enters the view
+together and the tree draws itself on exactly as a shared link does — the reach
+out of the root, wave after wave, which is the drawing this app is for. The
+answer goes up with it: the finished shape is the argument, and nothing is
+withheld to narrate it.
 
 Implementation: React Flow edges are SVG paths — use `getTotalLength()` with
 `stroke-dasharray` / `stroke-dashoffset`. Decay is a separate opacity or filter
@@ -148,11 +146,11 @@ timer decides when a mark becomes visible.
 
 - **Every binding is a bare letter, and nothing holds a modifier**, with `/` the
   one exception. `/` opens search, `S` toggles the sidebar, `A` adds a taxon, `F`
-  fits (`⇧F` fit selection), `I` isolates, `N` steps to next species (`⇧N`
-  previous), `L` cycles labels, `D` flips dates, `B` the light, `R` adds a
-  random species, `C` clears, `E` fills the screen. The three canvas modes hold
-  the letters that name them. `T` is unclaimed — it switched the time scale, and
-  nothing took it when the second scale went. Shift is the _variant_ of a
+  fits (`⇧F` fit selection), `N` steps to next species (`⇧N` previous), `L`
+  cycles labels, `D` flips dates, `B` the light, `R` adds a random species, `C`
+  clears, `E` fills the screen. The three canvas modes hold the letters that
+  name them. `T` is unclaimed — it switched the time scale, and nothing took it
+  when the second scale went. Shift is the _variant_ of a
   binding, never a second one. `web/src/chrome/bindings.ts` is the one table;
   `matchKey` refuses any press holding ctrl, meta or alt.
 - **`/` opens search**, matching what `/` does everywhere else. It is the root of
@@ -210,8 +208,8 @@ timer decides when a mark becomes visible.
   says the whole name; clicking one does what clicking its mark does. The add
   row is at the top and is a row.
 - **Two clusters stay on the canvas corners.** Top left, the panel's switch (it
-  rides the panel's edge and stays put when the panel goes). Top right, fit,
-  isolate and fullscreen — the controls that act on the viewport. The top-right
+  rides the panel's edge and stays put when the panel goes). Top right, fit and
+  fullscreen — the controls that act on the viewport. The top-right
   cluster fades after four still seconds; the panel's switch does not.
 - **`step` has no button; it keeps its key (`N`) and its palette row**, since the
   panel now draws every mark as a row.
@@ -375,7 +373,7 @@ between painted things belongs to whatever is drawn underneath it.
   ages switch separately from the words. The **rank** does not switch — it is what
   says a derived name is derived, and a control whose only honest setting is on
   is not a control.
-- `F` fit all · `⇧F` fit selection · `I` isolate path to root.
+- `F` fit all · `⇧F` fit selection.
 
 ## What a label says
 
@@ -579,10 +577,10 @@ flashing over facts the app already holds.
 ## State
 
 - **The tree is URL-encoded; how you are reading it is not.** Any tree is a
-  shareable link — the selection, isolate and drill all ride in it. The
+  shareable link — the selection and drill both ride in it. The
   labels, ages and light are `sessionStorage`, per-tab, because a setting that is
   a claim about the reader may not travel in a link.
-- Full keyboard operation: search, add, remove, clear, fit, isolate and step
+- Full keyboard operation: search, add, remove, clear, fit and step
   through selection are all bound.
 
 ## The tab

@@ -46,9 +46,10 @@ export interface Opening {
    */
   reveal: string;
   /**
-   * The selection, in running order: the pair that makes the point first, the
-   * taxon that loses the argument last, rulers after. `state/sequence.ts` draws
-   * them one at a time in this order, so reordering changes what the canvas says.
+   * The selection, in reading order: the pair that makes the point first, the
+   * taxon that loses the argument last, rulers after. The whole set is drawn in
+   * one press, so this is the order of the silhouettes in the preview and of
+   * the rows in the Taxa list — not of anything the canvas animates.
    */
   taxa: readonly OpeningTaxon[];
 }

@@ -61,7 +61,6 @@ import { FULLSCREEN_AVAILABLE, useFullscreen } from "./chrome/fullscreen";
 import { useIdle } from "./chrome/idle";
 import { useWindowKeys } from "./chrome/keys";
 import { useToasts } from "./chrome/toasts";
-import { prefersReduced } from "./chrome/motion";
 import { goAbout } from "./route";
 import { NextOpening } from "./chrome/NextOpening";
 import { resetUsage } from "./palette/fuzzy";
@@ -359,15 +358,6 @@ export default function App() {
   );
 
   /**
-   * The opening whose answer is still owed, held until its tree is finished.
-   *
-   * A ref because nothing renders from it and setting it must not cost a
-   * render: it is written on the press and read once, on the frame the
-   * sequence ends.
-   */
-  const owedReveal = useRef<Opening | null>(null);
-
-  /**
    * The two beats after an opening finishes, or null.
    *
    * One piece of state for the pinned answer, the flyout and the tipped
@@ -391,38 +381,20 @@ export default function App() {
   const settle = useCallback(() => setAfterglow(null), []);
 
   /**
-   * Draw an opening. Both surfaces close on the press and the toast names the
-   * claim, not the taxa. Drawn all at once, the reveal goes up with the tree;
-   * drawn in sequence, the question goes up and the answer is held until the
-   * last taxon lands, so the canvas states the claim first.
+   * Draw an opening. Both surfaces close on the press, the whole set is drawn
+   * at once — the tree draws itself on as it does on a cold load, which is the
+   * drawing worth watching — and the reveal goes up with it.
    */
   const openOpening = useCallback(
     (o: Opening) => {
       setPaletteOpen(false);
-      // Whatever the last opening left on screen goes with the press, including
-      // a flyout offering this very question.
-      setAfterglow(null);
-      if (tree.openSequenced(keysOf(o), prefersReduced())) {
-        owedReveal.current = o;
-        toast(o.question);
-        return;
-      }
+      tree.open(keysOf(o));
+      // Replaces whatever the last opening left on screen, including a flyout
+      // offering this very question.
       setAfterglow({ at: "reveal", opening: o });
     },
-    [tree, toast],
+    [tree],
   );
-
-  // The sequence has ended: pay the answer. The falling edge, not a completion
-  // callback, so an interrupted sequence (which still finished the tree) is paid too.
-  const wasSequencing = useRef(false);
-  useEffect(() => {
-    if (wasSequencing.current && !tree.sequencing) {
-      const o = owedReveal.current;
-      owedReveal.current = null;
-      if (o) setAfterglow({ at: "reveal", opening: o });
-    }
-    wasSequencing.current = tree.sequencing;
-  }, [tree.sequencing]);
 
   // Done reading the answer, so offer another question. The answer is pinned,
   // not timed — it is the only place the reply to the reader's question is
@@ -441,26 +413,6 @@ export default function App() {
   // opening gets its own clock.
   const tipDue = usePending(afterglow !== null, TIP_DELAY_MS);
   const tipShown = afterglow !== null && (tipDue || afterglow.at === "next");
-
-  /**
-   * Any interaction ends the sequence at the finished tree. Capture phase on
-   * `window`, so it runs before the press's own handler and is never swallowed.
-   * Three events: a key, a pointerdown anywhere, and a wheel (the canvas pan/zoom
-   * that reaches no handler of ours).
-   */
-  useEffect(() => {
-    if (!tree.sequencing) return;
-    const cut = () => tree.cutSequence();
-    const opts = { capture: true } as const;
-    window.addEventListener("keydown", cut, opts);
-    window.addEventListener("pointerdown", cut, opts);
-    window.addEventListener("wheel", cut, { capture: true, passive: true });
-    return () => {
-      window.removeEventListener("keydown", cut, opts);
-      window.removeEventListener("pointerdown", cut, opts);
-      window.removeEventListener("wheel", cut, opts);
-    };
-  }, [tree.sequencing, tree.cutSequence]);
 
   const share = useCallback(() => {
     const url = window.location.href;
@@ -784,9 +736,9 @@ export default function App() {
         // **Not "all view state lives in the URL"**, which is what this said
         // and which the bioluminescence row four entries above already
         // contradicted: *a tree you share arrives unlit, however you are
-        // reading it.* `store.ts` puts the tree, the axis, the selection, the
-        // isolate and the drill in the link and holds the light, the labels
-        // and the ages in `sessionStorage` on purpose — a setting that is a
+        // reading it.* `store.ts` puts the tree, the axis, the selection and
+        // the drill in the link and holds the light, the labels and the ages
+        // in `sessionStorage` on purpose — a setting that is a
         // claim about the **reader** may not ride in a link, and one made with
         // the labels off would open on a canvas of unnamed dots.
         //
@@ -916,31 +868,17 @@ export default function App() {
 
     if (focusedNode) {
       const nm = focusedNode.name ?? focusedNode.key;
-      base.unshift(
-        {
-          id: "ctx-isolate",
-          title: `Isolate the path to ${nm}`,
-          subtitle: "Dim every other lineage",
-          icon: "◎",
-          keys: kbd("isolate"),
-          section: "This node",
-          run: () => {
-            tree.toggleIsolate();
-            setPaletteOpen(false);
-          },
+      base.unshift({
+        id: "ctx-fit",
+        title: `Fit to ${nm}`,
+        icon: "⊹",
+        keys: kbd("fit-selection"),
+        section: "This node",
+        run: () => {
+          setFitSignal({ kind: "selection", token: Date.now() });
+          setPaletteOpen(false);
         },
-        {
-          id: "ctx-fit",
-          title: `Fit to ${nm}`,
-          icon: "⊹",
-          keys: kbd("fit-selection"),
-          section: "This node",
-          run: () => {
-            setFitSignal({ kind: "selection", token: Date.now() });
-            setPaletteOpen(false);
-          },
-        },
-      );
+      });
       // The branch *above* the focused node is the segment it arrived on, and
       // it is the only one a single node identifies unambiguously. The induced
       // root has none, which is why this is conditional rather than disabled.
@@ -1129,9 +1067,6 @@ export default function App() {
             token: Date.now(),
           });
           break;
-        case "isolate":
-          tree.toggleIsolate();
-          break;
         case "step":
           stepSelection(false);
           break;
@@ -1210,7 +1145,7 @@ export default function App() {
   useWindowKeys(onKey);
 
   /**
-   * The three that act on the view (how much you see) rather than the tree, top
+   * The two that act on the view (how much you see) rather than the tree, top
    * right. Disabled rather than hidden, so the cluster does not reshuffle under a
    * reader's reach — except fullscreen on a browser without it, which is absent
    * (see `chrome/CanvasChrome.tsx`).
@@ -1227,18 +1162,6 @@ export default function App() {
             ? { disabledBecause: "The whole tree is already framed" }
             : {}),
       },
-      {
-        id: "isolate",
-        glyph: "◎",
-        run: () => tree.toggleIsolate(),
-        active: tree.view.isolate,
-        ...(focusedIdx === null
-          ? {
-              disabledBecause:
-                "Select a taxon first — isolate dims everything off its path",
-            }
-          : {}),
-      },
     ];
     if (FULLSCREEN_AVAILABLE) {
       out.push({
@@ -1249,7 +1172,7 @@ export default function App() {
       });
     }
     return out;
-  }, [tree, empty, viewFit, focusedIdx, fullscreen]);
+  }, [empty, viewFit, fullscreen]);
 
   // The Taxa list's rows: `induced.leaves` (what the canvas draws), not
   // `view.keys`, so the panel and canvas cannot disagree about what is on screen.
@@ -1358,7 +1281,6 @@ export default function App() {
             const n = tree.nodes.get(idx);
             tree.select(n ? n.key : null);
           }}
-          isolate={tree.view.isolate}
           labels={tree.labels}
           ages={tree.ages}
           intervals={timescale}

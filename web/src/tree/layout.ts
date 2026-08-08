@@ -157,10 +157,11 @@ export function layout(
     grafts?: readonly Graft[];
     /**
      * Hold the axis out to at least this age, whatever is on the canvas. For a
-     * sequenced opening (`state/sequence.ts`): the scale is recomputed between
-     * steps rather than tweened, so pinning it to the sequence's final extent
-     * from the first frame avoids four hard rescales in five seconds, and the
-     * viewport's own fit does the pullback. A floor, never a ceiling (`Math.max`).
+     * draining draw queue (`state/queue.ts`): the scale is recomputed between
+     * arrivals rather than tweened, so pinning it to the queue's final extent
+     * from the first frame avoids a hard rescale per taxon — a reader holding
+     * `R` down is the case that shows it — and the viewport's own fit does the
+     * pullback. A floor, never a ceiling (`Math.max`).
      */
     holdMaxAge?: number | null;
   } = {},

@@ -224,7 +224,7 @@ track under the pointer, but not the carousel's accent — one lit mark per canv
   closes it) and the collapsed search/switch cluster. It rides `--chrome-left`
   and does **not** fade, because a control that puts the whole panel back must be
   findable.
-- **Top right:** fit, isolate, fullscreen — none changes the tree, they change
+- **Top right:** fit, fullscreen — neither changes the tree, they change
   your view of it. They fade after four still seconds.
 - **`step`** did not come to the canvas — the panel now draws every mark as a row
   you cannot miss. It keeps its key and its palette row.
@@ -238,8 +238,8 @@ track under the pointer, but not the carousel's accent — one lit mark per canv
 | `/` | search (what `/` does everywhere) |
 | `S` | sidebar |
 | `A` | add taxon |
-| `I` | isolate |
 | `D` | dates (the store, URL and gates still say `ages`) |
+| `I` | *unbound* — isolate is gone; clicking a mark already dims what is off its path |
 | `P` | *unbound* — two keys for one action is one printed on nothing |
 
 `bindings.test.ts` holds the badge/label census at one exception (Fullscreen on

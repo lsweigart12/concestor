@@ -297,9 +297,9 @@ describe("every control the bar draws has a command behind it", () => {
     await renderApp();
     await drawOpening();
     await dismissAnswer();
-    // With a leaf selected, because three of these rows are contextual — the
-    // isolate, the fit-to and the remove all belong to a chosen node, and a
-    // reader on a phone reaches them the same way, by tapping a mark first.
+    // With a leaf selected, because two of these rows are contextual — the
+    // fit-to and the remove both belong to a chosen node, and a reader on a
+    // phone reaches them the same way, by tapping a mark first.
     await selectLeaf();
     await openPalette();
     const printed = new Set(
