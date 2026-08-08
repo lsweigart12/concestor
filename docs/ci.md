@@ -97,15 +97,59 @@ which.
 
 ### Running in a git worktree
 
-`scripts/serve.sh` and `scripts/dev.sh` work unchanged in a parallel session's worktree,
-which has the source but neither `build/` nor `snapshot/`; they borrow both read-only from
-the main checkout. **`go test` does not borrow.** `testenv.BuildDir` walks six parents for
-`build/concestor.db`, and from `<worktree>/server/internal/store` that stops one level
-short — so **most of the Go suite silently skips and still prints `ok`.** Run
-`scripts/check.sh`, which symlinks `build` into the worktree root (it is gitignored) and
-sets `CONCESTOR_REQUIRE_BUILD=1` so a skip becomes a failure. Borrowed paths are pipeline
-output nobody edits; `web/` always belongs to the worktree, and nothing may hardcode a
+A parallel session's worktree has the source and neither `build/` (3.2 GB) nor `snapshot/`
+(1.7 GB). `scripts/serve.sh`, `scripts/dev.sh` and `scripts/check.sh` arrange both before
+they do anything else, through `concestor_borrow_build` and `concestor_link_snapshot` in
+`scripts/lib/paths.sh`. `web/` always belongs to the worktree, and nothing may hardcode a
 port.
+
+**`go test` does not borrow.** `testenv.BuildDir` walks six parents for
+`build/concestor.db`, and from `<worktree>/server/internal/store` that stops one level
+short — so **most of the Go suite silently skips and still prints `ok`.** There has to be
+a `build/` at the worktree root. `scripts/check.sh` puts one there and sets
+`CONCESTOR_REQUIRE_BUILD=1` so a skip becomes a failure; with it, the worktree runs the
+same 158/158 the main checkout does.
+
+**`build/` is cloned, `snapshot/` is linked, and the asymmetry is the point.**
+
+- `build/` is a **copy-on-write clone**, `cp -Rc`. Measured on this repository: **0.38 s
+  and 2.2 MB of free space for 3.2 GB.** Blocks are shared until something writes, so a
+  worktree that rebuilds one phase pays only for that phase's output. It gets a `build/`
+  it genuinely owns — it can run the pipeline on top of the borrowed artifacts without
+  reaching into another checkout.
+- `snapshot/` is **symlinked, per entry**, minus the tracked `manifest.json`. Nothing
+  rewrites a file in there — `provenance.py` downloads to a part file and renames, and a
+  phase that fetches more only adds — so sharing it is not a hazard but the goal: a
+  private copy would re-crawl bytes already on the disk, against APIs
+  [data-sources.md](data-sources.md) records as having no rate limiting.
+
+This used to be a single symlink for `build/` too, and that was a live hazard rather than
+a theoretical one. **Every pipeline phase writes its arrays in place** — `np.save(TOPO_OUT
+/ "age_ma.npy", …)`, no temp file, no rename — so `concestor-build dates` in a worktree
+rewrote the *main checkout's* artifacts, under whatever servers had them mmap'd and under
+every other worktree pointing at the same directory. Nothing in a phase can see which
+shape it was handed. 26 of 28 worktrees on the development machine were in that state when
+this was written.
+
+So `paths.check_build_writable` **refuses to start a phase** when `build/` is a symlink,
+naming the checkout it reaches into and how to get a private copy. That refusal is also
+the fallback's safety net: on a filesystem without copy-on-write the borrow degrades to
+the old symlink rather than making a 3.2 GB copy per session, and such a machine can serve
+and test the shared dataset but not rebuild it from a worktree.
+`CONCESTOR_ALLOW_SHARED_BUILD=1` overrides, for the one honest case — deliberately
+rebuilding the shared artifacts with nothing running against them.
+
+A clone carries a `build/.borrowed` stamp naming its source checkout and the `build_id` it
+held. When that checkout later rebuilds, the entry scripts say so — **an observation, not
+a failure**, the same posture as the `web/wrangler.jsonc` pin check in §2, and for the
+same reason: an older dataset may be exactly what you are working against. `rm -rf build`
+takes the newer one on the next run. The stamp is a dotfile, and every consumer of
+`build/` enumerates by explicit glob (`*_gates.json`, `topology/*.npy`, `store.go`'s
+list), so it reaches neither the manifest nor the image.
+
+One thing the clone cannot do is notice that it was taken mid-rebuild. Cloning while the
+main checkout is part-way through a phase copies a torn artifact set, and no gate here
+will say so — rebuild in one place at a time.
 
 ---
 

@@ -90,6 +90,15 @@ def main(argv: list[str] | None = None) -> int:
 
     args = p.parse_args(argv)
 
+    # Before any phase is imported, because the answer is a property of the
+    # checkout rather than of the work: in a git worktree `build/` may be a
+    # symlink into the main checkout, and every phase below writes in place.
+    # `paths.check_build_writable` says what that would do and how to fix it.
+    from . import paths
+
+    if not paths.check_build_writable():
+        return 1
+
     match args.phase:
         case "snapshot":
             from . import snapshot

@@ -55,20 +55,28 @@ gate() {
 wants() { [ -z "$ONLY" ] || [ "$ONLY" = "$1" ]; }
 
 # --- the dataset ------------------------------------------------------------
-# Resolved through the same borrowing rules as serve.sh, so this works in a
-# worktree. The symlink is the missing half: `testenv.BuildDir` walks six
-# parents from server/internal/store, which from a worktree stops one level
-# short of the main checkout, so borrowing alone is not enough — Go has to
-# find a build/ at *this* root. It is gitignored, so leaving it costs nothing
-# and makes every later `go test` in this worktree honest too.
+# A worktree has no build/ of its own, and borrowing one by resolution alone is
+# not enough for Go: `testenv.BuildDir` walks six parents from
+# server/internal/store, which from a worktree stops one level short of the
+# main checkout. There has to be a build/ at *this* root or most of the suite
+# skips itself and still prints `ok`.
+#
+# `concestor_borrow_build` is what puts one there, and it clones rather than
+# symlinks — see scripts/lib/paths.sh for why that distinction is the whole
+# fix. It runs before resolution, so what gets resolved below is this
+# checkout's own directory. It is gitignored either way, so leaving it costs
+# nothing and makes every later `go test` in this worktree honest too.
 export CONCESTOR_REQUIRE_BUILD=""
+if [ "$WANT_DATASET" = 1 ]; then
+  concestor_borrow_build
+  concestor_link_snapshot
+fi
 if [ "$WANT_DATASET" = 1 ] && concestor_resolve_artifacts; then
-  if [ -n "$CONCESTOR_BORROWED_FROM" ] && [ ! -e "$ROOT/build" ]; then
-    ln -s "$CONCESTOR_BUILD" "$ROOT/build"
-    echo "Linked build/ -> $CONCESTOR_BUILD (borrowed, gitignored)" >&2
-  fi
   export CONCESTOR_REQUIRE_BUILD=1
   echo "Dataset tests: required, against $CONCESTOR_BUILD" >&2
+  if [ -n "${CONCESTOR_BORROW_NOTE:-}" ]; then
+    echo "  $CONCESTOR_BORROW_NOTE" >&2
+  fi
 
   # **Observe, not require.** web/wrangler.jsonc pins the dataset production
   # serves, and this checkout's build/ is whatever the pipeline last produced
