@@ -1284,6 +1284,10 @@ export default function App() {
           grafts={grafts}
           holdMaxAge={tree.holdMaxAge}
           biolum={tree.biolum}
+          wheel={tree.wheel}
+          // Only while the chip has not spoken: absence of the callback is
+          // what tells the canvas to stop classifying wheel events at all.
+          {...(tree.wheelPinned ? {} : { onWheelSample: tree.observeWheel })}
           // A lane row selects, exactly as a mark on the canvas does. Same
           // `sel=` in the URL, same card slot — see `focusedTaxonNo`. The lane
           // itself is untouched: `drill` is separate state, so the row stays
@@ -1663,6 +1667,8 @@ export default function App() {
         onBiolum={(v) => {
           if (v !== tree.biolum) tree.toggleBiolum();
         }}
+        wheel={tree.wheel}
+        onWheel={tree.setWheel}
         onShare={share}
         onAbout={goAbout}
       />

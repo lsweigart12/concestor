@@ -69,6 +69,7 @@ import {
 } from "./viewport";
 import type { AddDelta, Induced } from "../tree/induced";
 import { isGraftIdx, type Graft } from "../tree/graft";
+import { makeWheelClassifier, type WheelMode } from "./wheel";
 import {
   divergenceFor,
   markName,
@@ -268,6 +269,17 @@ export interface GraphProps {
    * the point, for what it is not allowed to do.
    */
   biolum: boolean;
+  /**
+   * What a plain scroll does: pan (the trackpad convention) or zoom (the mouse
+   * one). `canvas/wheel.ts` is the argument; the sidebar chip is the switch.
+   */
+  wheel: WheelMode;
+  /**
+   * The classifier's verdict on a wheel event, when it has one that differs
+   * from the current mode. Left unwired once the chip has pinned a mode —
+   * absence is what tells this component to stop classifying.
+   */
+  onWheelSample?: (m: WheelMode) => void;
 }
 
 function Inner(props: GraphProps) {
@@ -291,6 +303,8 @@ function Inner(props: GraphProps) {
     grafts,
     holdMaxAge = null,
     biolum,
+    wheel,
+    onWheelSample,
   } = props;
 
   const rf = useReactFlow();
@@ -312,6 +326,23 @@ function Inner(props: GraphProps) {
    * run during render, and a `useRef` further down is in its dead zone.
    */
   const fitUntil = useRef(0);
+  /**
+   * One classifier for this canvas's wheel stream (it keeps the previous
+   * event's timestamp — see `wheel.ts`). It observes on the wrapper in the
+   * capture phase, before React Flow's own wheel handling, and never swallows
+   * the event: the one wheel tick that arrives under the old mode acts under
+   * the old mode, and the next one behaves. That single soft tick is the whole
+   * cost of guessing, and cheaper than eating an event React Flow expected.
+   */
+  const classifyWheel = useMemo(() => makeWheelClassifier(), []);
+  const onWheelCapture = useCallback(
+    (e: React.WheelEvent) => {
+      if (!onWheelSample) return;
+      const m = classifyWheel(e, e.timeStamp);
+      if (m !== null && m !== wheel) onWheelSample(m);
+    },
+    [classifyWheel, onWheelSample, wheel],
+  );
   const zoom = useStore((s) => s.transform[2]);
   const tx = useStore((s) => s.transform[0]);
   const ty = useStore((s) => s.transform[1]);
@@ -1418,6 +1449,7 @@ function Inner(props: GraphProps) {
     <div
       ref={canvasRef}
       className={`canvas${bloomOff ? " bloom-off" : ""}${biolum ? " biolum" : ""}`}
+      onWheelCapture={onWheelCapture}
       style={
         {
           "--icon-scale": iconScale,
@@ -1470,7 +1502,15 @@ function Inner(props: GraphProps) {
         nodesDraggable={false}
         nodesConnectable={false}
         elementsSelectable
-        panOnScroll
+        /*
+          The wheel, by device. A trackpad scroll pans (pinch, delivered as a
+          ctrl+wheel, still zooms via zoomOnPinch); a mouse wheel zooms, the
+          maps convention, because a mouse pans by dragging and a wheel spent
+          on vertical-only pan duplicates the drag. Which device is `wheel`'s
+          business — the classifier above, unless the sidebar chip has spoken.
+        */
+        panOnScroll={wheel === "pan"}
+        zoomOnScroll={wheel === "zoom"}
         selectionOnDrag={false}
         proOptions={{ hideAttribution: true }}
         minZoom={0.12}

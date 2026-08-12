@@ -93,24 +93,27 @@ describe("one expression decides that nothing is drawn", () => {
  * one of them keeps its command.
  */
 describe("the canvas modes are one set in one place", () => {
-  it("draws all three, in the order the reader meets them", async () => {
+  it("draws all four, in the order the reader meets them", async () => {
     await renderApp();
     await drawOpening();
+    // Scroll last, because it is the odd one out: the three before it change
+    // how the canvas is drawn, it changes how the canvas answers the hand.
     expect(chips().map((c) => c.getAttribute("aria-label"))).toEqual([
       "Labels",
       "Dates",
       "Bioluminescence",
+      "Scroll",
     ]);
   });
 
   /**
-   * And the empty canvas draws exactly the same three. The panel is not a
+   * And the empty canvas draws exactly the same four. The panel is not a
    * canvas-side decoration any more, so there is no collision to dodge and no
    * reason for a control to appear halfway through a session.
    */
-  it("draws the same three over an empty canvas", async () => {
+  it("draws the same four over an empty canvas", async () => {
     await renderApp();
-    expect(chips()).toHaveLength(3);
+    expect(chips()).toHaveLength(4);
   });
 
   /**
