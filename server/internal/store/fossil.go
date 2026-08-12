@@ -454,6 +454,14 @@ func notInTree(f *FossilSchema) string {
 // so the two corpora can be merged. `notability` survives as the order within a
 // band.
 func (s *Store) SearchFossils(ctx context.Context, q string, limit int) ([]Fossil, error) {
+	return s.SearchFossilsIn(ctx, q, limit, nil)
+}
+
+// SearchFossilsIn is SearchFossils inside one clade, or everywhere when scope
+// is nil. A fossil's position is its attachment point, so the scope is a fence
+// on attach_idx: the fossils offered "inside Homo" are the ones that hang off
+// a branch inside Homo.
+func (s *Store) SearchFossilsIn(ctx context.Context, q string, limit int, scope *Scope) ([]Fossil, error) {
 	f := s.Schema.Fossil
 	if f == nil || f.TaxonNo == "" {
 		return []Fossil{}, nil
@@ -497,6 +505,13 @@ func (s *Store) SearchFossils(ctx context.Context, q string, limit int) ([]Fossi
 	} else {
 		where = fmt.Sprintf("%s LIKE ? ESCAPE '\\'", name)
 		args = append(args, "%"+esc+"%")
+	}
+	// Before the ORDER BY pair below, because placeholders bind in the order
+	// they appear in the *text* — the comment above the first append is the
+	// scar tissue.
+	if fence, fenceArgs := scope.sql("t." + quote(f.AttachIdx)); fence != "" {
+		where += fence
+		args = append(args, fenceArgs...)
 	}
 	args = append(args, lower, esc+"%")
 

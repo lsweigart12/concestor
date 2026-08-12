@@ -1750,6 +1750,19 @@ body {
   white-space: nowrap;
 }
 
+/* The step-into-a-group affordance: a keycap that is also a button, because
+   hover is what reveals it and a pointer that revealed it should be able to
+   press it. It inherits .kbd's face; this only undoes button chrome. */
+.row-drill {
+  cursor: pointer;
+  font-family: var(--mono);
+}
+
+.row-drill:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
 .palette-empty {
   padding: var(--s5) var(--s4);
   color: var(--ink-3);
@@ -3653,6 +3666,28 @@ body {
 /* Over the image the watermark is already a chip; the underline would double it. */
 .detail .detail-watermark .taxon-link {
   border-bottom: 0;
+}
+
+/* The door from a fact to the drill-down: "species below 340 · browse".
+   Dressed as the card's links are, so it reads as somewhere to go rather
+   than as a second add button. */
+.detail .fact-browse {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--ink-3);
+  cursor: pointer;
+  margin-left: var(--s2);
+  border-bottom: 1px dotted var(--hairline-strong);
+  transition:
+    color 90ms linear,
+    border-color 90ms linear;
+}
+.detail .fact-browse:hover,
+.detail .fact-browse:focus-visible {
+  color: var(--accent);
+  border-bottom-color: var(--accent-dim);
 }
 
 /* --- add / remove --- */

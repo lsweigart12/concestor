@@ -304,7 +304,7 @@ func TestHotNameCacheAgreesWithTheIndexScan(t *testing.T) {
 		}
 		// And the largest of them must be the largest overall, which is the
 		// property that lets the cache skip the scan entirely.
-		scan, err := st.topByTipCount(t.Context(), strings.ToUpper(q[:1])+q[1:], 1)
+		scan, err := st.topByTipCount(t.Context(), strings.ToUpper(q[:1])+q[1:], 1, nil)
 		if err != nil {
 			t.Fatal(err)
 		}

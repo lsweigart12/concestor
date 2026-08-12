@@ -847,8 +847,9 @@ export const api = {
   /**
    * The one endpoint whose URL the reader writes, so its answers live in the
    * bounded memo ({@link SEARCH_MEMO_LIMIT}). `signal` is the palette's.
+   * `under` fences both catalogues to one clade — the drill-down's search.
    */
-  search: (q: string, limit = 20, signal?: AbortSignal) =>
+  search: (q: string, limit = 20, signal?: AbortSignal, under?: string) =>
     get<{
       /** Always the string that was asked for, corrected or not. */
       query: string;
@@ -870,7 +871,22 @@ export const api = {
        * offers it but must not perform it — the reader keeps what they asked for.
        */
       suggested?: string | null;
-    }>(`/v1/search?q=${encodeURIComponent(q)}&limit=${limit}`, signal),
+    }>(
+      `/v1/search?q=${encodeURIComponent(q)}&limit=${limit}` +
+        (under ? `&under=${encodeURIComponent(under)}` : ""),
+      signal,
+    ),
+
+  /**
+   * The named taxa one drill-down step below a clade, largest subtree first —
+   * what a scoped palette shows before anything is typed. Build-bounded like
+   * every key-addressed URL, so it lives in the forever memo: drilling into
+   * the same genus twice costs one request.
+   */
+  children: (key: string, limit = 64) =>
+    get<{ results: SearchHit[]; total: number }>(
+      `/v1/children/${encodeURIComponent(key)}?limit=${limit}`,
+    ),
 
   /**
    * Palette rows for taxa curated in `palette/starters.ts`. The keys are fixed,
