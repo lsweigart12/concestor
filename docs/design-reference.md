@@ -383,6 +383,18 @@ between painted things belongs to whatever is drawn underneath it.
   says a derived name is derived, and a control whose only honest setting is on
   is not a control.
 - `F` fit all · `⇧F` fit selection.
+- **The wheel goes by device.** A trackpad scroll pans and pinch zooms — the
+  design-tool convention, and the right one for a surface with two free axes. A
+  mouse wheel zooms — the maps convention, because a mouse pans by dragging and
+  a wheel spent on vertical-only pan duplicates the drag. The browser never
+  says which device sent a wheel event, so a classifier guesses from the
+  event's shape (`web/src/canvas/wheel.ts` holds the signals and the known
+  failure modes), and the **scroll** chip in the sidebar's Canvas section is
+  for the reader it gets wrong: a press there pins the mode and retires the
+  classifier. The guess is remembered per machine (`localStorage`, not
+  `sessionStorage` — it is a claim about the pointer on the desk, not about
+  the reader), so a mouse-only machine starts zooming from its second session
+  without ever visiting the chip.
 
 ## What a label says
 

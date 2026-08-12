@@ -49,9 +49,11 @@
  */
 
 import type { LabelMode } from "../tree/naming";
+import type { WheelMode } from "../canvas/wheel";
 import { BIOLUM_AVAILABLE } from "../canvas/capability";
 import { BiolumToggle } from "../chrome/BiolumToggle";
 import { AgesToggle, LabelsToggle } from "../chrome/LabelModes";
+import { WheelToggle } from "../chrome/WheelToggle";
 import { SourceLinks } from "../chrome/SourceLinks";
 import { PendingLine } from "../chrome/Pending";
 import { PanelToggle } from "../chrome/CanvasChrome";
@@ -69,13 +71,20 @@ export interface SidebarProps {
   /** The invitation's words, when an opening has just answered its question. */
   tip?: string;
   taxa: TaxaListProps;
-  /** The canvas modes, all four of them, in one place for the first time. */
+  /** The canvas modes, all of them, in one place. */
   labels: LabelMode;
   onLabels: (m: LabelMode) => void;
   ages: boolean;
   onAges: (v: boolean) => void;
   biolum: boolean;
   onBiolum: (v: boolean) => void;
+  /**
+   * What a plain scroll does to the canvas. The value shown is whoever is in
+   * charge — the reader's pin, else the device classifier's guess — and a
+   * press pins it. `canvas/wheel.ts` is the argument.
+   */
+  wheel: WheelMode;
+  onWheel: (m: WheelMode) => void;
   /** The one-way action that is about the whole tree. `clear` is the list's. */
   onShare: () => void;
   onAbout: () => void;
@@ -179,6 +188,13 @@ export function Sidebar(p: SidebarProps) {
             {BIOLUM_AVAILABLE && (
               <BiolumToggle on={p.biolum} onChange={p.onBiolum} />
             )}
+            {/*
+                Last, because it is the odd one out: the three above change how
+                the canvas is drawn, this one changes how it answers the hand.
+                It still belongs in the set — a reader hunting for "why does my
+                scroll do that" will look where the canvas controls live.
+              */}
+            <WheelToggle mode={p.wheel} onChange={p.onWheel} />
           </div>
         </section>
 

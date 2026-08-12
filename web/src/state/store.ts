@@ -29,6 +29,7 @@ import {
   type GraftSet,
 } from "../tree/graft";
 import type { LabelMode } from "../tree/naming";
+import { WHEEL_MODES, type WheelMode } from "../canvas/wheel";
 import { releasable } from "./queue";
 
 // Re-exported from the module that owns it (the naming), so there is one
@@ -138,6 +139,68 @@ function saveAges(on: boolean): void {
   writeMode(AGES_KEY, on ? null : "0");
 }
 
+/**
+ * The wheel mode is a claim about the *machine*, not the reader, and that is
+ * why it breaks both rules the other modes follow. Not `sessionStorage`: the
+ * pointer on the desk does not change between tabs, and a mouse user made to
+ * re-teach every fresh tab would rightly call it broken. Two keys rather than
+ * one: what the reader pinned with the chip, and what the classifier last
+ * concluded on its own ({@link makeWheelClassifier} in `canvas/wheel.ts`).
+ * A pin wins and turns the classifier off; a seed only decides where the next
+ * session starts, and stays live so plugging a mouse into a laptop flips the
+ * canvas without a trip to the sidebar.
+ */
+const WHEEL_KEY = "concestor.wheel";
+const WHEEL_SEED_KEY = "concestor.wheel.auto";
+
+/** Trackpad-first, like every canvas: the un-detected mouse still zooms on ctrl. */
+export const WHEEL_DEFAULT: WheelMode = "pan";
+
+function parseWheel(raw: string): WheelMode | null {
+  return WHEEL_MODES.find((m) => m === raw) ?? null;
+}
+
+/** The same swallow as {@link readMode}, against the other storage. */
+function readDevice<T>(
+  key: string,
+  parse: (raw: string) => T | null,
+  fallback: T,
+): T {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw === null ? fallback : (parse(raw) ?? fallback);
+  } catch {
+    return fallback;
+  }
+}
+
+function writeDevice(key: string, value: string | null): void {
+  try {
+    if (value === null) localStorage.removeItem(key);
+    else localStorage.setItem(key, value);
+  } catch {
+    /* private browsing; the mode still works, it just will not outlive a reload */
+  }
+}
+
+/** What the chip pinned, or null while the classifier is still in charge. */
+export function loadWheelChoice(): WheelMode | null {
+  return readDevice(WHEEL_KEY, parseWheel, null);
+}
+
+export function saveWheelChoice(mode: WheelMode): void {
+  writeDevice(WHEEL_KEY, mode);
+}
+
+/** Where an unpinned session starts: the last classification, or the default. */
+export function loadWheelSeed(): WheelMode {
+  return readDevice(WHEEL_SEED_KEY, parseWheel, WHEEL_DEFAULT);
+}
+
+export function saveWheelSeed(mode: WheelMode): void {
+  writeDevice(WHEEL_SEED_KEY, mode === WHEEL_DEFAULT ? null : mode);
+}
+
 const DEFAULT: ViewState = {
   keys: [],
   selected: null,
@@ -219,6 +282,18 @@ export function useTree() {
   const [biolum, setBiolum] = useState<boolean>(loadBiolum);
   const [labels, setLabelsState] = useState<LabelMode>(loadLabels);
   const [ages, setAgesState] = useState<boolean>(loadAges);
+  // The wheel: what the reader pinned, what the classifier thinks, in that
+  // order. See `WHEEL_KEY` for why these live in the other storage.
+  const [wheelChoice, setWheelChoice] = useState<WheelMode | null>(
+    loadWheelChoice,
+  );
+  const [wheelSeed, setWheelSeed] = useState<WheelMode>(loadWheelSeed);
+  /**
+   * The seed's mirror, so `observeWheel` can drop repeats before touching
+   * storage — the classifier speaks on every trackpad event, and a write per
+   * event is churn for a value that almost never changes.
+   */
+  const wheelSeedRef = useRef(wheelSeed);
   const [nodes, setNodes] = useState<Map<number, PathNode>>(() => new Map());
   const [paths, setPaths] = useState<Map<string, number[]>>(() => new Map());
   const [idxOf, setIdxOf] = useState<Map<string, number>>(() => new Map());
@@ -855,6 +930,20 @@ export function useTree() {
       }),
     [],
   );
+  // The chip. A press pins the mode and retires the classifier — see
+  // `WHEEL_KEY` for the order of authority.
+  const setWheel = useCallback((mode: WheelMode) => {
+    saveWheelChoice(mode);
+    setWheelChoice(mode);
+  }, []);
+  // The classifier. Only wired to the canvas while nothing is pinned, and
+  // deduplicated here because it reports on every classified wheel event.
+  const observeWheel = useCallback((mode: WheelMode) => {
+    if (wheelSeedRef.current === mode) return;
+    wheelSeedRef.current = mode;
+    saveWheelSeed(mode);
+    setWheelSeed(mode);
+  }, []);
   const select = useCallback(
     (key: string | null) =>
       setView((v) => ({ ...v, selected: key && toUrlKey(key) })),
@@ -886,6 +975,10 @@ export function useTree() {
     biolum,
     labels,
     ages,
+    /** What a plain scroll does to the canvas: the pin, else the guess. */
+    wheel: wheelChoice ?? wheelSeed,
+    /** Whether the chip has spoken. Pinned means the classifier is off. */
+    wheelPinned: wheelChoice !== null,
     nodes,
     /** Resolved fossil rows, by PBDB taxon number. `view.fossils` is the order. */
     fossils,
@@ -909,6 +1002,8 @@ export function useTree() {
     clear,
     setLabels,
     setAges,
+    setWheel,
+    observeWheel,
     select,
     toggleBiolum,
     setDrill,

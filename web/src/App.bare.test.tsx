@@ -54,13 +54,14 @@ describe("fullscreen is offered on both surfaces or on neither", () => {
  * asked in both of the canvas's branches.
  */
 describe("bioluminescence is offered on every canvas or on none", () => {
-  it("draws the other two and not the light", async () => {
+  it("draws the other three and not the light", async () => {
     await renderApp();
     await drawOpening();
     const chips = [...document.querySelectorAll(".side-modes .mode-chip")];
     expect(chips.map((c) => c.getAttribute("aria-label"))).toEqual([
       "Labels",
       "Dates",
+      "Scroll",
     ]);
   });
 
