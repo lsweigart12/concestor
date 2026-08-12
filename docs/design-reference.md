@@ -183,10 +183,20 @@ timer decides when a mark becomes visible.
   clicking a mark. The card carries the range, the occurrence count, the
   encyclopedia entry, the drawing's credit, and its own draw/remove control and
   links. The lane stays open beneath the card.
-- The search field carries a breadcrumb chip for the current filter; backspace
-  at position zero pops it. **The species filter (`S`) is the only chip.** It
-  drops commands and fossils from the list entirely. Inside the palette it is
-  also reachable by typing `s` then space — live only on an empty field.
+- The search field carries breadcrumb chips; backspace at position zero pops
+  the innermost, so backspace retraces the way in. Two kinds exist. **The
+  species filter (`S`)** drops the commands from the list; inside the palette
+  it is also reachable by typing `s` then space — live only on an empty field.
+  **A clade chip** (`genus: Homo`) fences the whole search — both catalogues,
+  served by `/v1/search?under=` — to one group.
+- **Any row holding more than one species can be stepped into.** `Tab` (or the
+  `⇥ browse` accessory the active row shows) pushes the group's chip, clears
+  the field, and the list starts full: the clade's own named children from
+  `/v1/children`, largest first, never an empty state. `Shift-Tab` steps back
+  out. The detail card is the other door in — the `browse` control beside
+  "species below" opens the palette already fenced to the card's taxon, with
+  the Species chip beneath it so popping the clade lands on a plain species
+  search.
 - **There is a way in that does not require having thought of a species.** The
   empty canvas is an **openings carousel** — one question at a time, taxa
   previewed as silhouettes, auto-advancing until the reader takes control. `R`

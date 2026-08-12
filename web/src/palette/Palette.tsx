@@ -55,6 +55,25 @@ export type PaletteFilter = "species";
 const FILTER_PREFIX: Record<PaletteFilter, string> = { species: "s" };
 const FILTER_LABEL: Record<PaletteFilter, string> = { species: "Species" };
 
+/**
+ * A clade the list is fenced to — the drill-down's chip. Held as a stack in
+ * `App` beside `filter`: Tab on a group pushes one, backspace at position zero
+ * pops the innermost, so the chips read as the path taken in and backspace
+ * walks back out of it. Only the innermost fences the search (each scope is
+ * inside the one before it), but the outer ones are kept because they are
+ * where backspace goes.
+ */
+export interface CladeScope {
+  key: string;
+  name: string;
+  rank: string | null;
+}
+
+/** Rows a reader can step into: groups, not species. The Tab affordance. */
+function drillable(hit: SearchHit): boolean {
+  return hit.tip_count > 1;
+}
+
 interface Props {
   open: boolean;
   onClose: () => void;
@@ -62,6 +81,9 @@ interface Props {
   /** Set when the list is restricted to one corpus. */
   filter: PaletteFilter | null;
   onFilter: (f: PaletteFilter | null) => void;
+  /** The drill-down path, outermost first. Owned by `App`, like `filter`. */
+  scopes: CladeScope[];
+  onScopes: (scopes: CladeScope[]) => void;
   onPick: (hit: SearchHit) => void;
   /** A fossil row was chosen: draw it against the tree. */
   onPickFossil: (f: FossilTaxon) => void;
@@ -175,19 +197,23 @@ export interface Suggestions {
 }
 
 /**
- * The titled bands an empty species list shows, or none. Three refusals: only
+ * The titled bands an empty species list shows, or none. Four refusals: only
  * under the species filter (the root palette's command list is its own empty
- * state), only below {@link MIN_QUERY} (once a search can run it owns the list),
- * and never both bands holding the same taxon (recents win, keeping the curated
- * order intact in the survivor).
+ * state), never inside a drill-down (a scoped empty list shows the clade's own
+ * children instead — recents from the whole tree would mostly be outside the
+ * fence), only below {@link MIN_QUERY} (once a search can run it owns the
+ * list), and never both bands holding the same taxon (recents win, keeping the
+ * curated order intact in the survivor).
  */
 export function suggestionBands(s: {
   filter: PaletteFilter | null;
+  /** True inside a drill-down, whose empty state is the children list. */
+  scoped?: boolean;
   /** Already trimmed. */
   query: string;
   suggestions: Suggestions | null;
 }): [string, SearchHit[]][] {
-  if (s.filter !== "species" || !s.suggestions) return [];
+  if (s.filter !== "species" || s.scoped || !s.suggestions) return [];
   if (s.query.length >= MIN_QUERY) return [];
   const { recent, starters } = s.suggestions;
   const taken = new Set(recent.map((h) => h.key));
@@ -241,6 +267,8 @@ export function Palette({
   commands,
   filter,
   onFilter,
+  scopes,
+  onScopes,
   onPick,
   onPickFossil,
   present,
@@ -250,6 +278,15 @@ export function Palette({
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<AnyHit[]>([]);
   const [fossils, setFossils] = useState<FossilTaxon[]>([]);
+  /** The innermost chip — the one that fences the list. Null outside a drill. */
+  const scope = scopes.length > 0 ? scopes[scopes.length - 1] : null;
+  /**
+   * The scoped empty state: the clade's own children, so entering a group
+   * never lands on a blank list. Null while the fetch is out (render nothing —
+   * the response is memoised, so the gap is one round trip per clade per tab).
+   */
+  const [children, setChildren] = useState<SearchHit[] | null>(null);
+  const [childTotal, setChildTotal] = useState(0);
   /**
    * The spelling the rows below are actually for, when it is not what was typed.
    *
@@ -332,7 +369,7 @@ export function Palette({
     setSearching(true);
     const t = window.setTimeout(async () => {
       try {
-        const r = await api.search(q.trim(), 24, inflight.signal);
+        const r = await api.search(q.trim(), 24, inflight.signal, scope?.key);
         // Fed the query the server was actually asked, not the keystroke. The
         // beacon holds a prefix chain to one event, so `w…whale` is recorded
         // once — `analytics/beacon.ts` is the rule and why it is that one.
@@ -365,7 +402,41 @@ export function Palette({
       // error path.
       inflight.abort();
     };
-  }, [q, open]);
+  }, [q, open, scope?.key]);
+
+  // The drill-down's opening move: entering a clade lists what is inside it,
+  // so there is no blank state to type your way out of. Re-fetched (from the
+  // forever memo, usually) whenever the innermost chip changes; cleared when
+  // the last chip pops. No AbortController here — the URL is build-bounded
+  // and memoised, so a superseded request is next drill's instant answer
+  // rather than waste.
+  useEffect(() => {
+    if (!open || !scope) {
+      setChildren(null);
+      setChildTotal(0);
+      return;
+    }
+    let cancelled = false;
+    setChildren(null);
+    api
+      .children(scope.key)
+      .then((r) => {
+        if (!cancelled) {
+          setChildren(r.results);
+          setChildTotal(r.total);
+        }
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) {
+          setChildren([]);
+          setChildTotal(0);
+          setFailed(e instanceof Error ? e.message : String(e));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, scope]);
 
   const rows = useMemo(() => {
     const needle = q.trim();
@@ -455,20 +526,38 @@ export function Palette({
   // used, or the list would reorder between openings.
   const suggestionRows = useMemo(
     () =>
-      suggestionBands({ filter, query: needle, suggestions }).map(
-        ([title, band]): [string, Row[]] => [
-          title,
-          band.map((hit, i) => ({
-            kind: "hit" as const,
-            hit,
-            score: band.length - i,
-            ranges: [],
-            vernRanges: [],
-          })),
-        ],
-      ),
-    [filter, needle, suggestions],
+      suggestionBands({
+        filter,
+        scoped: scope !== null,
+        query: needle,
+        suggestions,
+      }).map(([title, band]): [string, Row[]] => [
+        title,
+        band.map((hit, i) => ({
+          kind: "hit" as const,
+          hit,
+          score: band.length - i,
+          ranges: [],
+          vernRanges: [],
+        })),
+      ]),
+    [filter, scope, needle, suggestions],
   );
+
+  // The scoped empty state as rows: the clade's children, in the server's
+  // largest-first order via the same `rowScore` a search answer uses. Live
+  // only while there is nothing to search for — one real query and the
+  // search's own rows own the list.
+  const childRows: Row[] = useMemo(() => {
+    if (!scope || needle.length >= MIN_QUERY || !children) return [];
+    return children.map((hit, i) => ({
+      kind: "hit" as const,
+      hit,
+      score: rowScore(hit.order, i),
+      ranges: [],
+      vernRanges: [],
+    }));
+  }, [scope, needle, children]);
 
   // Rows grouped into titled sections, floating on their best row's score
   // except {@link TAIL_SECTIONS}, which hold the bottom.
@@ -485,12 +574,16 @@ export function Palette({
     for (const [title, list] of suggestionRows) {
       for (const r of list) push(title, r);
     }
+    // The scoped empty state fills the same section a search answer would, so
+    // arrows, Enter and Tab work identically on both.
+    for (const r of childRows) push(SPECIES_SECTION, r);
     // One section for both catalogues; the rows sort on `score` (the server's
     // merged `order`), so a fossil sits where the ranking put it.
     for (const r of rows.hitRows) push(SPECIES_SECTION, r);
     for (const r of rows.fossilRows) push(SPECIES_SECTION, r);
-    // The filter removes the commands and nothing else.
-    if (filter === null) {
+    // The filter removes the commands and nothing else. A drill-down removes
+    // them too: "toggle dates" is not inside Homo.
+    if (filter === null && scope === null) {
       for (const r of rows.cmdRows) {
         if (r.kind === "cmd") push(r.cmd.section, r);
       }
@@ -507,7 +600,7 @@ export function Palette({
       if (ra !== rb) return ra - rb;
       return (b.rows[0]?.score ?? 0) - (a.rows[0]?.score ?? 0);
     });
-  }, [rows, filter, suggestionRows]);
+  }, [rows, filter, scope, suggestionRows, childRows]);
 
   /** The sections flattened, which is what the arrow keys actually walk. */
   const flat: Row[] = useMemo(
@@ -558,6 +651,37 @@ export function Palette({
   );
 
   /**
+   * Step into a group: push its chip and start again inside it, with the
+   * field cleared — the query that found the group is not a query about its
+   * contents. Not recorded in the session ranking: drilling is navigation,
+   * and boosting a row for having been *walked through* would rank it above
+   * the rows the reader actually picked.
+   */
+  const drill = useCallback(
+    (hit: SearchHit) => {
+      if (!drillable(hit) || hit.key === scope?.key) return;
+      onScopes([
+        ...scopes,
+        { key: hit.key, name: hit.name ?? hit.key, rank: hit.rank },
+      ]);
+      setQ("");
+      setActive(0);
+      inputRef.current?.focus();
+    },
+    [scopes, scope, onScopes],
+  );
+
+  /** Backspace at position zero and Shift-Tab: pop the innermost chip. */
+  const popChip = useCallback(() => {
+    if (scopes.length > 0) {
+      onScopes(scopes.slice(0, -1));
+      setActive(0);
+    } else if (filter) {
+      onFilter(null);
+    }
+  }, [scopes, onScopes, filter, onFilter]);
+
+  /**
    * Typing into the field, and the one thing that is not typing.
    *
    * `s` then space enters the species filter, the same one the `S` key opens
@@ -593,20 +717,30 @@ export function Palette({
       } else if (e.key === "Enter") {
         e.preventDefault();
         commit(flat[active]);
+      } else if (e.key === "Tab" && !e.shiftKey) {
+        // Tab steps *into* the active group — Raycast's "search in". Swallowed
+        // even on a row it cannot enter (a species, a fossil, a command), or
+        // the browser's focus walk quietly leaves the field mid-list.
+        e.preventDefault();
+        const row = flat[active];
+        if (row?.kind === "hit") drill(row.hit);
+      } else if (e.key === "Tab" && e.shiftKey) {
+        // The symmetric step back out, for the hand already on Tab.
+        e.preventDefault();
+        popChip();
       } else if (
         e.key === "Backspace" &&
-        filter &&
+        (filter || scopes.length > 0) &&
         e.currentTarget.selectionStart === 0 &&
         e.currentTarget.selectionEnd === 0
       ) {
-        // Backspace at position zero pops the filter chip.
-        // The filter is the only one there is: a fossil row used to push a
-        // scope of its own here, and it opens its card now instead.
+        // Backspace at position zero pops the innermost chip — the drill-down
+        // path first, then the filter, so it retraces the way in exactly.
         e.preventDefault();
-        onFilter(null);
+        popChip();
       }
     },
-    [flat, active, commit, onClose, filter, onFilter],
+    [flat, active, commit, onClose, filter, scopes, drill, popChip],
   );
 
   if (!open) return null;
@@ -621,6 +755,22 @@ export function Palette({
       <div className="palette" role="dialog" aria-label="Command palette">
         <div className="palette-input-row">
           {filter && <span className="scope-chip">{FILTER_LABEL[filter]}</span>}
+          {scopes.map((s) => (
+            // One chip per step of the path in, innermost last — the trail
+            // backspace at position zero walks back out of.
+            <span className="scope-chip" key={s.key}>
+              {s.rank ? `${s.rank}: ` : ""}
+              <span
+                className={
+                  s.rank === "genus" || s.rank === "species"
+                    ? "sci-italic"
+                    : undefined
+                }
+              >
+                {s.name}
+              </span>
+            </span>
+          ))}
           <input
             ref={inputRef}
             className="palette-input"
@@ -628,9 +778,11 @@ export function Palette({
             onChange={(e) => onChange(e.target.value)}
             onKeyDown={onKeyDown}
             placeholder={
-              filter
-                ? "Search species — try “dog”"
-                : "Search a species, or type a command — try “dog”"
+              scope
+                ? `Search inside ${scope.name}`
+                : filter
+                  ? "Search species — try “dog”"
+                  : "Search a species, or type a command — try “dog”"
             }
             spellCheck={false}
             autoComplete="off"
@@ -678,7 +830,11 @@ export function Palette({
             flat.length === 0 &&
             notes.length === 0 &&
             undated.length === 0 &&
-            empty !== "silent" && (
+            empty !== "silent" &&
+            // The one render of a scoped prompt state: the children fetch is
+            // still out. Nothing, rather than "Type to search…" for the frame
+            // before a list the reader never asked to be empty.
+            !(scope && empty === "prompt" && children === null) && (
               <div className="palette-empty">
                 {empty === "searching" ? (
                   // A count rather than "Loading…", because the size of the
@@ -701,11 +857,21 @@ export function Palette({
                   <PendingLine>Searching {SPECIES_PHRASE}…</PendingLine>
                 ) : empty === "no-match" ? (
                   <>
-                    Nothing matched <strong>{needle}</strong>.
+                    Nothing matched <strong>{needle}</strong>
+                    {scope && (
+                      <>
+                        {" "}
+                        inside <strong>{scope.name}</strong> — backspace steps
+                        back out
+                      </>
+                    )}
+                    .
                     <br />
                     Scientific names always work; common names depend on the
                     vernacular index having been built.
                   </>
+                ) : scope ? (
+                  <>Type to search inside {scope.name}.</>
                 ) : filter ? (
                   <>Type to search {SPECIES_PHRASE}.</>
                 ) : (
@@ -754,12 +920,38 @@ export function Palette({
                       presentFossils={presentFossils}
                       onHover={() => setActive(i)}
                       onClick={() => commit(row)}
+                      onDrill={
+                        row.kind === "hit" &&
+                        drillable(row.hit) &&
+                        row.hit.key !== scope?.key
+                          ? () => drill(row.hit)
+                          : null
+                      }
                     />
                   );
                 })}
               </div>
             ));
           })()}
+
+          {scope &&
+            children &&
+            childRows.length > 0 &&
+            childTotal > children.length && (
+              // The page was cut, and the cut is named rather than silent: the
+              // rows above are the largest groups, not all of them, and the
+              // search reaches everything the list does not show.
+              <div className="palette-note" role="note">
+                <span className="row-icon">…</span>
+                <span className="row-body">
+                  <span className="row-sub">
+                    The {children.length} largest of{" "}
+                    {childTotal.toLocaleString()} groups inside {scope.name}.
+                    Type to search all of them.
+                  </span>
+                </span>
+              </div>
+            )}
 
           {notes.map((n) => (
             <BrokenNote key={`b${n.key}`} hit={n} />
@@ -779,6 +971,7 @@ function RowView({
   presentFossils,
   onHover,
   onClick,
+  onDrill,
 }: {
   row: Row;
   active: boolean;
@@ -786,6 +979,8 @@ function RowView({
   presentFossils: Set<number>;
   onHover: () => void;
   onClick: () => void;
+  /** Step into this group, where it is one. Null on species, fossils, commands. */
+  onDrill: (() => void) | null;
 }) {
   if (row.kind === "fossil") {
     return (
@@ -868,6 +1063,22 @@ function RowView({
       <span className="row-accessory">
         {already && <span className="kbd">on canvas</span>}
         {active && !already && <span className="kbd">↵ add</span>}
+        {active && onDrill && (
+          // A button, not a hint: the keycap text teaches Tab, and the same
+          // surface answers a pointer — hover sets `active`, so a mouse sees
+          // this exactly where a keyboard does. `stopPropagation` because the
+          // row underneath adds, and stepping in must not also add.
+          <button
+            type="button"
+            className="kbd row-drill"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDrill();
+            }}
+          >
+            ⇥ browse
+          </button>
+        )}
       </span>
     </div>
   );

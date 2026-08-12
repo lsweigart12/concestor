@@ -116,8 +116,44 @@ func longestToken(q string) int {
 	return n
 }
 
-// Search runs the typeahead query.
+// Scope restricts a search to one clade: the preorder interval [Lo, Hi), which
+// is `[idx, subtree_out[idx])` for the clade's own node. One interval is the
+// whole representation because ancestry *is* interval containment here
+// (architecture §3.1), so "inside Homo" costs each candidate two comparisons.
+// A nil *Scope means the whole tree, and every path below treats it so.
+type Scope struct {
+	Lo, Hi int
+}
+
+// contains is nil-safe: no scope holds everything.
+func (sc *Scope) contains(idx int) bool {
+	return sc == nil || (idx >= sc.Lo && idx < sc.Hi)
+}
+
+// sql returns a WHERE fragment fencing an idx-valued column to the scope, with
+// its two arguments — or adds nothing, so call sites read the same unscoped.
+func (sc *Scope) sql(col string) (string, []any) {
+	if sc == nil {
+		return "", nil
+	}
+	return fmt.Sprintf(" AND %s >= ? AND %s < ?", col, col), []any{sc.Lo, sc.Hi}
+}
+
+// Search runs the typeahead query over the whole tree.
 func (s *Store) Search(ctx context.Context, q string, limit int) ([]SearchResult, error) {
+	return s.SearchIn(ctx, q, limit, nil)
+}
+
+// SearchIn runs the typeahead query inside one clade, or everywhere when scope
+// is nil. The scope is pushed into candidate generation rather than filtered
+// after the fact: every generator caps its candidates (heaps, LIMITs), so a
+// post-hoc filter would let a narrow clade starve behind global candidates
+// that were about to be discarded — searching "a" inside *Homo* must reach
+// *Homo sapiens*, not lose all 128 candidate slots to Aves and Arthropoda.
+//
+// Broken taxa are not answered under a scope: a broken taxon has no position,
+// so "is it inside this clade?" has no honest answer.
+func (s *Store) SearchIn(ctx context.Context, q string, limit int, scope *Scope) ([]SearchResult, error) {
 	q = strings.Join(strings.Fields(q), " ")
 	if limit <= 0 {
 		limit = defaultSearchLimit
@@ -130,7 +166,7 @@ func (s *Store) Search(ctx context.Context, q string, limit int) ([]SearchResult
 
 	byIdx := map[int]*SearchResult{}
 	add := func(r *SearchResult) {
-		if r.Idx == nil {
+		if r.Idx == nil || !scope.contains(*r.Idx) {
 			return
 		}
 		// A node reached by several routes keeps the strongest one: a hit on
@@ -146,7 +182,7 @@ func (s *Store) Search(ctx context.Context, q string, limit int) ([]SearchResult
 	// them identically.
 	useFTS := s.Schema.FTS != nil && longestToken(q) >= minFTSToken
 	if useFTS {
-		rows, err := s.searchFTS(ctx, q, limit*8)
+		rows, err := s.searchFTS(ctx, q, limit*8, scope)
 		if err != nil {
 			s.log.Warn("FTS query failed, falling back to prefix scan", "err", err)
 			useFTS = false
@@ -157,7 +193,7 @@ func (s *Store) Search(ctx context.Context, q string, limit int) ([]SearchResult
 		}
 	}
 	if len(byIdx) < limit*2 {
-		rows, err := s.searchNamePrefix(ctx, q)
+		rows, err := s.searchNamePrefix(ctx, q, scope)
 		if err != nil {
 			return nil, err
 		}
@@ -170,7 +206,7 @@ func (s *Store) Search(ctx context.Context, q string, limit int) ([]SearchResult
 		// separate prefix scan over the vernacular table is only needed when
 		// FTS did not run.
 		if !useFTS {
-			rows, err := s.searchVernacular(ctx, q, limit*4)
+			rows, err := s.searchVernacular(ctx, q, limit*4, scope)
 			if err != nil {
 				s.log.Warn("vernacular query failed", "err", err)
 			} else {
@@ -184,7 +220,7 @@ func (s *Store) Search(ctx context.Context, q string, limit int) ([]SearchResult
 		// only — the band it earns is computed in decorate, against every name
 		// the node carries, because an exact common name is not on its own
 		// enough to say the reader meant this taxon.
-		if ev, err := s.exactVernacularMatches(ctx, q); err != nil {
+		if ev, err := s.exactVernacularMatches(ctx, q, scope); err != nil {
 			s.log.Warn("exact vernacular lookup failed", "err", err)
 		} else {
 			missing := make([]int, 0, len(ev))
@@ -211,8 +247,10 @@ func (s *Store) Search(ctx context.Context, q string, limit int) ([]SearchResult
 	}
 	// Broken taxa must be answerable, but only when the query *is* one. There
 	// are 9,839 and they live in memory, so this is a linear scan over a small
-	// slice.
-	results = append(results, s.searchBroken(qFold)...)
+	// slice. Never under a scope — see SearchIn.
+	if scope == nil {
+		results = append(results, s.searchBroken(qFold)...)
+	}
 
 	if err := s.decorate(ctx, results, qFold); err != nil {
 		return nil, err
@@ -466,11 +504,14 @@ func prefixBound(p string) string { return p + "\U0010FFFF" }
 // ranking happens here instead: take idx index-only, read tip_count from the
 // mmap'd array, keep the best K in a bounded heap, fetch full rows for only
 // those. Same answer, an order of magnitude cheaper.
-func (s *Store) searchNamePrefix(ctx context.Context, q string) ([]*SearchResult, error) {
+func (s *Store) searchNamePrefix(ctx context.Context, q string, scope *Scope) ([]*SearchResult, error) {
 	seen := make(map[int]struct{})
 	var idxs []int
 	add := func(list []int) {
 		for _, idx := range list {
+			if !scope.contains(idx) {
+				continue
+			}
 			if _, dup := seen[idx]; dup {
 				continue
 			}
@@ -482,12 +523,20 @@ func (s *Store) searchNamePrefix(ctx context.Context, q string) ([]*SearchResult
 	// The hot set holds the globally largest subtrees. If it alone yields a
 	// full page of prefix matches, no node outside it can outrank them on
 	// tip_count, so the SQL scan is provably unnecessary — which is what keeps
-	// a one-character query from touching 268,281 index entries.
-	hot := s.hotPrefixMatches(q, candidatesPerVariant)
-	add(hot)
-	if len(hot) < candidatesPerVariant {
+	// a one-character query from touching 268,281 index entries. Under a scope
+	// the shortcut is judged on the matches *inside* it: the global page proves
+	// nothing about a clade it barely intersects.
+	hot := 0
+	hotList := s.hotPrefixMatches(q, candidatesPerVariant)
+	for _, idx := range hotList {
+		if scope.contains(idx) {
+			hot++
+		}
+	}
+	add(hotList)
+	if hot < candidatesPerVariant {
 		for _, v := range nameVariants(q) {
-			top, err := s.topByTipCount(ctx, v, candidatesPerVariant)
+			top, err := s.topByTipCount(ctx, v, candidatesPerVariant, scope)
 			if err != nil {
 				return nil, err
 			}
@@ -496,7 +545,7 @@ func (s *Store) searchNamePrefix(ctx context.Context, q string) ([]*SearchResult
 	}
 	// An exact match can be a one-species node far outside the hot set, and it
 	// has to rank first. One indexed equality lookup per capitalisation.
-	exact, err := s.exactNameMatches(ctx, q)
+	exact, err := s.exactNameMatches(ctx, q, scope)
 	if err != nil {
 		return nil, err
 	}
@@ -508,10 +557,12 @@ func (s *Store) searchNamePrefix(ctx context.Context, q string) ([]*SearchResult
 	return s.resultsForIdxs(ctx, idxs, "name")
 }
 
-func (s *Store) exactNameMatches(ctx context.Context, q string) ([]int, error) {
+func (s *Store) exactNameMatches(ctx context.Context, q string, scope *Scope) ([]int, error) {
 	var out []int
+	fence, fenceArgs := scope.sql("idx")
 	for _, v := range nameVariants(q) {
-		rows, err := s.DB.QueryContext(ctx, `SELECT idx FROM node WHERE name = ?`, v)
+		rows, err := s.DB.QueryContext(ctx,
+			`SELECT idx FROM node WHERE name = ?`+fence, append([]any{v}, fenceArgs...)...)
 		if err != nil {
 			return nil, err
 		}
@@ -534,9 +585,11 @@ func (s *Store) exactNameMatches(ctx context.Context, q string) ([]int, error) {
 
 // topByTipCount returns the k node indices with the largest subtrees whose
 // name starts with prefix.
-func (s *Store) topByTipCount(ctx context.Context, prefix string, k int) ([]int, error) {
+func (s *Store) topByTipCount(ctx context.Context, prefix string, k int, scope *Scope) ([]int, error) {
+	fence, fenceArgs := scope.sql("idx")
 	rows, err := s.DB.QueryContext(ctx,
-		`SELECT idx FROM node WHERE name >= ? AND name < ?`, prefix, prefixBound(prefix))
+		`SELECT idx FROM node WHERE name >= ? AND name < ?`+fence,
+		append([]any{prefix, prefixBound(prefix)}, fenceArgs...)...)
 	if err != nil {
 		return nil, err
 	}
@@ -665,7 +718,7 @@ const kindBrokenName = 4
 // happen before the page is cut, or one taxon fills the whole palette.
 const ftsScanCap = 4000
 
-func (s *Store) searchFTS(ctx context.Context, q string, limit int) ([]*SearchResult, error) {
+func (s *Store) searchFTS(ctx context.Context, q string, limit int, scope *Scope) ([]*SearchResult, error) {
 	expr := ftsPrefixQuery(q)
 	if expr == "" {
 		return nil, nil
@@ -675,12 +728,17 @@ func (s *Store) searchFTS(ctx context.Context, q string, limit int) ([]*SearchRe
 	if f.MapKind != "" {
 		kind = "m." + fmt.Sprintf("%q", f.MapKind)
 	}
+	// The fence sits inside the WHERE, before the LIMIT: a scoped query must
+	// spend its ftsScanCap on rows inside the clade, not collect a capful of
+	// global matches and then discard them.
+	fence, fenceArgs := scope.sql("m." + fmt.Sprintf("%q", f.MapIdx))
 	// node_fts.rowid is a search_name.id, NOT a node.idx. Joining it straight
 	// to node does not error — it joins cleanly to unrelated nodes and returns
 	// confident nonsense, which is exactly what it did.
 	rows, err := s.DB.QueryContext(ctx, fmt.Sprintf(
-		`SELECT m.%q, %s, m.%q FROM %q f JOIN %q m ON m.%q = f.rowid WHERE %q MATCH ? LIMIT ?`,
-		f.MapIdx, kind, f.MapName, f.Table, f.MapTable, f.MapID, f.Table), expr, ftsScanCap)
+		`SELECT m.%q, %s, m.%q FROM %q f JOIN %q m ON m.%q = f.rowid WHERE %q MATCH ?%s LIMIT ?`,
+		f.MapIdx, kind, f.MapName, f.Table, f.MapTable, f.MapID, f.Table, fence),
+		append(append([]any{expr}, fenceArgs...), ftsScanCap)...)
 	if err != nil {
 		return nil, err
 	}
@@ -846,16 +904,18 @@ func showsName(r *SearchResult, name string) bool {
 // the vernacular table's own name index, so "human" reaches Homo rather than
 // losing to Pulex ("Human Fleas"), which has a larger subtree and would win a
 // pure tip_count ordering.
-func (s *Store) exactVernacularMatches(ctx context.Context, q string) (map[int]struct{}, error) {
+func (s *Store) exactVernacularMatches(ctx context.Context, q string, scope *Scope) (map[int]struct{}, error) {
 	out := map[int]struct{}{}
 	v := s.Schema.Vernacular
 	if v == nil {
 		return out, nil
 	}
+	fence, fenceArgs := scope.sql(fmt.Sprintf("%q", v.Idx))
 	for _, variant := range nameVariants(q) {
 		rows, err := s.DB.QueryContext(ctx, fmt.Sprintf(
-			`SELECT %q FROM %q WHERE %q = ? AND %q IS NOT NULL`,
-			v.Idx, v.Table, v.Name, v.Idx), variant)
+			`SELECT %q FROM %q WHERE %q = ? AND %q IS NOT NULL%s`,
+			v.Idx, v.Table, v.Name, v.Idx, fence),
+			append([]any{variant}, fenceArgs...)...)
 		if err != nil {
 			return out, err
 		}
@@ -904,17 +964,18 @@ func ftsPrefixQuery(q string) string {
 // a one-character prefix over a corpus that will run to millions of rows.
 const vernacularScanCap = 20000
 
-func (s *Store) searchVernacular(ctx context.Context, q string, limit int) ([]*SearchResult, error) {
+func (s *Store) searchVernacular(ctx context.Context, q string, limit int, scope *Scope) ([]*SearchResult, error) {
 	v := s.Schema.Vernacular
+	fence, fenceArgs := scope.sql(fmt.Sprintf("%q", v.Idx))
 	h := &tipHeap{tip: s.Arrays.TipCount}
 	for _, variant := range nameVariants(q) {
 		// idx is NULL for vernaculars whose taxon has not been resolved to a
 		// node yet — the vernacular corpus is keyed by ott_id and by PBDB
 		// taxon_no, and not all of those land in the synthesis tree.
 		rows, err := s.DB.QueryContext(ctx, fmt.Sprintf(
-			`SELECT %q FROM %q WHERE %q >= ? AND %q < ? AND %q IS NOT NULL LIMIT ?`,
-			v.Idx, v.Table, v.Name, v.Name, v.Idx),
-			variant, prefixBound(variant), vernacularScanCap)
+			`SELECT %q FROM %q WHERE %q >= ? AND %q < ? AND %q IS NOT NULL%s LIMIT ?`,
+			v.Idx, v.Table, v.Name, v.Name, v.Idx, fence),
+			append(append([]any{variant, prefixBound(variant)}, fenceArgs...), vernacularScanCap)...)
 		if err != nil {
 			return nil, err
 		}

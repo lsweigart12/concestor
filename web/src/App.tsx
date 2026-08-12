@@ -40,6 +40,7 @@ import { useGraftRefusals } from "./tree/refusals";
 import {
   Palette,
   ABOUT_SECTION,
+  type CladeScope,
   type Command,
   type PaletteFilter,
   type Suggestions,
@@ -160,6 +161,13 @@ export default function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   /** Non-null when the palette is answering about one corpus only. */
   const [filter, setFilter] = useState<PaletteFilter | null>(null);
+  /**
+   * The palette's drill-down path, outermost first — one chip per step. Lives
+   * here beside `filter` because the detail card opens the palette already
+   * inside a clade, and both front doors (`/`, `A`) must open it back at the
+   * root. See `CladeScope` in `palette/Palette.tsx`.
+   */
+  const [scopes, setScopes] = useState<CladeScope[]>([]);
   const [confirmClear, setConfirmClear] = useState(false);
   const [fitSignal, setFitSignal] = useState<{
     kind: "all" | "selection";
@@ -951,6 +959,7 @@ export default function App() {
   /** Open the palette on the whole surface, from a key or from a button. */
   const openPalette = useCallback(() => {
     setFilter(null);
+    setScopes([]);
     setPaletteOpen(true);
     settle();
   }, [settle]);
@@ -966,9 +975,26 @@ export default function App() {
    */
   const openSpecies = useCallback(() => {
     setFilter("species");
+    setScopes([]);
     setPaletteOpen(true);
     settle();
   }, [settle]);
+
+  /**
+   * Open the palette already inside a clade — the detail card's door into the
+   * drill-down. Two chips, `Species` then the clade, exactly the state Tab
+   * reaches from a species search: backspace pops back to a plain species
+   * search rather than dumping the reader among the commands.
+   */
+  const browseInside = useCallback(
+    (scope: CladeScope) => {
+      setFilter("species");
+      setScopes([scope]);
+      setPaletteOpen(true);
+      settle();
+    },
+    [settle],
+  );
 
   /**
    * Toggle the panel, moving the focus ring to the control's surviving mount
@@ -1028,6 +1054,7 @@ export default function App() {
           e.preventDefault();
           setPaletteOpen(false);
           setFilter(null);
+          setScopes([]);
         }
         return;
       }
@@ -1483,6 +1510,18 @@ export default function App() {
           isDrawn={tree.induced.rendered.includes(detail.idx)}
           onAdd={() => addNode(detail)}
           onRemove={() => removeNode(detail)}
+          // Only a named group can be browsed: a single species has nothing
+          // below it, and an unnamed divergence has no name to put on the chip.
+          onBrowse={
+            detail.tip_count > 1 && detail.name
+              ? () =>
+                  browseInside({
+                    key: detail.key,
+                    name: detail.name ?? detail.key,
+                    rank: detail.rank,
+                  })
+              : null
+          }
         />
       )}
 
@@ -1491,10 +1530,13 @@ export default function App() {
         onClose={() => {
           setPaletteOpen(false);
           setFilter(null);
+          setScopes([]);
         }}
         commands={commands}
         filter={filter}
         onFilter={setFilter}
+        scopes={scopes}
+        onScopes={setScopes}
         onPick={addHit}
         onPickFossil={drawFossil}
         present={present}
