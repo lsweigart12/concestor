@@ -65,6 +65,7 @@ func (s *Server) Handler() http.Handler {
 
 	mux.HandleFunc("GET /v1/about", s.handleAbout)
 	mux.HandleFunc("GET /v1/search", s.handleSearch)
+	mux.HandleFunc("GET /v1/children/{key}", s.handleChildren)
 	mux.HandleFunc("GET /v1/random-pool/{build}", s.handlePool)
 	mux.HandleFunc("GET /v1/hits", s.handleHits)
 	mux.HandleFunc("GET /v1/path/{key}", s.handlePath)
@@ -676,7 +677,31 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = min(n, 50)
 	}
-	body, ans, err := s.searchBoth(r, q, limit)
+	// `under` fences both catalogues to one clade — the palette's drill-down.
+	// Resolved here, once, into the preorder interval every candidate is
+	// judged against; an unknown or broken key is refused rather than silently
+	// answered from the whole tree, which would be a scoped-looking list that
+	// is not scoped.
+	var scope *store.Scope
+	if under := r.URL.Query().Get("under"); under != "" {
+		res, err := s.St.Resolve(r.Context(), under)
+		if errors.Is(err, store.ErrUnknownKey) {
+			s.fail(w, r, http.StatusNotFound, "no taxon to search under: "+under)
+			return
+		}
+		if err != nil {
+			s.Log.Error("search under", "key", under, "err", err)
+			s.fail(w, r, http.StatusInternalServerError, "resolving the scope failed")
+			return
+		}
+		if res.Broken != nil || res.Idx < 0 {
+			s.fail(w, r, http.StatusNotFound,
+				"that taxon is not in the tree, so there is nothing under it to search")
+			return
+		}
+		scope = &store.Scope{Lo: res.Idx, Hi: int(s.St.Arrays.SubtreeOut[res.Idx])}
+	}
+	body, ans, err := s.searchBoth(r, q, limit, scope)
 	if err != nil {
 		s.Log.Error("search", "q", q, "err", err)
 		s.fail(w, r, http.StatusInternalServerError, "search failed")
@@ -691,7 +716,9 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		if fixed, err := s.St.Suggest(r.Context(), q); err != nil {
 			s.Log.Warn("spelling", "q", q, "err", err)
 		} else if fixed != "" {
-			alt, altAns, err := s.searchBoth(r, fixed, limit)
+			// The correction is re-searched under the same scope, so a fixed
+			// spelling whose taxon lives outside the clade is never offered.
+			alt, altAns, err := s.searchBoth(r, fixed, limit, scope)
 			if err != nil {
 				s.Log.Warn("spelling search", "q", fixed, "err", err)
 			} else if altAns.Better(ans) {
@@ -717,8 +744,8 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 
 // searchBoth answers one string from both catalogues and puts them in one
 // order, and reports how good that answer is.
-func (s *Server) searchBoth(r *http.Request, q string, limit int) (searchBody, store.Answer, error) {
-	res, err := s.St.Search(r.Context(), q, limit)
+func (s *Server) searchBoth(r *http.Request, q string, limit int, scope *store.Scope) (searchBody, store.Answer, error) {
+	res, err := s.St.SearchIn(r.Context(), q, limit, scope)
 	if err != nil {
 		return searchBody{}, store.Answer{}, err
 	}
@@ -728,7 +755,7 @@ func (s *Server) searchBoth(r *http.Request, q string, limit int) (searchBody, s
 	//502-ing the whole palette because a supplementary scan failed would trade
 	// a degraded list for no list.
 	if s.St.Schema.Fossil != nil {
-		fos, err := s.St.SearchFossils(r.Context(), q, limit)
+		fos, err := s.St.SearchFossilsIn(r.Context(), q, limit, scope)
 		if err != nil {
 			s.Log.Warn("fossil search", "q", q, "err", err)
 		} else {
@@ -739,6 +766,55 @@ func (s *Server) searchBoth(r *http.Request, q string, limit int) (searchBody, s
 	// statement about the pair. A fossil scan that failed leaves the nodes
 	// stamped 0..n-1, which is the same order they were already in.
 	return body, store.Interleave(body.Results, body.Fossils, q), nil
+}
+
+// --- /v1/children --------------------------------------------------------
+
+// childrenBody is the palette's scoped empty state: the named taxa one
+// drill-down step below `key`, largest subtree first. `total` is the size of
+// the whole frontier, so a cut page can say what it is a page of.
+type childrenBody struct {
+	Key     string               `json:"key"`
+	Idx     int                  `json:"idx"`
+	Results []store.SearchResult `json:"results"`
+	Total   int                  `json:"total"`
+}
+
+func (s *Server) handleChildren(w http.ResponseWriter, r *http.Request) {
+	key := r.PathValue("key")
+	limit := 0
+	if v := r.URL.Query().Get("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n <= 0 {
+			s.fail(w, r, http.StatusBadRequest, "limit must be a positive integer")
+			return
+		}
+		limit = n
+	}
+	res, err := s.St.Resolve(r.Context(), key)
+	if errors.Is(err, store.ErrUnknownKey) {
+		s.fail(w, r, http.StatusNotFound, "no such taxon: "+key)
+		return
+	}
+	if err != nil {
+		s.Log.Error("children resolve", "key", key, "err", err)
+		s.fail(w, r, http.StatusInternalServerError, "lookup failed")
+		return
+	}
+	if res.Broken != nil || res.Idx < 0 {
+		s.fail(w, r, http.StatusNotFound,
+			"that taxon is not in the tree, so it has no children to list")
+		return
+	}
+	rows, total, err := s.St.Children(r.Context(), res.Idx, limit)
+	if err != nil {
+		s.Log.Error("children", "key", key, "err", err)
+		s.fail(w, r, http.StatusInternalServerError, "listing children failed")
+		return
+	}
+	s.writeJSON(w, r, http.StatusOK, childrenBody{
+		Key: key, Idx: res.Idx, Results: rows, Total: total,
+	})
 }
 
 // --- /v1/hits ------------------------------------------------------------

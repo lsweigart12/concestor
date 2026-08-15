@@ -20,9 +20,10 @@
  */
 
 import { act, fireEvent, render, screen } from "@testing-library/react";
+import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, type SearchHit } from "../api";
-import { Palette, MIN_QUERY, type Command } from "./Palette";
+import { Palette, MIN_QUERY, type CladeScope, type Command } from "./Palette";
 
 /** A node hit, with every field the row actually reads. */
 function hit(
@@ -59,6 +60,8 @@ function mount(overrides: Partial<Parameters<typeof Palette>[0]> = {}) {
     commands: [] as Command[],
     filter: null,
     onFilter: noop,
+    scopes: [] as CladeScope[],
+    onScopes: noop,
     onPick: noop,
     onPickFossil: noop,
     present: new Set<number>(),
@@ -200,6 +203,8 @@ describe("Palette search", () => {
         commands={[]}
         filter={null}
         onFilter={noop}
+        scopes={[]}
+        onScopes={noop}
         onPick={noop}
         onPickFossil={noop}
         present={new Set()}
@@ -263,5 +268,145 @@ describe("Palette search", () => {
     // statement that the corpus lacks the thing, sitting on screen for the whole
     // of a cold container's round trip and then replaced by rows.
     expect(screen.queryByText(/Nothing matched/)).toBeNull();
+  });
+});
+
+/** A group row — something Tab can step into. */
+function genus(name: string, idx: number, tips: number): SearchHit {
+  return { ...hit(name, idx), rank: "genus", tip_count: tips };
+}
+
+/**
+ * `Palette` is controlled — `App` owns the chips — so the drill-down needs the
+ * loop closed: what `onScopes` reports is what `scopes` becomes, exactly as
+ * `App.tsx` wires it. Without this, Tab fires the callback and nothing on
+ * screen changes, and every assertion below would pass against a component
+ * that cannot actually drill.
+ */
+function Harness({ initial }: { initial: CladeScope[] }) {
+  const [scopes, setScopes] = useState(initial);
+  const [filter, setFilter] = useState<"species" | null>("species");
+  return (
+    <Palette
+      open
+      onClose={noop}
+      commands={[]}
+      filter={filter}
+      onFilter={setFilter}
+      scopes={scopes}
+      onScopes={setScopes}
+      onPick={noop}
+      onPickFossil={noop}
+      present={new Set()}
+      presentFossils={new Set()}
+      suggestions={{ recent: [], starters: [] }}
+    />
+  );
+}
+
+describe("Palette drill-down", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  const homo: CladeScope = { key: "ott770309", name: "Homo", rank: "genus" };
+
+  it("lists the clade's children before anything is typed", async () => {
+    const search = vi.spyOn(api, "search").mockResolvedValue(answer());
+    const children = vi.spyOn(api, "children").mockResolvedValue({
+      results: [hit("Homo sapiens", 10), hit("Homo erectus", 11)],
+      total: 2,
+    });
+    const { container } = render(<Harness initial={[homo]} />);
+    await settle();
+
+    // The requirement in one line: a scoped palette has no empty state.
+    expect(children).toHaveBeenCalledWith("ott770309");
+    expect(search).not.toHaveBeenCalled();
+    const titles = [...container.querySelectorAll(".row-title")].map(
+      (el) => el.textContent,
+    );
+    expect(titles).toContain("Homo sapiens");
+    expect(titles).toContain("Homo erectus");
+    expect(screen.queryByText(/Type to search/)).toBeNull();
+  });
+
+  it("names the cut when the children list is a page of a larger one", async () => {
+    vi.spyOn(api, "search").mockResolvedValue(answer());
+    vi.spyOn(api, "children").mockResolvedValue({
+      results: [hit("Homo sapiens", 10)],
+      total: 41,
+    });
+    render(<Harness initial={[homo]} />);
+    await settle();
+
+    expect(screen.getByText(/largest of 41 groups inside Homo/)).toBeTruthy();
+  });
+
+  it("Tab on a group pushes its chip, clears the field, and fences the search", async () => {
+    const search = vi
+      .spyOn(api, "search")
+      .mockResolvedValue(answer(genus("Homo", 5, 7)));
+    vi.spyOn(api, "children").mockResolvedValue({ results: [], total: 0 });
+    render(<Harness initial={[]} />);
+
+    type("homo");
+    await settle();
+    const input = screen.getByLabelText<HTMLInputElement>("Search or command");
+    fireEvent.keyDown(input, { key: "Tab" });
+    await settle();
+
+    // The chip is the path in: rank-prefixed, beside the Species filter chip.
+    expect(screen.getByText(/genus:/)).toBeTruthy();
+    expect(input.value).toBe("");
+    // The next search is fenced to the clade the reader stepped into.
+    type("er");
+    await settle();
+    const last = search.mock.calls.at(-1);
+    expect(last?.[3]).toBe("n5");
+  });
+
+  it("Tab on a lone species is swallowed and drills nowhere", async () => {
+    vi.spyOn(api, "search").mockResolvedValue(answer(hit("Homo sapiens", 9)));
+    const children = vi
+      .spyOn(api, "children")
+      .mockResolvedValue({ results: [], total: 0 });
+    render(<Harness initial={[]} />);
+
+    type("sapiens");
+    await settle();
+    fireEvent.keyDown(screen.getByLabelText("Search or command"), {
+      key: "Tab",
+    });
+    await settle();
+
+    expect(children).not.toHaveBeenCalled();
+    expect(screen.queryByText(/species:/)).toBeNull();
+  });
+
+  it("backspace at position zero pops the innermost chip first", async () => {
+    vi.spyOn(api, "search").mockResolvedValue(answer());
+    vi.spyOn(api, "children").mockResolvedValue({
+      results: [hit("Homo sapiens", 10)],
+      total: 1,
+    });
+    render(<Harness initial={[homo]} />);
+    await settle();
+    expect(screen.getByText(/genus:/)).toBeTruthy();
+
+    const input = screen.getByLabelText("Search or command");
+    fireEvent.keyDown(input, { key: "Backspace" });
+    await settle();
+    // The clade chip went; the Species filter is still on.
+    expect(screen.queryByText(/genus:/)).toBeNull();
+    expect(screen.getByText("Species")).toBeTruthy();
+
+    fireEvent.keyDown(input, { key: "Backspace" });
+    expect(screen.queryByText("Species")).toBeNull();
   });
 });

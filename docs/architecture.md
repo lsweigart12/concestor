@@ -284,7 +284,8 @@ one that deploys on a release cadence. `deployment.md` §1 has the RSS it actual
 | Route | Returns |
 |---|---|
 | `GET /v1/path/{key}` | ancestor chain: idx, key, name, rank, age, tier, tip_count, phylopic |
-| `GET /v1/search?q=` | typeahead candidates (one FTS5 query; a zero-match query costs a second, on a corrected spelling) |
+| `GET /v1/search?q=` | typeahead candidates (one FTS5 query; a zero-match query costs a second, on a corrected spelling). `&under={key}` fences both catalogues to one clade — two comparisons per candidate, since containment is the preorder interval |
+| `GET /v1/children/{key}` | the named taxa one drill-down step below a clade, largest subtree first — the scoped palette's empty state. Unnamed `mrcaott…` children are stepped through to their named descendants |
 | `GET /v1/segment/{upper}/{lower}` | intermediates + ranked fossils with brackets |
 | `GET /v1/node/{key}` | detail panel: synonyms, sources, xref provenance, attribution |
 | `GET /v1/timescale` | ICS intervals, ~40 KB, `immutable` |

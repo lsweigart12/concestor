@@ -148,6 +148,7 @@ export function Detail({
   isDrawn,
   onAdd,
   onRemove,
+  onBrowse,
 }: {
   detail: NodeDetail;
   hue: number;
@@ -165,6 +166,12 @@ export function Detail({
   isDrawn: boolean;
   onAdd: () => void;
   onRemove: () => void;
+  /**
+   * Opens the palette fenced to this taxon — the card's door into the
+   * drill-down. Null where there is nothing to browse (a single species) or
+   * nothing to put on the chip (an unnamed divergence).
+   */
+  onBrowse: (() => void) | null;
 }) {
   const age = ageLabel(detail.age_ma, detail.tier);
   // Which dated taxa the position came from. Null on every dated node and on a
@@ -384,7 +391,17 @@ export function Detail({
           </>
         )}
         <dt>species below</dt>
-        <dd className="num">{detail.tip_count.toLocaleString()}</dd>
+        <dd className="num">
+          {detail.tip_count.toLocaleString()}
+          {onBrowse && (
+            // The number, made walkable: the same drill-down Tab reaches in
+            // the palette, entered from the card about the group. A button
+            // beside the figure rather than on it, so the fact stays a fact.
+            <button type="button" className="fact-browse" onClick={onBrowse}>
+              browse
+            </button>
+          )}
+        </dd>
         {detail.child_count > 0 && (
           <>
             <dt>branches here</dt>

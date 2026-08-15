@@ -965,6 +965,133 @@ func TestSearchReturnsBrokenKind(t *testing.T) {
 	t.Fatalf("Dinosauria did not come back as kind=broken: %+v", body.Results)
 }
 
+// `under` fences both catalogues to one clade. Everything inside the fence is
+// asserted from the arrays' own interval, because that containment *is* the
+// contract: a row outside it is a scoped-looking answer that is not scoped.
+func TestSearchUnderScopesToTheClade(t *testing.T) {
+	ts, st := serve(t)
+	homo, ok := st.Arrays.IdxForOtt(770309)
+	if !ok {
+		t.Fatal("Homo (ott770309) is not in this build")
+	}
+	out := int(st.Arrays.SubtreeOut[homo])
+
+	var body struct {
+		Results []store.SearchResult `json:"results"`
+		Fossils []store.Fossil       `json:"fossils"`
+	}
+	resp := getJSON(t, ts, "/v1/search?q=h&under=ott770309", &body)
+	if resp.StatusCode != 200 {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+	if len(body.Results) == 0 {
+		// A one-letter query inside a seven-species genus: the scoped
+		// candidate generation must reach these rows, or the fences starved it.
+		t.Fatal("nothing matched 'h' inside Homo")
+	}
+	for _, r := range body.Results {
+		if r.Kind == "broken" {
+			t.Errorf("%s: a broken taxon has no position, so no scoped answer may hold one", r.Key)
+			continue
+		}
+		if r.Idx == nil || *r.Idx < homo || *r.Idx >= out {
+			t.Errorf("%s (idx %v) is outside Homo's interval [%d, %d)", r.Key, r.Idx, homo, out)
+		}
+	}
+	for _, f := range body.Fossils {
+		if f.AttachIdx < homo || f.AttachIdx >= out {
+			t.Errorf("fossil %s attaches at %d, outside [%d, %d)", f.Name, f.AttachIdx, homo, out)
+		}
+	}
+
+	// A name whose taxon lives outside the scope answers nothing — the same
+	// query unscoped is the control that proves the fence did it.
+	var dogs, scoped struct {
+		Results []store.SearchResult `json:"results"`
+	}
+	getJSON(t, ts, "/v1/search?q=Canis+lupus", &dogs)
+	if len(dogs.Results) == 0 {
+		t.Fatal("Canis lupus not found unscoped; the control proves nothing")
+	}
+	getJSON(t, ts, "/v1/search?q=Canis+lupus&under=ott770309", &scoped)
+	for _, r := range scoped.Results {
+		if r.Name != nil && strings.HasPrefix(*r.Name, "Canis") {
+			t.Errorf("Canis reached a search scoped to Homo: %+v", r)
+		}
+	}
+
+	if r := getJSON(t, ts, "/v1/search?q=h&under=ott999999999", nil); r.StatusCode != 404 {
+		t.Errorf("unknown scope = %d, want 404", r.StatusCode)
+	}
+}
+
+// The drill-down's empty state: entering a clade lists what is inside it.
+func TestChildrenListsTheNamedGroupsBelow(t *testing.T) {
+	ts, st := serve(t)
+	homo, ok := st.Arrays.IdxForOtt(770309)
+	if !ok {
+		t.Fatal("Homo (ott770309) is not in this build")
+	}
+	out := int(st.Arrays.SubtreeOut[homo])
+
+	var body struct {
+		Key     string               `json:"key"`
+		Idx     int                  `json:"idx"`
+		Results []store.SearchResult `json:"results"`
+		Total   int                  `json:"total"`
+	}
+	resp := getJSON(t, ts, "/v1/children/ott770309", &body)
+	if resp.StatusCode != 200 {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+	if body.Idx != homo || body.Key != "ott770309" {
+		t.Errorf("echoed %s/%d, want ott770309/%d", body.Key, body.Idx, homo)
+	}
+	if len(body.Results) == 0 {
+		t.Fatal("Homo has seven species and no rows came back")
+	}
+	if body.Total < len(body.Results) {
+		t.Errorf("total %d < %d rows on the page", body.Total, len(body.Results))
+	}
+	// The synthesis resolves Homo into unnamed mrcaott… divergences, so this
+	// list existing at all proves the walk stepped through them; every row must
+	// still be a named node strictly inside the clade, ranked largest-first
+	// with `order` stamped for the client.
+	for i, r := range body.Results {
+		if r.Idx == nil || *r.Idx <= homo || *r.Idx >= out {
+			t.Errorf("row %d (%s) is outside Homo's interval (%d, %d)", i, r.Key, homo, out)
+		}
+		if r.Name == nil || *r.Name == "" {
+			t.Errorf("row %d (%s) has no name — not somewhere a reader can go", i, r.Key)
+		}
+		if r.Order == nil || *r.Order != i {
+			t.Errorf("row %d carries order %v", i, r.Order)
+		}
+		if i > 0 {
+			prev, cur := body.Results[i-1].TipCount, r.TipCount
+			if prev != nil && cur != nil && *prev < *cur {
+				t.Errorf("row %d breaks the largest-first order: %d after %d", i, *cur, *prev)
+			}
+		}
+	}
+
+	// A species with no subtree below it is an empty list, not an error.
+	var tip struct {
+		Results []store.SearchResult `json:"results"`
+		Total   int                  `json:"total"`
+	}
+	if r := getJSON(t, ts, "/v1/children/ott770315?limit=5", &tip); r.StatusCode != 200 {
+		t.Errorf("children of a near-tip = %d, want 200", r.StatusCode)
+	}
+
+	if r := getJSON(t, ts, "/v1/children/ott999999999", nil); r.StatusCode != 404 {
+		t.Errorf("unknown key = %d, want 404", r.StatusCode)
+	}
+	if r := getJSON(t, ts, "/v1/children/ott770309?limit=0", nil); r.StatusCode != 400 {
+		t.Errorf("limit=0 = %d, want 400", r.StatusCode)
+	}
+}
+
 func TestNodeDetail(t *testing.T) {
 	ts, _ := serve(t)
 	var body struct {
