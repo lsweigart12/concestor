@@ -617,6 +617,56 @@ def test_one_hop_lift_never_displaces_a_direct_hit():
     assert seed[1] == 3
 
 
+def test_lift_collision_prefers_the_nominate_drawing():
+    """The Homo sapiens case in full: three subspecies lift onto one species.
+
+    A Neanderthal, a Denisovan and an anatomically modern human all cite
+    subspecies of *Homo sapiens*, none of which is a node. Whichever the crawl
+    met last used to win; the node must instead take the drawing whose own
+    title names it — the nominate "Homo sapiens sapiens".
+    """
+    ott = np.array([NO_OTT, 770315], dtype=np.int64)
+    tips = np.array([9, 2], dtype=np.uint32)
+    titles = [
+        "Homo neanderthalensis neanderthalensis",  # record 0, cites 83926
+        "Homo sapiens sapiens",  # record 1, cites 5341349
+        "Homo longi",  # record 2, cites 933436
+    ]
+    seed, stats = seed_nodes(
+        ott,
+        tips,
+        {83926: 0, 5341349: 1, 933436: 2},
+        {},
+        parents={83926: 770315, 5341349: 770315, 933436: 770315},
+        lift_max_tips=100,
+        titles=titles,
+        name_uids={"Homo sapiens": [770315]},
+        rank_keys=[(True, "2025", "a"), (False, "2011", "b"), (True, "2025", "c")],
+    )
+    assert seed[1] == 1  # the nominate wins over both better-ranked rivals
+    assert stats["ott_ids_lifted_one_hop"] == 3
+    assert stats["lift_collisions"] == 2
+
+
+def test_lift_collision_falls_back_to_curation_rank():
+    """No nominate among the rivals: PhyloPic's own ranking decides."""
+    ott = np.array([NO_OTT, 770315], dtype=np.int64)
+    tips = np.array([9, 2], dtype=np.uint32)
+    seed, stats = seed_nodes(
+        ott,
+        tips,
+        {83926: 0, 933436: 1},
+        {},
+        parents={83926: 770315, 933436: 770315},
+        lift_max_tips=100,
+        titles=["Homo neanderthalensis neanderthalensis", "Homo longi"],
+        name_uids={"Homo sapiens": [770315]},
+        rank_keys=[(False, "2011", "a"), (True, "2025", "b")],
+    )
+    assert seed[1] == 1  # primary-image status then recency, as pick_per_ott
+    assert stats["lift_collisions"] == 1
+
+
 def test_lift_only_walks_one_hop():
     """Two hops is a different claim, and the fossil cases are all multi-hop."""
     ott = np.array([NO_OTT, 100], dtype=np.int64)

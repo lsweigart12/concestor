@@ -1,8 +1,29 @@
 """Phase 1 — parse the synthesis Newick into preorder-indexed topology arrays.
 
 Output is the hot-path array data plus the `node` table for everything else.
-The structural gates (tip count above all) validate the parse; a mismatch means
-a real parse bug, not a stale constant.
+The structural gates (tip count above all) validate the parse and the collapse;
+a mismatch means a real bug, not a stale constant.
+
+## The tree stops at species
+
+Synthesis carries ~68k infraspecific taxa — subspecies, varieties, forms, and
+the strain-level terminals beneath them. This product is about the tree of
+species, and an infraspecific tip costs more than it says: it turns 22k species
+into internal nodes (*Homo sapiens* was internal, because OTT hangs Neanderthals
+and Denisovans off it as subspecies), it puts a rank below the reader's mental
+model on the canvas, and it splits a species' images, names and fossils across
+nodes nobody selects. So phase 1 collapses them: every subtree rooted at an
+infraspecific taxon folds into its nearest surviving ancestor — almost always
+the species — and what folded is recorded in `folded_infraspecific` so the
+detail card can still say "includes 2 subspecies".
+
+Membership is the **union** of the OTT `infraspecific` flag and the
+infraspecific ranks, because the two disagree in both directions: ~37k flagged
+nodes sit at `no rank`/`no rank - terminal` (Homo sapiens neanderthalensis is
+one — a rank rule misses the headline case), and ~550 nodes at an
+infraspecific rank lack the flag. The named non-infraspecific nodes a subtree
+prune takes with it are strain-level terminals under a subspecies, measured and
+gated below.
 """
 
 from __future__ import annotations
@@ -39,17 +60,31 @@ DB = BUILD / "concestor.db"
 type NodeRow = tuple[int, int | None, str, str | None, str | None, str | None, int, int]
 # ott_id, node_key, name, mrca_node_key, mrca_idx, n_points, points, intruders
 type BrokenRow = tuple[int, str, str | None, str, int | None, int, str, str]
+# surviving ancestor idx, ott_id, name, rank
+type FoldedRow = tuple[int, int, str, str | None]
 
-EXPECT_TIPS = 2_385_875
-EXPECT_INTERNAL = 339_807
-EXPECT_TOTAL = 2_725_682
+# Ranks below species. Checked as a union with the `infraspecific` flag — see
+# the module docstring for why neither alone is enough.
+INFRA_RANKS = frozenset(
+    {"subspecies", "varietas", "variety", "forma", "infraspecificname"}
+)
+
+# Post-collapse figures. The pre-collapse parse is pinned by EXPECT_PARSED
+# alone; everything below it measures the collapsed tree.
+EXPECT_PARSED = 2_725_682
+EXPECT_TIPS = 2_340_087
+EXPECT_INTERNAL = 316_754
+EXPECT_TOTAL = 2_656_841
 EXPECT_MAX_DEPTH = 111
 EXPECT_MIN_DEPTH = 2
-EXPECT_MEAN_DEPTH = 41.32
+EXPECT_MEAN_DEPTH = 41.39
 EXPECT_MAX_FANOUT = 12_964
-EXPECT_UNARY = 83_305
+EXPECT_UNARY = 69_845
 EXPECT_FORWARDS = 297_070
 EXPECT_BROKEN = 9_839
+EXPECT_INFRA = 67_837
+EXPECT_COLLAPSED = 68_841
+EXPECT_COLLATERAL = 688
 
 
 def load_forwards() -> dict[int, int]:
@@ -110,6 +145,128 @@ def load_broken() -> dict[str, JsonDict]:
         return json.load(fh)["non_monophyletic_taxa"]
 
 
+def collapse_infraspecific(
+    tree: newick.ParsedTree, taxonomy: dict[int, tuple[str, str, str]]
+) -> tuple[newick.ParsedTree, list[FoldedRow], dict[str, int], JsonDict]:
+    """Fold every infraspecific subtree into its nearest surviving ancestor.
+
+    Three linear sweeps, in the style of `derive`:
+
+    1. Down: a node is removed if it is infraspecific (flag ∪ rank) or its
+       parent is removed — subtree pruning, which is safe because an
+       infraspecific node's descendants are infraspecific taxa and their
+       strains, never a full species (gated as `collateral` below).
+    2. Up: an *unnamed* node whose surviving children all went is structure
+       that existed only to arrange them (an `mrcaott…` grouping of
+       subspecies); it goes too. A named node left childless is the point of
+       the exercise — the species, now a tip.
+    3. Down: each removed node's nearest surviving ancestor, which is where
+       its named taxa are recorded as folded.
+
+    Survivors keep their relative preorder order, so the renumbering is a
+    subtraction and every invariant `derive` relies on is preserved.
+    """
+    n = tree.n_nodes
+    par = tree.parent.astype(np.int64)
+    par[0] = -1
+    par_l = par.tolist()
+    ott_l = tree.ott_id.tolist()
+
+    n_flagged = n_ranked = 0
+    removed = [False] * n
+    for i, o in enumerate(ott_l):
+        if o == NO_OTT:
+            continue
+        t = taxonomy.get(o)
+        if t is None:
+            continue
+        _, rank, flags = t
+        flagged = "infraspecific" in flags.split(",")
+        ranked = rank in INFRA_RANKS
+        if flagged:
+            n_flagged += 1
+        if ranked:
+            n_ranked += 1
+        if flagged or ranked:
+            removed[i] = True
+    n_infra = sum(removed)
+
+    for i in range(1, n):
+        if removed[par_l[i]]:
+            removed[i] = True
+    n_subtree = sum(removed)
+
+    # Reverse sweep: children carry higher indices, so by the time `i` is
+    # reached every child's fate is known and `surviving[i]` is final.
+    child_count = np.bincount(par[1:][~np.array(removed[1:], dtype=bool)], minlength=n)
+    was_internal = np.bincount(par[1:], minlength=n) > 0
+    surviving = child_count.tolist()
+    for i in range(n - 1, 0, -1):
+        if removed[i]:
+            continue
+        if was_internal[i] and surviving[i] == 0 and ott_l[i] == NO_OTT:
+            removed[i] = True
+            surviving[par_l[i]] -= 1
+    n_removed = sum(removed)
+
+    anc = [0] * n
+    folded: list[FoldedRow] = []
+    fold_of_key: dict[str, int] = {}
+    n_collateral = 0
+    for i in range(n):
+        if not removed[i]:
+            anc[i] = i
+            continue
+        anc[i] = anc[par_l[i]]
+        label = tree.labels[i]
+        if label:
+            # Anything that referenced the removed node by its Newick label —
+            # a broken taxon's substitute MRCA is the known case — resolves to
+            # where the node folded.
+            fold_of_key[label.decode("utf-8", "replace")] = anc[i]
+        o = ott_l[i]
+        if o == NO_OTT:
+            continue
+        t = taxonomy.get(o)
+        if t is None:
+            continue
+        name, rank, flags = t
+        if not ("infraspecific" in flags.split(",") or rank in INFRA_RANKS):
+            n_collateral += 1
+        folded.append((anc[i], o, name, rank or None))
+
+    keep = ~np.array(removed, dtype=bool)
+    new_of_old = np.cumsum(keep, dtype=np.int64) - 1
+    kept_idx = np.flatnonzero(keep)
+    new_parent = np.where(
+        kept_idx == 0, np.int64(NO_PARENT), new_of_old[par[kept_idx]]
+    ).astype(np.uint32)
+    new_ott = tree.ott_id[kept_idx]
+    new_labels = [tree.labels[int(i)] for i in kept_idx.tolist()]
+    collapsed = newick.ParsedTree(
+        parent=new_parent, ott_id=new_ott, labels=new_labels, branch_length=None
+    )
+    # Fold targets renumber with everything else.
+    folded = [(int(new_of_old[a]), o, name, rank) for a, o, name, rank in folded]
+    fold_of_key = {k: int(new_of_old[v]) for k, v in fold_of_key.items()}
+
+    return (
+        collapsed,
+        folded,
+        fold_of_key,
+        {
+            "infraspecific (flag ∪ rank)": n_infra,
+            "flagged": n_flagged,
+            "at an infraspecific rank": n_ranked,
+            "removed with subtrees": n_subtree,
+            "unnamed structure emptied": n_removed - n_subtree,
+            "removed": n_removed,
+            "collateral named removals": n_collateral,
+            "folded rows": len(folded),
+        },
+    )
+
+
 def run(oracle: bool = True, oracle_samples: int = 200) -> int:
     g = GateSet("phase1-topology")
     OUT.mkdir(parents=True, exist_ok=True)
@@ -121,6 +278,40 @@ def run(oracle: bool = True, oracle_samples: int = 200) -> int:
     print(
         f"  parsed {tree.n_nodes:,} nodes in {time.monotonic() - t0:,.1f}s", flush=True
     )
+    g.require("parsed node count", tree.n_nodes, EXPECT_PARSED)
+
+    taxonomy, n_tax = load_taxonomy()
+
+    print("\n--- collapsing infraspecific taxa ---", flush=True)
+    t1 = time.monotonic()
+    tree, folded, fold_of_key, fold_stats = collapse_infraspecific(tree, taxonomy)
+    print(
+        f"  {fold_stats['removed']:,} nodes folded in {time.monotonic() - t1:,.1f}s",
+        flush=True,
+    )
+    g.require(
+        "infraspecific nodes (flag ∪ rank)",
+        fold_stats["infraspecific (flag ∪ rank)"],
+        EXPECT_INFRA,
+    )
+    g.require("nodes removed by the collapse", fold_stats["removed"], EXPECT_COLLAPSED)
+    g.require(
+        "collateral named removals",
+        fold_stats["collateral named removals"],
+        EXPECT_COLLATERAL,
+        note=(
+            "Named, non-infraspecific nodes inside pruned subtrees. All are "
+            "strain-level terminals under a subspecies; a species here means "
+            "the prune took something real and the build must not ship."
+        ),
+    )
+    g.observe(
+        "flag vs rank disagreement",
+        f"flagged {fold_stats['flagged']:,}, "
+        f"ranked {fold_stats['at an infraspecific rank']:,}",
+        note="union membership; see the module docstring",
+    )
+    g.observe("unnamed structure emptied", fold_stats["unnamed structure emptied"])
 
     t1 = time.monotonic()
     topo = newick.derive(tree.parent)
@@ -186,7 +377,6 @@ def run(oracle: bool = True, oracle_samples: int = 200) -> int:
     chained = sum(1 for k, v in forwards.items() if v in forwards)
     g.observe("forwards needing >1 hop", chained, note="chased transitively")
 
-    taxonomy, n_tax = load_taxonomy()
     g.observe("taxonomy.tsv rows", f"{n_tax:,}")
 
     ott_ids = tree.ott_id
@@ -217,7 +407,7 @@ def run(oracle: bool = True, oracle_samples: int = 200) -> int:
     np.save(OUT / "ott_sorted.npy", ott_ids[order])
     np.save(OUT / "ott_to_idx.npy", order.astype(np.uint32))
 
-    write_db(tree, topo, taxonomy, broken, forwards)
+    write_db(tree, topo, taxonomy, broken, forwards, folded, fold_of_key)
 
     # Content gates: structural gates count nodes but not whether columns carry
     # data. A rename once emptied `rank` and every structural gate still passed.
@@ -274,6 +464,8 @@ def write_db(
     taxonomy: dict[int, tuple[str, str, str]],
     broken: dict[str, JsonDict],
     forwards: dict[int, int],
+    folded: list[FoldedRow],
+    fold_of_key: dict[str, int],
 ) -> None:
     DB.unlink(missing_ok=True)
     con = sqlite3.connect(DB)
@@ -290,6 +482,17 @@ def write_db(
           flags      TEXT,
           tip_count  INTEGER NOT NULL,
           depth      INTEGER NOT NULL
+        );
+
+        -- What the infraspecific collapse folded into each surviving node,
+        -- so the species card can say "includes 2 subspecies" without the
+        -- subspecies being nodes. Not part of the topology: nothing else
+        -- joins it, and a row's taxon has no idx of its own.
+        CREATE TABLE folded_infraspecific (
+          idx     INTEGER NOT NULL,   -- the surviving ancestor, almost always the species
+          ott_id  INTEGER NOT NULL,
+          name    TEXT NOT NULL,
+          rank    TEXT
         );
 
         -- Broken taxa are NOT nodes: a non-monophyletic taxon is rejected from
@@ -333,8 +536,10 @@ def write_db(
             )
 
     con.executemany("INSERT INTO node VALUES (?,?,?,?,?,?,?,?)", rows())
+    con.executemany("INSERT INTO folded_infraspecific VALUES (?,?,?,?)", folded)
     con.executescript(
         """
+        CREATE INDEX folded_by_node ON folded_infraspecific(idx);
         CREATE UNIQUE INDEX node_ott ON node(ott_id) WHERE ott_id IS NOT NULL;
         CREATE INDEX node_key_idx ON node(node_key);
         CREATE INDEX node_name ON node(name) WHERE name IS NOT NULL;
@@ -350,12 +555,13 @@ def write_db(
             ott_id = parse_ott_id(key.encode())
             name = taxonomy.get(ott_id, (None, None, None))[0]
             points = entry["attachment_points"]
+            mrca = entry["mrca"]
             yield (
                 ott_id,
                 key,
                 name,
-                entry["mrca"],
-                key_to_idx.get(entry["mrca"]),
+                mrca,
+                key_to_idx.get(mrca, fold_of_key.get(mrca)),
                 len(points),
                 json.dumps(points, separators=(",", ":")),
                 json.dumps(entry["intruding_taxa"], separators=(",", ":")),

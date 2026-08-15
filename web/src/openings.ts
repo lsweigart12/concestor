@@ -100,8 +100,9 @@ export const OPENINGS: readonly Opening[] = [
   {
     // The meerkat is the rest of the fact, not decoration: hyenas are nearer
     // mongooses and civets than anything canine, so it adds a rung below the
-    // lion. The dog is the domestic subspecies on purpose (here the dog *is* the
-    // question), which costs the `structural` dashed branch of an undated taxon.
+    // lion. The dog is *Canis lupus* wearing a dog's drawing: the tree stops at
+    // species, the domestic subspecies folded into the wolf, and here the dog
+    // is the question — so the species carries the dog's label and art.
     id: "hyena",
     question: "Is a hyena a kind of dog?",
     reveal:
@@ -123,7 +124,7 @@ export const OPENINGS: readonly Opening[] = [
         label: "meerkat",
       },
       {
-        key: "ott247333",
+        key: "ott247341",
         art: "4d83a0cd-cf06-4a32-9a5a-0a6b644158c1",
         label: "dog",
       },
@@ -416,8 +417,8 @@ export const OPENINGS: readonly Opening[] = [
   },
   {
     // *Manis gigantea* rather than the genus (a species sits at the present).
-    // The wolf rather than the dog: the canid is a supporting taxon here, so
-    // there is nothing to buy with the domestic subspecies' dashed branch.
+    // The wolf label rather than the dog's: the canid is a supporting taxon
+    // here, so it goes by the species' own name.
     id: "pangolin",
     question: "A pangolin looks like an armadillo. Is it one?",
     reveal:

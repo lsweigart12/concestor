@@ -51,7 +51,7 @@ export type LabelMode = "off" | "scientific" | "common";
  * (deliberately duplicated, so a payload predating the restriction cannot leak
  * "animals" onto Metazoa).
  */
-const COMMON_RANKS = new Set(["genus", "species", "subspecies"]);
+const COMMON_RANKS = new Set(["genus", "species"]);
 
 /**
  * A name and the rank to italicise it by — null where the string is roman. Same
@@ -67,7 +67,7 @@ interface MarkName {
  * The one string a mark may show, decided in one place so `describeLabel` (which
  * measures it) and `NodeMark` (which draws it) cannot disagree. The common name
  * is used where all three hold, else the scientific name silently: the node is a
- * genus/species/subspecies, the ranking put a name first, and it is not the
+ * genus or species, the ranking put a name first, and it is not the
  * scientific name repeated (as PBDB's ColDP rows routinely are).
  */
 export function markName(
@@ -146,14 +146,12 @@ export function divergenceFor(
 }
 
 /**
- * The chosen species that sit *inside* this one, if any.
+ * The chosen taxa that sit *inside* this one, if any.
  *
  * Usually empty: selections are normally tips and nothing hangs below them.
- * OTT makes the exception ordinary, though — *Homo sapiens neanderthalensis* is
- * filed as a child of *Homo sapiens*, so choosing both makes the human node the
- * divergence between them. Readers do not expect that (most people think of
- * Neanderthals as a separate species) and the canvas cannot explain it, so the
- * detail card does.
+ * But a reader can pick a group and something inside it — *Canis* and the
+ * wolf — and then the outer selection is also the divergence its inner ones
+ * hang from. The canvas cannot explain that, so the detail card does.
  */
 export function nestedSelections(
   idx: number,

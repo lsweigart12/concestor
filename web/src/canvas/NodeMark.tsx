@@ -93,9 +93,9 @@ export interface MarkData extends Record<string, unknown> {
   biolum: boolean;
 }
 
-/** Species, genus and subspecies names are italic; higher taxa are roman. */
+/** Species and genus names are italic; higher taxa are roman. */
 export function isScientificItalic(rank: string | null): boolean {
-  return rank === "species" || rank === "genus" || rank === "subspecies";
+  return rank === "species" || rank === "genus";
 }
 
 /**

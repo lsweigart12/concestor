@@ -4,8 +4,11 @@
  * `/?n=770315,83926,417950,3607671` — human, Neanderthal, chimpanzee, *Homo
  * erectus* — drew two nodes both labelled "unnamed divergence", and the split
  * a reader most wants (Neanderthal from human) drawn on top of the human node
- * at zero length. The indices and names below are the real baked arrays, read
- * back from `/v1/paths` on the 2026-07-31 build.
+ * at zero length. The indices and names below were read back from `/v1/paths`
+ * on the 2026-07-31 build, and are kept as a frozen fixture: that build filed
+ * Neanderthals as a subspecies inside *Homo sapiens*, a shape the
+ * infraspecific collapse has since removed, but the naming and layout rules
+ * pinned here must hold for any nested or zero-length divergence.
  */
 
 import { describe, expect, it } from "vitest";
@@ -260,9 +263,13 @@ describe("branch prose", () => {
 });
 
 describe("a selection nested inside another selection", () => {
-  // OTT files Neanderthals as a subspecies *of* Homo sapiens, so the divergence
-  // between them is the human node itself. Both sit at age 0, so before the row
-  // rule changed they shared an x *and* a y: same pixel, zero-length trace.
+  // A selection can contain another — pick a genus and a species inside it —
+  // and then the divergence between them is the outer node itself. This
+  // fixture's shape is the case that found the bug: the pre-collapse build
+  // filed Neanderthals as a subspecies *of* Homo sapiens, both at age 0, so
+  // before the row rule changed they shared an x *and* a y: same pixel,
+  // zero-length trace. The topology no longer produces that pair, but the
+  // geometry is exactly what any group-plus-member pick produces today.
   it("gives the ancestor selection its own row", () => {
     const lay = layout(ind, nodes);
     const human = lay.placed.get(HOMO_SAPIENS)!;

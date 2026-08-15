@@ -12,12 +12,13 @@ import type { RandomKind } from "./api";
 
 /**
  * Number of species to search, as told to a reader: the `rank='species'` count,
- * not the node total (which includes groups) nor the tip count (which includes
- * subspecies and excludes species with subspecies beneath them). It is a phrase
+ * not the node total (which also includes genera and higher groups). Since the
+ * infraspecific collapse the tree stops at species, so tips and species nearly
+ * coincide; the residue is groups that are themselves tips. It is a phrase
  * rather than a number so no caller reinvents the wording; `corpora.test.ts`
  * pins it to `docs/data-sources.md` and forbids hardcoded counts elsewhere.
  */
-export const TREE_SPECIES = 2_295_972;
+export const TREE_SPECIES = 2_295_800;
 
 /** {@link TREE_SPECIES}, as it prints. */
 export const SPECIES_PHRASE = "2.3 million species";

@@ -35,7 +35,7 @@ export interface PathNode {
   rank: string | null;
   /**
    * The name this taxon goes by when the canvas draws common names: the name
-   * ranked first by use, served only for genus, species and subspecies (both in
+   * ranked first by use, served only for genus and species (both in
    * `api.Entry.Vernacular`). Usually absent — most of a deep tree falls back to
    * the scientific name, and italics tell the reader which they see (`markName`).
    */
@@ -282,6 +282,12 @@ export interface NodeDetail extends PathNode {
   child_count: number;
   synonyms: string[];
   vernaculars: string[];
+  /**
+   * The infraspecific taxa the pipeline folded into this node — subspecies,
+   * varieties, forms. They are not nodes; the card mentions them so a species
+   * that is deliberately a tip can still say what it contains.
+   */
+  folded_infraspecific: { ott_id: number; name: string; rank: string | null }[];
   /**
    * The Wikidata item this node is, where the vernacular crawl reached it. An
    * identifier, not a name, so a link from it lands on the right article; absent

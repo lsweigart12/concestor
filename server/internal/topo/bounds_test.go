@@ -26,14 +26,16 @@ import (
 //     sweep withdrew the resolutions the walk-0 attachments rested on: five of
 //     its six rows now attach at *Odontoceti* two hops up, and the node holds
 //     no bracket of its own. A fossil range on a one-tip genus was the bug.
-//
-// One node, and both totals it appears in.
+//   - The infraspecific collapse then removed ~68k nodes outright, most of
+//     them structural: subspecies tips Duke never dated and the unnamed
+//     `mrcaott…` scaffolding that arranged them. That is why every total
+//     below fell at once — the nodes are gone, not re-tiered.
 const (
-	measuredAgainstBuild = "70780a4c35b8a617"
+	measuredAgainstBuild = "post-collapse (update from build/manifest.json at package)"
 
-	wantStructural      = 186317
-	wantWithLowerBound  = 5168
-	wantAtPresentBelow  = 181149
+	wantStructural      = 118263
+	wantWithLowerBound  = 5091
+	wantAtPresentBelow  = 113172
 	wantWithoutAncestor = 0
 )
 

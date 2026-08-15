@@ -3,6 +3,7 @@ package topo
 import (
 	"path/filepath"
 	"slices"
+	"strconv"
 	"testing"
 
 	"github.com/lsweigart12/concestor/server/internal/testenv"
@@ -28,30 +29,14 @@ var referenceSelection = []struct {
 	{"Amanita muscaria", 75257},
 }
 
-// The values below were produced by running the reference implementation,
-// pipeline/src/concestor_build/render.py, against build/topology. The Go port
-// must reproduce them exactly; this is the strongest end-to-end check
-// available, because it pins one number (2|L|-1) and the whole shape of the
-// result at once.
-var (
-	refSelectionIdx = []int{12950, 449434, 588587, 594485, 594505, 633749, 654142, 674350, 882186, 1176207, 2328159}
-	refMRCA         = 1
-	refRendered     = []int{
-		1, 18, 12950, 449434, 588406, 588414, 588422, 588426, 588435, 588587,
-		594475, 594485, 594505, 603110, 633749, 654142, 674350, 741328, 882186,
-		1176207, 2328159,
-	}
-	// node -> {nearest rendered ancestor (-1 at the induced root), suppressed count}
-	refSegments = map[int][2]int{
-		1: {-1, 0}, 18: {1, 16}, 12950: {18, 46}, 449434: {18, 13},
-		588406: {1, 1}, 588414: {588406, 7}, 588422: {588414, 7},
-		588426: {588422, 3}, 588435: {588426, 8}, 588587: {588435, 28},
-		594475: {588435, 16}, 594485: {594475, 9}, 594505: {594475, 1},
-		603110: {588426, 1}, 633749: {603110, 24}, 654142: {603110, 14},
-		674350: {588422, 27}, 741328: {588414, 0}, 882186: {741328, 25},
-		1176207: {741328, 52}, 2328159: {588406, 30},
-	}
-)
+// The expected values come from the committed fixture that
+// `concestor-build fixtures` generates by running the reference
+// implementation, pipeline/src/concestor_build/render.py, against
+// build/topology. The Go port must reproduce it exactly; this is the
+// strongest end-to-end check available, because it pins one number (2|L|-1)
+// and the whole shape of the result at once — and the TypeScript port is
+// pinned to the same file, so the three implementations cannot drift apart
+// one transcription at a time.
 
 func load(t *testing.T) *Arrays {
 	t.Helper()
@@ -67,15 +52,15 @@ func load(t *testing.T) *Arrays {
 func TestLoadAssertsInvariants(t *testing.T) {
 	a := load(t)
 	// Load() refuses to return arrays that violate parent[i] < i, so reaching
-	// here already proves the preorder invariant over all 2,725,682 nodes.
-	if a.N != 2725682 {
-		t.Errorf("N = %d, want 2725682", a.N)
+	// here already proves the preorder invariant over all 2,656,841 nodes.
+	if a.N != 2656841 {
+		t.Errorf("N = %d, want 2656841", a.N)
 	}
-	if a.Tips != 2385875 {
-		t.Errorf("tips = %d, want 2385875", a.Tips)
+	if a.Tips != 2340087 {
+		t.Errorf("tips = %d, want 2340087", a.Tips)
 	}
-	if a.Internal != 339807 {
-		t.Errorf("internal = %d, want 339807", a.Internal)
+	if a.Internal != 316754 {
+		t.Errorf("internal = %d, want 316754", a.Internal)
 	}
 	if a.Parent[0] != NoParent {
 		t.Errorf("root has a parent")
@@ -147,6 +132,7 @@ func TestPathToRootInvalid(t *testing.T) {
 // 2|L|-1 bound holds exactly.
 func TestInducedSubtreeMatchesReference(t *testing.T) {
 	a := load(t)
+	ref := testenv.RequireInducedFixture(t)
 
 	var sel []int
 	for _, s := range referenceSelection {
@@ -157,35 +143,43 @@ func TestInducedSubtreeMatchesReference(t *testing.T) {
 		sel = append(sel, idx)
 	}
 	slices.Sort(sel) // preorder order == canonical vertical order (§3.1)
-	if !slices.Equal(sel, refSelectionIdx) {
-		t.Fatalf("selection resolved to %v, want %v", sel, refSelectionIdx)
+	if !slices.Equal(sel, ref.Selection) {
+		t.Fatalf("selection resolved to %v, want %v", sel, ref.Selection)
 	}
 
 	ind := a.InducedSubtree(sel)
 
-	if ind.MRCA != refMRCA {
-		t.Errorf("MRCA = %d, want %d", ind.MRCA, refMRCA)
+	if ind.MRCA != ref.Expected.MRCA {
+		t.Errorf("MRCA = %d, want %d", ind.MRCA, ref.Expected.MRCA)
 	}
 	if got, want := len(ind.Rendered), 2*len(sel)-1; got != want {
 		t.Errorf("rendered %d nodes, the 2|L|-1 bound is %d", got, want)
 	}
-	if !slices.Equal(ind.Rendered, refRendered) {
-		t.Errorf("rendered set\n got %v\nwant %v", ind.Rendered, refRendered)
+	if !slices.Equal(ind.Rendered, ref.Expected.Rendered) {
+		t.Errorf("rendered set\n got %v\nwant %v", ind.Rendered, ref.Expected.Rendered)
 	}
-	if len(ind.Segments) != len(refSegments) {
-		t.Fatalf("%d segments, want %d", len(ind.Segments), len(refSegments))
+	if len(ind.Segments) != len(ref.Expected.Segments) {
+		t.Fatalf("%d segments, want %d", len(ind.Segments), len(ref.Expected.Segments))
 	}
-	for v, want := range refSegments {
+	for key, want := range ref.Expected.Segments {
+		v, err := strconv.Atoi(key)
+		if err != nil {
+			t.Fatalf("segment key %q is not an index", key)
+		}
+		wantAnc := -1 // the induced root, where the fixture reads null
+		if want.Anc != nil {
+			wantAnc = *want.Anc
+		}
 		got, ok := ind.Segments[v]
 		if !ok {
 			t.Errorf("no segment for rendered node %d", v)
 			continue
 		}
-		if got.Ancestor != want[0] {
-			t.Errorf("segment %d: ancestor = %d, want %d", v, got.Ancestor, want[0])
+		if got.Ancestor != wantAnc {
+			t.Errorf("segment %d: ancestor = %d, want %d", v, got.Ancestor, wantAnc)
 		}
-		if len(got.Suppressed) != want[1] {
-			t.Errorf("segment %d: %d suppressed, want %d", v, len(got.Suppressed), want[1])
+		if !slices.Equal(got.Suppressed, want.Suppressed) {
+			t.Errorf("segment %d: suppressed %v, want %v", v, got.Suppressed, want.Suppressed)
 		}
 		// The suppressed chain must be a contiguous parent walk from the
 		// ancestor down to v: those are interaction 3's intermediates.
@@ -301,8 +295,15 @@ func BenchmarkInducedSubtree(b *testing.B) {
 		b.Fatal(err)
 	}
 	defer a.Close() //nolint:errcheck
+	var sel []int
+	for _, s := range referenceSelection {
+		if idx, ok := a.IdxForOtt(s.ott); ok {
+			sel = append(sel, idx)
+		}
+	}
+	slices.Sort(sel)
 	b.ResetTimer()
 	for b.Loop() {
-		_ = a.InducedSubtree(refSelectionIdx)
+		_ = a.InducedSubtree(sel)
 	}
 }

@@ -421,6 +421,46 @@ export function AlsoCalledBlock({
   );
 }
 
+/** The ranks worth naming on the card, with their plural reading. */
+const FOLDED_RANKS: Record<string, string> = {
+  subspecies: "subspecies",
+  varietas: "varieties",
+  variety: "varieties",
+  forma: "forms",
+  infraspecificname: "infraspecific taxa",
+};
+
+/**
+ * The infraspecific taxa the pipeline folded into this species. The tree
+ * deliberately stops at species, so a reader who knows the Amur tiger exists
+ * is told where it went — one line, names only, never a node. Strain-level
+ * terminals stay unmentioned: "includes 340 strains" is a fact about
+ * sequencing effort, not about the animal.
+ */
+export function FoldedBlock({
+  folded,
+}: {
+  folded: readonly { name: string; rank: string | null }[];
+}) {
+  const named = folded.filter((f) => f.rank !== null && f.rank in FOLDED_RANKS);
+  if (named.length === 0) return null;
+  const ranks = new Set(named.map((f) => FOLDED_RANKS[f.rank!]));
+  const what = ranks.size === 1 ? [...ranks][0]! : "infraspecific taxa";
+  const shown = named.slice(0, 8);
+  const rest = named.length - shown.length;
+  return (
+    <section className="names">
+      <p className="note">
+        <span className="names-label">
+          Includes {named.length === 1 ? "the" : named.length} {what}
+        </span>{" "}
+        <em className="sci-italic">{shown.map((f) => f.name).join(", ")}</em>
+        {rest > 0 ? ` and ${rest} more.` : "."}
+      </p>
+    </section>
+  );
+}
+
 /**
  * The scientific names this thing is filed under. Answers "why did I land here"
  * (OTT files *Homo floresiensis* as a synonym of *Homo sapiens*), so it sits

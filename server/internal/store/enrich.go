@@ -497,6 +497,41 @@ func (s *Store) Synonyms(ctx context.Context, m NodeMeta) ([]string, error) {
 	return out, rows.Err()
 }
 
+// FoldedTaxon is one infraspecific taxon phase 1 folded into a surviving
+// node — a subspecies the species card may mention without it being a node.
+type FoldedTaxon struct {
+	OttID int64   `json:"ott_id"`
+	Name  string  `json:"name"`
+	Rank  *string `json:"rank"`
+}
+
+// FoldedInfraspecific names what the infraspecific collapse folded into this
+// node. Empty for almost every node and on any pre-collapse build; ordered by
+// name so the card is stable across requests.
+func (s *Store) FoldedInfraspecific(ctx context.Context, idx int) ([]FoldedTaxon, error) {
+	out := []FoldedTaxon{}
+	if !s.Schema.has("folded_infraspecific") {
+		return out, nil
+	}
+	rows, err := s.DB.QueryContext(ctx,
+		"SELECT ott_id, name, rank FROM folded_infraspecific WHERE idx = ? ORDER BY name",
+		idx)
+	if err != nil {
+		return out, err
+	}
+	defer rows.Close() //nolint:errcheck
+	for rows.Next() {
+		var t FoldedTaxon
+		var rank sql.NullString
+		if err := rows.Scan(&t.OttID, &t.Name, &rank); err != nil {
+			return out, err
+		}
+		t.Rank = nullStr(rank)
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
 // Attribution is a silhouette's credit. Creator and Uploader are separate
 // fields on purpose: they differ 31% of the time, and conflating them credits
 // the wrong person.

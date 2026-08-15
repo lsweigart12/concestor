@@ -42,6 +42,7 @@ import {
   ClassificationBlock,
   EncyclopediaBlock,
   AlsoCalledBlock,
+  FoldedBlock,
   NamesBlock,
   TaxonLink,
   WhyBlock,
@@ -400,6 +401,7 @@ export function Detail({
         )}
       </dl>
 
+      <FoldedBlock folded={detail.folded_infraspecific ?? []} />
       <NamesBlock synonyms={detail.synonyms} />
 
       <WhyBlock summary="Sources and caveats">

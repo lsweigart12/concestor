@@ -87,8 +87,10 @@ MIN_OCCURRENCE_NODES = 2_000
 # sweep takes 148 rows, worth 81 keys on its own, and the ambiguity sweep that
 # runs after it hands ~21 back because removing a claimant leaves the name no
 # longer in doubt. 37,720 - 81 + 21 = 37,660, and the twelve `XREF_ANCHORS`
-# pin which withdrawals those are.
-EXPECT_UNDER_ACCEPTED_NAME = 37_660
+# pin which withdrawals those are. The infraspecific collapse then costs 101:
+# an accepted name that was an infraspecific node's name is no longer in the
+# tree to spell, and those taxa attach by parent walk instead.
+EXPECT_UNDER_ACCEPTED_NAME = 37_559
 
 SPOT_TYRANNOSAURUS = 38613
 SPOT_AUBLYSODON = 38614

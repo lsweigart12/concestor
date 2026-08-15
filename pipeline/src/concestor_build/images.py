@@ -690,6 +690,7 @@ def seed_nodes(
     titles: Sequence[str | None] | None = None,
     name_uids: Mapping[str, list[int]] | None = None,
     cited: Sequence[Sequence[int]] | None = None,
+    rank_keys: Sequence[tuple[bool, str, str]] | None = None,
 ) -> tuple[I64Array, JsonDict]:
     """Map PhyloPic's images onto node indices.
 
@@ -701,9 +702,12 @@ def seed_nodes(
     2. Forwarded: OTT forwarding is silent, so a direct miss may just be a
        forwarded id; phase 1's `forward` table already chased the chains.
     3. Lifted one hop: cited ids in `taxonomy.tsv` but not in synthesis are
-       mostly extinct. Bounded to exactly one hop and onto a node narrow enough
+       mostly extinct or infraspecific (phase 1 folds the latter into their
+       species). Bounded to exactly one hop and onto a node narrow enough
        (`lift_max_tips`) to stay representative, refusing every fossil-onto-
-       phylum case (admits `Homo sapiens sapiens → Homo sapiens`).
+       phylum case (admits `Homo sapiens sapiens → Homo sapiens`). Where
+       several ids lift onto one node, the nominate drawing wins — see the
+       collision comment below.
     4. Named: images with no OTT id still name their node; match `node_title`
        against `taxonomy.tsv`. An exact claim, so no tip bound.
     5. Named, truncated: a title naming no node may once the trailing epithet
@@ -757,9 +761,31 @@ def seed_nodes(
     ok = idx != NO_IMAGE
     lifted = lift != NO_IMAGE
 
+    # Several ids can lift onto one node at once — every drawn subspecies of a
+    # species arrives here together, and *Homo sapiens* wore whichever of a
+    # Neanderthal, a Denisovan and an anatomically modern human happened to be
+    # crawled last. Chosen, not last-write-wins: a drawing whose own title
+    # truncates to the name of the node it lands on (the nominate
+    # "Homo sapiens sapiens") is a drawing *of* that node, and after that
+    # PhyloPic's curation decides via `rank_keys`.
+    chosen_lift: dict[int, int] = {}
+    if bool(lifted.any()):
+        best_key: dict[int, tuple[bool, tuple[bool, str, str] | tuple[int]]] = {}
+        for p in np.flatnonzero(lifted).tolist():
+            node, record = int(lift[p]), int(images[p])
+            title = ((titles[record] if titles else None) or "").strip()
+            target = int(ott_id[node])
+            nominate = bool(name_uids) and any(
+                target in (name_uids or {}).get(t, ()) for t in _truncations(title)
+            )
+            key = (nominate, rank_keys[record] if rank_keys else (record,))
+            if node not in best_key or key > best_key[node]:
+                best_key[node] = key
+                chosen_lift[node] = record
+
     by_name = _seed_by_name(
         titles=titles,
-        landed=set(images[ok].tolist()) | set(images[lifted].tolist()),
+        landed=set(images[ok].tolist()) | set(chosen_lift.values()),
         name_uids=name_uids,
         lookup=lookup,
         forwards=forwards,
@@ -779,7 +805,8 @@ def seed_nodes(
         seed[node], tier[node] = record, T_NAME_TRUNCATED
     for node, record in by_name.exact:
         seed[node], tier[node] = record, T_NAME
-    seed[lift[lifted]], tier[lift[lifted]] = images[lifted], T_LIFTED
+    for node, record in chosen_lift.items():
+        seed[node], tier[node] = record, T_LIFTED
     seed[idx[ok]], tier[idx[ok]] = images[ok], T_OTT_ID
 
     return seed, {
@@ -787,6 +814,7 @@ def seed_nodes(
         "ott_ids_in_tree": int(ok.sum()),
         "ott_ids_via_forward": n_forwarded,
         "ott_ids_lifted_one_hop": n_lifted,
+        "lift_collisions": n_lifted - len(chosen_lift),
         "names_matched": len(by_name.exact),
         "names_matched_truncated": len(by_name.truncated),
         "names_ambiguous": by_name.ambiguous,
@@ -2175,6 +2203,7 @@ def run(budget: int = 0, mirror_only: bool = False, log: Log = _log) -> int:
             titles=[r.node_title for r in records],
             name_uids=name_uids,
             cited=[r.ott_ids for r in records],
+            rank_keys=[_rank(r) for r in records],
         )
         assign = propagate(parent, depth, subtree_out, seed, tip_count)
         # The join that makes a fossil drawable has to happen before the witness

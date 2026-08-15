@@ -59,15 +59,22 @@ most load-bearing array two sources of truth.
 1. Stream-parse the Newick (30 MB, 2.7M nodes) with an explicit stack, not recursion.
 2. Assign `idx` by **preorder traversal** — this gives `parent[i] < i`, interval-based
    subtree containment, and stable tip ordering for free (architecture §3.1).
-3. Emit `parent`, `depth`, `subtree_out`, `tip_count` arrays.
-4. Parse node labels into `ott_id` (`ott123`, `Name_ott123`) or `NULL`
+3. **Collapse infraspecific taxa** (68,841 nodes): every subtree rooted at a node
+   carrying OTT's `infraspecific` flag *or* an infraspecific rank folds into its
+   nearest surviving ancestor, plus the unnamed `mrcaott…` structure emptied by the
+   prune. The union matters — the flag and the ranks disagree in both directions.
+   Survivors keep their relative preorder order, so the renumbering is a subtraction.
+   What folded is recorded per surviving node in `folded_infraspecific` for the card.
+4. Emit `parent`, `depth`, `subtree_out`, `tip_count` arrays.
+5. Parse node labels into `ott_id` (`ott123`, `Name_ott123`) or `NULL`
    (`mrcaott83926ott3607676`). Keep the raw label as `node_key`.
-5. Join `taxonomy.tsv` for name, rank, flags. It is `\t|\t`-separated, and `sourceinfo`
+6. Join `taxonomy.tsv` for name, rank, flags. It is `\t|\t`-separated, and `sourceinfo`
    contains three malformed prefixes (`https`, `addition`, and one leading-space) — parse
    defensively.
-6. Load `forwards.tsv` (297,070 entries) into a resolution map. **Chase transitively** —
+7. Load `forwards.tsv` (297,070 entries) into a resolution map. **Chase transitively** —
    forwards can chain and can point "backwards" relative to release order.
-7. Mark the 9,839 broken taxa from `broken_taxa.json`, retaining `attachment_points`.
+8. Mark the 9,839 broken taxa from `broken_taxa.json`, retaining `attachment_points`.
+   A broken taxon whose substitute MRCA was collapsed resolves to where it folded.
 
 The FTS index is **not** built here — a separate `search` phase builds it after
 `vernaculars`, because it indexes common names too. It is one row per *name*, and
@@ -76,10 +83,13 @@ node index joins cleanly to unrelated nodes and returns confident nonsense.
 
 ### Gates
 
-- **Tip count is exactly 2,385,875** — the single best structural check.
-- Internal node count 339,807; total 2,725,682.
-- Max depth 111, mean 41.32 (±0.01, over tips).
-- Max branching factor 12,964. Unary internal nodes 83,305 (24.5%).
+- **Parsed node count is exactly 2,725,682**, and **tip count after the collapse
+  is exactly 2,340,087** — the two best structural checks.
+- Internal node count 316,754; total 2,656,841. Collapse removes 68,841, of which
+  688 are named non-infraspecific collateral (all strain-level terminals — a
+  species here fails the build).
+- Max depth 111, mean 41.39 (±0.01, over tips).
+- Max branching factor 12,964. Unary internal nodes 69,845 (22.1%).
 - `parent[i] < i` for all `i > 0`.
 - **Oracle check:** 200 random tip sets of size 2–20 through
   `POST /v3/tree_of_life/induced_subtree`; the returned topology must match ours after

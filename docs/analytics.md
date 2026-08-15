@@ -195,7 +195,9 @@ local, not something a hosted dashboard can join against). The join is
 `node.node_key`, which carries the key in the exact API form the beacon sends —
 **not** `node.ott_id` (splitting `ottNNN` back to an integer fails on every
 `mrcaott…` row, whose `node.name` is NULL). A key that resolves to nothing prints
-as itself: a divergence has no name of its own.
+as itself: a divergence has no name of its own, and events recorded before the
+infraspecific collapse against a since-folded subspecies (`ott83926` and kin)
+degrade the same way rather than failing the report.
 
 It prefers `$CLOUDFLARE_API_TOKEN`, falls back to the `wrangler login` token
 (refreshing it by running wrangler when expired), takes the account id from

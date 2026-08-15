@@ -367,14 +367,12 @@ type Entry struct {
 
 // The ranks a common name may be served for. See Entry.Vernacular.
 //
-// Spelled as OTT spells them. `subspecies` is in because OTT files *Homo
-// sapiens neanderthalensis* there and a reader who selects a Neanderthal has
-// selected a kind of animal, not a group; `varietas` is out, along with every
-// rank above genus, because both directions from these three stop naming one.
+// Spelled as OTT spells them. Everything above genus is out because a group's
+// common name ("mammals") names a group, not a kind of animal. Nothing below
+// species exists: phase 1 collapses infraspecific taxa into their species.
 var vernacularRanks = map[string]bool{
-	"genus":      true,
-	"species":    true,
-	"subspecies": true,
+	"genus":   true,
+	"species": true,
 }
 
 // entries turns a list of indices into API entries, preserving order.
@@ -956,7 +954,11 @@ type nodeBody struct {
 	ParentIdx   *int               `json:"parent_idx"`
 	Synonyms    []string           `json:"synonyms"`
 	Vernaculars []store.Vernacular `json:"vernaculars"`
-	Silhouette  *store.Attribution `json:"silhouette"`
+	// The infraspecific taxa phase 1 folded into this node, so the card can
+	// say "includes 2 subspecies" about a species that is deliberately a tip.
+	// An array like the two above: empty means none, never null.
+	Folded     []store.FoldedTaxon `json:"folded_infraspecific"`
+	Silhouette *store.Attribution  `json:"silhouette"`
 	// The Wikidata item this node is, when the vernacular crawl found one —
 	// 108,293 of 2.7M nodes, which are close to exactly the ones a reader has
 	// heard of. It is here so the card can offer an article about *this taxon*
@@ -1044,6 +1046,11 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request) {
 		s.Log.Warn("vernaculars", "idx", idx, "err", err)
 		vern = []store.Vernacular{}
 	}
+	folded, err := s.St.FoldedInfraspecific(ctx, idx)
+	if err != nil {
+		s.Log.Warn("folded infraspecific", "idx", idx, "err", err)
+		folded = []store.FoldedTaxon{}
+	}
 	// A missing identifier costs the card one optional link, so it is warned
 	// about and stepped over rather than failing the request.
 	qid, err := s.St.WikidataQID(ctx, idx)
@@ -1102,7 +1109,7 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request) {
 	body := nodeBody{
 		Entry: entries[0], Flags: meta.Flags,
 		ChildCount: int64(s.St.Arrays.ChildCount[idx]),
-		Synonyms:   syn, Vernaculars: vern, Silhouette: attrib,
+		Synonyms:   syn, Vernaculars: vern, Folded: folded, Silhouette: attrib,
 		WikidataQID:          qid,
 		DivergenceSilhouette: witAttrib,
 	}

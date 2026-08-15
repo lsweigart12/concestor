@@ -129,21 +129,25 @@ attribution**, so render it whenever the license demands BY.
 
 ### Tree shape (computed directly — published nowhere)
 
-- **2,725,682 nodes**: 2,385,875 tips + 339,807 internal.
-- **2,295,972 are `rank='species'`**; **2,599,664 carry a name** (the searchable set —
-  the FTS index filters on neither tip-ness nor rank). **A tip is not a species:** 171,623
-  nodes are genera, 8,841 families, and tips include subspecies, varieties, cultivars and
-  1,615 group-rank terminals.
-- **Root-to-tip depth**: min 2, **mean 41.32 over tips**, max 111. (Mean over internal
-  nodes is 44.14, over everything 41.67 — say which population before quoting one.)
-- **Branching factor**: mean 8.02, **max 12,964**. A node with ~13,000 children breaks
+- **2,656,841 nodes**: 2,340,087 tips + 316,754 internal, after phase 1's
+  infraspecific collapse removes 68,841 (the parse itself sees 2,725,682).
+- **2,295,800 are `rank='species'`**; **2,531,139 carry a name** (the searchable set —
+  the FTS index filters on neither tip-ness nor rank). **The tree stops at species:**
+  every species is a tip, what sat below one is in `folded_infraspecific`, and the
+  non-species tips are groups the synthesis resolves no further (171,623 genera and
+  8,841 families are nodes, some of them childless).
+- **Root-to-tip depth**: min 2, **mean 41.39 over tips**, max 111. (Mean over internal
+  nodes is 44.04, over everything 41.70 — say which population before quoting one.)
+- **Branching factor**: mean 8.39, **max 12,964**. A node with ~13,000 children breaks
   any UI assuming small fanout.
-- **24.5% of internal nodes are unary** (one child); 31.2% polytomous; 44.3% bifurcating.
+- **22.1% of internal nodes are unary** (one child); 32.2% polytomous; 45.7% bifurcating.
 
-### Only 6.7% of the tree is phylogenetically placed
+### Only ~7% of the tree is phylogenetically placed
 
-159,925 of 2,385,875 tips come from phylogeny; ~2.23M from taxonomy alone. Any dated
-version is overwhelmingly interpolating ages onto taxonomy-derived structure. **The UI
+159,925 of the 2,385,875 parsed tips come from phylogeny; the rest from taxonomy
+alone (measured before the infraspecific collapse; the collapse removes mostly
+taxonomy-only tips, so the share moves little). Any dated version is
+overwhelmingly interpolating ages onto taxonomy-derived structure. **The UI
 must be honest about this** — see the architecture doc's provenance tiers.
 
 ### Broken taxa

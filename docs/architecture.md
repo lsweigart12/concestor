@@ -111,7 +111,9 @@ format and `server/internal/npy` mmaps it directly. The dtypes are load-bearing.
 | `age_tier` | u8 | 1 |
 | `age_layout` | f32 | 4 |
 
-For 2,725,682 nodes. `path()` is a ~41-step walk through a mmap'd `u32` array —
+For 2,656,841 nodes (phase 1 parses 2,725,682 and collapses the infraspecific
+subtrees; the tree stops at species). `path()` is a ~41-step walk through a
+mmap'd `u32` array —
 nanoseconds, no allocation, no query planner. `subtree_in` is `idx` itself, so it is not
 stored. Phase 2's `age_layout` and `age_tier` are also kept under `_phase2` names so
 phase 4's rewrite can be diffed against them and re-run without compounding its output

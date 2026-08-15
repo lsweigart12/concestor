@@ -88,6 +88,11 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("render", help="throwaway renderer — one induced subtree")
 
+    sub.add_parser(
+        "fixtures",
+        help="regenerate the induced-subtree fixture pinning the TS and Go ports",
+    )
+
     args = p.parse_args(argv)
 
     # Before any phase is imported, because the answer is a property of the
@@ -150,6 +155,10 @@ def main(argv: list[str] | None = None) -> int:
             from . import render
 
             return render.run()
+        case "fixtures":
+            from . import fixtures
+
+            return fixtures.run()
 
     return 1
 

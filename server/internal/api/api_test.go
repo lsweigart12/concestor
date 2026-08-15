@@ -86,7 +86,7 @@ func TestAbout(t *testing.T) {
 		t.Fatal("no counts")
 	}
 	for k, want := range map[string]float64{
-		"nodes": 2725682, "tips": 2385875, "internal": 339807, "broken": 9839,
+		"nodes": 2656841, "tips": 2340087, "internal": 316754, "broken": 9839,
 	} {
 		if counts[k] != want {
 			t.Errorf("counts.%s = %v, want %v", k, counts[k], want)
@@ -666,16 +666,12 @@ func TestPathsBatchReproducesInducedSubtree(t *testing.T) {
 	if got, want := len(rendered), 2*len(leaves)-1; got != want {
 		t.Fatalf("rendered %d nodes, the 2|L|-1 bound is %d", got, want)
 	}
-	wantRendered := []int{
-		1, 18, 12950, 449434, 588406, 588414, 588422, 588426, 588435, 588587,
-		594475, 594485, 594505, 603110, 633749, 654142, 674350, 741328, 882186,
-		1176207, 2328159,
+	ref := testenv.RequireInducedFixture(t)
+	if !slices.Equal(rendered, ref.Expected.Rendered) {
+		t.Errorf("rendered set from the API\n got %v\nwant %v", rendered, ref.Expected.Rendered)
 	}
-	if !slices.Equal(rendered, wantRendered) {
-		t.Errorf("rendered set from the API\n got %v\nwant %v", rendered, wantRendered)
-	}
-	if mrca != 1 {
-		t.Errorf("MRCA from the API = %d, want 1", mrca)
+	if mrca != ref.Expected.MRCA {
+		t.Errorf("MRCA from the API = %d, want %d", mrca, ref.Expected.MRCA)
 	}
 }
 
@@ -988,20 +984,22 @@ func TestNodeDetail(t *testing.T) {
 	if body.Key != "ott770315" || body.Name == nil || *body.Name != "Homo sapiens" {
 		t.Errorf("got %+v", body.Entry)
 	}
-	// Homo sapiens is not a leaf: the synthesis tree hangs two subspecies off
-	// it. A "species" the user picks is frequently an internal node, which is
-	// why nothing in the layout may assume selections are tips.
-	if body.ChildCount != 2 || body.TipCount != 2 {
-		t.Errorf("Homo sapiens child_count=%d tip_count=%d, want 2/2",
+	// Homo sapiens is a leaf since the infraspecific collapse folded its two
+	// subspecies into it. Selections can still be internal — a reader can
+	// pick a genus — so nothing in the layout may assume selections are tips,
+	// but the canonical counterexample is now a chosen group, not a species.
+	if body.ChildCount != 0 || body.TipCount != 1 {
+		t.Errorf("Homo sapiens child_count=%d tip_count=%d, want 0/1",
 			body.ChildCount, body.TipCount)
 	}
+	// The folded subspecies are not nodes: their OTT ids must answer 404
+	// rather than silently resolving to something else.
 	var neander struct {
-		ChildCount int64 `json:"child_count"`
-		TipCount   int64 `json:"tip_count"`
+		Error string `json:"error"`
 	}
-	getJSON(t, ts, "/v1/node/ott83926", &neander) // Homo sapiens neanderthalensis
-	if neander.ChildCount != 0 || neander.TipCount != 1 {
-		t.Errorf("a genuine tip should be 0/1, got %d/%d", neander.ChildCount, neander.TipCount)
+	resp = getJSON(t, ts, "/v1/node/ott83926", &neander) // H. s. neanderthalensis
+	if resp.StatusCode != 404 {
+		t.Errorf("a folded subspecies answered %d, want 404", resp.StatusCode)
 	}
 	if body.ParentIdx == nil {
 		t.Error("parent_idx missing")
