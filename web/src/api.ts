@@ -20,11 +20,17 @@ export const TIER_STRUCTURAL = 2;
  * structural, and everything guarding structural must guard it too.
  */
 export const TIER_OCCURRENCE = 3;
-export type Tier = 0 | 1 | 2 | 3;
+/**
+ * A literature estimate on a curated graft node — the two hominin splits are
+ * the whole population. Carries a number like measured/interpolated; the card
+ * says whose number it is.
+ */
+export const TIER_CURATED = 4;
+export type Tier = 0 | 1 | 2 | 3 | 4;
 
 /** The tiers that may show a number. The other two mean "nobody estimated one". */
 export function tierHasAge(t: Tier): boolean {
-  return t === TIER_MEASURED || t === TIER_INTERPOLATED;
+  return t === TIER_MEASURED || t === TIER_INTERPOLATED || t === TIER_CURATED;
 }
 
 export interface PathNode {
@@ -600,10 +606,11 @@ const TIER_BY_NAME: Record<string, Tier> = {
   interpolated: TIER_INTERPOLATED,
   structural: TIER_STRUCTURAL,
   occurrence: TIER_OCCURRENCE,
+  curated: TIER_CURATED,
 };
 
 function normTier(v: unknown): Tier {
-  if (typeof v === "number" && v >= 0 && v <= 3) return v as Tier;
+  if (typeof v === "number" && v >= 0 && v <= 4) return v as Tier;
   if (typeof v === "string" && v in TIER_BY_NAME) return TIER_BY_NAME[v]!;
   // Unknown provenance is not an excuse to show a confident number.
   return TIER_STRUCTURAL;

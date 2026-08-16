@@ -80,7 +80,7 @@ KIND_NAMES = {
 # Measured from the phase-1 database and OTT 3.7.3, after the infraspecific
 # collapse (the folded taxa are not named nodes; their names index as synonyms
 # of the node they folded into — see the `folded_infraspecific` stage).
-EXPECT_SCI = 2_531_139
+EXPECT_SCI = 2_531_141
 EXPECT_SYNONYM_ROWS = 2_226_375
 EXPECT_BROKEN = 9_839
 # The names the fossil record uses for taxa the tree holds — `load_pbdb_names`.

@@ -89,8 +89,10 @@ MIN_OCCURRENCE_NODES = 2_000
 # longer in doubt. 37,720 - 81 + 21 = 37,660, and the twelve `XREF_ANCHORS`
 # pin which withdrawals those are. The infraspecific collapse then costs 101:
 # an accepted name that was an infraspecific node's name is no longer in the
-# tree to spell, and those taxa attach by parent walk instead.
-EXPECT_UNDER_ACCEPTED_NAME = 37_559
+# tree to spell, and those taxa attach by parent walk instead. The hominin
+# graft hands one back — PBDB's *Homo neanderthalensis* is spelled by the
+# grafted node, which is what gives it a walk-0 attachment and its range.
+EXPECT_UNDER_ACCEPTED_NAME = 37_560
 
 SPOT_TYRANNOSAURUS = 38613
 SPOT_AUBLYSODON = 38614

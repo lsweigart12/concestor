@@ -31,6 +31,10 @@ const (
 	// estimate: it answers when the taxon is observed in the rock, never carries
 	// an age_ma, and keeps its range in the occurrence table.
 	TierOccurrence = uint8(3)
+	// TierCurated is a literature estimate on a curated graft node — the two
+	// hominin splits are the whole population. Carries an age_ma like
+	// measured/interpolated; the tier itself is the provenance.
+	TierCurated = uint8(4)
 )
 
 // TierName maps a tier byte to the string the API emits.
@@ -44,6 +48,8 @@ func TierName(t uint8) string {
 		return "structural"
 	case TierOccurrence:
 		return "occurrence"
+	case TierCurated:
+		return "curated"
 	default:
 		return "unknown"
 	}

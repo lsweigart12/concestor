@@ -94,6 +94,19 @@ OTT ids are **not stable**: `forwards.tsv` carries 297,070 retirements in this r
 and the live API follows them silently. The resolution layer (§5) chases forwards
 transitively at build time and records every hop.
 
+**The tree is the synthesis, edited twice, both edits in phase 1.** The infraspecific
+collapse removes what sits below species (recorded in `folded_infraspecific`), and the
+curated hominin graft inserts *Homo neanderthalensis* and *Homo longi* as species beside
+*Homo sapiens* — the shape the ancient-DNA record supports and OTT's NCBI-derived filing
+does not. The graft is the one hand edit and is built to stay one: it is declared in a
+single constant (`topology.GRAFT_LEAVES`) with its reasons, its leaves keep their OTT ids
+so every id-keyed join (URLs, xref, PhyloPic, Wikidata) resolves without new machinery,
+its internal nodes take the `mrcaott…` keys synthesis would derive for them, and the
+phase-1 oracle excludes exactly its leaves — a gate pins the exclusion list to the graft
+so neither can quietly grow. Everywhere else, upstream errors remain explained rather
+than performed; the graft is the sole place the product's correctness claim outranks the
+upstream record, and §3.5's `curated` tier is how its dates stay honest.
+
 ### 3.2 Core arrays — `build/topology/*.npy`
 
 Hot-path data lives in flat typed arrays, memory-mapped by the API process. No SQL on the
@@ -111,9 +124,9 @@ format and `server/internal/npy` mmaps it directly. The dtypes are load-bearing.
 | `age_tier` | u8 | 1 |
 | `age_layout` | f32 | 4 |
 
-For 2,656,841 nodes (phase 1 parses 2,725,682 and collapses the infraspecific
-subtrees; the tree stops at species). `path()` is a ~41-step walk through a
-mmap'd `u32` array —
+For 2,656,845 nodes (phase 1 parses 2,725,682, collapses the infraspecific
+subtrees, and grafts the four curated hominin nodes; the tree stops at
+species). `path()` is a ~41-step walk through a mmap'd `u32` array —
 nanoseconds, no allocation, no query planner. `subtree_in` is `idx` itself, so it is not
 stored. Phase 2's `age_layout` and `age_tier` are also kept under `_phase2` names so
 phase 4's rewrite can be diffed against them and re-run without compounding its output
@@ -232,7 +245,7 @@ alone. Any dating is overwhelmingly interpolating ages onto taxonomy-derived str
 `age_tier` is stored per node and rendered visually — a date shown without that context
 misleads.
 
-**Four tiers.** `measured`, `interpolated` and `structural` all answer "when did these
+**Five tiers.** `measured`, `interpolated` and `structural` all answer "when did these
 lineages part", from a chronogram of **extant** species. An extinct taxon never joins the
 chronogram, so it is `structural` by construction, not by measurement.
 
@@ -242,6 +255,7 @@ chronogram, so it is `structural` by construction, not by measurement.
 | **interpolated** | between two measured nodes | lighter, age shown with a range |
 | **structural** | taxonomy-only region, or extinct taxon | dashed spine, no numeric age; position ordinal |
 | **occurrence** | fossil appearance interval attached at the node | range mark spanning the interval; **never a point** |
+| **curated** | a literature estimate on a curated graft node | like measured; the card names the source |
 
 `occurrence` answers a different and weaker question than the first three: when the taxon
 is observed in the rock. It is written by **phase 4** (the `fossil` table does not exist
@@ -249,6 +263,13 @@ until then), lives in the **`occurrence` table** rather than in `age_ma`, and re
 range — no midpoint is computed anywhere. A stratigraphic range is an observation, not an
 estimate of divergence; keeping it out of `age_ma` is what stops a confident divergence
 number appearing on a dashed node.
+
+`curated` exists for the hominin graft (§3.1) and nothing else: a split the chronogram
+cannot see because its taxonomy files the lineages inside one species, carrying a
+published genomic estimate (Prüfer et al. 2017) written by phase 2 from
+`topology.GRAFT_AGES_MA`. It is a real number with a real source, so it may be shown; the
+tier itself is the provenance, and the detail card cites it. Two nodes carry it. A tier
+member added outside a curated graft is a design error — the honesty rule stands.
 
 **Three age arrays ship and must stay separate:**
 

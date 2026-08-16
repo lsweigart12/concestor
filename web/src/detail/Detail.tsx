@@ -30,7 +30,12 @@
  */
 
 import { gapLabel } from "../ages";
-import { TIER_OCCURRENCE, TIER_STRUCTURAL, type NodeDetail } from "../api";
+import {
+  TIER_CURATED,
+  TIER_OCCURRENCE,
+  TIER_STRUCTURAL,
+  type NodeDetail,
+} from "../api";
 import { bracketGeom, endedSpanLabel } from "../canvas/Bracket";
 import { Silhouette } from "../canvas/Silhouette";
 import { kbd } from "../chrome/bindings";
@@ -451,6 +456,15 @@ export function Detail({
             This clade is a subset of the one the chronogram dates, so{" "}
             <span className="num">{age}</span> is an upper bound on its true
             age, not an estimate of it.
+          </p>
+        )}
+        {detail.tier === TIER_CURATED && age && (
+          <p className="note">
+            This split is curated rather than computed: the chronogram cannot
+            see it because its taxonomy files these lineages inside one species.{" "}
+            <span className="num">{age}</span> is the genomic estimate of Prüfer
+            et&nbsp;al. (2017), carried by the build with the branching it
+            dates.
           </p>
         )}
         {witness && (

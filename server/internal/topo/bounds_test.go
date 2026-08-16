@@ -30,12 +30,17 @@ import (
 //     them structural: subspecies tips Duke never dated and the unnamed
 //     `mrcaott…` scaffolding that arranged them. That is why every total
 //     below fell at once — the nodes are gone, not re-tiered.
+//   - The hominin graft added one structural leaf (*Homo longi*; the
+//     Neanderthal takes the occurrence tier from its PBDB bracket) and gave
+//     nine structural nodes along the hominin spine a datable lower bound —
+//     the curated 0.6 Ma split is a dated descendant where before the only
+//     thing below was the present.
 const (
-	measuredAgainstBuild = "58985c7d7742e8d6"
+	measuredAgainstBuild = "edad466032073f38"
 
-	wantStructural      = 118263
-	wantWithLowerBound  = 5091
-	wantAtPresentBelow  = 113172
+	wantStructural      = 118264
+	wantWithLowerBound  = 5100
+	wantAtPresentBelow  = 113164
 	wantWithoutAncestor = 0
 )
 

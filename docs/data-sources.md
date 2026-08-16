@@ -45,7 +45,13 @@ carrying grafted TimeTree ages is a transformation. No public bulk download exis
 Membership is not predictable from flags: *T. rex* (ott664349) resolves; *Triceratops*
 (ott4947055) has an identical flag set and returns `pruned_ott_id`. **The fossil layer
 is the only way ~99.5% of the fossil record appears in the app.** Attach fossils to a
-branch, not as tree siblings.
+branch, not as tree siblings — with one curated exception. OTT files Neanderthals as a
+subspecies of *Homo sapiens* (ott83926) and the Denisovans as
+`Homo sapiens subsp. 'Denisova'` (ott933436, absent from synthesis), following NCBI;
+the ancient-DNA consensus is three sister species. Phase 1 grafts both back as species
+after the infraspecific collapse — architecture §3.1 is the doctrine, `topology.py`'s
+`GRAFT_LEAVES` the declaration, and the phase-1 oracle excludes exactly those two
+leaves because the live API still answers for NCBI's filing.
 
 Related trap: `taxonomy/taxon_info` returns `is_suppressed_from_synth: false` for
 *Triceratops*, which is absent from synthesis. **Do not trust that field.**
@@ -129,9 +135,10 @@ attribution**, so render it whenever the license demands BY.
 
 ### Tree shape (computed directly — published nowhere)
 
-- **2,656,841 nodes**: 2,340,087 tips + 316,754 internal, after phase 1's
-  infraspecific collapse removes 68,841 (the parse itself sees 2,725,682).
-- **2,295,800 are `rank='species'`**; **2,531,139 carry a name** (the searchable set —
+- **2,656,845 nodes**: 2,340,089 tips + 316,756 internal. The parse sees
+  2,725,682; the infraspecific collapse removes 68,841 and the hominin graft
+  adds 4.
+- **2,295,802 are `rank='species'`**; **2,531,141 carry a name** (the searchable set —
   the FTS index filters on neither tip-ness nor rank). **The tree stops at species:**
   every species is a tip, what sat below one is in `folded_infraspecific`, and the
   non-species tips are groups the synthesis resolves no further (171,623 genera and

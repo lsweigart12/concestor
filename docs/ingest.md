@@ -65,15 +65,21 @@ most load-bearing array two sources of truth.
    prune. The union matters — the flag and the ranks disagree in both directions.
    Survivors keep their relative preorder order, so the renumbering is a subtraction.
    What folded is recorded per surviving node in `folded_infraspecific` for the card.
-4. Emit `parent`, `depth`, `subtree_out`, `tip_count` arrays.
-5. Parse node labels into `ott_id` (`ott123`, `Name_ott123`) or `NULL`
+4. **Graft the curated hominins** (4 nodes): *Homo neanderthalensis* (ott83926) and
+   *Homo longi* (ott933436, vernacular "Denisovan") as species beside *Homo sapiens*,
+   shaped (sapiens, (neanderthalensis, longi)), with their two split nodes carrying
+   `mrcaott…`-form keys. The one hand edit — architecture §3.1. Phase 2 writes the
+   splits' literature dates on the `curated` tier; the oracle below excludes exactly
+   the two grafted leaves, gated.
+5. Emit `parent`, `depth`, `subtree_out`, `tip_count` arrays.
+6. Parse node labels into `ott_id` (`ott123`, `Name_ott123`) or `NULL`
    (`mrcaott83926ott3607676`). Keep the raw label as `node_key`.
-6. Join `taxonomy.tsv` for name, rank, flags. It is `\t|\t`-separated, and `sourceinfo`
+7. Join `taxonomy.tsv` for name, rank, flags. It is `\t|\t`-separated, and `sourceinfo`
    contains three malformed prefixes (`https`, `addition`, and one leading-space) — parse
    defensively.
-7. Load `forwards.tsv` (297,070 entries) into a resolution map. **Chase transitively** —
+8. Load `forwards.tsv` (297,070 entries) into a resolution map. **Chase transitively** —
    forwards can chain and can point "backwards" relative to release order.
-8. Mark the 9,839 broken taxa from `broken_taxa.json`, retaining `attachment_points`.
+9. Mark the 9,839 broken taxa from `broken_taxa.json`, retaining `attachment_points`.
    A broken taxon whose substitute MRCA was collapsed resolves to where it folded.
 
 The FTS index is **not** built here — a separate `search` phase builds it after
@@ -84,16 +90,18 @@ node index joins cleanly to unrelated nodes and returns confident nonsense.
 ### Gates
 
 - **Parsed node count is exactly 2,725,682**, and **tip count after the collapse
-  is exactly 2,340,087** — the two best structural checks.
-- Internal node count 316,754; total 2,656,841. Collapse removes 68,841, of which
+  and graft is exactly 2,340,089** — the two best structural checks.
+- Internal node count 316,756; total 2,656,845. Collapse removes 68,841, of which
   688 are named non-infraspecific collateral (all strain-level terminals — a
-  species here fails the build).
+  species here fails the build); the graft adds exactly 4, gated.
 - Max depth 111, mean 41.39 (±0.01, over tips).
 - Max branching factor 12,964. Unary internal nodes 69,845 (22.1%).
 - `parent[i] < i` for all `i > 0`.
 - **Oracle check:** 200 random tip sets of size 2–20 through
   `POST /v3/tree_of_life/induced_subtree`; the returned topology must match ours after
-  normalizing for unnamed-node labelling. Runs on every build.
+  normalizing for unnamed-node labelling. Runs on every build, sampling every tip
+  except the two grafted leaves — the one place the tree deliberately disagrees
+  with the live API.
 
 ---
 

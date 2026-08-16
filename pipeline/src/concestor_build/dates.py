@@ -71,14 +71,20 @@ TIER_STRUCTURAL = 2
 # the array. Not a fourth grade of divergence estimate: it answers "when is this
 # taxon observed in the rock", which is why it never enters `age_ma`.
 TIER_OCCURRENCE = 3
+# A literature estimate on a curated graft node, written here from
+# `topology.GRAFT_AGES_MA`. A real published number for a split the chronogram
+# cannot see — the two hominin splits, Prüfer et al. 2017 — so it may carry an
+# age; the provenance is the tier itself, and the card says whose number it is.
+TIER_CURATED = 4
 TIER_NAMES = {
     TIER_MEASURED: "measured",
     TIER_INTERPOLATED: "interpolated",
     TIER_STRUCTURAL: "structural",
     TIER_OCCURRENCE: "occurrence",
+    TIER_CURATED: "curated",
 }
 # The tiers that may carry a number in `age_ma`.
-TIERS_WITH_AN_AGE = frozenset({TIER_MEASURED, TIER_INTERPOLATED})
+TIERS_WITH_AN_AGE = frozenset({TIER_MEASURED, TIER_INTERPOLATED, TIER_CURATED})
 
 # Duke's chronogram is ultrametric to 2.7e-5 Ma, so "at the present" needs a
 # tolerance rather than an equality test.
@@ -406,6 +412,13 @@ def run(tree: str = PRIMARY_TREE, provisional: bool = False) -> int:
     # no number" is verified on the artifact, not inferred from the code.
     print("\n--- age tiers ---", flush=True)
     age_arr, tier_arr = assign_tiers(hi, dk_to_ours, n_ours, cong)
+    n_curated = apply_curated_ages(age_arr, tier_arr, our_key_to_idx, log=print)
+    g.require(
+        "curated graft splits carry their literature dates",
+        n_curated,
+        2,
+        note="topology.GRAFT_AGES_MA; a silent miss draws the hominin splits undated",
+    )
     layout_arr, join_violations = layout_ages(our_parent, age_arr, root_age)
     tier_counts = {
         name: int((tier_arr == t).sum()) for t, name in sorted(TIER_NAMES.items())
@@ -730,6 +743,30 @@ def assign_tiers(
     # Nothing downstream may find a number on a structural node.
     age[tier == TIER_STRUCTURAL] = np.nan
     return age.astype(np.float32), tier
+
+
+def apply_curated_ages(
+    age: F32Array, tier: U8Array, node_keys: dict[str, int], log: Log = print
+) -> int:
+    """Write the curated graft splits — the only hand-supplied ages.
+
+    Keyed by the graft nodes' `node_key`, which is the only identity they
+    have (they carry no OTT id and the chronogram cannot know them). A key
+    that fails to resolve fails the phase: a graft that silently lost its
+    date would draw the marquee splits of the whole tree as undated.
+    """
+    from .topology import GRAFT_AGES_MA
+
+    n = 0
+    for key, ma in GRAFT_AGES_MA.items():
+        idx = node_keys.get(key)
+        if idx is None:
+            raise ValueError(f"curated age for {key!r}, but no node carries that key")
+        age[idx] = ma
+        tier[idx] = TIER_CURATED
+        log(f"  curated: {key} = {ma} Ma")
+        n += 1
+    return n
 
 
 def layout_ages(

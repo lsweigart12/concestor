@@ -263,12 +263,12 @@ func TestRealPipelineArrays(t *testing.T) {
 		descr string
 		n     int
 	}{
-		{"parent.npy", "<u4", 2656841},
-		{"depth.npy", "|u1", 2656841},
-		{"subtree_out.npy", "<u4", 2656841},
-		{"tip_count.npy", "<u4", 2656841},
-		{"ott_id.npy", "<i8", 2656841},
-		{"child_count.npy", "<u4", 2656841},
+		{"parent.npy", "<u4", 2656845},
+		{"depth.npy", "|u1", 2656845},
+		{"subtree_out.npy", "<u4", 2656845},
+		{"tip_count.npy", "<u4", 2656845},
+		{"ott_id.npy", "<i8", 2656845},
+		{"child_count.npy", "<u4", 2656845},
 	} {
 		p := filepath.Join(dir, c.file)
 		if _, err := os.Stat(p); err != nil {

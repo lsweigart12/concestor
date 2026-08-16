@@ -69,12 +69,50 @@ INFRA_RANKS = frozenset(
     {"subspecies", "varietas", "variety", "forma", "infraspecificname"}
 )
 
-# Post-collapse figures. The pre-collapse parse is pinned by EXPECT_PARSED
-# alone; everything below it measures the collapsed tree.
+# The curated hominin graft — the one place this pipeline edits the tree by
+# hand, and the reason the infraspecific collapse could be total. OTT files
+# Neanderthals as a subspecies of Homo sapiens and the Denisovans as
+# `Homo sapiens subsp. 'Denisova'` (absent from synthesis entirely), because
+# NCBI does. The consensus reading of the ancient-DNA record is three sister
+# species: (sapiens, (neanderthalensis, longi)). So after the collapse folds
+# the subspecies away, phase 1 grafts the two back as species:
+#
+#   - `ott83926` becomes *Homo neanderthalensis*, species. The name is the
+#     one Wikidata's Neanderthal item (Q40171) already cites for this OTT id,
+#     and the one PBDB files its fossil record under — both joins land clean.
+#   - `ott933436` becomes *Homo longi*, species, vernacular "Denisovan",
+#     following the 2025 Harbin-cranium identification. OTT has no taxon by
+#     this name, so the id is the Denisovan's and the name is curated.
+#
+# The two splits carry literature dates on the `curated` age tier
+# (architecture §3.5): sapiens vs (neanderthalensis + longi) at 0.6 Ma and
+# neanderthalensis vs longi at 0.4 Ma, from Prüfer et al. 2017 (Nature
+# 549:429), 550–765 ka and 381–473 ka. The internal nodes take the mrca-form
+# keys synthesis would give them, derived from their descendants' OTT ids.
+#
+# Everything else about the graft is downstream consequence, not extra
+# machinery: the leaves keep their OTT ids so URLs, xref, PhyloPic citations
+# and Wikidata items resolve to them directly; phase 4 attaches PBDB's
+# Neanderthal at walk 0, which both gives the node its fossil range and
+# removes the duplicate fossil row from search; and the phase-1 oracle
+# excludes the two leaves, gated below, because the live API answers for
+# OTT's filing, which is the thing this graft corrects.
+GRAFT_HOST_OTT = 770315  # Homo sapiens, the sister of the grafted pair
+GRAFT_LEAVES = (
+    # (ott_id, node_key, name, vernacular)
+    (83926, "ott83926", "Homo neanderthalensis", None),
+    (933436, "ott933436", "Homo longi", "Denisovan"),
+)
+GRAFT_OUTER_KEY = "mrcaott770315ott83926"  # sapiens | (neanderthalensis, longi)
+GRAFT_INNER_KEY = "mrcaott83926ott933436"  # neanderthalensis | longi
+GRAFT_AGES_MA = {GRAFT_OUTER_KEY: 0.6, GRAFT_INNER_KEY: 0.4}
+
+# Post-collapse, post-graft figures. The pre-collapse parse is pinned by
+# EXPECT_PARSED alone; everything below it measures the shipped tree.
 EXPECT_PARSED = 2_725_682
-EXPECT_TIPS = 2_340_087
-EXPECT_INTERNAL = 316_754
-EXPECT_TOTAL = 2_656_841
+EXPECT_TIPS = 2_340_089
+EXPECT_INTERNAL = 316_756
+EXPECT_TOTAL = 2_656_845
 EXPECT_MAX_DEPTH = 111
 EXPECT_MIN_DEPTH = 2
 EXPECT_MEAN_DEPTH = 41.39
@@ -267,6 +305,98 @@ def collapse_infraspecific(
     )
 
 
+def graft_hominins(
+    tree: newick.ParsedTree,
+    taxonomy: dict[int, tuple[str, str, str]],
+    folded: list[FoldedRow],
+    fold_of_key: dict[str, int],
+) -> tuple[newick.ParsedTree, list[FoldedRow], JsonDict]:
+    """Insert the curated hominin clade beside *Homo sapiens*.
+
+    Four nodes go in at the host's preorder position — outer, host, inner,
+    the two leaves — so relative order elsewhere is untouched and the
+    renumbering is an addition, the collapse's subtraction run backwards.
+    The grafted ids stop being folded: a taxon cannot be both a node and a
+    record of where it went, so their `folded_infraspecific` rows (and any
+    fold-key claims) are withdrawn here, and their taxonomy entries are
+    overridden to the curated name and rank so `write_db` says what the
+    graft means, not what NCBI filed.
+    """
+    n = tree.n_nodes
+    hosts = [i for i, o in enumerate(tree.ott_id.tolist()) if o == GRAFT_HOST_OTT]
+    if len(hosts) != 1:
+        raise ValueError(f"graft host ott{GRAFT_HOST_OTT} resolves to {hosts}")
+    s = hosts[0]
+
+    # New preorder block replacing the host's single slot:
+    #   s: outer, s+1: host, s+2: inner, s+3 and s+4: the leaves.
+    ins = 4
+    parent = np.empty(n + ins, dtype=np.uint32)
+    ott = np.empty(n + ins, dtype=np.int64)
+    parent[:s] = tree.parent[:s]
+    ott[:s] = tree.ott_id[:s]
+    old_tail = tree.parent[s + 1 :].astype(np.int64)
+    parent[s + 1 + ins :] = np.where(old_tail > s, old_tail + ins, old_tail).astype(
+        np.uint32
+    )
+    ott[s + 1 + ins :] = tree.ott_id[s + 1 :]
+
+    parent[s] = tree.parent[s]  # outer takes the host's place under Homo
+    parent[s + 1] = s  # host
+    parent[s + 2] = s  # inner
+    parent[s + 3] = s + 2
+    parent[s + 4] = s + 2
+    ott[s] = NO_OTT
+    ott[s + 1] = GRAFT_HOST_OTT
+    ott[s + 2] = NO_OTT
+    ott[s + 3] = GRAFT_LEAVES[0][0]
+    ott[s + 4] = GRAFT_LEAVES[1][0]
+
+    labels = [
+        *tree.labels[:s],
+        GRAFT_OUTER_KEY.encode(),
+        tree.labels[s],
+        GRAFT_INNER_KEY.encode(),
+        GRAFT_LEAVES[0][1].encode(),
+        GRAFT_LEAVES[1][1].encode(),
+        *tree.labels[s + 1 :],
+    ]
+
+    for ott_id, _key, name, _vern in GRAFT_LEAVES:
+        # The curated identity: species rank, the collapse's own flag logic
+        # must not see these as infraspecific again, and the extinct flag is
+        # true and load-bearing (phase 5a's witness layer reads it).
+        taxonomy[ott_id] = (name, "species", "extinct")
+
+    def renumber(i: int) -> int:
+        # The splice moves the host one slot down and everything after it four:
+        # old s -> s+1 (the host), old > s -> +4, old < s untouched. Every
+        # index recorded before the graft — fold targets, fold-key claims —
+        # must come through this, or half the folded table points four nodes
+        # early and "dog" resolves to an unnamed divergence.
+        if i == s:
+            return s + 1
+        return i + ins if i > s else i
+
+    grafted_ids = {o for o, _k, _n, _v in GRAFT_LEAVES}
+    kept_folded = [
+        (renumber(a), o, name, rank)
+        for a, o, name, rank in folded
+        if o not in grafted_ids
+    ]
+    withdrawn = len(folded) - len(kept_folded)
+    for _o, key, _n, _v in GRAFT_LEAVES:
+        fold_of_key.pop(key, None)
+    for key in list(fold_of_key):
+        fold_of_key[key] = renumber(fold_of_key[key])
+
+    return (
+        newick.ParsedTree(parent=parent, ott_id=ott, labels=labels, branch_length=None),
+        kept_folded,
+        {"grafted nodes": ins, "folded rows withdrawn": withdrawn},
+    )
+
+
 def run(oracle: bool = True, oracle_samples: int = 200) -> int:
     g = GateSet("phase1-topology")
     OUT.mkdir(parents=True, exist_ok=True)
@@ -312,6 +442,24 @@ def run(oracle: bool = True, oracle_samples: int = 200) -> int:
         note="union membership; see the module docstring",
     )
     g.observe("unnamed structure emptied", fold_stats["unnamed structure emptied"])
+
+    tree, folded, graft_stats = graft_hominins(tree, taxonomy, folded, fold_of_key)
+    g.require(
+        "curated hominin graft applied",
+        graft_stats["grafted nodes"],
+        4,
+        note=(
+            "Homo neanderthalensis and Homo longi as species beside Homo "
+            "sapiens, with their two split nodes — see GRAFT_LEAVES. The one "
+            "hand edit this pipeline makes to the tree."
+        ),
+    )
+    g.require(
+        "grafted taxa withdrawn from the fold",
+        graft_stats["folded rows withdrawn"],
+        1,
+        note="83926 folded and is now a node; 933436 was never in synthesis.",
+    )
 
     t1 = time.monotonic()
     topo = newick.derive(tree.parent)

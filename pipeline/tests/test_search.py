@@ -326,7 +326,7 @@ def test_every_indexed_name_carries_text(con):
 @built
 def test_all_four_corpora_are_populated(con):
     kinds = dict(con.execute("SELECT kind, count(*) FROM search_name GROUP BY kind"))
-    assert kinds.get(KIND_SCI) == 2_531_139
+    assert kinds.get(KIND_SCI) == 2_531_141
     assert kinds.get(KIND_ABBR, 0) > 1_000_000
     assert kinds.get(KIND_SYN, 0) > 1_000_000
 

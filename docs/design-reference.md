@@ -444,7 +444,7 @@ switch line up down a column of fixed width:
   a group rather than a kind of animal; below species nothing exists to name —
   the tree stops at species. Enforced in the server and again in `markName`.
 - **The canvas is mixed in common mode and that is the design.** ~108k nodes
-  of 2,656,841 carry an English name, so most of a deep tree falls back, and a
+  of 2,656,845 carry an English name, so most of a deep tree falls back, and a
   divergence falls back more often than a leaf. **Italics say which**: a
   scientific name is italic at genus and below, a common name never is.
 - **ages: on · off.** On by default.

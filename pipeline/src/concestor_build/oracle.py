@@ -72,7 +72,16 @@ def check_induced_subtrees(
 ) -> dict[str, Json]:
     rng = random.Random(seed)
 
-    tip_idx = np.flatnonzero(topo.is_tip & (tree.ott_id != NO_OTT))
+    # The curated hominin graft is the one place this tree deliberately
+    # disagrees with the live API, which still answers for OTT's subspecies
+    # filing. Its two leaves are excluded from sampling — and only they can
+    # differ: the grafted internal nodes sit on paths the API reports only
+    # when both grafted leaves are in the query. Gated in phase 1 so the
+    # exclusion list cannot quietly grow past the graft it exists for.
+    from .topology import GRAFT_LEAVES
+
+    excluded = np.isin(tree.ott_id, [o for o, _k, _n, _v in GRAFT_LEAVES])
+    tip_idx = np.flatnonzero(topo.is_tip & (tree.ott_id != NO_OTT) & ~excluded)
     ott_of_tip = tree.ott_id[tip_idx]
     idx_of = {
         int(o): int(i)

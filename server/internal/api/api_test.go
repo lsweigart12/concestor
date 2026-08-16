@@ -86,7 +86,7 @@ func TestAbout(t *testing.T) {
 		t.Fatal("no counts")
 	}
 	for k, want := range map[string]float64{
-		"nodes": 2656841, "tips": 2340087, "internal": 316754, "broken": 9839,
+		"nodes": 2656845, "tips": 2340089, "internal": 316756, "broken": 9839,
 	} {
 		if counts[k] != want {
 			t.Errorf("counts.%s = %v, want %v", k, counts[k], want)
@@ -380,8 +380,8 @@ func TestPathHomoSapiens(t *testing.T) {
 	if resp.StatusCode != 200 {
 		t.Fatalf("status %d", resp.StatusCode)
 	}
-	if len(p.Path) != 60 {
-		t.Fatalf("path length %d, want 60", len(p.Path))
+	if len(p.Path) != 61 {
+		t.Fatalf("path length %d, want 61 (the hominin graft adds one)", len(p.Path))
 	}
 	if p.Path[0].Idx != 0 {
 		t.Errorf("path is not root-first: starts at idx %d", p.Path[0].Idx)
@@ -1119,14 +1119,27 @@ func TestNodeDetail(t *testing.T) {
 		t.Errorf("Homo sapiens child_count=%d tip_count=%d, want 0/1",
 			body.ChildCount, body.TipCount)
 	}
-	// The folded subspecies are not nodes: their OTT ids must answer 404
-	// rather than silently resolving to something else.
+	// ott83926 was OTT's Homo sapiens neanderthalensis; the curated graft
+	// makes it the species Homo neanderthalensis, so a pre-collapse URL keeps
+	// working and answers with the graft's identity, not a silent substitute.
 	var neander struct {
-		Error string `json:"error"`
+		Name       *string `json:"name"`
+		Rank       *string `json:"rank"`
+		TipCount   int64   `json:"tip_count"`
+		ChildCount int64   `json:"child_count"`
 	}
-	resp = getJSON(t, ts, "/v1/node/ott83926", &neander) // H. s. neanderthalensis
-	if resp.StatusCode != 404 {
-		t.Errorf("a folded subspecies answered %d, want 404", resp.StatusCode)
+	resp = getJSON(t, ts, "/v1/node/ott83926", &neander)
+	if resp.StatusCode != 200 {
+		t.Fatalf("the grafted Neanderthal answered %d", resp.StatusCode)
+	}
+	if neander.Name == nil || *neander.Name != "Homo neanderthalensis" ||
+		neander.Rank == nil || *neander.Rank != "species" {
+		t.Errorf("grafted node = %v (%v), want Homo neanderthalensis (species)",
+			neander.Name, neander.Rank)
+	}
+	if neander.ChildCount != 0 || neander.TipCount != 1 {
+		t.Errorf("grafted species should be a 0/1 leaf, got %d/%d",
+			neander.ChildCount, neander.TipCount)
 	}
 	if body.ParentIdx == nil {
 		t.Error("parent_idx missing")

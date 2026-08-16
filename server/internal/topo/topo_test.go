@@ -52,15 +52,15 @@ func load(t *testing.T) *Arrays {
 func TestLoadAssertsInvariants(t *testing.T) {
 	a := load(t)
 	// Load() refuses to return arrays that violate parent[i] < i, so reaching
-	// here already proves the preorder invariant over all 2,656,841 nodes.
-	if a.N != 2656841 {
-		t.Errorf("N = %d, want 2656841", a.N)
+	// here already proves the preorder invariant over all 2,656,845 nodes.
+	if a.N != 2656845 {
+		t.Errorf("N = %d, want 2656845", a.N)
 	}
-	if a.Tips != 2340087 {
-		t.Errorf("tips = %d, want 2340087", a.Tips)
+	if a.Tips != 2340089 {
+		t.Errorf("tips = %d, want 2340089", a.Tips)
 	}
-	if a.Internal != 316754 {
-		t.Errorf("internal = %d, want 316754", a.Internal)
+	if a.Internal != 316756 {
+		t.Errorf("internal = %d, want 316756", a.Internal)
 	}
 	if a.Parent[0] != NoParent {
 		t.Errorf("root has a parent")
@@ -97,8 +97,8 @@ func TestPathToRoot(t *testing.T) {
 	if p[len(p)-1] != idx {
 		t.Errorf("path does not end at the node: %d != %d", p[len(p)-1], idx)
 	}
-	if len(p) != 60 {
-		t.Errorf("Homo sapiens path length = %d, want 60 (measured from render.py)", len(p))
+	if len(p) != 61 {
+		t.Errorf("Homo sapiens path length = %d, want 61 (measured from render.py; the hominin graft adds one)", len(p))
 	}
 	for i := 1; i < len(p); i++ {
 		if int(a.Parent[p[i]]) != p[i-1] {

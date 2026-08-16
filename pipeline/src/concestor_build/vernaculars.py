@@ -96,9 +96,11 @@ ISO3_TO_BCP47 = {"eng": "en"}
 # Measured 2026-07-31 against the frozen ColDP archive. These read a file that
 # cannot change, so any movement is a bug in this code, not upstream.
 EXPECT_PBDB_ROWS = 9_245
-EXPECT_PBDB_UNIQUE = 6_745
+# 6,745 measured pre-graft; the hominin graft hands PBDB's "Neanderthal" row a
+# node spelling its name, so one unmatched row became a match.
+EXPECT_PBDB_UNIQUE = 6_746
 EXPECT_PBDB_AMBIGUOUS = 52
-EXPECT_PBDB_UNMATCHED = 2_448
+EXPECT_PBDB_UNMATCHED = 2_447
 
 # Names the palette must answer. Each is a content gate: the row exists, it
 # carries an idx, and that idx is a taxon a person actually means by the word.
@@ -112,6 +114,10 @@ EXPECT_PBDB_UNMATCHED = 2_448
 SPOT_CHECKS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("dog", ("Canis lupus familiaris", "Canis familiaris", "Canis lupus")),
     ("human", ("Homo sapiens", "Homo")),
+    # The curated graft's names: the whole point of grafting the two species
+    # is that a reader can type these and arrive somewhere.
+    ("neanderthal", ("Homo neanderthalensis",)),
+    ("denisovan", ("Homo longi",)),
     ("mammal", ("Mammalia",)),
     ("shark", ("Selachii", "Selachimorpha", "Elasmobranchii", "Chondrichthyes")),
     ("sponge", ("Porifera",)),
@@ -996,6 +1002,27 @@ def run(use_api: bool = True) -> int:
     print("\n--- pbdb ColDP VernacularName.tsv ---", flush=True)
     pbdb = read_pbdb(log=print)
 
+    # The curated graft's own names. Only where no catalogue can supply one:
+    # Wikidata's Neanderthal item cites ott83926 and resolves on its own, but
+    # no item cites the Denisovan's OTT id — English Wikipedia hangs the
+    # article on a concept item — so the one word every reader knows arrives
+    # with the graft that makes the node exist.
+    from .topology import GRAFT_LEAVES
+
+    curated = [
+        RawRow(
+            ott_id=ott_id,
+            source="curated",
+            source_id=f"graft:{ott_id}",
+            sci_name=None,
+            name=vern,
+            lang="en",
+            kind="v",
+        )
+        for ott_id, _key, _name, vern in GRAFT_LEAVES
+        if vern
+    ]
+
     print("\n--- staging ---", flush=True)
     t0 = time.monotonic()
     con.execute(
@@ -1006,9 +1033,11 @@ def run(use_api: bool = True) -> int:
     n_wikidata = stage(con, read_wikidata_pages(log=print))
     n_by_name = stage(con, by_name)
     n_pbdb = stage(con, pbdb)
+    n_curated = stage(con, curated)
     print(
         f"  staged {n_wikidata:,} wikidata + {n_by_name:,} wikidata-by-name + "
-        f"{n_pbdb:,} pbdb rows in {time.monotonic() - t0:,.1f}s",
+        f"{n_pbdb:,} pbdb + {n_curated} curated rows in "
+        f"{time.monotonic() - t0:,.1f}s",
         flush=True,
     )
 
