@@ -51,3 +51,4 @@ __pycache__/
 
 # Release artifacts, built by scripts/ci/build-release.sh from a tag.
 /release-artifacts/
+*/.DS_Store
