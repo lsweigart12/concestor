@@ -215,6 +215,9 @@ class Candidate:
     #: One of the `EV_*` values, or None where the taxon has no English
     #: article and the question could not be asked.
     wiki: str | None
+    #: The name reached this node through the infraspecific collapse — it is
+    #: really a narrower, folded taxon's name. Searchable, never the headline.
+    folded: bool = False
 
 
 def _base_band(c: Candidate) -> int:
@@ -245,6 +248,11 @@ def sort_key(c: Candidate, scientific: str | None, stem_free_available: bool) ->
     """
     stemmy = stem_free_available and shares_stem(c.name, scientific)
     return (
+        # Before every other signal: a folded taxon's name never outranks a
+        # name that is the node's own, whatever its evidence says — the
+        # evidence is about the narrower taxon ("Greenland Wolf" has a fine
+        # article; it is not what Canis lupus is called).
+        1 if c.folded else 0,
         band(c),
         1 if stemmy else 0,
         -c.n_sources,
@@ -632,12 +640,15 @@ def taxon_targets(
     """node idx -> (qid, sitelink title, resolved target).
 
     A node claimed by more than one Wikidata item takes the lowest QID, so the
-    answer is stable.
+    answer is stable. Folded rows are excluded: their items are about the
+    folded infraspecific taxon, and letting one claim the node would title the
+    wolf's article "Dog" (Q144 sorts below the wolf's own item as text).
     """
     out: dict[int, tuple[str, str, str | None]] = {}
     for idx, qid in con.execute(
         "SELECT DISTINCT idx, source_id FROM vernacular "
-        "WHERE idx IS NOT NULL AND source_id LIKE 'Q%' ORDER BY idx, source_id"
+        "WHERE idx IS NOT NULL AND source_id LIKE 'Q%' AND folded = 0 "
+        "ORDER BY idx, source_id"
     ):
         i = int(idx)
         if i in out or qid not in sitelinks:
@@ -679,12 +690,20 @@ def assign_ranks(
     }
 
     groups: dict[tuple[int, str], list[Candidate]] = {}
-    for rowid, idx, name, lang, kind, n_src in con.execute(
-        "SELECT rowid, idx, name, lang, kind, n_sources FROM vernacular "
-        "WHERE idx IS NOT NULL ORDER BY rowid"
+    for rowid, idx, name, lang, kind, n_src, folded in con.execute(
+        "SELECT rowid, idx, name, lang, kind, n_sources, folded "
+        "FROM vernacular WHERE idx IS NOT NULL ORDER BY rowid"
     ):
         i = int(idx)
         taxon_target = targets.get(i, ("", "", None))[2] if targets else None
+        # A folded row is not asked the wiki question: the node's article is
+        # about the node, not about the folded taxon the name belongs to, and
+        # most folded items hold no article of their own (English Wikipedia
+        # files the dog's article on a concept item, not the taxon item).
+        # Evidence None is the honest fifth state. The server's search rule
+        # for folded exactness is what hands "dog" to Canis lupus.
+        if folded:
+            taxon_target = None
         groups.setdefault((i, lang), []).append(
             Candidate(
                 rowid=int(rowid),
@@ -692,6 +711,7 @@ def assign_ranks(
                 kind=kind or "a",
                 n_sources=int(n_src or 1),
                 wiki=evidence(name, taxon_target, res) if lang == LANG else None,
+                folded=bool(folded),
             )
         )
 
@@ -722,7 +742,10 @@ def assign_ranks(
 # the tiebreak rather than the evidence.
 HEADLINE_CHECKS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Homo sapiens", ("human", "humans")),
-    ("Canis lupus familiaris", ("dog", "dogs", "domestic dog")),
+    # The domestic dog folded into the wolf (phase 1's infraspecific
+    # collapse). "dog" stays searchable on this node, but as a folded name it
+    # must never lead it — the check is that the wolf's own name still does.
+    ("Canis lupus", ("wolf", "wolves", "gray wolf", "grey wolf")),
     ("Felis catus", ("cat", "cats", "domestic cat")),
     ("Panthera leo", ("lion", "lions")),
     ("Mammalia", ("mammal", "mammals")),

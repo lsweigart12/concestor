@@ -118,7 +118,7 @@
  */
 export const STARTERS: readonly string[] = [
   "ott770315", // Homo sapiens — you
-  "ott247333", // Canis lupus familiaris — the familiar carnivoran
+  "ott247341", // Canis lupus — the familiar carnivoran, dog included
   "ott226190", // Balaenoptera musculus — the largest animal that has ever lived
   "ott554297", // Carcharodon carcharias — a fish, and the one in "are you a fish?"
   "ott1091028", // Varanus komodoensis — a reptile

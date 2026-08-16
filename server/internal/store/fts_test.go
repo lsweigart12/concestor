@@ -733,7 +733,9 @@ func TestArticleTitleDecidesBetweenTaxaWithTheSameName(t *testing.T) {
 		{"whale", "Cetacea"},
 		{"rat", "Rattus norvegicus"},
 		{"shark", "Selachii"},
-		{"dog", "Canis lupus familiaris"},
+		// The dog folded into the wolf; the folded-exactness rule keeps the
+		// query on the species the collapse made answer for it.
+		{"dog", "Canis lupus"},
 		{"snake", "Serpentes"},
 		{"beetle", "Coleoptera"},
 		{"snail", "Gastropoda"},

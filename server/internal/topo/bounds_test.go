@@ -31,7 +31,7 @@ import (
 //     `mrcaott…` scaffolding that arranged them. That is why every total
 //     below fell at once — the nodes are gone, not re-tiered.
 const (
-	measuredAgainstBuild = "post-collapse (update from build/manifest.json at package)"
+	measuredAgainstBuild = "58985c7d7742e8d6"
 
 	wantStructural      = 118263
 	wantWithLowerBound  = 5091

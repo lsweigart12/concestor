@@ -709,7 +709,7 @@ func TestHitsDressesKeysAsPaletteRows(t *testing.T) {
 	var body struct {
 		Results []store.SearchResult `json:"results"`
 	}
-	resp := getJSON(t, ts, "/v1/hits?keys=ott770315,ott247333", &body)
+	resp := getJSON(t, ts, "/v1/hits?keys=ott770315,ott247341", &body)
 	if resp.StatusCode != 200 {
 		t.Fatalf("status %d", resp.StatusCode)
 	}
@@ -718,7 +718,7 @@ func TestHitsDressesKeysAsPaletteRows(t *testing.T) {
 	}
 	// The caller's order, not the tree's preorder. See
 	// TestStartersKeepTheirCuratedOrder for why that is the failure to watch.
-	if body.Results[0].Key != "ott770315" || body.Results[1].Key != "ott247333" {
+	if body.Results[0].Key != "ott770315" || body.Results[1].Key != "ott247341" {
 		t.Errorf("order = %s, %s", body.Results[0].Key, body.Results[1].Key)
 	}
 	for _, r := range body.Results {
@@ -1357,8 +1357,20 @@ func TestDivergenceWitnessReachesTheClient(t *testing.T) {
 
 func TestSegment(t *testing.T) {
 	ts, st := serve(t)
-	// 588426 -> 603110 is one of the reference segments; render.py measures a
-	// single suppressed node between them.
+	// A reference segment with exactly one suppressed node between its ends,
+	// taken from the fixture render.py generates rather than pinned by hand.
+	ref := testenv.RequireInducedFixture(t)
+	upper, lower := -1, -1
+	for key, seg := range ref.Expected.Segments {
+		if seg.Anc != nil && len(seg.Suppressed) == 1 {
+			lower, _ = strconv.Atoi(key)
+			upper = *seg.Anc
+			break
+		}
+	}
+	if lower < 0 {
+		t.Fatal("no reference segment with one suppressed node; regenerate the fixture")
+	}
 	var body struct {
 		UpperIdx         int            `json:"upper_idx"`
 		LowerIdx         int            `json:"lower_idx"`
@@ -1367,7 +1379,7 @@ func TestSegment(t *testing.T) {
 		FossilsAvailable bool           `json:"fossils_available"`
 		FossilsTotal     int            `json:"fossils_total"`
 	}
-	resp := getJSON(t, ts, "/v1/segment/588426/603110", &body)
+	resp := getJSON(t, ts, "/v1/segment/"+itoa(upper)+"/"+itoa(lower), &body)
 	if resp.StatusCode != 200 {
 		t.Fatalf("status %d", resp.StatusCode)
 	}

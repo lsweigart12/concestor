@@ -231,9 +231,12 @@ def _plan(con: sqlite3.Connection) -> list[int]:
 
     Order matters: an interrupted crawl must still answer "dog". `tip_count`
     descending puts clades first; ties break on `ott_id`, which is a good
-    notability proxy since OTT numbers well-studied organisms low. Retired ids
-    come last — forwarding is silent, so items edited before a retirement cite
-    the old id, and `forward` maps them back.
+    notability proxy since OTT numbers well-studied organisms low. Folded
+    infraspecific ids follow the tree's own: they are not nodes, but a Wikidata
+    item about one carries names the surviving species must answer to — Q144
+    cites the domestic dog subspecies, and "dog" has to land on *Canis lupus*.
+    Retired ids come last — forwarding is silent, so items edited before a
+    retirement cite the old id, and `forward` maps them back.
     """
     ids = [
         int(r[0])
@@ -242,6 +245,10 @@ def _plan(con: sqlite3.Connection) -> list[int]:
             "ORDER BY tip_count DESC, ott_id"
         )
     ]
+    folded = [
+        int(r[0])
+        for r in con.execute("SELECT ott_id FROM folded_infraspecific ORDER BY ott_id")
+    ]
     retired = [
         int(r[0])
         for r in con.execute(
@@ -249,7 +256,7 @@ def _plan(con: sqlite3.Connection) -> list[int]:
             "JOIN node n ON n.ott_id = f.new_ott_id ORDER BY f.old_ott_id"
         )
     ]
-    return ids + retired
+    return ids + folded + retired
 
 
 def _plan_digest(ids: Sequence[int]) -> str:
@@ -644,7 +651,12 @@ CREATE TABLE vernacular (
   wiki_evidence TEXT,
   -- 1-based position within (idx, lang), most used first. NULL where idx is.
   usage_rank INTEGER,
-  is_primary INTEGER NOT NULL DEFAULT 0   -- exactly `usage_rank = 1`
+  is_primary INTEGER NOT NULL DEFAULT 0,  -- exactly `usage_rank = 1`
+  -- The row reached this node through the infraspecific collapse: its taxon
+  -- folded in (phase 1), so the name is really a narrower taxon's. It stays
+  -- searchable — "dog" must find Canis lupus — but ranks after every name
+  -- that is the node's own, so the wolf is never headlined "Dog".
+  folded     INTEGER NOT NULL DEFAULT 0
 );
 """
 
@@ -682,24 +694,34 @@ def load(con: sqlite3.Connection, log: Log = print) -> JsonDict:
     con.executescript(SCHEMA)
 
     # Wikidata rows carry an OTT id. Chase the forward before joining, since a
-    # Wikidata item edited before a retirement still cites the old id.
+    # Wikidata item edited before a retirement still cites the old id. An id
+    # that names no node may name a folded infraspecific taxon — phase 1's
+    # collapse — and then the row lands on the surviving node, with the folded
+    # taxon's own name kept so the P225 check below can recognise the claim.
     con.execute(
         """
         CREATE TEMP TABLE v_res AS
-        SELECT n.idx AS idx,
-               n.ott_id AS ott_id,
+        SELECT COALESCE(n.idx, fn.idx) AS idx,
+               COALESCE(n.ott_id, fn.ott_id) AS ott_id,
                v.name AS name,
                v.lang AS lang,
                v.source AS source,
                v.source_id AS source_id,
                v.kind AS kind,
                -- Wikidata's own taxon name, for the P225 mismatch check below.
-               v.sci_name AS sci_name
+               v.sci_name AS sci_name,
+               CASE WHEN n.idx IS NULL THEN fi.name END AS folded_name
           FROM v_raw v
           LEFT JOIN node n
                  ON n.ott_id = COALESCE(
                       (SELECT f.new_ott_id FROM forward f
                         WHERE f.old_ott_id = v.ott_id), v.ott_id)
+          LEFT JOIN folded_infraspecific fi
+                 ON n.idx IS NULL
+                AND fi.ott_id = COALESCE(
+                      (SELECT f.new_ott_id FROM forward f
+                        WHERE f.old_ott_id = v.ott_id), v.ott_id)
+          LEFT JOIN node fn ON fn.idx = fi.idx
          WHERE v.ott_id IS NOT NULL
         """
     )
@@ -707,11 +729,14 @@ def load(con: sqlite3.Connection, log: Log = print) -> JsonDict:
     # The two name-keyed sources — PBDB's `taxon_no`, which has no id path into
     # OTT, and the `P225` pass, which deliberately has none — join on the exact
     # scientific name and are accepted only where that is unambiguous. A name
-    # matching two nodes is recorded unresolved, never guessed at.
+    # matching two nodes is recorded unresolved, never guessed at. A name that
+    # matches no node may be a folded infraspecific taxon's; it lands on the
+    # surviving node under the same ambiguity rule.
     con.execute(
         """
         CREATE TEMP TABLE name_cand AS
-        SELECT v.rowid AS vrow, count(*) AS n_cand, min(n.idx) AS idx
+        SELECT v.rowid AS vrow, count(*) AS n_cand, min(n.idx) AS idx,
+               0 AS folded
           FROM v_raw v JOIN node n ON n.name = v.sci_name
          WHERE v.ott_id IS NULL AND v.sci_name IS NOT NULL
          GROUP BY v.rowid
@@ -720,25 +745,42 @@ def load(con: sqlite3.Connection, log: Log = print) -> JsonDict:
     con.execute("CREATE INDEX name_cand_row ON name_cand(vrow)")
     con.execute(
         """
+        INSERT INTO name_cand (vrow, n_cand, idx, folded)
+        SELECT v.rowid, count(*), min(fi.idx), 1
+          FROM v_raw v JOIN folded_infraspecific fi ON fi.name = v.sci_name
+         WHERE v.ott_id IS NULL AND v.sci_name IS NOT NULL
+           AND NOT EXISTS (SELECT 1 FROM name_cand c WHERE c.vrow = v.rowid)
+         GROUP BY v.rowid
+        """
+    )
+    con.execute(
+        """
         INSERT INTO v_res (idx, ott_id, name, lang, source, source_id, kind,
-                           sci_name)
+                           sci_name, folded_name)
         SELECT CASE WHEN c.n_cand = 1 THEN c.idx END,
                (SELECT n.ott_id FROM node n
                  WHERE c.n_cand = 1 AND n.idx = c.idx),
-               v.name, v.lang, v.source, v.source_id, v.kind, v.sci_name
+               v.name, v.lang, v.source, v.source_id, v.kind, v.sci_name,
+               CASE WHEN c.n_cand = 1 AND c.folded = 1 THEN v.sci_name END
           FROM v_raw v LEFT JOIN name_cand c ON c.vrow = v.rowid
          WHERE v.ott_id IS NULL
         """
     )
 
-    # A "vernacular" that repeats the binomial is not one.
+    # A "vernacular" that repeats the binomial is not one — nor one that
+    # repeats a trinomial the collapse folded into this node ("Canis lupus
+    # orion" arriving as a wolf alias is a scientific name, and the search
+    # phase indexes the folded names in their own right).
     dropped = con.execute(
         """
         DELETE FROM v_res
          WHERE idx IS NOT NULL
-           AND EXISTS (SELECT 1 FROM node n
-                        WHERE n.idx = v_res.idx
-                          AND lower(n.name) = lower(v_res.name))
+           AND (EXISTS (SELECT 1 FROM node n
+                         WHERE n.idx = v_res.idx
+                           AND lower(n.name) = lower(v_res.name))
+             OR EXISTS (SELECT 1 FROM folded_infraspecific fi
+                         WHERE fi.idx = v_res.idx
+                           AND lower(fi.name) = lower(v_res.name)))
         """
     ).rowcount
 
@@ -764,12 +806,17 @@ def load(con: sqlite3.Connection, log: Log = print) -> JsonDict:
     # evidence of a bad claim). Three cheaper rules were tried and all fail —
     # "most names" hands Archaea to the frog, "drop every claimant" takes "Dog"
     # off *Canis lupus familiaris*.
+    # A fold-resolved row is exempt where its P225 names the folded taxon: the
+    # item is genuinely about the subspecies, and the subspecies is genuinely
+    # this node now. An item whose P225 matches neither is still contested.
     contested = con.execute(
         """
         DELETE FROM v_res
          WHERE source = 'wikidata'
            AND idx IS NOT NULL
            AND sci_name IS NOT NULL
+           AND (folded_name IS NULL
+                OR lower(folded_name) <> lower(sci_name))
            AND EXISTS (SELECT 1 FROM node n
                         WHERE n.idx = v_res.idx
                           AND lower(n.name) <> lower(v_res.sci_name))
@@ -789,6 +836,7 @@ def load(con: sqlite3.Connection, log: Log = print) -> JsonDict:
                              WHEN 'pbdb_coldp' THEN 1 ELSE 2 END AS src_rank,
                  CASE kind WHEN 'v' THEN 0 WHEN 'l' THEN 1 ELSE 2 END
                    AS kind_rank,
+                 CASE WHEN folded_name IS NOT NULL THEN 1 ELSE 0 END AS folded,
                  -- The identity a duplicate is a duplicate *of*.
                  COALESCE(CAST(idx AS TEXT), 'u:' || source || ':' ||
                           COALESCE(source_id, '')) AS dedup_owner
@@ -797,20 +845,23 @@ def load(con: sqlite3.Connection, log: Log = print) -> JsonDict:
         -- What the losing rows are owed, aggregated separately because SQLite
         -- has no COUNT(DISTINCT ...) OVER: the strongest kind any source
         -- claimed for this string, and how many distinct sources carried it.
+        -- `folded` is a MIN too: a string any source attached to the node
+        -- itself is the node's own name, however many folded rows echo it.
         absorbed AS (
           SELECT dedup_owner, lang, lower(name) AS lname,
                  MIN(kind_rank) AS best_kind,
+                 MIN(folded) AS folded,
                  COUNT(DISTINCT source) AS n_sources
             FROM scored GROUP BY dedup_owner, lang, lower(name)
         )
         INSERT INTO vernacular (idx, ott_id, name, lang, source, source_id,
-                                kind, n_sources)
+                                kind, n_sources, folded)
         SELECT s.idx, s.ott_id, s.name, s.lang, s.source, s.source_id,
                -- Mapped back from the rank, because MIN over the letters
                -- themselves returns 'a': the *weakest* kind sorts first in the
                -- alphabet, and the strongest is what the surviving row owes.
                CASE a.best_kind WHEN 0 THEN 'v' WHEN 1 THEN 'l' ELSE 'a' END,
-               a.n_sources
+               a.n_sources, a.folded
           FROM (
             SELECT *, ROW_NUMBER() OVER (
                         PARTITION BY dedup_owner, lang, lower(name)

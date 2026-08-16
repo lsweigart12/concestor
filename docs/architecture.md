@@ -289,7 +289,7 @@ one that deploys on a release cadence. `deployment.md` §1 has the RSS it actual
 | `GET /v1/segment/{upper}/{lower}` | intermediates + ranked fossils with brackets |
 | `GET /v1/node/{key}` | detail panel: synonyms, sources, xref provenance, attribution |
 | `GET /v1/timescale` | ICS intervals, ~40 KB, `immutable` |
-| `GET /v1/random-pool/{build_id}` | the two pools a random pick draws from — bare id lists (13,918 nodes, 1,935 fossils, 114 KB); two full scans run once per process, warmed in the background at startup |
+| `GET /v1/random-pool/{build_id}` | the two pools a random pick draws from — bare id lists (13,853 nodes, 1,916 fossils, ~114 KB); two full scans run once per process, warmed in the background at startup |
 | `GET /v1/about` | what is running; also the frontend boot probe and warm-up |
 
 **Caching.** All responses are ETag'd by build id. The ETag is `<build_id>-<code_id>`:

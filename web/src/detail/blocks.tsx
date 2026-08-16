@@ -421,9 +421,16 @@ export function AlsoCalledBlock({
   );
 }
 
-/** The ranks worth naming on the card, with their plural reading. */
+/**
+ * The ranks worth naming on the card, with their plural reading. "no rank" is
+ * in because NCBI files real subspecies there — both human subspecies, the
+ * Denisovan among them — and the collapse only folds a "no rank" taxon when
+ * OTT flags it infraspecific, so here it reads as what it is. Strain-level
+ * terminals ("no rank - terminal") stay out.
+ */
 const FOLDED_RANKS: Record<string, string> = {
   subspecies: "subspecies",
+  "no rank": "subspecies",
   varietas: "varieties",
   variety: "varieties",
   forma: "forms",
@@ -452,7 +459,8 @@ export function FoldedBlock({
     <section className="names">
       <p className="note">
         <span className="names-label">
-          Includes {named.length === 1 ? "the" : named.length} {what}
+          Includes{" "}
+          {named.length === 1 ? `the ${what}` : `${named.length} ${what}:`}
         </span>{" "}
         <em className="sci-italic">{shown.map((f) => f.name).join(", ")}</em>
         {rest > 0 ? ` and ${rest} more.` : "."}

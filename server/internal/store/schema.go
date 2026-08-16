@@ -78,6 +78,13 @@ type VernacularSchema struct {
 	// titles this taxon's article" answers band.go's question of which taxon a
 	// word denotes. See decorate.
 	WikiEvidence string `json:"wiki_evidence,omitempty"`
+
+	// Folded marks a name the infraspecific collapse carried onto this node
+	// from a folded narrower taxon ("dog" on Canis lupus). Search treats an
+	// exact match on one as entitled — the node answers for that taxon — and
+	// display ranks it after every name that is the node's own. Absent on a
+	// build predating the collapse.
+	Folded string `json:"folded,omitempty"`
 }
 
 // SilhouetteSchema carries PhyloPic attribution. Creator and uploader are
@@ -275,6 +282,7 @@ func (s *Schema) resolveVernacular() {
 		Rank:      s.col(t, "usage_rank", "name_rank", "rank"),
 
 		WikiEvidence: s.col(t, "wiki_evidence"),
+		Folded:       s.col(t, "folded"),
 	}
 }
 

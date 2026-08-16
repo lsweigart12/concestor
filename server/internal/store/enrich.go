@@ -615,6 +615,9 @@ func colOrNull(c string) string {
 type VernacularName struct {
 	Name     string
 	Evidence string
+	// Folded says the name belongs to a taxon the collapse folded into this
+	// node. See VernacularSchema.Folded.
+	Folded bool
 }
 
 // wikiTitle is the one `wiki_evidence` value search reads: the name is the
@@ -637,11 +640,15 @@ func (s *Store) allVernacularNames(ctx context.Context, idxs []int) (map[int][]V
 	if v.WikiEvidence != "" {
 		evidence = fmt.Sprintf("%q", v.WikiEvidence)
 	}
+	folded := "0"
+	if v.Folded != "" {
+		folded = fmt.Sprintf("%q", v.Folded)
+	}
 	for start := 0; start < len(idxs); start += metaChunk {
 		end := min(start+metaChunk, len(idxs))
 		chunk := idxs[start:end]
-		q := fmt.Sprintf("SELECT %q, %q, %s FROM %q WHERE %q IN (%s)",
-			v.Idx, v.Name, evidence, v.Table, v.Idx, placeholders(len(chunk)))
+		q := fmt.Sprintf("SELECT %q, %q, %s, %s FROM %q WHERE %q IN (%s)",
+			v.Idx, v.Name, evidence, folded, v.Table, v.Idx, placeholders(len(chunk)))
 		args := make([]any, len(chunk))
 		for i, x := range chunk {
 			args[i] = x
@@ -653,13 +660,15 @@ func (s *Store) allVernacularNames(ctx context.Context, idxs []int) (map[int][]V
 		for rows.Next() {
 			var idx sql.NullInt64
 			var name, ev sql.NullString
-			if err := rows.Scan(&idx, &name, &ev); err != nil {
+			var fold sql.NullInt64
+			if err := rows.Scan(&idx, &name, &ev, &fold); err != nil {
 				_ = rows.Close()
 				return out, err
 			}
 			if idx.Valid && name.Valid {
 				out[int(idx.Int64)] = append(out[int(idx.Int64)],
-					VernacularName{Name: name.String, Evidence: ev.String})
+					VernacularName{Name: name.String, Evidence: ev.String,
+						Folded: fold.Valid && fold.Int64 != 0})
 			}
 		}
 		err = rows.Err()

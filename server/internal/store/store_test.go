@@ -459,8 +459,8 @@ func TestPhasesAreLoaded(t *testing.T) {
 	if !ok {
 		t.Fatalf("phase1_gates missing; have %v", keys(st.Phases))
 	}
-	if !p.OK || p.Gates != 25 {
-		t.Errorf("phase 1 = ok:%v gates:%d, want ok:true gates:25", p.OK, p.Gates)
+	if !p.OK || p.Gates != 31 {
+		t.Errorf("phase 1 = ok:%v gates:%d, want ok:true gates:31", p.OK, p.Gates)
 	}
 }
 

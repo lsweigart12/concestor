@@ -343,7 +343,9 @@ def test_ranks_are_contiguous_within_a_node_and_language(con):
     ("sci", "expect"),
     [
         ("Homo sapiens", ("human", "humans")),
-        ("Canis lupus familiaris", ("dog", "dogs", "domestic dog")),
+        # The dog folded into the wolf; "dog" is searchable there but a folded
+        # name never leads. See HEADLINE_CHECKS.
+        ("Canis lupus", ("wolf", "wolves", "gray wolf", "grey wolf")),
         ("Insecta", ("insect", "insects")),
         ("Carnivora", ("carnivorans", "carnivores", "carnivoran")),
         ("Tyrannosaurus rex", ("t. rex", "tyrannosaurus rex", "t rex", "t-rex")),

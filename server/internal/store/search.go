@@ -300,8 +300,10 @@ type Answer struct {
 // rather than a name someone is part-way through typing. The discriminator is
 // how much of the corpus lives under the prefix: a live prefix of a real name
 // always returns a full page, so must reach `elefant` (1), `cheeta` (4),
-// `mamal` (6) but not `tyrannosau` (10, whose only correction is its own prefix).
-const sparseRows = 8
+// `mamal` (6) but not `homo sapie` (8 — the infraspecific collapse folded the
+// subspecies rows that used to pad it) or `tyrannosau` (10, whose only
+// correction is its own prefix).
+const sparseRows = 7
 
 // Weak reports whether this answer is poor enough to ask the spelling index
 // about: nothing matched as a whole word (band above bandToken), AND there is
@@ -1188,6 +1190,21 @@ func (s *Store) decorate(ctx context.Context, results []SearchResult, qFold stri
 		// withdrawals: *Allium cepa* looks like a category label offline, but is
 		// the subject of the article "Onion".
 		if r.denotes {
+			continue
+		}
+		// So does an exact match on a folded name: the collapse made this node
+		// answer for a narrower taxon, and that taxon really is called this.
+		// "dog" is the domestic dog's declared name, folded into Canis lupus —
+		// withdrawing it would hand the query to whichever something-dog clade
+		// is largest, which is the Canidae-over-the-dog bug with extra steps.
+		foldedExact := false
+		for _, n := range names {
+			if n.Folded && matchBand(n.Name, qFold) == bandExact {
+				foldedExact = true
+				break
+			}
+		}
+		if foldedExact {
 			continue
 		}
 		// A lone bare word recorded for a single species is a label, not a name.

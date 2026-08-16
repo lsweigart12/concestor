@@ -77,8 +77,10 @@ KIND_NAMES = {
     KIND_PBDB: "pbdb",
 }
 
-# Measured from the phase-1 database and OTT 3.7.3.
-EXPECT_SCI = 2_599_664
+# Measured from the phase-1 database and OTT 3.7.3, after the infraspecific
+# collapse (the folded taxa are not named nodes; their names index as synonyms
+# of the node they folded into — see the `folded_infraspecific` stage).
+EXPECT_SCI = 2_531_139
 EXPECT_SYNONYM_ROWS = 2_226_375
 EXPECT_BROKEN = 9_839
 # The names the fossil record uses for taxa the tree holds — `load_pbdb_names`.
@@ -88,9 +90,11 @@ EXPECT_BROKEN = 9_839
 # resolution stops a taxon being the node at all: 135 of the 148 rows the sweep
 # takes had `attach_walk = 0` in the shipped build and 22 do now, so 113 leave
 # the population and 36 of them were the only catalogue offering that spelling.
+# Then 2,548 became 2,531: seventeen of PBDB's spellings are folded
+# infraspecific names, which the collapse stage now offers before this one.
 # The claim the corpus exists to make is unchanged and still gated at 0 — every
 # taxon the tree holds stays findable under the fossil record's name.
-EXPECT_PBDB_NAMES = 2_548
+EXPECT_PBDB_NAMES = 2_531
 
 # Ranking weights, tuned so `log1p(tip_count)` dominates: the boolean signals
 # only ever break ties between taxa of comparable size, never promoting a
@@ -707,6 +711,31 @@ def run() -> int:
         f"in {time.monotonic() - t0:,.1f}s",
         flush=True,
     )
+
+    # The infraspecific collapse's casualties, under the synonym kind: the
+    # search question ("a name it also goes by") has the same answer, and a
+    # reader typing "Canis lupus familiaris" must find the wolf. Deduplicated
+    # against everything staged so far, since OTT often also carries a folded
+    # trinomial as a formal synonym of the species. The index is what makes
+    # the dedup probe one node's names rather than scan 4.5M rows per folded
+    # taxon; dropped again so the remaining bulk inserts stay unindexed.
+    n_syn_before_folded = staged(KIND_SYN)
+    con.execute("CREATE INDEX name_raw_by_idx ON name_raw(idx)")
+    con.execute(
+        f"""
+        INSERT INTO name_raw
+        SELECT DISTINCT fi.idx, {KIND_SYN}, fi.name
+          FROM folded_infraspecific fi
+         WHERE trim(fi.name) <> ''
+           AND NOT EXISTS (SELECT 1 FROM name_raw nr
+                            WHERE nr.idx = fi.idx
+                              AND lower(nr.name) = lower(fi.name))
+        """
+    )
+    con.execute("DROP INDEX name_raw_by_idx")
+    n_folded = staged(KIND_SYN) - n_syn_before_folded
+    n_syn += n_folded
+    print(f"  folded infraspecific: {n_folded:,}", flush=True)
 
     con.execute(
         f"""
