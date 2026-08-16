@@ -6,7 +6,7 @@
     "num_source_studies": 1931,
     "num_source_trees": 2064,
     "phase0_gates_ok": true,
-    "written_at": "2026-08-15T17:03:19+00:00",
+    "written_at": "2026-08-16T02:37:44+00:00",
     "phylopic_mirror": {
       "images": 12904,
       "mirrored": 12904,
@@ -82,7 +82,7 @@
       "path": "snapshot/gbif_pbdb_checklist/nubkeys.ndjson",
       "bytes": 4035692,
       "sha256": "213500278ea45b94caeb4f069432d3ccfa4b84bb3c5fe71123943786c43941f2",
-      "fetched_at": "2026-08-15T16:54:01+00:00",
+      "fetched_at": "2026-08-16T02:37:03+00:00",
       "content_length": null,
       "note": "25,950 point lookups, ordered by n_occs descending, resumable. Not a bulk export: the lookup does not page, so GBIF's offset cap never applies."
     },
@@ -162,7 +162,7 @@
       "path": "snapshot/phylopic/index.jsonl",
       "bytes": 6149865,
       "sha256": "ee5a1aaa67f7c8dad630097e49ffd37cb9dcf681e283bf02d45cc57079730e92",
-      "fetched_at": "2026-08-15T17:03:19+00:00",
+      "fetched_at": "2026-08-16T02:37:44+00:00",
       "content_length": null,
       "note": "12,904 images with licence, attribution, contributor and their specific node's OTT ids. ~268 paged requests, not one per node."
     }
