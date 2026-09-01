@@ -19,7 +19,7 @@
   },
   "dependencies": {
     "@cloudflare/containers": "^0.3.7",
-    "@xyflow/react": "^12.3.5",
+    "@xyflow/react": "^12.11.5",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
