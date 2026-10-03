@@ -83,7 +83,36 @@
     // `rules-of-hooks`, which is in `correctness` above and stays on, is the
     // half of this pair that is never a judgement call: a hook behind an `if`
     // is a bug in every codebase there is. It reports nothing today.
-    "react-hooks/exhaustive-deps": "off"
+    "react-hooks/exhaustive-deps": "off",
+
+    // **Three React Compiler rules, off, with numbers.** oxlint 1.86 ports the
+    // compiler's diagnostics into `correctness`. They describe code the
+    // compiler cannot optimise, which is a narrower thing than code that is
+    // wrong, and this app does not run the compiler. 27 findings between them
+    // and not one defect:
+    //
+    //   set-state-in-effect  17, every one a fetch effect clearing its own
+    //                        state when its key goes null, or a reset on a
+    //                        changed input (`usePending`, the palette on open).
+    //                        The rule's answer is a different data-fetching
+    //                        model, which is a design change and not a lint fix.
+    //
+    //   refs                 7, all the latest-value ref — `ref.current = x`
+    //                        in render so a long-lived loop or a setter can
+    //                        read `x` without depending on it. `Water.tsx` and
+    //                        `store.ts` each say why at the site.
+    //
+    //   purity               3. Two are `Date.now()` inside a command's `run`,
+    //                        which is an event handler the rule mistakes for
+    //                        render because it is built in a memo. The third,
+    //                        `lead` in `Graph.tsx`, reads the clock in render
+    //                        on purpose and says so.
+    //
+    // The fourth, `react/use-memo`, stays on: it had one finding and it was
+    // fixed.
+    "react/set-state-in-effect": "off",
+    "react/refs": "off",
+    "react/purity": "off"
   },
 
   "ignorePatterns": ["dist/**", ".wrangler/**", "node_modules/**"]

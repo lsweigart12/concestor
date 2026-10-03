@@ -209,7 +209,7 @@ jobs:
       - uses: actions/setup-node@v7
         if: steps.guard.outputs.configured == 'true'
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
           cache-dependency-path: web/package-lock.json
 
@@ -351,8 +351,8 @@ jobs:
           # `latest`: this step has registry write, and a release pipeline that
           # changes behaviour because an upstream published on a Tuesday is not
           # a pipeline.
-          CRANE_VERSION: v0.21.9
-          CRANE_SHA256: 5c16d8ddb971cb1d5e6ed8b1e743da8224414eeba2c2762d8f1a61b2f095699e
+          CRANE_VERSION: v0.22.1
+          CRANE_SHA256: 0ab7a1d6932a213aed964ce97666c3077fe691c8606413674a8b3e0b9ec4cda0
         run: |
           set -euo pipefail
 
