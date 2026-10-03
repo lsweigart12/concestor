@@ -156,7 +156,7 @@ jobs:
       - uses: actions/setup-node@v7
         if: steps.gate.outputs.skip != 'true'
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
           cache-dependency-path: web/package-lock.json
 
@@ -181,8 +181,8 @@ jobs:
           git tag --list 'v*' | sort > "$RUNNER_TEMP/tags-before"
 
           npx --yes \
-            -p semantic-release@24 \
-            -p @semantic-release/exec@6 \
+            -p semantic-release@25 \
+            -p @semantic-release/exec@7 \
             semantic-release ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && '--dry-run' || '' }}
 
           # The deploy job below runs on `released`, and nothing else reads it,

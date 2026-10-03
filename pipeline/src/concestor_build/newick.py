@@ -221,7 +221,11 @@ def derive(parent: U32Array) -> Topology:
 
     # u8 suffices for the synthesis tree but not a fully-resolved chronogram.
     max_depth = max(depth_l)
-    depth = np.array(depth_l, dtype=np.uint8 if max_depth < 256 else np.uint32)
+    depth: DepthArray = (
+        np.array(depth_l, dtype=np.uint8)
+        if max_depth < 256
+        else np.array(depth_l, dtype=np.uint32)
+    )
     tip_count = np.array(tip_count_l, dtype=np.uint32)
     subtree_out = np.arange(n, dtype=np.uint32) + np.array(size_l, dtype=np.uint32)
     return Topology(

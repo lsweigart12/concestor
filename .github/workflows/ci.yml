@@ -45,7 +45,7 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 24
 
       # Only this pull request's commits. Running over the whole history
       # would fail on everything written before the convention existed, which
@@ -56,7 +56,7 @@ jobs:
       # in. The linter is the only dependency.
       - name: commitlint
         run: |
-          npx --yes -p @commitlint/cli@19 commitlint --verbose \
+          npx --yes -p @commitlint/cli@21 commitlint --verbose \
             --from "${{ github.event.pull_request.base.sha }}" \
             --to "${{ github.event.pull_request.head.sha }}"
 
@@ -79,7 +79,7 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
           cache-dependency-path: web/package-lock.json
 
@@ -170,7 +170,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: astral-sh/setup-uv@v7
+      - uses: astral-sh/setup-uv@v10.2.0
         with:
           enable-cache: true
           cache-dependency-glob: pipeline/uv.lock
@@ -207,7 +207,7 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
           cache-dependency-path: web/package-lock.json
 

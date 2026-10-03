@@ -348,7 +348,7 @@ function Inner(props: GraphProps) {
   const ty = useStore((s) => s.transform[1]);
   const vw = useStore((s) => s.width);
   const vh = useStore((s) => s.height);
-  const reduced = useMemo(prefersReduced, []);
+  const reduced = useMemo(() => prefersReduced(), []);
   const [flaring, setFlaring] = useState<number | null>(null);
   const playedToken = useRef<number | null>(null);
 
