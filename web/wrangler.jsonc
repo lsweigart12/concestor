@@ -142,7 +142,7 @@
   "containers": [
     {
       "class_name": "ReadApi",
-      "image": "registry.cloudflare.com/ACCOUNT_ID/concestor-api:70780a4c35b8a617-RELEASE",
+      "image": "registry.cloudflare.com/ACCOUNT_ID/concestor-api:8719d50ec2a4fbb5-RELEASE",
 
       // `standard-1`: 1/2 vCPU, 4 GiB, 8 GB of disk, against a measured 463 MB
       // working set and a 2,229 MB image. The next size down, `basic`, is
