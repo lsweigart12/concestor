@@ -154,8 +154,8 @@ A control that flips the canvas between scientific and common names.
   no second round trip; the switch must not become a fetch.
 - **Names are not baked onto the node arrays.** They are memory-mapped flat
   arrays; the table plus a batched join is the right shape.
-- **The canvas is mixed, and that is the design.** 110,794 nodes carry an English
-  name against 2,725,682, so "common names" means *prefer the common name where
+- **The canvas is mixed, and that is the design.** 110,796 nodes carry an English
+  name against 2,725,684, so "common names" means *prefer the common name where
   one exists*. **Italics say which**: scientific names are italic (`.sci-italic`),
   common names are not. `NamePart.rank` is the italic channel and is null for a
   common run, so the existing renderer sets it roman with no new rule.
@@ -165,7 +165,7 @@ A control that flips the canvas between scientific and common names.
 - **A common name is served for genus, species and subspecies only** — enforced in
   `Entry.Vernacular` and again in `markName`. Above genus a common name names a
   group rather than a kind of animal ("great apes" would name a clade after its
-  crown group). 107,593 of 110,794 ranked names sit at those three ranks.
+  crown group). 107,595 of 110,796 ranked names sit at those three ranks.
 - **Rank 1 or nothing, and no fallback.** On the canvas the common name *replaces*
   the scientific one, so an unranked guess would be another taxon's word in the
   only slot saying which taxon a mark is. `HeadlineVernaculars` is the strict

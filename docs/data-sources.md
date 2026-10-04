@@ -45,7 +45,13 @@ carrying grafted TimeTree ages is a transformation. No public bulk download exis
 Membership is not predictable from flags: *T. rex* (ott664349) resolves; *Triceratops*
 (ott4947055) has an identical flag set and returns `pruned_ott_id`. **The fossil layer
 is the only way ~99.5% of the fossil record appears in the app.** Attach fossils to a
-branch, not as tree siblings.
+branch, not as tree siblings — with one curated exception. OTT files Neanderthals as a
+subspecies of *Homo sapiens* (ott83926), beside a nominate *Homo sapiens sapiens*
+(ott5341349), and the Denisovans as `Homo sapiens subsp. 'Denisova'` (ott933436, absent
+from synthesis), following NCBI; the ancient-DNA consensus is three sister species.
+Phase 1 replaces the *Homo sapiens* subtree with exactly that — architecture §3.1 is the
+doctrine, `topology.py`'s `GRAFT_LEAVES` the declaration — and the phase-1 oracle
+excludes the two grafted leaves because the live API still answers for NCBI's filing.
 
 Related trap: `taxonomy/taxon_info` returns `is_suppressed_from_synth: false` for
 *Triceratops*, which is absent from synthesis. **Do not trust that field.**
@@ -129,8 +135,9 @@ attribution**, so render it whenever the license demands BY.
 
 ### Tree shape (computed directly — published nowhere)
 
-- **2,725,682 nodes**: 2,385,875 tips + 339,807 internal.
-- **2,295,972 are `rank='species'`**; **2,599,664 carry a name** (the searchable set —
+- **2,725,684 nodes**: 2,385,876 tips + 339,808 internal — the 2,725,682 the Newick
+  holds, with the hominin graft's net two.
+- **2,295,974 are `rank='species'`**; **2,599,664 carry a name** (the searchable set —
   the FTS index filters on neither tip-ness nor rank). **A tip is not a species:** 171,623
   nodes are genera, 8,841 families, and tips include subspecies, varieties, cultivars and
   1,615 group-rank terminals.
@@ -142,7 +149,7 @@ attribution**, so render it whenever the license demands BY.
 
 ### Only 6.7% of the tree is phylogenetically placed
 
-159,925 of 2,385,875 tips come from phylogeny; ~2.23M from taxonomy alone. Any dated
+159,925 of 2,385,876 tips come from phylogeny; ~2.23M from taxonomy alone. Any dated
 version is overwhelmingly interpolating ages onto taxonomy-derived structure. **The UI
 must be honest about this** — see the architecture doc's provenance tiers.
 

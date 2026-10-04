@@ -26,14 +26,18 @@ import (
 //     sweep withdrew the resolutions the walk-0 attachments rested on: five of
 //     its six rows now attach at *Odontoceti* two hops up, and the node holds
 //     no bracket of its own. A fossil range on a one-tip genus was the bug.
-//
-// One node, and both totals it appears in.
+//   - `8719d50ec2a4fbb5` is the hominin graft. One structural node fewer: the
+//     nominate *Homo sapiens sapiens* is gone and the Neanderthal takes the
+//     occurrence tier from its PBDB bracket, against *Homo longi* arriving
+//     undated. And the nine structural nodes up the hominin spine gained a
+//     datable lower bound — the curated 0.6 Ma split is a dated descendant
+//     where before the only thing below them was the present.
 const (
-	measuredAgainstBuild = "70780a4c35b8a617"
+	measuredAgainstBuild = "8719d50ec2a4fbb5"
 
-	wantStructural      = 186317
-	wantWithLowerBound  = 5168
-	wantAtPresentBelow  = 181149
+	wantStructural      = 186316
+	wantWithLowerBound  = 5177
+	wantAtPresentBelow  = 181139
 	wantWithoutAncestor = 0
 )
 

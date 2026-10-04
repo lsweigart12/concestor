@@ -242,6 +242,33 @@ def load_synonyms(con: sqlite3.Connection, log: Log = print) -> int:
     return n
 
 
+def load_graft_names(con: sqlite3.Connection) -> int:
+    """Stage what OTT called the grafted hominins, as synonyms of their nodes.
+
+    `topology.GRAFT_FORMER_NAMES`: the graft renames two taxa and removes a
+    third, and a reader who types *Homo sapiens neanderthalensis* is asking for
+    the node that used to carry it. Skipped where `synonyms.tsv` already says
+    the same thing.
+    """
+    from .topology import GRAFT_FORMER_NAMES
+
+    return sum(
+        con.execute(
+            f"""
+            INSERT INTO name_raw
+            SELECT n.idx, {KIND_SYN}, :name FROM node n
+             WHERE n.ott_id = :answer
+               AND lower(n.name) <> lower(:name)
+               AND NOT EXISTS (SELECT 1 FROM name_raw r
+                                WHERE r.idx = n.idx AND r.kind = {KIND_SYN}
+                                  AND lower(r.name) = lower(:name))
+            """,
+            {"name": name, "answer": answer},
+        ).rowcount
+        for _filed_under, name, answer in GRAFT_FORMER_NAMES
+    )
+
+
 def load_pbdb_names(con: sqlite3.Connection) -> int:
     """Stage the name the fossil record uses for each taxon the tree holds.
 
@@ -349,7 +376,7 @@ def silhouette_flags(
     """Per-node has-silhouette, feature-detected from whatever phase 5 wrote.
 
     The signal has to be *has its own image*, not *has an image*. Phase 5's
-    `node_image` resolves every one of the 2,725,682 nodes by climbing to an
+    `node_image` resolves every one of the 2,725,684 nodes by climbing to an
     ancestor when the node itself has none, which is right for rendering and
     carries exactly zero ranking information — 99.7% of its rows are
     inherited. Only `climb = 0` says anything about the taxon.
@@ -654,6 +681,9 @@ def query(
 # the check needs phase 6; those become observations, not blockers, without it.
 SEARCH_CHECKS: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     ("Homo sapiens", ("Homo sapiens",), False),
+    # What OTT called the grafted hominins — `load_graft_names`.
+    ("Homo sapiens neanderthalensis", ("Homo neanderthalensis",), False),
+    ("Homo sapiens sapiens", ("Homo sapiens",), False),
     ("dog", ("Canis lupus familiaris", "Canis familiaris", "Canis lupus"), True),
     # Both the species (Wikidata P1843) and the genus (PBDB) carry "human".
     ("human", ("Homo sapiens", "Homo"), True),
@@ -701,10 +731,11 @@ def run() -> int:
 
     t0 = time.monotonic()
     n_syn_read = load_synonyms(con, log=print)
+    n_graft = load_graft_names(con)
     n_syn = staged(KIND_SYN)
     print(
-        f"  synonyms: {n_syn:,} resolved of {n_syn_read:,} "
-        f"in {time.monotonic() - t0:,.1f}s",
+        f"  synonyms: {n_syn:,} resolved of {n_syn_read:,}, "
+        f"{n_graft} from the hominin graft, in {time.monotonic() - t0:,.1f}s",
         flush=True,
     )
 

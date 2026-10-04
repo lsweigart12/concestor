@@ -149,11 +149,10 @@ export function divergenceFor(
  * The chosen species that sit *inside* this one, if any.
  *
  * Usually empty: selections are normally tips and nothing hangs below them.
- * OTT makes the exception ordinary, though — *Homo sapiens neanderthalensis* is
- * filed as a child of *Homo sapiens*, so choosing both makes the human node the
- * divergence between them. Readers do not expect that (most people think of
- * Neanderthals as a separate species) and the canvas cannot explain it, so the
- * detail card does.
+ * OTT makes the exception ordinary, though — *Canis lupus familiaris* is filed
+ * as a child of *Canis lupus*, so choosing the dog and the wolf makes the wolf
+ * node the divergence between them. Readers do not expect that and the canvas
+ * cannot explain it, so the detail card does.
  */
 export function nestedSelections(
   idx: number,

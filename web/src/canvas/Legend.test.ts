@@ -7,7 +7,12 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { TIER_INTERPOLATED, TIER_MEASURED, TIER_STRUCTURAL } from "../api";
+import {
+  TIER_CURATED,
+  TIER_INTERPOLATED,
+  TIER_MEASURED,
+  TIER_STRUCTURAL,
+} from "../api";
 import { legendRows, type TracePattern } from "./Legend";
 
 const measured: TracePattern = { tier: TIER_MEASURED, unbounded: false };
@@ -30,6 +35,14 @@ describe("legendRows", () => {
 
   it("explains solid only alongside something that is not", () => {
     expect(ids([measured, structural])).toEqual(["measured", "structural"]);
+  });
+
+  it("files a curated date with the dated ones", () => {
+    // A literature estimate is drawn solid, so it earns no row of its own and
+    // must not be explained as the absence of an age.
+    const curated: TracePattern = { tier: TIER_CURATED, unbounded: false };
+    expect(legendRows([curated, measured])).toEqual([]);
+    expect(ids([curated, structural])).toEqual(["measured", "structural"]);
   });
 
   it("omits tiers that are not drawn", () => {

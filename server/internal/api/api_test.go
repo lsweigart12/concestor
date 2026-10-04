@@ -86,7 +86,7 @@ func TestAbout(t *testing.T) {
 		t.Fatal("no counts")
 	}
 	for k, want := range map[string]float64{
-		"nodes": 2725682, "tips": 2385875, "internal": 339807, "broken": 9839,
+		"nodes": 2725684, "tips": 2385876, "internal": 339808, "broken": 9839,
 	} {
 		if counts[k] != want {
 			t.Errorf("counts.%s = %v, want %v", k, counts[k], want)
@@ -380,8 +380,8 @@ func TestPathHomoSapiens(t *testing.T) {
 	if resp.StatusCode != 200 {
 		t.Fatalf("status %d", resp.StatusCode)
 	}
-	if len(p.Path) != 60 {
-		t.Fatalf("path length %d, want 60", len(p.Path))
+	if len(p.Path) != 61 {
+		t.Fatalf("path length %d, want 61 (the hominin graft adds one)", len(p.Path))
 	}
 	if p.Path[0].Idx != 0 {
 		t.Errorf("path is not root-first: starts at idx %d", p.Path[0].Idx)
@@ -418,6 +418,25 @@ func TestPathHomoSapiens(t *testing.T) {
 	}
 	if unnamed == 0 {
 		t.Error("expected at least one mrca* node on the human lineage")
+	}
+}
+
+// The nominate subspecies stopped being a node when the hominin graft made
+// Homo sapiens a tip. Its id forwards to the species like any id OTT retired,
+// so a link written against the old filing still arrives.
+func TestRetiredNominateSubspeciesForwards(t *testing.T) {
+	ts, _ := serve(t)
+	var sapiens, nominate pathResp
+	getJSON(t, ts, "/v1/path/ott770315", &sapiens)
+	resp := getJSON(t, ts, "/v1/path/ott5341349", &nominate)
+	if resp.StatusCode != 200 {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+	if nominate.Idx != sapiens.Idx {
+		t.Errorf("ott5341349 resolved to idx %d, want Homo sapiens at %d", nominate.Idx, sapiens.Idx)
+	}
+	if nominate.ForwardedFrom == nil || *nominate.ForwardedFrom != 5341349 {
+		t.Errorf("forwarded_from = %v, want 5341349", nominate.ForwardedFrom)
 	}
 }
 
@@ -666,16 +685,12 @@ func TestPathsBatchReproducesInducedSubtree(t *testing.T) {
 	if got, want := len(rendered), 2*len(leaves)-1; got != want {
 		t.Fatalf("rendered %d nodes, the 2|L|-1 bound is %d", got, want)
 	}
-	wantRendered := []int{
-		1, 18, 12950, 449434, 588406, 588414, 588422, 588426, 588435, 588587,
-		594475, 594485, 594505, 603110, 633749, 654142, 674350, 741328, 882186,
-		1176207, 2328159,
+	ref := testenv.RequireInducedFixture(t)
+	if !slices.Equal(rendered, ref.Expected.Rendered) {
+		t.Errorf("rendered set from the API\n got %v\nwant %v", rendered, ref.Expected.Rendered)
 	}
-	if !slices.Equal(rendered, wantRendered) {
-		t.Errorf("rendered set from the API\n got %v\nwant %v", rendered, wantRendered)
-	}
-	if mrca != 1 {
-		t.Errorf("MRCA from the API = %d, want 1", mrca)
+	if mrca != ref.Expected.MRCA {
+		t.Errorf("MRCA from the API = %d, want %d", mrca, ref.Expected.MRCA)
 	}
 }
 
@@ -1115,20 +1130,34 @@ func TestNodeDetail(t *testing.T) {
 	if body.Key != "ott770315" || body.Name == nil || *body.Name != "Homo sapiens" {
 		t.Errorf("got %+v", body.Entry)
 	}
-	// Homo sapiens is not a leaf: the synthesis tree hangs two subspecies off
-	// it. A "species" the user picks is frequently an internal node, which is
-	// why nothing in the layout may assume selections are tips.
-	if body.ChildCount != 2 || body.TipCount != 2 {
-		t.Errorf("Homo sapiens child_count=%d tip_count=%d, want 2/2",
+	// Homo sapiens is a leaf: the hominin graft replaced the two subspecies
+	// synthesis hangs off it. Selections can still be internal — the wolf has
+	// the dog beneath it — so nothing in the layout may assume they are tips.
+	if body.ChildCount != 0 || body.TipCount != 1 {
+		t.Errorf("Homo sapiens child_count=%d tip_count=%d, want 0/1",
 			body.ChildCount, body.TipCount)
 	}
+	// ott83926 was OTT's Homo sapiens neanderthalensis; the curated graft
+	// makes it the species Homo neanderthalensis, so a URL written before the
+	// graft keeps working and answers with the graft's identity.
 	var neander struct {
-		ChildCount int64 `json:"child_count"`
-		TipCount   int64 `json:"tip_count"`
+		Name       *string `json:"name"`
+		Rank       *string `json:"rank"`
+		TipCount   int64   `json:"tip_count"`
+		ChildCount int64   `json:"child_count"`
 	}
-	getJSON(t, ts, "/v1/node/ott83926", &neander) // Homo sapiens neanderthalensis
+	resp = getJSON(t, ts, "/v1/node/ott83926", &neander)
+	if resp.StatusCode != 200 {
+		t.Fatalf("the grafted Neanderthal answered %d", resp.StatusCode)
+	}
+	if neander.Name == nil || *neander.Name != "Homo neanderthalensis" ||
+		neander.Rank == nil || *neander.Rank != "species" {
+		t.Errorf("grafted node = %v (%v), want Homo neanderthalensis (species)",
+			neander.Name, neander.Rank)
+	}
 	if neander.ChildCount != 0 || neander.TipCount != 1 {
-		t.Errorf("a genuine tip should be 0/1, got %d/%d", neander.ChildCount, neander.TipCount)
+		t.Errorf("grafted species should be a 0/1 leaf, got %d/%d",
+			neander.ChildCount, neander.TipCount)
 	}
 	if body.ParentIdx == nil {
 		t.Error("parent_idx missing")
@@ -1359,8 +1388,20 @@ func TestDivergenceWitnessReachesTheClient(t *testing.T) {
 
 func TestSegment(t *testing.T) {
 	ts, st := serve(t)
-	// 588426 -> 603110 is one of the reference segments; render.py measures a
-	// single suppressed node between them.
+	// A reference segment with exactly one suppressed node between its ends,
+	// taken from the fixture render.py generates rather than pinned by hand.
+	ref := testenv.RequireInducedFixture(t)
+	upper, lower := -1, -1
+	for key, seg := range ref.Expected.Segments {
+		if seg.Anc != nil && len(seg.Suppressed) == 1 {
+			lower, _ = strconv.Atoi(key)
+			upper = *seg.Anc
+			break
+		}
+	}
+	if lower < 0 {
+		t.Fatal("no reference segment with one suppressed node; regenerate the fixture")
+	}
 	var body struct {
 		UpperIdx         int            `json:"upper_idx"`
 		LowerIdx         int            `json:"lower_idx"`
@@ -1369,7 +1410,7 @@ func TestSegment(t *testing.T) {
 		FossilsAvailable bool           `json:"fossils_available"`
 		FossilsTotal     int            `json:"fossils_total"`
 	}
-	resp := getJSON(t, ts, "/v1/segment/588426/603110", &body)
+	resp := getJSON(t, ts, "/v1/segment/"+itoa(upper)+"/"+itoa(lower), &body)
 	if resp.StatusCode != 200 {
 		t.Fatalf("status %d", resp.StatusCode)
 	}

@@ -88,7 +88,7 @@ func TestPooledNodesAlwaysHaveANameAndTheirOwnDrawing(t *testing.T) {
 }
 
 // The drawing has to be of the taxon or of something inside it. `node_image`
-// resolves an image for all 2,725,682 nodes by climbing to a relative, so "has
+// resolves an image for all 2,725,684 nodes by climbing to a relative, so "has
 // an image" is true of the whole corpus; `climb = 0` is what makes it a claim.
 // A borrow from a clade larger than the node is the failure mode, and it shows
 // up as a `silhouette_clade_tips` bigger than the node's own tip count.

@@ -443,8 +443,8 @@ switch line up down a column of fixed width:
   ranked _first_ by use (see `name-ranking.md`). Above genus a common name names
   a group rather than a kind of animal. Enforced in the server and again in
   `markName`.
-- **The canvas is mixed in common mode and that is the design.** 110,794 nodes
-  of 2,725,682 carry an English name, so most of a deep tree falls back, and a
+- **The canvas is mixed in common mode and that is the design.** 110,796 nodes
+  of 2,725,684 carry an English name, so most of a deep tree falls back, and a
   divergence falls back more often than a leaf. **Italics say which**: a
   scientific name is italic at genus and below, a common name never is.
 - **ages: on · off.** On by default.
