@@ -296,6 +296,24 @@ export default function App() {
   const focusedNode =
     focusedIdx !== null ? tree.nodes.get(focusedIdx) : undefined;
 
+  /**
+   * The focused fossil, when it is in the view. A graft is never in
+   * `tree.nodes`, so this is what the remove key and the palette's remove row
+   * act on for a fossil, as `induced.leaves` is for a node.
+   */
+  const focusedFossil = useMemo(
+    () =>
+      focusedTaxonNo !== null && tree.view.fossils.includes(focusedTaxonNo)
+        ? {
+            taxonNo: focusedTaxonNo,
+            name:
+              tree.fossils.get(focusedTaxonNo)?.name ??
+              graftKey(focusedTaxonNo),
+          }
+        : null,
+    [focusedTaxonNo, tree.view.fossils, tree.fossils],
+  );
+
   const addHit = useCallback(
     (hit: SearchHit) => {
       tree.add(hit.key);
@@ -377,6 +395,20 @@ export default function App() {
           >
             {d.name ?? d.key}
           </strong>
+        </>,
+      );
+    },
+    [tree, toast],
+  );
+
+  const removeFossil = useCallback(
+    (taxonNo: number, name: string) => {
+      // Leaves the selection alone, unlike `remove`: the card is about a taxon
+      // rather than a lineage on the canvas, and stays open offering to draw it.
+      tree.removeFossil(taxonNo);
+      toast(
+        <>
+          Removed <strong>{name}</strong>
         </>,
       );
     },
@@ -919,11 +951,26 @@ export default function App() {
         });
       }
     }
+    if (focusedFossil) {
+      base.unshift({
+        id: "ctx-remove",
+        title: `Remove ${focusedFossil.name}`,
+        icon: "−",
+        keys: kbd("remove"),
+        section: "This fossil",
+        run: () => {
+          removeFossil(focusedFossil.taxonNo, focusedFossil.name);
+          setPaletteOpen(false);
+        },
+      });
+    }
     return base;
   }, [
     tree,
     about,
     focusedNode,
+    focusedFossil,
+    removeFossil,
     toast,
     share,
     randomPick,
@@ -1115,7 +1162,12 @@ export default function App() {
           if (!empty) setConfirmClear(true);
           break;
         case "remove":
-          if (focusedNode && tree.induced.leaves.includes(focusedNode.idx)) {
+          if (focusedFossil) {
+            removeFossil(focusedFossil.taxonNo, focusedFossil.name);
+          } else if (
+            focusedNode &&
+            tree.induced.leaves.includes(focusedNode.idx)
+          ) {
             tree.remove(focusedNode.key);
             toast(`Removed ${focusedNode.name ?? focusedNode.key}`);
           }
@@ -1143,6 +1195,8 @@ export default function App() {
       tree,
       focusedIdx,
       focusedNode,
+      focusedFossil,
+      removeFossil,
       toast,
       randomPick,
       openPalette,
@@ -1459,20 +1513,13 @@ export default function App() {
           hue={laneHue(graftIdx(focusedTaxonNo))}
           graft={grafts.find((g) => g.idx === graftIdx(focusedTaxonNo)) ?? null}
           onSelect={selectTaxon}
-          drawn={tree.view.fossils.includes(focusedTaxonNo)}
+          drawn={focusedFossil !== null}
           // `drawFossil` rather than `tree.addFossil`, because a fossil card is
           // now routinely open on something whose host branch is nowhere near
           // the canvas — a witness reached from a divergence, a search hit — and
           // the bare add would put it in the URL and draw nothing.
           onDraw={() => void drawFossil(fossilDetail)}
-          onRemove={() => {
-            tree.removeFossil(focusedTaxonNo);
-            toast(
-              <>
-                Removed <strong>{fossilDetail.name}</strong>
-              </>,
-            );
-          }}
+          onRemove={() => removeFossil(focusedTaxonNo, fossilDetail.name)}
         />
       )}
 
@@ -1688,13 +1735,7 @@ export default function App() {
           },
           onRemoveFossil: (f) => {
             const no = f.pbdb_taxon_no ?? 0;
-            if (no <= 0) return;
-            tree.removeFossil(no);
-            toast(
-              <>
-                Removed <strong>{f.name}</strong>
-              </>,
-            );
+            if (no > 0) removeFossil(no, f.name);
           },
           onAdd: openSpecies,
           onRandom: () => void randomPick(),

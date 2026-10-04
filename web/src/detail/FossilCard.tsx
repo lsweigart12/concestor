@@ -33,6 +33,7 @@ import {
 import { endedSpanLabel, maLabel } from "../canvas/Bracket";
 import { Silhouette } from "../canvas/Silhouette";
 import { placementNote } from "../canvas/NodeMark";
+import { kbd } from "../chrome/bindings";
 import type { Graft } from "../tree/graft";
 import {
   CardActions,
@@ -167,6 +168,9 @@ export function FossilCard({
         A taxon with no range and one with no identifier are refused outright
         and cannot be drawn at any selection, so those say so instead of
         offering a button that would do nothing.
+
+        The key rides on `drawn` for the same reason: the handler removes the
+        focused fossil when it is in the view, which is this state exactly.
       */}
       <CardActions
         present={drawn}
@@ -174,6 +178,7 @@ export function FossilCard({
         onRemove={onRemove}
         addLabel="Draw on the tree"
         removeLabel="Remove from the tree"
+        removeKeys={kbd("remove")}
         {...(refusal ? { refusal } : {})}
       />
 
