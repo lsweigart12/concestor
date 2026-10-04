@@ -23,7 +23,7 @@ uv run ruff format src tests && uv run ruff check src tests && uv run ty check &
 ```
 
 The project is fully annotated and `ty check` runs clean. Conventions and the
-two bugs that motivated the content tests are in [../CLAUDE.md](../CLAUDE.md).
+two bugs that motivated the content tests are in [../AGENTS.md](../AGENTS.md).
 
 Phases are resumable and write to `build/`. `snapshot` skips any download whose
 recorded SHA-256 still matches, and resumes partial transfers by range request.

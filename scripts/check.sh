@@ -55,21 +55,16 @@ gate() {
 wants() { [ -z "$ONLY" ] || [ "$ONLY" = "$1" ]; }
 
 # --- the dataset ------------------------------------------------------------
-# A worktree has no build/ of its own, and borrowing one by resolution alone is
-# not enough for Go: `testenv.BuildDir` walks six parents from
-# server/internal/store, which from a worktree stops one level short of the
-# main checkout. There has to be a build/ at *this* root or most of the suite
-# skips itself and still prints `ok`.
+# A worktree has no build/ of its own until one is cloned into its state
+# directory, and the pipeline's tests read only that one: `paths.BUILD` is
+# also where a phase writes, so it never falls back to another checkout's.
 #
-# `concestor_borrow_build` is what puts one there, and it clones rather than
-# symlinks — see scripts/lib/paths.sh for why that distinction is the whole
-# fix. It runs before resolution, so what gets resolved below is this
-# checkout's own directory. It is gitignored either way, so leaving it costs
-# nothing and makes every later `go test` in this worktree honest too.
+# `concestor_borrow_build` makes the clone, and scripts/lib/paths.sh says why
+# it is a clone rather than a link. It runs before resolution, so what gets
+# resolved below is this checkout's own directory.
 export CONCESTOR_REQUIRE_BUILD=""
 if [ "$WANT_DATASET" = 1 ]; then
   concestor_borrow_build
-  concestor_link_snapshot
 fi
 if [ "$WANT_DATASET" = 1 ] && concestor_resolve_artifacts; then
   export CONCESTOR_REQUIRE_BUILD=1
@@ -108,13 +103,25 @@ else
   echo "Dataset tests: skipped by --no-dataset." >&2
 fi
 
+# --- where the checks write -------------------------------------------------
+# In a worktree, to its state directory, so that its tree is left as it was
+# found — scripts/lib/paths.sh says what depends on that. tsc, vitest and the
+# bundle already write under web/node_modules or where they are told. The
+# Python tools write beside the source unless the environment says otherwise.
+if [ "$CONCESTOR_STATE" != "$ROOT" ]; then
+  export UV_PROJECT_ENVIRONMENT="$CONCESTOR_STATE/pipeline/.venv"
+  export PYTHONPYCACHEPREFIX="$CONCESTOR_STATE/pycache"
+  export RUFF_CACHE_DIR="$CONCESTOR_STATE/pipeline/.ruff_cache"
+fi
+
 # --- pipeline ---------------------------------------------------------------
-# The four gates CLAUDE.md requires of every pipeline change, in order.
+# The four gates AGENTS.md requires of every pipeline change, in order.
 if wants pipeline; then
   gate "pipeline · ruff format" uv run --project pipeline ruff format --check pipeline/src pipeline/tests
   gate "pipeline · ruff check" uv run --project pipeline ruff check pipeline/src pipeline/tests
   gate "pipeline · ty" bash -c 'cd pipeline && uv run ty check'
-  gate "pipeline · pytest" bash -c 'cd pipeline && uv run pytest -q -rs'
+  gate "pipeline · pytest" bash -c 'cd pipeline && uv run pytest -q -rs -o cache_dir="$1"' \
+    _ "$CONCESTOR_STATE/pipeline/.pytest_cache"
 fi
 
 # --- server -----------------------------------------------------------------
@@ -176,17 +183,46 @@ if wants web && [ "$NODE_MODULES" = 1 ]; then
   gate "web · oxlint" npm --prefix web run lint
   gate "web · typecheck" npm --prefix web run typecheck
   gate "web · test" npm --prefix web test
-  gate "web · build" npm --prefix web run build
+  gate "web · build" concestor_build_web
 fi
 
 # --- cloudflare -------------------------------------------------------------
 # The same dry run CI does: bundles the Worker and validates wrangler.jsonc
 # without credentials. Needs web/dist, so it runs after the build above.
+#
+# Told where the bundle is and where to write its own, as CI's is, because in
+# a worktree neither is in the tree. wrangler makes an empty .wrangler/tmp
+# beside its config whatever it is told; `rmdir` takes that back and cannot
+# take anything else.
+wrangler_dry_run() {
+  local status=0
+  (cd "$ROOT/web" && WRANGLER_SEND_METRICS=false npx wrangler deploy --dry-run \
+    --assets "$CONCESTOR_STATE/web/dist" \
+    --outdir "$CONCESTOR_STATE/web/.wrangler/dry-run") || status=$?
+  rmdir "$ROOT/web/.wrangler/tmp" "$ROOT/web/.wrangler" 2>/dev/null || true
+  return "$status"
+}
+
 if wants cloudflare && [ "$NODE_MODULES" = 1 ]; then
-  if [ ! -f "$ROOT/web/dist/index.html" ]; then
-    gate "web · build (for the dry run)" npm --prefix web run build
+  if [ ! -f "$CONCESTOR_STATE/web/dist/index.html" ]; then
+    gate "web · build (for the dry run)" concestor_build_web
   fi
-  gate "cloudflare · wrangler dry run" env WRANGLER_SEND_METRICS=false npm --prefix web run cf:check
+  gate "cloudflare · wrangler dry run" wrangler_dry_run
+fi
+
+# --- the tree ---------------------------------------------------------------
+# What T3 Code looks at before it retires a worktree: an ignored file in the
+# tree, other than node_modules, keeps the worktree. Nothing above leaves
+# one, so whatever is listed came from a tool run by hand. An observation,
+# never a failure — it is this worktree's business what it holds.
+if [ "$CONCESTOR_STATE" != "$ROOT" ]; then
+  LEFT=$(git -C "$ROOT" ls-files --others --ignored --exclude-standard --directory |
+    grep -Ev '(^|/)node_modules/$' || true)
+  if [ -n "$LEFT" ]; then
+    printf '\n\033[33mIgnored files in this worktree, which keep it from being retired:\033[0m\n' >&2
+    printf '%s\n' "$LEFT" | sed 's/^/  /' >&2
+    echo "  To clear them:  git clean -fdX   (web/node_modules is cloned back on the next run)" >&2
+  fi
 fi
 
 # --- report -----------------------------------------------------------------

@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 #
-# Path resolution shared by scripts/serve.sh, dev.sh, check.sh and
-# deploy/push-data-image.sh.
+# Path resolution shared by scripts/serve.sh, dev.sh, check.sh,
+# setup-worktree.sh, analytics-report.sh and deploy/push-data-image.sh.
 #
-# This file exists because of git worktrees. Claude Code puts each parallel
-# session in its own worktree under .claude/worktrees/, and a worktree is a
-# checkout of *tracked* files only. So it has all the source and none of
-# build/ (3.2 GB), snapshot/ (1.7 GB) or web/node_modules. Rebuilding those
-# per worktree is hours of pipeline time and gigabytes of disk for artifacts
-# that are byte-identical to the ones already on the machine.
+# This file exists because of git worktrees. Each parallel session gets its
+# own — Claude Code's under .claude/worktrees/, T3 Code's under
+# ~/.t3/worktrees/ — and a worktree is a checkout of *tracked* files only. So
+# it has all the source and none of build/ (3.2 GB), snapshot/ (1.7 GB) or
+# web/node_modules. Rebuilding those per worktree is hours of pipeline time
+# and gigabytes of disk for artifacts that are byte-identical to the ones
+# already on the machine.
 #
 # So a worktree borrows the main checkout's baked artifacts and keeps its own
 # frontend. That split is the whole idea: build/ and snapshot/ are inputs
@@ -19,9 +20,19 @@
 # startup, so N processes reading one build/ behaves exactly like one process
 # reading it. Writing is not, and the pipeline writes its arrays in place. So
 # build/ is cloned copy-on-write (cheap on APFS, and private), while snapshot/
-# is symlinked (append-only, and shared on purpose). `concestor_borrow_build`
-# and `concestor_link_snapshot` below carry the full argument; docs/ci.md §2
+# is read where it is, in the main checkout (append-only, and shared on
+# purpose). `concestor_borrow_build` below carries the argument; docs/ci.md §2
 # "Running in a git worktree" is the account of record.
+#
+# **What a checkout derives lives in its state directory, CONCESTOR_STATE.**
+# That is the checkout itself in the main checkout and `<git-dir>/concestor`
+# in a worktree, and a gitignored path P is `$CONCESTOR_STATE/P` in both — so
+# the dataset is `$CONCESTOR_STATE/build` and the bundle
+# `$CONCESTOR_STATE/web/dist`, and in the main checkout each is where it
+# always was. A worktree's own tree is left holding tracked files and
+# web/node_modules, which is what lets it be retired without anyone looking:
+# T3 Code will not remove a worktree that has any other ignored file in it,
+# and `git worktree remove` takes the git directory, state and all.
 #
 # Every function here expects ROOT to be set to the calling script's checkout.
 
@@ -37,9 +48,27 @@ concestor_main_checkout() {
   dirname "$common"
 }
 
-# The two artifacts the server cannot start without, per phase 1.
+# Where this checkout keeps what it derives — see the header. Outside a git
+# repository, which is how a release tarball unpacks, that is the tree itself.
+#
+# `server/internal/testenv` and `concestor_build/paths.py` each make the same
+# decision by reading `.git` rather than asking git. Change it in all three.
+concestor_state_dir() {
+  local git_dir common
+  git_dir=$(git -C "$ROOT" rev-parse --path-format=absolute --git-dir 2>/dev/null) || git_dir=""
+  common=$(git -C "$ROOT" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || common=""
+  if [ -z "$git_dir" ] || [ "$git_dir" = "$common" ]; then
+    echo "$ROOT"
+  else
+    echo "$git_dir/concestor"
+  fi
+}
+CONCESTOR_STATE=$(concestor_state_dir)
+
+# The two artifacts the server cannot start without, per phase 1, in the
+# build directory $1.
 concestor_has_artifacts() {
-  [ -d "$1/build/topology" ] && [ -f "$1/build/concestor.db" ]
+  [ -d "$1/topology" ] && [ -f "$1/concestor.db" ]
 }
 
 # Sets CONCESTOR_BUILD, CONCESTOR_SILHOUETTES and CONCESTOR_BORROWED_FROM.
@@ -51,72 +80,27 @@ concestor_resolve_artifacts() {
 
   CONCESTOR_BUILD=""
   CONCESTOR_BORROWED_FROM=""
-  if concestor_has_artifacts "$ROOT"; then
-    CONCESTOR_BUILD="$ROOT/build"
-  elif [ -n "$main" ] && [ "$main" != "$ROOT" ] && concestor_has_artifacts "$main"; then
+  if concestor_has_artifacts "$CONCESTOR_STATE/build"; then
+    CONCESTOR_BUILD="$CONCESTOR_STATE/build"
+  elif [ -n "$main" ] && [ "$main" != "$ROOT" ] && concestor_has_artifacts "$main/build"; then
     CONCESTOR_BUILD="$main/build"
     CONCESTOR_BORROWED_FROM="$main"
   else
     return 1
   fi
 
-  # Resolved separately from build/, because the PhyloPic mirror can be
-  # present in one checkout and absent in the other. The server would
-  # otherwise infer it from build/'s parent, which after borrowing is the
-  # wrong repository — and a preview with no silhouettes reads as a bug in
-  # the renderer rather than a missing mirror.
+  # snapshot/ is the main checkout's, in every checkout: 1.7 GB of pinned
+  # upstream sources that nothing rewrites, so there is one copy and no
+  # worktree holds another. Passed to the server explicitly, because it would
+  # otherwise infer the PhyloPic mirror from build/'s parent, which in a
+  # worktree is its git directory — and a preview with no silhouettes reads as
+  # a bug in the renderer rather than a missing mirror.
   CONCESTOR_SILHOUETTES=""
-  local candidate
-  for candidate in "$ROOT/snapshot/phylopic" "${main:+$main/snapshot/phylopic}"; do
-    if [ -n "$candidate" ] && [ -d "$candidate" ]; then
-      CONCESTOR_SILHOUETTES="$candidate"
-      break
-    fi
-  done
-}
-
-# Links the gitignored halves of snapshot/ into $ROOT, and only those.
-#
-# **Symlinks here, clones for build/, and the asymmetry is deliberate.**
-# snapshot/ is 1.7 GB of pinned upstream sources and the crawl cache over them.
-# Nothing rewrites a file in it: `provenance.py` downloads to a part file and
-# renames, and a phase that fetches more only adds. So sharing it is not a
-# hazard, it is the point — a worktree that re-crawled into a private copy
-# would hammer upstream for bytes already on this disk, against APIs
-# docs/data-sources.md records as having no rate limiting.
-#
-# snapshot/manifest.json is skipped because it is the one tracked file in
-# there. It belongs to this checkout, `paths.SNAPSHOT_MANIFEST` reads it from
-# here, and linking it would hand a worktree the other branch's provenance.
-concestor_link_snapshot() {
-  local main=""
-  main=$(concestor_main_checkout) || return 0
-  [ -n "$main" ] && [ "$main" != "$ROOT" ] || return 0
-  [ -d "$main/snapshot" ] || return 0
-
-  mkdir -p "$ROOT/snapshot"
-  local src name linked=0
-  for src in "$main"/snapshot/*; do
-    [ -e "$src" ] || continue
-    name=$(basename "$src")
-    if [ "$name" = "manifest.json" ]; then
-      continue
-    fi
-    # -e follows the link and so answers "no" for a dangling one; -L catches
-    # exactly that case, which is what a link left behind by a deleted
-    # checkout looks like. Written as two tests rather than `a || b && c`,
-    # which bash groups as `(a || b) && c` and reads as the opposite.
-    if [ -e "$ROOT/snapshot/$name" ] || [ -L "$ROOT/snapshot/$name" ]; then
-      continue
-    fi
-    ln -s "$src" "$ROOT/snapshot/$name"
-    linked=$((linked + 1))
-  done
-
-  if [ "$linked" -gt 0 ]; then
-    echo "Linked $linked snapshot/ source(s) from $main (shared, not copied)" >&2
+  if [ -n "$main" ] && [ -d "$main/snapshot/phylopic" ]; then
+    CONCESTOR_SILHOUETTES="$main/snapshot/phylopic"
+  elif [ -d "$ROOT/snapshot/phylopic" ]; then
+    CONCESTOR_SILHOUETTES="$ROOT/snapshot/phylopic"
   fi
-  return 0
 }
 
 # The dataset id `concestor-build package` wrote into a manifest, or empty.
@@ -130,7 +114,28 @@ concestor_build_id() {
     "$1" 2>/dev/null || echo ""
 }
 
-# Gives $ROOT a build/ of its own, cloned from the checkout that has one.
+# Moves what a worktree made before the state directory existed out of its
+# tree: a real build/ goes to the state directory with whatever a pipeline run
+# left in it, and the links — build/ where it was one, snapshot/'s entries —
+# are removed. Removing a symlink never touches its target.
+concestor_empty_the_tree() {
+  local link
+  if [ -L "$ROOT/build" ]; then
+    rm "$ROOT/build"
+  elif [ -d "$ROOT/build" ] && [ ! -e "$CONCESTOR_STATE/build" ]; then
+    mkdir -p "$CONCESTOR_STATE"
+    mv "$ROOT/build" "$CONCESTOR_STATE/build"
+    echo "Moved build/ out of the working tree, to $CONCESTOR_STATE/build" >&2
+  fi
+  for link in "$ROOT"/snapshot/*; do
+    if [ -L "$link" ]; then
+      rm "$link"
+    fi
+  done
+}
+
+# Gives a worktree a build/ of its own in its state directory, cloned from the
+# main checkout's.
 #
 # **The clone is the point.** A worktree used to borrow by symlink, which reads
 # perfectly and writes catastrophically: every pipeline phase writes its arrays
@@ -143,7 +148,8 @@ concestor_build_id() {
 # 3.2 GB artifact set costs 0.38 s and 2.2 MB of disk — measured on this
 # repository's build/, not estimated. Blocks are shared until something writes,
 # which means a worktree that rebuilds one phase pays only for that phase's
-# output. That is the "build on top" this is for.
+# output. That is the "build on top" this is for. The state directory is in
+# the main checkout's .git, so the two are always on one volume.
 #
 # Where cloning is impossible — any filesystem without copy-on-write, where a
 # real copy would be 3.2 GB per session — it falls back to the old symlink and
@@ -155,31 +161,30 @@ concestor_build_id() {
 concestor_borrow_build() {
   CONCESTOR_BORROW_NOTE=""
 
-  local main=""
+  local main="" build="$CONCESTOR_STATE/build"
   main=$(concestor_main_checkout) || return 0
   # The main checkout owns its artifacts; there is nothing to borrow from.
   [ -n "$main" ] && [ "$main" != "$ROOT" ] || return 0
-  concestor_has_artifacts "$main" || return 0
+  concestor_empty_the_tree
+  concestor_has_artifacts "$main/build" || return 0
 
-  # The legacy shape, and the one that has to go. Removing a symlink removes
-  # the link and never the target — the artifacts it points at are untouched.
-  if [ -L "$ROOT/build" ]; then
-    echo "build/ was a symlink into $main — replacing it with a private clone…" >&2
-    rm "$ROOT/build"
+  # The fallback's shape, tried again in case the filesystem can clone now.
+  if [ -L "$build" ]; then
+    rm "$build"
   fi
 
-  if [ -e "$ROOT/build" ]; then
+  if [ -e "$build" ]; then
     concestor_borrow_staleness "$main"
     return 0
   fi
 
-  # Cloned straight to the final name rather than staged and renamed, because a
-  # staging directory inside $ROOT is untracked and un-gitignored and survives a
-  # crash as repository litter. The failure path below is what makes that safe.
-  if cp -Rc "$main/build" "$ROOT/build" 2>/dev/null; then
+  # Cloned straight to the final name rather than staged and renamed. The
+  # failure path below is what makes that safe.
+  mkdir -p "$CONCESTOR_STATE"
+  if cp -Rc "$main/build" "$build" 2>/dev/null; then
     concestor_write_borrow_stamp "$main"
     CONCESTOR_BORROW_NOTE="build/ is a copy-on-write clone of $main/build"
-    echo "Cloned build/ from $main (copy-on-write, gitignored, writable here)" >&2
+    echo "Cloned build/ from $main to $build (copy-on-write, writable here)" >&2
     return 0
   fi
 
@@ -187,11 +192,11 @@ concestor_borrow_build() {
   # was removed above, and any pre-existing directory returned above. Checked
   # anyway, because this is an `rm -rf` and the cost of being wrong is 3.2 GB
   # of someone else's artifacts.
-  if [ -e "$ROOT/build" ] && [ ! -L "$ROOT/build" ]; then
-    rm -rf "$ROOT/build"
+  if [ -e "$build" ] && [ ! -L "$build" ]; then
+    rm -rf "$build"
   fi
 
-  ln -s "$main/build" "$ROOT/build"
+  ln -s "$main/build" "$build"
   CONCESTOR_BORROW_NOTE="build/ is a SYMLINK into $main — this filesystem has no copy-on-write"
   printf '\n  %s\n\n' "build/ could not be cloned, so it is a symlink to $main/build.
   Reading is fine — that is what serving and testing do. Writing is not: the
@@ -200,12 +205,12 @@ concestor_borrow_build() {
 }
 
 # Records what was cloned and when, so a clone can later say it is behind
-# rather than look current. Inside build/, which is gitignored.
+# rather than look current.
 concestor_write_borrow_stamp() {
   local main=$1 bid
   bid=$(concestor_build_id "$main/build/manifest.json")
   printf '{\n  "from": "%s",\n  "build_id": "%s",\n  "cloned_at": "%s"\n}\n' \
-    "$main" "$bid" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$ROOT/build/.borrowed"
+    "$main" "$bid" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$CONCESTOR_STATE/build/.borrowed"
 }
 
 # Says when the checkout this build/ was cloned from has since rebuilt.
@@ -217,11 +222,11 @@ concestor_write_borrow_stamp() {
 # deliberately holding an older dataset while a rebuild lands elsewhere is a
 # legitimate thing to be doing, and only the reader knows which it is.
 concestor_borrow_staleness() {
-  local main=$1 stamp="$ROOT/build/.borrowed" was now
-  [ -f "$stamp" ] || return 0
+  local main=$1 build="$CONCESTOR_STATE/build" was now
+  [ -f "$build/.borrowed" ] || return 0
 
   was=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("build_id",""))' \
-    "$stamp" 2>/dev/null || echo "")
+    "$build/.borrowed" 2>/dev/null || echo "")
   now=$(concestor_build_id "$main/build/manifest.json")
   [ -n "$was" ] && [ -n "$now" ] || return 0
 
@@ -233,7 +238,7 @@ concestor_borrow_staleness() {
   CONCESTOR_BORROW_NOTE="build/ is dataset $was; $main has rebuilt to $now"
   printf '\033[33m%s\033[0m\n' "build/ here was cloned from $main at dataset $was." >&2
   echo "  That checkout is now on $now — this clone is behind." >&2
-  echo "  To take the newer one:  rm -rf build   (it is re-cloned on next run)" >&2
+  echo "  To take the newer one:  rm -rf \"$build\"   (it is re-cloned on next run)" >&2
   echo "  Observation, not a failure — an older dataset may be what you want." >&2
 }
 
@@ -244,6 +249,12 @@ concestor_artifacts_missing() {
   The pipeline has not run. See the quick start in README.md. At minimum:
       cd pipeline && uv sync && uv run concestor-build topology" >&2
   exit 1
+}
+
+# Builds the frontend into the state directory's web/dist, which
+# web/vite.config.ts takes from the environment.
+concestor_build_web() {
+  (cd "$ROOT/web" && CONCESTOR_WEB_DIST="$CONCESTOR_STATE/web/dist" npm run build)
 }
 
 # The packages web/package.json asks for that $1/web/node_modules does not
@@ -354,18 +365,66 @@ concestor_node_modules_unfixable() {
       npm --prefix web install" >&2
 }
 
-# Lowest free TCP port at or above $1, checked with bash's own /dev/tcp so
-# this stays dependency-free. Racy in principle; the loser fails loudly.
+# Whether nothing is listening on TCP port $1, checked with bash's own
+# /dev/tcp so this stays dependency-free.
+#
+# Probed by name, not as 127.0.0.1: bash tries every address `localhost`
+# resolves to, and Vite listens on [::1] alone, where an IPv4 probe sees a
+# free port.
+concestor_port_free() {
+  ! (exec 3<>"/dev/tcp/localhost/$1") 2>/dev/null
+}
+
+# Lowest free TCP port at or above $1. Racy in principle; the loser fails
+# loudly.
 concestor_free_port() {
   local port=$1 limit=$((${1} + 64))
   while [ "$port" -lt "$limit" ]; do
-    if ! (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null; then
+    if concestor_port_free "$port"; then
       echo "$port"
       return 0
     fi
-    exec 3>&- 2>/dev/null || true
     port=$((port + 1))
   done
   echo "no free port in $1..$limit" >&2
   return 1
+}
+
+# The port this checkout serves on: $PORT when the caller names one,
+# otherwise $1 plus an offset derived from the checkout's path.
+#
+# Derived rather than first-free so that a checkout's URL is the same on every
+# run and is never another checkout's. A preview left open on a first-free
+# port shows whichever checkout took that port next, and the default every
+# Vite project shares is taken by whichever started first. T3 Code needs no
+# configured URL to find it: it lists a thread's listening servers on the
+# thread itself.
+#
+# A derived port something else already holds moves to the next free one,
+# unless the holder is this checkout — then it is already being served, and
+# starting a second server would only split the reader between two.
+concestor_checkout_port() {
+  if [ -n "${PORT:-}" ]; then
+    echo "$PORT"
+    return 0
+  fi
+
+  local sum port pid cwd
+  sum=$(printf '%s' "$ROOT" | cksum)
+  port=$(($1 + ${sum%% *} % 800))
+  if concestor_port_free "$port"; then
+    echo "$port"
+    return 0
+  fi
+
+  # Compared as physical paths, which is what lsof reports.
+  pid=$(lsof -nP -t -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | head -1)
+  cwd=$(lsof -a -p "${pid:-0}" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p')
+  case "$cwd/" in
+  "$(cd "$ROOT" && pwd -P)"/*)
+    echo "This checkout is already being served on http://localhost:$port (pid $pid)." >&2
+    return 1
+    ;;
+  esac
+  concestor_free_port "$port"
 }

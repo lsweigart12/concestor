@@ -60,8 +60,8 @@ Two complementary mechanisms guard against the silence:
 - **`CONCESTOR_REQUIRE_BUILD=1`** turns every dataset skip into a failure. The Go side
   routes all skips through `testenv.absent`; the pipeline side refuses the whole session
   in `pipeline/tests/conftest.py`. It guards the database, not `snapshot/`: with a build
-  and no snapshot, 5 `test_vernaculars.py` tests still skip (the snapshot is 1.7 GB a
-  worktree deliberately does not borrow). With a build the count is **158/158** Go tests
+  and no snapshot, 5 `test_vernaculars.py` tests still skip (a machine can hold one
+  without the other). With a build the count is **158/158** Go tests
   and **385/390** pipeline tests.
 
 ```bash
@@ -69,7 +69,7 @@ scripts/check.sh
 ```
 
 is the local counterpart to CI: every check above plus the dataset half. It resolves a
-build, symlinks `build/` into the worktree root, exports `CONCESTOR_REQUIRE_BUILD=1` when
+build, clones one for a worktree that has none, exports `CONCESTOR_REQUIRE_BUILD=1` when
 a build is found (a skip becomes a failure), and says so in yellow when it is not. Run it
 before anything that touches the server or the pipeline. **CI is the floor, not the
 check.**
@@ -98,30 +98,79 @@ which.
 ### Running in a git worktree
 
 A parallel session's worktree has the source and neither `build/` (3.2 GB) nor `snapshot/`
-(1.7 GB). `scripts/serve.sh`, `scripts/dev.sh` and `scripts/check.sh` arrange both before
-they do anything else, through `concestor_borrow_build` and `concestor_link_snapshot` in
-`scripts/lib/paths.sh`. `web/` always belongs to the worktree, and nothing may hardcode a
-port.
+(1.7 GB). `scripts/serve.sh`, `scripts/dev.sh` and `scripts/check.sh` arrange the first
+before they do anything else, through `concestor_borrow_build` in `scripts/lib/paths.sh`,
+and read the second where it is. `web/` always belongs to the worktree.
 
-**`go test` does not borrow.** `testenv.BuildDir` walks six parents for
-`build/concestor.db`, and from `<worktree>/server/internal/store` that stops one level
-short — so **most of the Go suite silently skips and still prints `ok`.** There has to be
-a `build/` at the worktree root. `scripts/check.sh` puts one there and sets
-`CONCESTOR_REQUIRE_BUILD=1` so a skip becomes a failure; with it, the worktree runs the
-same 158/158 the main checkout does.
+**A worktree's tree holds tracked files and `web/node_modules`, and nothing else.** What a
+checkout derives lives in its *state directory*: the checkout itself in the main checkout,
+`<git-dir>/concestor` in a worktree — so `.git/worktrees/<name>/concestor`, inside the
+main checkout. A gitignored path `P` is `<state>/P` in both, which puts a worktree's
+dataset at `<state>/build`, its bundle at `<state>/web/dist`, the dev API binary at
+`<state>/server/concestor-serve` and `check.sh`'s Python environment and caches under
+`<state>/pipeline`, and leaves the main checkout exactly as it was. The decision is made
+in three places — `concestor_state_dir` in the shell, `paths.STATE` in the pipeline,
+`testenv.buildDirs` for the Go tests — and each names the other two.
 
-**`build/` is cloned, `snapshot/` is linked, and the asymmetry is the point.**
+Two things rest on the tree staying empty:
+
+- **A finished worktree can be retired without anyone looking.** T3 Code's automatic
+  cleanup refuses a worktree with any ignored file in it other than `node_modules`, on the
+  grounds that it cannot tell a cache from a dataset. `git worktree remove` deletes the
+  git directory, so the state goes with the worktree and nothing is orphaned.
+- **A worktree's dataset is disposable only because it is out of the tree.** A phase run
+  in a worktree writes to `<state>/build`, and that output is deleted with the worktree.
+  Land the code, then rebuild where the dataset is kept.
+
+Only the scripts hold to this. `npm run build` or `uv run` typed in a worktree writes
+`web/dist` or `pipeline/.venv` into the tree, as it always did; `scripts/check.sh` ends
+by listing whatever is there, as an observation, and `scripts/check.sh web|pipeline` is
+the form that leaves nothing.
+
+**Each checkout serves on a port of its own.** `dev.sh` and `serve.sh` use `PORT` when it
+is set and otherwise derive one from the checkout's path — 5200–5999 for `dev.sh`,
+8200–8999 for `serve.sh` — so a checkout's URL is the same on every run and is never
+another checkout's. First-free was tried and is worse in one specific way: a preview left
+open on a first-free port shows whichever checkout takes that port next. A derived port
+that something else holds moves to the next free one; one this checkout already holds
+means it is already being served, and the script says so and stops.
+
+**`scripts/setup-worktree.sh` makes the clone up front.** `t3.json` declares it as T3
+Code's worktree-setup action, which runs once when a thread's worktree is created (1.8 s
+measured). It does not hold the agent: a blocking setup action fails the whole thread
+launch on a non-zero exit, and a branch cut before the script existed would exit 127. T3
+Code runs actions from the project's settings, not from the file — import them once from
+the actions menu, under **From t3.json**. The **Dev** action carries no preview URL,
+because a project's actions are one list for every worktree and no one URL is right in
+two of them; T3 Code finds the server instead, and offers **Open localhost:…** on the
+thread whose terminal started it.
+
+**`go test` reads the main checkout's `build/` until the worktree has its own.**
+`testenv.buildDirs` looks in the tree, then the state directory, then the main checkout,
+so a bare `go test ./...` in a fresh worktree runs the same 158/158 the main checkout
+does rather than skipping most of them and printing `ok`. Falling back is safe for a test,
+which only reads. The pipeline writes, so `paths.BUILD` is the state directory and
+nothing else; `scripts/check.sh` clones before it runs `pytest`, and sets
+`CONCESTOR_REQUIRE_BUILD=1` so a skip becomes a failure.
+
+**`build/` is cloned, `snapshot/` is shared, and the asymmetry is the point.**
 
 - `build/` is a **copy-on-write clone**, `cp -Rc`. Measured on this repository: **0.38 s
   and 2.2 MB of free space for 3.2 GB.** Blocks are shared until something writes, so a
   worktree that rebuilds one phase pays only for that phase's output. It gets a `build/`
   it genuinely owns — it can run the pipeline on top of the borrowed artifacts without
-  reaching into another checkout.
-- `snapshot/` is **symlinked, per entry**, minus the tracked `manifest.json`. Nothing
+  reaching into another checkout. The state directory is in the main checkout's `.git`,
+  so the two are on one volume wherever the worktree itself is.
+- `snapshot/` is **the main checkout's, read in place**: `paths.SNAPSHOT` in a worktree
+  points there, and only the tracked `manifest.json` is the worktree's own. Nothing
   rewrites a file in there — `provenance.py` downloads to a part file and renames, and a
   phase that fetches more only adds — so sharing it is not a hazard but the goal: a
   private copy would re-crawl bytes already on the disk, against APIs
   [data-sources.md](data-sources.md) records as having no rate limiting.
+
+A worktree made before the state directory existed has a `build/` and `snapshot/` links
+in its tree. `concestor_borrow_build` moves the first into the state directory, with
+whatever a phase wrote there, and removes the links.
 
 This used to be a single symlink for `build/` too, and that was a live hazard rather than
 a theoretical one. **Every pipeline phase writes its arrays in place** — `np.save(TOPO_OUT
@@ -142,8 +191,8 @@ rebuilding the shared artifacts with nothing running against them.
 A clone carries a `build/.borrowed` stamp naming its source checkout and the `build_id` it
 held. When that checkout later rebuilds, the entry scripts say so — **an observation, not
 a failure**, the same posture as the `web/wrangler.jsonc` pin check in §2, and for the
-same reason: an older dataset may be exactly what you are working against. `rm -rf build`
-takes the newer one on the next run. The stamp is a dotfile, and every consumer of
+same reason: an older dataset may be exactly what you are working against. Removing the
+clone, at the path the message prints, takes the newer one on the next run. The stamp is a dotfile, and every consumer of
 `build/` enumerates by explicit glob (`*_gates.json`, `topology/*.npy`, `store.go`'s
 list), so it reaches neither the manifest nor the image.
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
-# Start Concestor with hot reload: the Vite dev server on $PORT, backed by its
-# own read API on a private port that Vite proxies /v1 to.
+# Start Concestor with hot reload: the Vite dev server on this checkout's own
+# port, backed by its own read API on a private port that Vite proxies /v1 to.
 #
 # The API is started here rather than assumed to be running elsewhere. The
 # old arrangement — `npm run dev` proxying to whatever sat on 8080 — breaks
@@ -21,10 +21,14 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 ROOT="$PWD"
-PORT="${PORT:-5173}"
 
 # shellcheck source=lib/paths.sh
 . "$ROOT/scripts/lib/paths.sh"
+
+# A named port is used as given, and Vite's strictPort fails if it is taken.
+# With none named — T3 Code strips PORT from the terminals it opens — this
+# checkout has one of its own.
+PORT=$(concestor_checkout_port 5200)
 
 # Cloned in first when this is a worktree, so the checkout owns the artifacts
 # it serves — and so a clone that has fallen behind the checkout it came from
@@ -32,7 +36,6 @@ PORT="${PORT:-5173}"
 # script needs no *bundle* staleness check (Vite transforms on request), but
 # the dataset underneath it is mmap'd at startup and can be any age at all.
 concestor_borrow_build
-concestor_link_snapshot
 concestor_resolve_artifacts || concestor_artifacts_missing
 
 if [ -n "${CONCESTOR_BORROW_NOTE:-}" ]; then
@@ -48,19 +51,21 @@ API_PORT="$(concestor_free_port 8090)"
 # Built rather than `go run`, so there is one process to signal. `go run`
 # leaves the compiled binary running as a grandchild that outlives a kill on
 # the parent, and a stale API holding the port is exactly the confusion this
-# script exists to avoid. The output path is already gitignored.
+# script exists to avoid.
+API="$CONCESTOR_STATE/server/concestor-serve"
 echo "Building the read API…" >&2
-go build -C server -o concestor-serve .
+mkdir -p "$(dirname "$API")"
+go build -C server -o "$API" .
 
 # `-web` is passed even though Vite is the frontend in this mode, because the
-# server otherwise infers it from `-build`'s parent — the main checkout, once
-# build/ is borrowed. Anyone hitting the API port directly would then get
+# server otherwise infers it from `-build`'s parent, and a borrowed build/ is
+# the main checkout's. Anyone hitting the API port directly would then get
 # another checkout's app.
 api_args=(-addr "127.0.0.1:${API_PORT}" -build "$CONCESTOR_BUILD"
-  -web "$ROOT/web/dist" -public-cache=false)
+  -web "$CONCESTOR_STATE/web/dist" -public-cache=false)
 [ -n "$CONCESTOR_SILHOUETTES" ] && api_args+=(-silhouettes "$CONCESTOR_SILHOUETTES")
 
-"$ROOT/server/concestor-serve" "${api_args[@]}" &
+"$API" "${api_args[@]}" &
 API_PID=$!
 
 cleanup() {
@@ -74,7 +79,6 @@ trap cleanup EXIT INT TERM
 # but the SQLite open is not free.
 for _ in $(seq 1 100); do
   if (exec 3<>"/dev/tcp/127.0.0.1/${API_PORT}") 2>/dev/null; then
-    exec 3>&- 2>/dev/null || true
     break
   fi
   if ! kill -0 "$API_PID" 2>/dev/null; then

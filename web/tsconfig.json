@@ -15,7 +15,10 @@
     "skipLibCheck": true,
     "isolatedModules": true,
     "resolveJsonModule": true,
-    "noEmit": true
+    "noEmit": true,
+    // Under node_modules, with vite's and vitest's caches, so that a
+    // typecheck leaves nothing else behind in a worktree's tree.
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.tsbuildinfo"
   },
   // `worker/` is typechecked by tsconfig.worker.json, not here. It needs the
   // Workers runtime types and this project needs the DOM's, and the two

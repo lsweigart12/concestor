@@ -38,7 +38,7 @@ COMMIT=$(git rev-parse --short HEAD)
 for platform in "linux/amd64" "linux/arm64"; do
   goos="${platform%%/*}"
   goarch="${platform##*/}"
-  echo "building server for $goos/$goarch…" >&2
+  echo "building server for $goos/${goarch}…" >&2
 
   staging="$OUT/stage-$goos-$goarch"
   mkdir -p "$staging"

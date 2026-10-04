@@ -3,15 +3,17 @@
 #
 # Deliberately empty. The gitignored things a worktree needs are build/
 # (3.2 GB) and snapshot/ (1.7 GB), and copying either per session is absurd —
-# so scripts/lib/paths.sh arranges them on first use instead, and differently
-# for each:
+# so scripts/lib/paths.sh arranges them on first use instead, differently for
+# each, and neither in the worktree's tree:
 #
-#   build/     a copy-on-write clone (0.38 s and 2.2 MB for 3.2 GB on APFS).
-#              Cloned rather than linked so the worktree can run the pipeline
-#              on top of it without rewriting another checkout's artifacts,
-#              which every phase would otherwise do in place.
-#   snapshot/  per-entry symlinks. Nothing rewrites a file in there and a
-#              private copy would re-crawl upstream, so sharing is the goal.
+#   build/     a copy-on-write clone (0.38 s and 2.2 MB for 3.2 GB on APFS),
+#              in the worktree's git directory. Cloned rather than linked so
+#              the worktree can run the pipeline on top of it without
+#              rewriting another checkout's artifacts, which every phase
+#              would otherwise do in place.
+#   snapshot/  read from the main checkout. Nothing rewrites a file in there
+#              and a private copy would re-crawl upstream, so sharing is the
+#              goal.
 #
 # web/node_modules is cloned copy-on-write on first use by the same file.
 # docs/ci.md §2, "Running in a git worktree", is the account of record.

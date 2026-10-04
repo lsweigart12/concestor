@@ -39,14 +39,15 @@ With `build/` populated, start the app:
 scripts/dev.sh
 ```
 
-Vite serves the frontend with hot reload, by default at <http://localhost:5173>,
-backed by a read API the script starts on a private port and proxies `/v1` to.
-Set `PORT` to change it. It refuses to start if the baked artifacts are absent
-rather than serving an empty canvas that looks like a bug.
+Vite serves the frontend with hot reload on a port derived from the checkout's
+path — the script prints the URL, and it is the same on every run — backed by a
+read API the script starts on a private port and proxies `/v1` to. Set `PORT`
+to name one. It refuses to start if the baked artifacts are absent rather than
+serving an empty canvas that looks like a bug.
 
 To see the bundle that actually ships, use `scripts/serve.sh`: one Go process
-serving the read API on `/v1` and the built frontend on `/`, by default at
-<http://localhost:8080>. It rebuilds `web/dist` whenever a source file,
+serving the read API on `/v1` and the built frontend on `/`, on a port of its
+own the same way. It rebuilds `web/dist` whenever a source file,
 `package.json` or the vite config is newer than the bundle, so what it serves is
 what the source says.
 
@@ -79,6 +80,7 @@ pipeline/      the offline build pipeline
 server/        the read API
 web/           the frontend
 scripts/       dev.sh and serve.sh — the two launch configurations — and check.sh
+t3.json        the same scripts as T3 Code actions, plus the worktree setup
 snapshot/      pinned upstream sources (gitignored except manifest.json)
 build/         derived artifacts (gitignored)
 ```
@@ -152,7 +154,7 @@ a mismatch usually indicates a real bug — but check what the gate measures bef
 changing either side of it.
 
 Conventions, the reasoning behind them, and the specific mistakes that motivated
-the content tests are in [CLAUDE.md](CLAUDE.md).
+the content tests are in [AGENTS.md](AGENTS.md).
 
 ### Build phases
 
