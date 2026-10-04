@@ -455,4 +455,27 @@ describe("a fossil in the lane opens its card", () => {
     expect(document.querySelector(".drill")).not.toBeNull();
     expect(document.querySelectorAll(".drill-row")).toHaveLength(1);
   });
+
+  /**
+   * A graft's index is negative, so it is never in `tree.nodes` and the key
+   * cannot find it the way it finds a node. It removes the focused fossil all
+   * the same, and the card says so on the button — and only while it is true.
+   */
+  it("removes a drawn fossil on the key the card prints", async () => {
+    const drawn = () => new URL(window.location.href).searchParams.get("f");
+    await openLane();
+    await click(document.querySelector(".drill-row"), "the fossil row");
+    expect(document.querySelector(".card-action .kbd")).toBeNull();
+
+    await click(document.querySelector(".card-action.add"), "draw on the tree");
+    expect(drawn()).toBe(String(TAXON_NO));
+    expect(document.querySelector(".card-action.remove .kbd")).not.toBeNull();
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: "Backspace" });
+    });
+    expect(drawn()).toBeNull();
+    // The card is about the taxon, so it stays open and offers to draw it again.
+    expect(document.querySelector(".card-action.add")).not.toBeNull();
+  });
 });

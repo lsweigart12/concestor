@@ -318,8 +318,7 @@ export function Detail({
         The key rides on the remove state only, and it is honest there for the
         same reason the control bar's is: `remove` fires on `induced.leaves`,
         which is the selection, which is the state `inSelection` puts this
-        button in. The fossil card passes none — a graft's index is negative,
-        so the handler resolves no node and the press does nothing.
+        button in.
       */}
       <CardActions
         present={inSelection}
