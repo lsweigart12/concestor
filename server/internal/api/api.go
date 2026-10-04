@@ -368,10 +368,10 @@ type Entry struct {
 
 // The ranks a common name may be served for. See Entry.Vernacular.
 //
-// Spelled as OTT spells them. `subspecies` is in because OTT files *Homo
-// sapiens neanderthalensis* there and a reader who selects a Neanderthal has
-// selected a kind of animal, not a group; `varietas` is out, along with every
-// rank above genus, because both directions from these three stop naming one.
+// Spelled as OTT spells them. `subspecies` is in because OTT files *Canis
+// lupus familiaris* there and a reader who selects a dog has selected a kind
+// of animal, not a group; `varietas` is out, along with every rank above
+// genus, because both directions from these three stop naming one.
 var vernacularRanks = map[string]bool{
 	"genus":      true,
 	"species":    true,

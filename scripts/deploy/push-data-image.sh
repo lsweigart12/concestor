@@ -126,9 +126,15 @@ clone "$CONCESTOR_SILHOUETTES" "$CTX/snapshot/phylopic"
 # snapshot/manifest.json is the only part of snapshot/ that is in git, and it
 # is not optional: the server reads `synth_id` out of it, folds that into the
 # build id, and serves the whole thing as /v1/about's `sources`.
-SNAPSHOT_MANIFEST="$(dirname "$(real "$CONCESTOR_SILHOUETTES")")/manifest.json"
+#
+# This checkout's, not the one beside the mirror. The mirror is the main
+# checkout's in every checkout, but the manifest is tracked, and the pipeline
+# writes the one in the checkout it ran in (`paths.SNAPSHOT_MANIFEST`) — so in
+# a worktree the file beside the mirror describes a snapshot this build did
+# not read.
+SNAPSHOT_MANIFEST="$ROOT/snapshot/manifest.json"
 if [ ! -f "$SNAPSHOT_MANIFEST" ]; then
-  echo "no snapshot/manifest.json beside the phylopic mirror at $SNAPSHOT_MANIFEST" >&2
+  echo "no snapshot/manifest.json in this checkout at $SNAPSHOT_MANIFEST" >&2
   exit 1
 fi
 clone "$SNAPSHOT_MANIFEST" "$CTX/snapshot/manifest.json"

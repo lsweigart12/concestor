@@ -87,8 +87,10 @@ MIN_OCCURRENCE_NODES = 2_000
 # sweep takes 148 rows, worth 81 keys on its own, and the ambiguity sweep that
 # runs after it hands ~21 back because removing a claimant leaves the name no
 # longer in doubt. 37,720 - 81 + 21 = 37,660, and the twelve `XREF_ANCHORS`
-# pin which withdrawals those are.
-EXPECT_UNDER_ACCEPTED_NAME = 37_660
+# pin which withdrawals those are. The hominin graft adds one: PBDB's *Homo
+# neanderthalensis* is spelled by the grafted node, which is what gives it a
+# walk-0 attachment and its range.
+EXPECT_UNDER_ACCEPTED_NAME = 37_661
 
 SPOT_TYRANNOSAURUS = 38613
 SPOT_AUBLYSODON = 38614

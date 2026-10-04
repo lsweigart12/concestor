@@ -489,32 +489,27 @@ def _resolve_plan(con: sqlite3.Connection, sitelinks: dict[str, str]) -> list[st
 def crawl_resolutions(
     con: sqlite3.Connection, sitelinks: dict[str, str], log: Log = print
 ) -> JsonDict:
-    """Resolve every candidate title against English Wikipedia. Resumable."""
+    """Resolve every candidate title English Wikipedia has not answered for.
+
+    A checkpoint is a set of answers, not a position in a list. The plan is
+    sorted, so a title the corpus gains lands in the middle of it and shifts
+    every batch after — and a batch file that only records "batch 1,204 is
+    done" then stands for fifty titles it never asked about. So each run asks
+    for what no page on disk answers, and writes those batches after the last.
+    """
     RESOLVE_PAGES.mkdir(parents=True, exist_ok=True)
     titles = _resolve_plan(con, sitelinks)
-    n_pages = (len(titles) + RESOLVE_BATCH - 1) // RESOLVE_BATCH
-    # Digest the first batch only, so widening the corpus appends pages rather
-    # than discarding fetched ones.
-    prefix = hashlib.sha256(
-        f"{RESOLVE_BATCH}|".encode() + "\n".join(titles[:RESOLVE_BATCH]).encode()
-    ).hexdigest()
-    plan_path = RESOLVE_PAGES / "plan.json"
-    if (
-        plan_path.exists()
-        and json.loads(plan_path.read_text()).get("prefix_digest") != prefix
-    ):
-        log("  resolve plan changed; discarding checkpoints")
-        for stale in RESOLVE_PAGES.glob("page_*.jsonl"):
-            stale.unlink()
-    plan_path.write_text(
-        json.dumps(
-            {"prefix_digest": prefix, "n_titles": len(titles), "n_pages": n_pages},
-            indent=2,
-        )
+    answered = read_resolutions()
+    todo = [t for t in titles if t not in answered]
+    batches = [todo[i : i + RESOLVE_BATCH] for i in range(0, len(todo), RESOLVE_BATCH)]
+    first = 1 + max(
+        (int(p.stem.removeprefix("page_")) for p in RESOLVE_PAGES.glob("page_*.jsonl")),
+        default=-1,
     )
-
-    done = {p.name for p in RESOLVE_PAGES.glob("page_*.jsonl")}
-    log(f"  {len(titles):,} titles in {n_pages} batches; {len(done)} already on disk")
+    log(
+        f"  {len(titles):,} titles, {len(titles) - len(todo):,} already answered; "
+        f"{len(todo):,} to ask in {len(batches)} batches"
+    )
     t0 = time.monotonic()
     fetched, stopped = 0, ""
     with httpx.Client(
@@ -522,11 +517,8 @@ def crawl_resolutions(
         timeout=httpx.Timeout(120.0, connect=30.0),
         follow_redirects=True,
     ) as client:
-        for page in range(n_pages):
-            name = f"page_{page:06d}.jsonl"
-            if name in done:
-                continue
-            chunk = titles[page * RESOLVE_BATCH : (page + 1) * RESOLVE_BATCH]
+        for n, chunk in enumerate(batches):
+            name = f"page_{first + n:06d}.jsonl"
             try:
                 got = _resolve_batch(client, chunk, log)
             except RuntimeError as exc:
@@ -547,16 +539,22 @@ def crawl_resolutions(
                     )
             part.replace(RESOLVE_PAGES / name)
             fetched += 1
-            if fetched % 50 == 0 or page == n_pages - 1:
+            if fetched % 50 == 0 or n == len(batches) - 1:
                 rate = (time.monotonic() - t0) / fetched
-                left = (n_pages - len(done) - fetched) * rate
+                left = (len(batches) - fetched) * rate
                 log(
-                    f"    batch {page + 1}/{n_pages}  {rate:.2f}s/batch  "
+                    f"    batch {n + 1}/{len(batches)}  {rate:.2f}s/batch  "
                     f"~{left / 60:.0f} min left"
                 )
             time.sleep(RESOLVE_PAUSE_S)
 
+    # `n_pages` is what `_replayed` compares the directory against: the pages
+    # on disk plus the batches this run did not reach.
     on_disk = len(list(RESOLVE_PAGES.glob("page_*.jsonl")))
+    n_pages = on_disk + len(batches) - fetched
+    (RESOLVE_PAGES / "plan.json").write_text(
+        json.dumps({"n_titles": len(titles), "n_pages": n_pages}, indent=2)
+    )
     return {
         "pages_total": n_pages,
         "pages_on_disk": on_disk,

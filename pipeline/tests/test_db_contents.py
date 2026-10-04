@@ -85,7 +85,11 @@ def test_every_broken_taxon_offers_a_substitute_and_attachment_points(con):
 
 
 def test_forwards_table_is_fully_populated(con):
-    assert con.execute("SELECT count(*) FROM forward").fetchone()[0] == 297_070
+    # forwards.tsv's 297,070, and the one id the hominin graft retired.
+    assert con.execute("SELECT count(*) FROM forward").fetchone()[0] == 297_071
+    assert con.execute(
+        "SELECT new_ott_id FROM forward WHERE old_ott_id = 5341349"
+    ).fetchone() == (770315,)
 
 
 def test_spot_check_a_few_well_known_taxa(con):

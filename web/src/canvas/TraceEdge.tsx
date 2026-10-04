@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import type { EdgeProps } from "@xyflow/react";
 import {
+  TIER_CURATED,
   TIER_INTERPOLATED,
   TIER_MEASURED,
   TIER_OCCURRENCE,
@@ -113,6 +114,9 @@ export const TIER_CLASS: Record<number, string> = {
   // where a reader can read it. Four dash densities is more than the channel
   // can carry and more than anyone can tell apart.
   [TIER_OCCURRENCE]: "tier-structural",
+  // The same answer as measured: somebody estimated this age. Whose estimate
+  // it is belongs to the card, not to a fifth dash.
+  [TIER_CURATED]: "tier-measured",
 };
 
 /**

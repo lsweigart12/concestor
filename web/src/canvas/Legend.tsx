@@ -37,6 +37,7 @@
 
 import { useMemo } from "react";
 import {
+  TIER_CURATED,
   TIER_INTERPOLATED,
   TIER_MEASURED,
   TIER_OCCURRENCE,
@@ -152,7 +153,8 @@ export function legendRows(edges: readonly TracePattern[]): LegendRow[] {
     // the dash matches the fossil it leads to, but what the row has to explain
     // is the attachment, not the tier.
     if (e.attachment) present.add("attachment");
-    else if (e.tier === TIER_MEASURED) present.add("measured");
+    else if (e.tier === TIER_MEASURED || e.tier === TIER_CURATED)
+      present.add("measured");
     else if (e.tier === TIER_INTERPOLATED) present.add("interpolated");
     else if (e.tier === TIER_OCCURRENCE) present.add("occurrence");
     else present.add(e.unbounded ? "unbounded" : "structural");

@@ -94,6 +94,20 @@ OTT ids are **not stable**: `forwards.tsv` carries 297,070 retirements in this r
 and the live API follows them silently. The resolution layer (§5) chases forwards
 transitively at build time and records every hop.
 
+**The tree is the synthesis with one hand edit, made in phase 1.** OTT, following NCBI,
+files *Homo sapiens* as a species above a nominate subspecies and a Neanderthal one, and
+leaves the Denisovans out of synthesis. The curated hominin graft replaces that subtree
+with three sister species — (*sapiens*, (*neanderthalensis*, *longi*)), the shape the
+ancient-DNA record supports. It is built to stay the only one: declared in a single
+place (`topology.GRAFT_LEAVES`) with its reasons; its leaves keep their OTT ids, so every
+id-keyed join (URLs, xref, PhyloPic, Wikidata) resolves without new machinery; its
+internal nodes take the `mrcaott…` keys synthesis would derive for them; the nominate
+subspecies' id forwards to the species like any OTT retirement, and the three names OTT
+filed stay searchable as synonyms; and the phase-1 oracle excludes exactly its two
+leaves, gated. Everywhere else upstream errors are explained rather than performed, and
+a subspecies stays the node synthesis makes it — the dog is one. §3.5's `curated` tier is
+how the graft's dates stay honest.
+
 ### 3.2 Core arrays — `build/topology/*.npy`
 
 Hot-path data lives in flat typed arrays, memory-mapped by the API process. No SQL on the
@@ -111,11 +125,11 @@ format and `server/internal/npy` mmaps it directly. The dtypes are load-bearing.
 | `age_tier` | u8 | 1 |
 | `age_layout` | f32 | 4 |
 
-For 2,725,682 nodes. `path()` is a ~41-step walk through a mmap'd `u32` array —
-nanoseconds, no allocation, no query planner. `subtree_in` is `idx` itself, so it is not
-stored. Phase 2's `age_layout` and `age_tier` are also kept under `_phase2` names so
-phase 4's rewrite can be diffed against them and re-run without compounding its output
-(§3.5). Thirteen files ship; `build/manifest.json` lists every one with its byte count,
+For 2,725,684 nodes — the 2,725,682 phase 1 parses, and the graft's net two. `path()`
+is a ~41-step walk through a mmap'd `u32` array — nanoseconds, no allocation, no query
+planner. `subtree_in` is `idx` itself, so it is not stored. Phase 2's `age_layout` and
+`age_tier` are also kept under `_phase2` names so phase 4's rewrite can be diffed against
+them and re-run without compounding its output (§3.5). Thirteen files ship; `build/manifest.json` lists every one with its byte count,
 and eleven are mmap'd at startup. `flags` is not an array — it is a `TEXT` column on
 `node`.
 
@@ -230,7 +244,7 @@ alone. Any dating is overwhelmingly interpolating ages onto taxonomy-derived str
 `age_tier` is stored per node and rendered visually — a date shown without that context
 misleads.
 
-**Four tiers.** `measured`, `interpolated` and `structural` all answer "when did these
+**Five tiers.** `measured`, `interpolated` and `structural` all answer "when did these
 lineages part", from a chronogram of **extant** species. An extinct taxon never joins the
 chronogram, so it is `structural` by construction, not by measurement.
 
@@ -240,6 +254,7 @@ chronogram, so it is `structural` by construction, not by measurement.
 | **interpolated** | between two measured nodes | lighter, age shown with a range |
 | **structural** | taxonomy-only region, or extinct taxon | dashed spine, no numeric age; position ordinal |
 | **occurrence** | fossil appearance interval attached at the node | range mark spanning the interval; **never a point** |
+| **curated** | a literature estimate on a curated graft node | like measured; the card names the source |
 
 `occurrence` answers a different and weaker question than the first three: when the taxon
 is observed in the rock. It is written by **phase 4** (the `fossil` table does not exist
@@ -247,6 +262,13 @@ until then), lives in the **`occurrence` table** rather than in `age_ma`, and re
 range — no midpoint is computed anywhere. A stratigraphic range is an observation, not an
 estimate of divergence; keeping it out of `age_ma` is what stops a confident divergence
 number appearing on a dashed node.
+
+`curated` exists for the hominin graft (§3.1) and nothing else: a split the chronogram
+cannot see because its taxonomy files the lineages inside one species, carrying a
+published genomic estimate (Prüfer et al. 2017) written by phase 2 from
+`topology.GRAFT_AGES_MA`. It is a real number with a real source, so it may be shown; the
+tier itself is the provenance, and the detail card cites it. Two nodes carry it. A tier
+member added outside a curated graft is a design error — the honesty rule stands.
 
 **Three age arrays ship and must stay separate:**
 
@@ -287,7 +309,7 @@ one that deploys on a release cadence. `deployment.md` §1 has the RSS it actual
 | `GET /v1/segment/{upper}/{lower}` | intermediates + ranked fossils with brackets |
 | `GET /v1/node/{key}` | detail panel: synonyms, sources, xref provenance, attribution |
 | `GET /v1/timescale` | ICS intervals, ~40 KB, `immutable` |
-| `GET /v1/random-pool/{build_id}` | the two pools a random pick draws from — bare id lists (13,918 nodes, 1,935 fossils, 114 KB); two full scans run once per process, warmed in the background at startup |
+| `GET /v1/random-pool/{build_id}` | the two pools a random pick draws from — bare id lists (14,005 nodes, 1,936 fossils, 115 KB); two full scans run once per process, warmed in the background at startup |
 | `GET /v1/about` | what is running; also the frontend boot probe and warm-up |
 
 **Caching.** All responses are ETag'd by build id. The ETag is `<build_id>-<code_id>`:

@@ -59,15 +59,22 @@ most load-bearing array two sources of truth.
 1. Stream-parse the Newick (30 MB, 2.7M nodes) with an explicit stack, not recursion.
 2. Assign `idx` by **preorder traversal** — this gives `parent[i] < i`, interval-based
    subtree containment, and stable tip ordering for free (architecture §3.1).
-3. Emit `parent`, `depth`, `subtree_out`, `tip_count` arrays.
-4. Parse node labels into `ott_id` (`ott123`, `Name_ott123`) or `NULL`
+3. **Graft the curated hominins**: the *Homo sapiens* subtree (the species, its
+   nominate subspecies and the Neanderthal one) is replaced by five nodes shaped
+   (sapiens, (neanderthalensis, longi)) — *Homo neanderthalensis* (ott83926) and
+   *Homo longi* (ott933436, vernacular "Denisovan") as species, with their two split
+   nodes carrying `mrcaott…`-form keys. The one hand edit — architecture §3.1. Phase 2
+   writes the splits' literature dates on the `curated` tier.
+4. Emit `parent`, `depth`, `subtree_out`, `tip_count` arrays.
+5. Parse node labels into `ott_id` (`ott123`, `Name_ott123`) or `NULL`
    (`mrcaott83926ott3607676`). Keep the raw label as `node_key`.
-5. Join `taxonomy.tsv` for name, rank, flags. It is `\t|\t`-separated, and `sourceinfo`
+6. Join `taxonomy.tsv` for name, rank, flags. It is `\t|\t`-separated, and `sourceinfo`
    contains three malformed prefixes (`https`, `addition`, and one leading-space) — parse
    defensively.
-6. Load `forwards.tsv` (297,070 entries) into a resolution map. **Chase transitively** —
-   forwards can chain and can point "backwards" relative to release order.
-7. Mark the 9,839 broken taxa from `broken_taxa.json`, retaining `attachment_points`.
+7. Load `forwards.tsv` (297,070 entries) into a resolution map. **Chase transitively** —
+   forwards can chain and can point "backwards" relative to release order. The id the
+   graft retired (*Homo sapiens sapiens*) is added as one more forward, to the species.
+8. Mark the 9,839 broken taxa from `broken_taxa.json`, retaining `attachment_points`.
 
 The FTS index is **not** built here — a separate `search` phase builds it after
 `vernaculars`, because it indexes common names too. It is one row per *name*, and
@@ -76,14 +83,20 @@ node index joins cleanly to unrelated nodes and returns confident nonsense.
 
 ### Gates
 
-- **Tip count is exactly 2,385,875** — the single best structural check.
-- Internal node count 339,807; total 2,725,682.
+- **Parsed node count is exactly 2,725,682**, and **tip count after the graft is
+  exactly 2,385,876** — the two best structural checks.
+- Internal node count 339,808; total 2,725,684.
+- The graft is read back off the arrays (host a tip, the declared parents, three tips
+  under the outer split), and the names it retired must equal
+  `GRAFT_FORMER_NAMES` — a subspecies OTT adds under *Homo sapiens* fails the build.
 - Max depth 111, mean 41.32 (±0.01, over tips).
 - Max branching factor 12,964. Unary internal nodes 83,305 (24.5%).
 - `parent[i] < i` for all `i > 0`.
 - **Oracle check:** 200 random tip sets of size 2–20 through
   `POST /v3/tree_of_life/induced_subtree`; the returned topology must match ours after
-  normalizing for unnamed-node labelling. Runs on every build.
+  normalizing for unnamed-node labelling. Runs on every build, sampling every tip
+  except the two grafted leaves — the one place the tree deliberately disagrees
+  with the live API — and the size of that exclusion is gated.
 
 ---
 

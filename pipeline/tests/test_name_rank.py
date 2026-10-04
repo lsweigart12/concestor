@@ -360,3 +360,43 @@ def test_the_headline_is_a_name_people_use(con, sci, expect):
     ).fetchone()
     assert row is not None, f"{sci} carries no ranked English name"
     assert row[0].lower() in expect
+
+
+def test_a_title_the_corpus_gains_is_asked_wherever_it_sorts(tmp_path, monkeypatch):
+    """A checkpoint is the answers it holds, not its place in the plan.
+
+    The plan is sorted, so a new title lands in the middle. Counting batches
+    would call the shifted plan complete and never ask about it — which is how
+    a newly grafted taxon's own article went unresolved.
+    """
+    asked: list[list[str]] = []
+
+    def fake_batch(_client, titles, _log) -> dict[str, dict[str, str]]:
+        asked.append(list(titles))
+        return {t: {"target": t, "normalized": t} for t in titles}
+
+    monkeypatch.setattr(name_rank, "RESOLVE_PAGES", tmp_path)
+    monkeypatch.setattr(name_rank, "RESOLVE_PAUSE_S", 0)
+    monkeypatch.setattr(name_rank, "_resolve_batch", fake_batch)
+
+    monkeypatch.setattr(name_rank, "_resolve_plan", lambda _c, _s: ["Human", "Wolf"])
+    con = sqlite3.connect(":memory:")
+    first = name_rank.crawl_resolutions(con, {}, log=lambda _m: None)
+    assert asked == [["Human", "Wolf"]]
+    assert first["complete"]
+
+    monkeypatch.setattr(
+        name_rank, "_resolve_plan", lambda _c, _s: ["Human", "Neanderthal", "Wolf"]
+    )
+    second = name_rank.crawl_resolutions(con, {}, log=lambda _m: None)
+    assert asked[1:] == [["Neanderthal"]]
+    assert second["complete"]
+    assert second["pages_on_disk"] == 2
+    assert set(name_rank.read_resolutions()) == {"Human", "Neanderthal", "Wolf"}
+    assert name_rank._replayed(tmp_path)["complete"]
+
+    # Nothing new: nothing asked, and the replayed report still says complete.
+    third = name_rank.crawl_resolutions(con, {}, log=lambda _m: None)
+    assert asked[2:] == []
+    assert third["pages_fetched_this_run"] == 0
+    assert third["complete"]

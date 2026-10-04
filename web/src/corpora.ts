@@ -17,7 +17,7 @@ import type { RandomKind } from "./api";
  * rather than a number so no caller reinvents the wording; `corpora.test.ts`
  * pins it to `docs/data-sources.md` and forbids hardcoded counts elsewhere.
  */
-export const TREE_SPECIES = 2_295_972;
+export const TREE_SPECIES = 2_295_974;
 
 /** {@link TREE_SPECIES}, as it prints. */
 export const SPECIES_PHRASE = "2.3 million species";
