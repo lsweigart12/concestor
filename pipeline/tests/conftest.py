@@ -16,8 +16,8 @@ whenever it can resolve a build; the Go suite reads the same one.
 It guards the database, not `snapshot/`. With a build and no snapshot, 5 tests
 in test_vernaculars.py still skip and pytest's own count is the only thing
 that says so — the snapshot is 1.7 GB of pinned upstream sources that a
-worktree deliberately does not borrow, so requiring it here would make the
-flag unusable in the place it is most needed.
+machine can have a build without, so requiring it here would make the flag
+unusable there.
 """
 
 import os

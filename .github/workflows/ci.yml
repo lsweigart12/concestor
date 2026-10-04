@@ -181,7 +181,7 @@ jobs:
         working-directory: pipeline
         run: uv sync --locked
 
-      # The four gates CLAUDE.md requires of every pipeline change, in the
+      # The four gates AGENTS.md requires of every pipeline change, in the
       # same order and with the versions resolved by the dev group rather
       # than whatever a system install happens to be.
       - run: uv run ruff format --check src tests

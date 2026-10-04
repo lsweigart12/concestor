@@ -1653,7 +1653,7 @@ def coverage_gates(
         ),
     )
 
-    # A content gate, not a row count. CLAUDE.md records a column that stayed
+    # A content gate, not a row count. AGENTS.md records a column that stayed
     # permanently NULL while every structural gate passed: counting rows is not
     # checking them. The preorder interval is the whole claim being made.
     rng = np.random.default_rng(20260731)

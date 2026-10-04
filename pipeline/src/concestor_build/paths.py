@@ -1,9 +1,19 @@
-"""Repo-relative locations for the build's inputs and outputs.
+"""Locations for the build's inputs and outputs.
 
-`REPO_ROOT` is *this* checkout, resolved from this file. In a git worktree that
-is the worktree, which is the whole reason `check_build_writable` below exists:
-a worktree has no `build/` of its own, so one is arranged for it, and only one
-of the two shapes that can take is safe to write to.
+`REPO_ROOT` is *this* checkout, resolved from this file, and in the main
+checkout everything below is inside it. A git worktree's tree holds tracked
+files only, so its two gitignored directories are elsewhere:
+
+- `BUILD` is in the worktree's **state directory**, `<git-dir>/concestor`. It
+  is this checkout's own, cloned from the main checkout's, and a phase writes
+  to it — which is the reason `check_build_writable` below exists, because one
+  of the two shapes that clone can take is not safe to write to.
+- `SNAPSHOT` is the main checkout's. Nothing rewrites a file in it, so there
+  is one copy and a phase that fetches more adds to that one. Only
+  `SNAPSHOT_MANIFEST` is tracked, and it stays with the checkout.
+
+scripts/lib/paths.sh makes the same decision for the shell and
+server/internal/testenv for the Go tests. Change it in all three.
 """
 
 from __future__ import annotations
@@ -16,16 +26,43 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
-SNAPSHOT = REPO_ROOT / "snapshot"
-BUILD = REPO_ROOT / "build"
+
+def _worktree_dirs(root: Path) -> tuple[Path, Path] | None:
+    """A linked worktree's git directory and its main checkout, else None.
+
+    Read from `.git` rather than asked of git, so importing this module never
+    spawns a process. In a linked worktree `.git` is a file naming the git
+    directory, and `commondir` in there names the repository's own.
+    """
+    try:
+        pointer = (root / ".git").read_text()
+    except OSError:
+        return None
+    if not pointer.startswith("gitdir:"):
+        return None
+    git_dir = (root / pointer.removeprefix("gitdir:").strip()).resolve()
+    try:
+        common = (git_dir / (git_dir / "commondir").read_text().strip()).resolve()
+    except OSError:
+        return None
+    return git_dir, common.parent
+
+
+_WORKTREE = _worktree_dirs(REPO_ROOT)
+
+#: Where this checkout keeps what it derives rather than tracks.
+STATE = _WORKTREE[0] / "concestor" if _WORKTREE else REPO_ROOT
+
+SNAPSHOT = (_WORKTREE[1] if _WORKTREE else REPO_ROOT) / "snapshot"
+BUILD = STATE / "build"
 DATA = REPO_ROOT / "data"
 
-SNAPSHOT_MANIFEST = SNAPSHOT / "manifest.json"
+SNAPSHOT_MANIFEST = REPO_ROOT / "snapshot" / "manifest.json"
 
 # Written by `concestor_borrow_build` in scripts/lib/paths.sh when it clones
-# another checkout's artifacts into this one. Names where they came from and
+# another checkout's artifacts for this one. Names where they came from and
 # which build id they were, so a stale clone can say so rather than look
-# current. Inside build/, which is gitignored, so it never reaches a commit.
+# current.
 BORROW_STAMP = BUILD / ".borrowed"
 
 #: Set to 1 to write through a borrowed build/ anyway. There is one honest use
@@ -113,7 +150,7 @@ def check_build_writable() -> bool:
         f"  worktree borrowing the same directory.\n\n"
         f"  To build here instead, give this checkout its own copy first. On APFS\n"
         f"  it is a copy-on-write clone, so 3.2 GB costs about 0.4 s and 2 MB:\n\n"
-        f"      rm build && cp -Rc {other}/build build\n\n"
+        f"      rm {BUILD} && cp -Rc {other}/build {BUILD}\n\n"
         f"  Or run the pipeline from {other} itself, which is where the shared\n"
         f"  dataset is supposed to be rebuilt.\n\n"
         f"  To write through anyway — deliberately rebuilding the shared\n"

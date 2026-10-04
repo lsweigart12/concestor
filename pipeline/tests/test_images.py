@@ -1235,7 +1235,7 @@ def test_a_single_bad_image_does_not_stop_the_mirror(monkeypatch):
 def test_tables_carry_data_and_not_just_rows(tmp_path, monkeypatch):
     """`silhouette.svg_path` stays NULL until fetched, and must fill when it is.
 
-    CLAUDE.md records a column that was permanently NULL while every gate
+    AGENTS.md records a column that was permanently NULL while every gate
     passed. Counting rows is not checking them.
     """
     db = tmp_path / "t.db"

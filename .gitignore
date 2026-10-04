@@ -10,9 +10,9 @@
 /snapshot/*
 !/snapshot/manifest.json
 #
-# `/build`, not `/build/*`: in a worktree the artifacts are borrowed, and
-# `scripts/check.sh` links them in as a *symlink* named build, which `/build/*`
-# does not match. Nothing under build/ has ever been tracked — the old
+# `/build`, not `/build/*`: a worktree made before its artifacts moved to its
+# git directory can have a *symlink* named build, which `/build/*` does not
+# match. Nothing under build/ has ever been tracked — the old
 # `!/build/.gitkeep` exception was protecting a file that does not exist — so
 # ignoring the name outright costs nothing and covers both shapes.
 /build
@@ -51,3 +51,4 @@ __pycache__/
 
 # Release artifacts, built by scripts/ci/build-release.sh from a tag.
 /release-artifacts/
+.DS_Store

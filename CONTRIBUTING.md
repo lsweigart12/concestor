@@ -2,7 +2,7 @@
 
 Issues and pull requests are welcome. This file covers the things that are
 specific to this repository; [README.md](README.md) covers what the project is
-and [CLAUDE.md](CLAUDE.md) covers the conventions and the mistakes that
+and [AGENTS.md](AGENTS.md) covers the conventions and the mistakes that
 motivated them.
 
 ## Before you open a pull request

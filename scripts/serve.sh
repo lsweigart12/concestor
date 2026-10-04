@@ -21,10 +21,14 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 ROOT="$PWD"
-PORT="${PORT:-8080}"
 
 # shellcheck source=lib/paths.sh
 . "$ROOT/scripts/lib/paths.sh"
+
+# As in scripts/dev.sh: a named port is used as given, and otherwise this
+# checkout has one of its own.
+PORT=$(concestor_checkout_port 8200)
+DIST="$CONCESTOR_STATE/web/dist"
 
 # --- the baked artifacts ----------------------------------------------------
 # The runtime is read-only over files the pipeline produces; without them there
@@ -37,7 +41,6 @@ PORT="${PORT:-8080}"
 # not previously answer. The frontend bundle's freshness is checked below; this
 # is the same courtesy for the data underneath it.
 concestor_borrow_build
-concestor_link_snapshot
 concestor_resolve_artifacts || concestor_artifacts_missing
 
 if [ -n "${CONCESTOR_BORROW_NOTE:-}" ]; then
@@ -75,27 +78,26 @@ web_inputs=(index.html package.json package-lock.json vite.config.ts
   tsconfig.json src public)
 
 rebuild=""
-if [ ! -f "$ROOT/web/dist/index.html" ]; then
+if [ ! -f "$DIST/index.html" ]; then
   rebuild="web/dist is missing"
 else
-  newer=$(cd "$ROOT/web" && find "${web_inputs[@]}" -newer dist/index.html -print -quit) || newer=""
+  newer=$(cd "$ROOT/web" && find "${web_inputs[@]}" -newer "$DIST/index.html" -print -quit) || newer=""
   [ -n "$newer" ] && rebuild="web/$newer is newer than the bundle"
 fi
 
 if [ -n "$rebuild" ]; then
-  echo "Building the frontend — $rebuild…" >&2
+  echo "Building the frontend — ${rebuild}…" >&2
   concestor_ensure_node_modules
-  (cd "$ROOT/web" && npm run build)
+  concestor_build_web
 fi
 
 # --- serve ------------------------------------------------------------------
 # `-C server` because the Go module lives there. Every path is passed
 # absolute rather than left to its default. The server derives both the
-# frontend and the silhouette root from `-build`'s parent directory, so once
-# build/ is borrowed they both follow it to the main checkout: right for the
-# silhouette mirror, wrong for the frontend, which must come from *this*
-# checkout because it is the thing being worked on. Passing both explicitly
-# makes the first deliberate rather than lucky, and fixes the second.
+# frontend and the silhouette root from `-build`'s parent directory, which is
+# a checkout only in the main checkout: a worktree's build/ is in its git
+# directory, its silhouettes are the main checkout's and its frontend is its
+# own. Passing both explicitly is what makes each of those true.
 #
 # `-public-cache=false` drops the production `Cache-Control` lifetimes from /v1
 # responses. They are correct in production — the data genuinely cannot change
@@ -106,7 +108,7 @@ fi
 # It does NOT make the dataset hot-reloadable: the arrays are mmap'd and
 # SQLite is opened immutable, both at startup. **Restart this after any
 # pipeline run**, or you are looking at the previous build.
-args=(-addr ":${PORT}" -build "$CONCESTOR_BUILD" -web "$ROOT/web/dist" -public-cache=false)
+args=(-addr ":${PORT}" -build "$CONCESTOR_BUILD" -web "$DIST" -public-cache=false)
 [ -n "$CONCESTOR_SILHOUETTES" ] && args+=(-silhouettes "$CONCESTOR_SILHOUETTES")
 
 echo "Concestor on http://localhost:${PORT}  (Ctrl-C to stop)" >&2

@@ -8,15 +8,16 @@ is modified after write.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from . import gbif_checklist, provenance
 from .gates import GateSet
-from .paths import SNAPSHOT
+from .paths import BUILD, SNAPSHOT
 from .provenance import Manifest, fetch, record_local
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     import httpx
 
     from .typing_ import JsonDict
@@ -254,6 +255,6 @@ def run(skip_checklist: bool = False, force: bool = False) -> int:
 
     m.meta["phase0_gates_ok"] = g.ok
     m.write()
-    g.write(Path(SNAPSHOT.parent) / "build" / "phase0_gates.json")
+    g.write(BUILD / "phase0_gates.json")
     g.exit_if_failed()
     return 0

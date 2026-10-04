@@ -1,0 +1,27 @@
+{
+  "$schema": "https://t3.codes/schema/t3.json",
+  "defaultThreadEnvMode": "worktree",
+  "scripts": [
+    {
+      "name": "Setup worktree",
+      "command": "scripts/setup-worktree.sh",
+      "icon": "configure",
+      "runOnWorktreeCreate": true
+    },
+    {
+      "name": "Dev",
+      "command": "scripts/dev.sh",
+      "icon": "play"
+    },
+    {
+      "name": "Serve built",
+      "command": "scripts/serve.sh",
+      "icon": "build"
+    },
+    {
+      "name": "Check",
+      "command": "scripts/check.sh",
+      "icon": "test"
+    }
+  ]
+}

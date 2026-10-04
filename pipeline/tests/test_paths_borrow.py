@@ -1,11 +1,12 @@
 """The guard that stops a worktree rebuilding another checkout's artifacts.
 
-`build/` in a git worktree is arranged by `concestor_borrow_build` in
-scripts/lib/paths.sh, and it can end up in one of two shapes. A copy-on-write
-clone is this checkout's own and safe to write. A symlink — the fallback where
-the filesystem cannot clone, and the shape every worktree on this machine used
-to be in — reaches into another checkout, where every phase's in-place
-`np.save` would land on artifacts that other servers have mmap'd.
+A git worktree's `build/` is arranged by `concestor_borrow_build` in
+scripts/lib/paths.sh, in its state directory, and it can end up in one of two
+shapes. A copy-on-write clone is this checkout's own and safe to write. A
+symlink — the fallback where the filesystem cannot clone, and the shape every
+worktree on this machine used to be in — reaches into another checkout, where
+every phase's in-place `np.save` would land on artifacts that other servers
+have mmap'd.
 
 These tests are the reason the distinction is enforced rather than documented:
 nothing inside a phase can see which shape it was handed.
@@ -67,7 +68,7 @@ def test_a_symlinked_build_is_refused(
     # inside it. Getting this off by one level printed `…/build/build`, which
     # is advice that silently does the wrong thing when followed.
     said = capsys.readouterr().err
-    assert f"cp -Rc {tmp_path / 'main' / 'build'} build" in said
+    assert f"cp -Rc {tmp_path / 'main' / 'build'} {build}" in said
     assert f"run the pipeline from {tmp_path / 'main'} itself" in said
 
 
@@ -89,7 +90,7 @@ def test_a_symlinked_entry_is_refused(
 
     # Two levels up from the resolved link this time, and the same answer.
     said = capsys.readouterr().err
-    assert f"cp -Rc {tmp_path / 'main' / 'build'} build" in said
+    assert f"cp -Rc {tmp_path / 'main' / 'build'} {build}" in said
 
 
 def test_the_escape_hatch_allows_a_symlink(

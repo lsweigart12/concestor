@@ -10,6 +10,10 @@ import react from "@vitejs/plugin-react";
 // own session, its own dev server and its own API, so neither can be a fixed
 // number. `scripts/dev.sh` sets both. The fallbacks are what a bare
 // `npm run dev` alongside `scripts/serve.sh` has always used.
+//
+// So does where the bundle goes. The scripts build a worktree's outside its
+// tree — `scripts/lib/paths.sh` says why — and `dist` is where CI, the deploy
+// and the main checkout have always had it.
 // The only node global this project uses. `@types/node` is deliberately not a
 // dependency: one tsconfig covers both this file and src/, and src/ is
 // browser-only, so installing it would make node's globals visible to the app
@@ -18,6 +22,7 @@ declare const process: { env: Record<string, string | undefined> };
 
 const port = Number(process.env.PORT ?? 5173);
 const apiTarget = process.env.CONCESTOR_API ?? "http://127.0.0.1:8080";
+const outDir = process.env.CONCESTOR_WEB_DIST ?? "dist";
 
 export default defineConfig({
   plugins: [react()],
@@ -29,5 +34,7 @@ export default defineConfig({
     strictPort: true,
     proxy: { "/v1": { target: apiTarget, changeOrigin: true } },
   },
-  build: { outDir: "dist", sourcemap: true },
+  // `emptyOutDir` because Vite only empties a directory inside the project
+  // root unprompted, and a worktree's is not.
+  build: { outDir, emptyOutDir: true, sourcemap: true },
 });
