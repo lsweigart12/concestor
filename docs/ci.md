@@ -167,6 +167,10 @@ nothing else; `scripts/check.sh` clones before it runs `pytest`, and sets
   phase that fetches more only adds — so sharing it is not a hazard but the goal: a
   private copy would re-crawl bytes already on the disk, against APIs
   [data-sources.md](data-sources.md) records as having no rate limiting.
+  A phase still fetches when upstream has moved — `images` re-crawls whenever
+  PhyloPic's build index is newer than the cached one — so a run meant to recompute
+  one thing can add to the shared mirror and rewrite this checkout's
+  `snapshot/manifest.json`. Commit the manifest with the run; it describes the disk.
 
 A worktree made before the state directory existed has a `build/` and `snapshot/` links
 in its tree. `concestor_borrow_build` moves the first into the state directory, with

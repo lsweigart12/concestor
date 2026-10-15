@@ -12,7 +12,6 @@ age array is shorter than the topology, or that a phase recorded its own failure
 
 from __future__ import annotations
 
-import hashlib
 import json
 import sqlite3
 from datetime import UTC, datetime
@@ -20,14 +19,14 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from .build_id import build_id as compute_build_id
+from .build_id import digests
 from .gates import GateSet
 from .paths import BUILD, SNAPSHOT_MANIFEST
 from .topology import DB
 from .topology import OUT as TOPO_OUT
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from .typing_ import JsonDict
 
 MANIFEST = BUILD / "manifest.json"
@@ -46,23 +45,6 @@ OPTIONAL_ARRAYS = (
 # A sorted lookup pair covering only the nodes that carry an OTT id, not
 # per-node arrays. Gated against each other and that count, not the node count.
 LOOKUP_ARRAYS = ("ott_sorted.npy", "ott_to_idx.npy")
-
-
-def _sha256(path: Path, limit: int = 64 << 20) -> str:
-    """Checksum a file, capped so a large database does not dominate the run.
-
-    A prefix hash still catches a truncated or replaced file; the cap is
-    recorded alongside the digest.
-    """
-    h = hashlib.sha256()
-    read = 0
-    with path.open("rb") as fh:
-        while chunk := fh.read(1 << 20):
-            h.update(chunk)
-            read += len(chunk)
-            if read >= limit:
-                break
-    return h.hexdigest()
 
 
 def _gate_summaries() -> dict[str, JsonDict]:
@@ -217,22 +199,8 @@ def run() -> int:
     # Derived from the artifact checksums, so it is stable across identical
     # builds and cannot be reused after an input changes.
     print("\n--- build id ---", flush=True)
-    files: dict[str, JsonDict] = {}
-    for p in sorted(TOPO_OUT.glob("*.npy")):
-        files[f"topology/{p.name}"] = {"bytes": p.stat().st_size, "sha256": _sha256(p)}
-    for p in (DB, BUILD / "timescale.json"):
-        if p.exists():
-            files[p.name] = {
-                "bytes": p.stat().st_size,
-                "sha256": _sha256(p),
-                "sha256_partial": p.stat().st_size > (64 << 20),
-            }
-
-    digest = hashlib.sha256()
-    for name in sorted(files):
-        digest.update(name.encode())
-        digest.update(str(files[name]["sha256"]).encode())
-    build_id = digest.hexdigest()[:16]
+    files = digests(BUILD)
+    build_id = compute_build_id(files)
 
     total = sum(int(f["bytes"]) for f in files.values())
     g.observe("artifact set size", f"{total / 1e6:,.1f} MB", "< 700 MB per §11")

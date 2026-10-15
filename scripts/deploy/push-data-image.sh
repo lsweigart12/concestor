@@ -18,11 +18,6 @@
 # (.github/workflows/deploy-web.yml, `Assemble the API image`), so it cannot
 # drift from the release by construction. docs/deployment.md §5.
 #
-# Two hazards died with it, and both were real: a `-dirty` tag naming no
-# commit, and a tag whose dataset id was a lie after a single-phase rerun
-# without `package`. Both lived in the local binary build. The second is now an
-# observation in scripts/check.sh instead.
-#
 # It prints the tag. Commit that tag into web/wrangler.jsonc: pinning it is
 # what makes rolling the Worker back roll the dataset back with it.
 #
@@ -76,8 +71,15 @@ done
 # There is no code half. An image with no binary in it has no code identity to
 # carry, and the API tag CI mints (`<build_id>-<release>`) is where the other
 # half now lives.
-BUILD_ID=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["build_id"])' \
-  "$CONCESTOR_BUILD/manifest.json")
+#
+# Only `package` writes the manifest, so a phase rerun without it leaves the
+# manifest naming the artifact set before — and pushing would put different
+# bytes under a tag a deploy is pinned to. build_id.py recomputes the id from
+# the artifacts and prints it only when the manifest agrees.
+BUILD_ID=$(python3 -I "$ROOT/pipeline/src/concestor_build/build_id.py" "$CONCESTOR_BUILD") || {
+  echo "Run \`concestor-build package\` in ${CONCESTOR_BORROWED_FROM:-$ROOT}, then push again." >&2
+  exit 1
+}
 
 # The fallback is lowercase and that is not a style choice: Docker refuses a
 # repository name containing an uppercase letter, so an `ACCOUNT_ID` stand-in

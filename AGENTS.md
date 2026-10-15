@@ -7,6 +7,10 @@ along any branch, laid out against deep time.
 Built for curious people interested in evolution, not for evolutionary
 biologists. Identifying an MRCA, drawing the tree well, and showing useful
 silhouettes come first; the time axis and the fossil layer support them.
+The measure is time from an empty canvas to a tree someone could put in a talk:
+science communicators who hand-draw phylogenies for slides and videos are the
+audience beyond the individual. The divergence witness — a fossil alive at the
+split — is the feature to protect when simplifying something else.
 
 ## Where things are
 
