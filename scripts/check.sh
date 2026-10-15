@@ -79,12 +79,6 @@ if [ "$WANT_DATASET" = 1 ] && concestor_resolve_artifacts; then
   # the pipeline, so a gate that failed on the difference would block every
   # experiment. What it is worth saying is that the two have parted, because
   # the only other way to find out is a deploy that serves the old data.
-  #
-  # This is also what replaced a hazard rather than adding one. The image tag
-  # used to be minted locally from build/manifest.json, so a single-phase rerun
-  # without `package` left the manifest stale and the tag quietly lied about
-  # which artifacts it held. Nothing local mints that tag any more; this note
-  # is where the same question gets asked instead.
   LOCAL_BUILD_ID=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["build_id"])' \
     "$CONCESTOR_BUILD/manifest.json" 2>/dev/null || echo "")
   PINNED_BUILD_ID=$(sed -n 's|.*/concestor-api:\([A-Za-z0-9_.]*\)-RELEASE.*|\1|p' \

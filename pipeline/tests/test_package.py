@@ -76,14 +76,3 @@ def test_a_corrupt_gate_file_is_reported_rather_than_crashing_the_build(
     (tmp_path / "phase9_gates.json").write_text("{not json")
     out = package._gate_summaries()["phase9_gates"]
     assert "error" in out
-
-
-def test_sha256_marks_a_capped_digest_as_partial(tmp_path):
-    p = tmp_path / "big.bin"
-    p.write_bytes(b"x" * (3 << 20))
-    full = package._sha256(p)
-    capped = package._sha256(p, limit=1 << 20)
-    # A prefix hash still catches truncation and replacement, which is what it
-    # is for — but it is not the whole-file digest and must not be filed as one.
-    assert full != capped
-    assert len(capped) == 64

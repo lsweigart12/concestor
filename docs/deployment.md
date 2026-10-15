@@ -57,6 +57,12 @@ releasable merge — `docs/ci.md` §4.
 To deploy by hand, run the **Deploy web** workflow manually and give it the tag.
 An empty tag deploys the tip of the chosen branch.
 
+Anything that writes to Cloudflare from a workstation — `push-data-image.sh`, a
+container push, flipping a setting to test it — uses the local `wrangler login`
+token, which carries Workers and container write scopes. The Cloudflare MCP
+servers read fine and fail every write with `10000: Authentication error`, which
+looks like an account problem and is not.
+
 ### The preview is a second Worker
 
 Cloudflare does not generate preview URLs for a Worker that implements a Durable
@@ -192,14 +198,15 @@ opposite question — is the *dataset* the local one? — and `scripts/check.sh`
 answers it as an observation, never a failure: a rebuilt local `build/` is the
 normal state of a machine that runs the pipeline.
 
-### The dirty-tag and stale-manifest hazards are gone
+### The data tag is checked against the bytes it names
 
-Two hazards lived in the local binary build and died with it. A `--dirty` tag
-named no commit and could not be rebuilt, so the script had to warn against
-pinning it. And a single-phase pipeline rerun without `package` left
-`build/manifest.json` stale, so the tag's dataset id was a lie. Neither is
-reachable now: the local script names only the dataset, and the release half is
-minted by CI from a tag.
+Only `concestor-build package` writes `build/manifest.json`, so a single-phase
+rerun without it leaves the manifest naming the artifact set before. Pushed,
+that is different bytes under a tag a deploy is pinned to, and the deploy's
+existence check is satisfied because the tag exists. So `push-data-image.sh`
+recomputes the build id from the artifacts with `build_id.py` — the code
+`package` mints it with, hashing every byte (~3 s) — and stops before
+`docker build` when the manifest names anything else.
 
 ### The ETag names the binary too
 
@@ -282,16 +289,18 @@ the pinned commit, then deploy again — a new version, a new empty cache, fille
 by the build that is actually running:
 
 ```bash
-curl -s -H 'Cache-Control: no-cache' https://concestor.com/v1/about | jq -r .commit
 gh workflow run "Deploy web" -f release_tag=<the tag just released>
 ```
 
 That is the whole purge mechanism: Workers Cache has no purge API, and a new
-version is a new keyspace. Only needed where the image tag changed. Do not
-automate this by polling `/v1/about` from a GitHub runner — those IPs cannot
-reach `concestor.com` (bot protection), so the poll reads "cannot see the site"
-as "still rolling". The container cannot be rolled first: it is named *by* the
-Worker config.
+version is a new keyspace. Only needed where the image tag changed.
+
+**Read `/v1/about` from a browser.** Bot protection answers `curl` with a 403
+challenge, from a workstation as from a GitHub runner, whatever the User-Agent.
+Open the site and run `fetch('/v1/about', {cache: 'no-store'})` from the page's
+own origin. The same wall is why nothing polls it from CI: the poll read "cannot
+see the site" as "still rolling". The container cannot be rolled first: it is
+named *by* the Worker config.
 
 ### `/v1/about` is short-lived, and it is the boot probe
 
